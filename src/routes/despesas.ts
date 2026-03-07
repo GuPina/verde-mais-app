@@ -95,7 +95,8 @@ despesas.post('/', requireAuth, async (c) => {
   }
 
   // Se tiver cartão associado, reduzir o limite disponível pelo valor TOTAL da compra
-  if (cartao_id && (meio_pagamento === 'cartao_credito' || meio_pagamento === 'parcelado_cartao')) {
+  const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao', 'cartao_debito']
+  if (cartao_id && meioPagamentoCartao.includes(meio_pagamento)) {
     await c.env.DB.prepare(
       'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
     ).bind(valorTotal, parseInt(cartao_id), user.id).run()

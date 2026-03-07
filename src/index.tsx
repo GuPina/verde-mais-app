@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serveStatic } from 'hono/cloudflare-workers'
 import authRoutes from './routes/auth'
 import receitasRoutes from './routes/receitas'
 import despesasRoutes from './routes/despesas'
@@ -25,9 +24,6 @@ app.use('/api/*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization']
 }))
-
-// Static files
-app.use('/static/*', serveStatic({ root: './' }))
 
 // API Routes
 app.route('/api/auth', authRoutes)
