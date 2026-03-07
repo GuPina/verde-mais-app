@@ -188,7 +188,10 @@ ia.get('/insights', requireAuth, async (c) => {
       saldo_mes: saldo,
       total_investimentos: totalInvestAtual,
       total_dividas: totalDividas,
-      comprometimento_dividas: receita > 0 ? Math.round((parcelasTotal / receita) * 100) : 0
+      comprometimento_dividas: receita > 0 ? Math.round((parcelasTotal / receita) * 100) : 0,
+      total_metas: metasAtivas?.total || 0,
+      metas_valor_objetivo: metasAtivas?.obj || 0,
+      metas_valor_atual: metasAtivas?.atual || 0
     }
   })
 })

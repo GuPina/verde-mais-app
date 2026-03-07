@@ -60,7 +60,8 @@ despesas.post('/', requireAuth, async (c) => {
   const { 
     descricao, data, categoria, subcategoria, valor, 
     parcelado = false, numero_parcelas = 1, status = 'pendente',
-    fixa_ou_variavel = 'variavel', recorrente = false, vencimento, observacoes
+    fixa_ou_variavel = 'variavel', recorrente = false, vencimento, observacoes,
+    cartao_id = null, meio_pagamento = 'dinheiro'
   } = body
 
   if (!descricao || !data || !categoria || !valor) {
@@ -70,6 +71,7 @@ despesas.post('/', requireAuth, async (c) => {
   const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
   const valorParcela = parseFloat(valor) / totalParcelas
   const ids: number[] = []
+  const valorTotal = parseFloat(valor)
 
   // Criar parcelas automaticamente
   for (let i = 1; i <= totalParcelas; i++) {
@@ -78,17 +80,25 @@ despesas.post('/', requireAuth, async (c) => {
     const dataParcela = dataBase.toISOString().split('T')[0]
 
     const result = await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, cartao_id, meio_pagamento) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       user.id, 
       totalParcelas > 1 ? `${descricao} (${i}/${totalParcelas})` : descricao,
       dataParcela, categoria, subcategoria || null, valorParcela,
       parcelado ? 1 : 0, totalParcelas, i, status,
-      fixa_ou_variavel, recorrente ? 1 : 0, vencimento || null, observacoes || null
+      fixa_ou_variavel, recorrente ? 1 : 0, vencimento || null, observacoes || null,
+      cartao_id ? parseInt(cartao_id) : null, meio_pagamento
     ).run()
     
     ids.push(result.meta.last_row_id as number)
+  }
+
+  // Se tiver cartão associado, reduzir o limite disponível pelo valor TOTAL da compra
+  if (cartao_id && (meio_pagamento === 'cartao_credito' || meio_pagamento === 'parcelado_cartao')) {
+    await c.env.DB.prepare(
+      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+    ).bind(valorTotal, parseInt(cartao_id), user.id).run()
   }
 
   return c.json({ 
@@ -135,8 +145,19 @@ despesas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  const existing = await c.env.DB.prepare('SELECT id FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  const existing = await c.env.DB.prepare('SELECT * FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
+
+  // Se era despesa no cartão, devolver limite (apenas se for a primeira parcela de um grupo — evita devolver múltiplas vezes)
+  if (existing.cartao_id && (existing.meio_pagamento === 'cartao_credito') && existing.parcela_atual === 1) {
+    const valorTotal = existing.valor * existing.numero_parcelas
+    const cartao = await c.env.DB.prepare('SELECT limite_total FROM cartoes WHERE id = ?').bind(existing.cartao_id).first() as any
+    if (cartao) {
+      await c.env.DB.prepare(
+        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
+      ).bind(valorTotal, existing.cartao_id, user.id).run()
+    }
+  }
 
   await c.env.DB.prepare('DELETE FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true, message: 'Despesa excluída!' })

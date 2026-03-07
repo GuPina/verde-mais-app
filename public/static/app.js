@@ -600,7 +600,13 @@ const VM = {
             </div>
           </div>
         ` : ''}
+
+        <!-- BLOCO CARTÕES -->
+        <div id="dash-cartoes-block" style="margin-top:20px;"></div>
       `
+
+      // Carregar cartões no dashboard de forma assíncrona
+      this.carregarCartoesNoDashboard()
 
       // Chart Evolução
       const ctxEv = document.getElementById('chart-evolucao')
@@ -649,6 +655,90 @@ const VM = {
       }
     } catch (e) {
       content.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Erro ao carregar</h3><p>${e.response?.data?.error || 'Tente novamente'}</p></div>`
+    }
+  },
+
+  async carregarCartoesNoDashboard() {
+    const block = document.getElementById('dash-cartoes-block')
+    if (!block) return
+    try {
+      const data = await this.api('GET', 'cartoes')
+      const cartoes = data.cartoes || []
+      if (cartoes.length === 0) return
+
+      const totalLimite = cartoes.reduce((s, c) => s + (c.limite_total || 0), 0)
+      const totalUsado = cartoes.reduce((s, c) => s + (c.limite_utilizado || 0), 0)
+      const totalDisp = totalLimite - totalUsado
+      const pctTotal = totalLimite > 0 ? Math.round((totalUsado / totalLimite) * 100) : 0
+      const pctColor = pctTotal > 80 ? '#ff6b6b' : pctTotal > 50 ? '#ffc400' : '#2FBF71'
+      const bandeiras = { visa: '💙', mastercard: '🔴', elo: '💛', amex: '🟢', hipercard: '🔵', outros: '💳' }
+
+      block.innerHTML = `
+        <div class="card" style="border-color:rgba(47,191,113,0.2);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+            <div style="font-size:1rem;font-weight:700;">💳 Limite dos Cartões</div>
+            <button onclick="VM.navigate('cartoes')" class="btn-secondary" style="font-size:0.75rem;padding:6px 12px;">Gerenciar Cartões</button>
+          </div>
+
+          <!-- Resumo consolidado -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
+            <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;">
+              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Limite Total</div>
+              <div style="font-size:1.1rem;font-weight:800;">${this.formatMoney(totalLimite)}</div>
+            </div>
+            <div style="background:rgba(255,80,80,0.06);border-radius:12px;padding:14px;text-align:center;">
+              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Utilizado</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(totalUsado)}</div>
+            </div>
+            <div style="background:rgba(47,191,113,0.06);border-radius:12px;padding:14px;text-align:center;">
+              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Disponível</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#2FBF71;">${this.formatMoney(totalDisp)}</div>
+            </div>
+          </div>
+
+          <!-- Barra consolidada -->
+          <div style="margin-bottom:20px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:#888;">
+              <span>Uso consolidado de todos os cartões</span>
+              <span style="font-weight:700;color:${pctColor};">${pctTotal}% utilizado</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
+              <div style="background:${pctColor};width:${Math.min(pctTotal,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Cards individuais -->
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${cartoes.map(c => {
+              const pct = c.percentual_uso || 0
+              const usado = c.limite_utilizado || 0
+              const cor = pct > 80 ? '#ff6b6b' : pct > 50 ? '#ffc400' : '#2FBF71'
+              return `
+                <div style="display:flex;align-items:center;gap:14px;padding:12px;background:rgba(255,255,255,0.02);border-radius:10px;cursor:pointer;" onclick="VM.navigate('cartoes')">
+                  <div style="width:38px;height:38px;background:${c.cor||'#2FBF71'}22;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">
+                    ${bandeiras[c.bandeira] || '💳'}
+                  </div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                      <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.nome}</div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px;">
+                        <span style="font-size:0.78rem;color:#ff6b6b;">${this.formatMoney(usado)}</span>
+                        <span style="font-size:0.72rem;color:#666;">/ ${this.formatMoney(c.limite_total)}</span>
+                        <span style="font-size:0.72rem;font-weight:700;color:${cor};min-width:32px;text-align:right;">${pct}%</span>
+                      </div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:4px;overflow:hidden;">
+                      <div style="background:${cor};width:${Math.min(pct,100)}%;height:100%;border-radius:50px;"></div>
+                    </div>
+                  </div>
+                </div>
+              `
+            }).join('')}
+          </div>
+        </div>
+      `
+    } catch(e) {
+      // silencioso — cartões são opcionais no dashboard
     }
   },
 
@@ -2635,9 +2725,14 @@ const VM = {
           <div class="section-title">💳 Cartões de Crédito</div>
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas faturas e compras</div>
         </div>
-        <button onclick="VM.modalCartao()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-plus"></i> Novo Cartão
-        </button>
+        <div style="display:flex;gap:10px;">
+          <button onclick="VM.modalLancarCompraAnterior()" class="btn-secondary" style="width:auto;padding:10px 16px;font-size:0.85rem;">
+            <i class="fas fa-history"></i> Compra Anterior
+          </button>
+          <button onclick="VM.modalCartao()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-plus"></i> Novo Cartão
+          </button>
+        </div>
       </div>
       <div id="cartoes-container">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
@@ -2669,11 +2764,12 @@ const VM = {
       container.innerHTML = `
         <div class="grid-3" style="margin-bottom:24px;">
           ${data.cartoes.map(c => {
-            const usado = c.limite_total - (c.limite_disponivel || 0)
-            const pct = c.limite_total > 0 ? Math.round(usado / c.limite_total * 100) : 0
+            const usado = c.limite_utilizado || 0
+            const pct = c.percentual_uso || 0
             const pctColor = pct > 80 ? '#ff6b6b' : pct > 50 ? '#ffc400' : '#2FBF71'
             return `
-              <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;">
+              <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;cursor:pointer;" 
+                   onclick="VM.verLancamentosCartao(${c.id}, '${c.nome.replace(/'/g,"\\'")}', '${c.cor||'#2FBF71'}')">
                 <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${c.cor || '#2FBF71'};"></div>
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
                   <div>
@@ -2681,7 +2777,7 @@ const VM = {
                     <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}</div>
                     ${c.ultimos_digitos ? `<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• ${c.ultimos_digitos}</div>` : ''}
                   </div>
-                  <div style="display:flex;gap:6px;">
+                  <div style="display:flex;gap:6px;" onclick="event.stopPropagation()">
                     <button onclick="VM.modalCartao(${JSON.stringify(c).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
                     <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                   </div>
@@ -2712,8 +2808,9 @@ const VM = {
                   </div>
                 </div>
                 
-                <div style="display:flex;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
                   <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
+                  <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-list"></i> Ver compras</span>
                 </div>
               </div>
             `
@@ -2722,6 +2819,252 @@ const VM = {
       `
     } catch (e) {
       this.toast('Erro ao carregar cartões', 'error')
+    }
+  },
+
+  async verLancamentosCartao(cartaoId, nomeCartao, cor) {
+    const mc = document.getElementById('modal-container')
+    mc.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:700px;max-height:85vh;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:#1a1a2e;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao}</h3>
+              <div style="font-size:0.8rem;color:#888;margin-top:2px;">Compras no cartão</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="lc-mes" class="form-select" style="padding:6px 10px;font-size:0.8rem;" onchange="VM.carregarLancamentosCartaoModal(${cartaoId})">
+                ${Array.from({length:12},(_,i)=>{
+                  const d=new Date(); d.setMonth(d.getMonth()-i);
+                  const m=String(d.getMonth()+1).padStart(2,'0'); const a=d.getFullYear();
+                  const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                  return `<option value="${m}/${a}" ${i===0?'selected':''}>${meses[d.getMonth()]}/${a}</option>`
+                }).join('')}
+              </select>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            </div>
+          </div>
+          <div id="lancamentos-modal-body">
+            <div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+          </div>
+        </div>
+      </div>
+    `
+    this.carregarLancamentosCartaoModal(cartaoId)
+  },
+
+  async carregarLancamentosCartaoModal(cartaoId) {
+    const body = document.getElementById('lancamentos-modal-body')
+    if (!body) return
+    try {
+      const selVal = document.getElementById('lc-mes')?.value || ''
+      const [mes, ano] = selVal ? selVal.split('/') : [String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getFullYear())]
+      const data = await this.api('GET', `cartoes/${cartaoId}/lancamentos?mes=${mes}&ano=${ano}`)
+      const lancamentos = data.lancamentos || []
+      const total = data.total_fatura || 0
+
+      if (lancamentos.length === 0) {
+        body.innerHTML = `
+          <div style="text-align:center;padding:48px 24px;color:#666;">
+            <div style="font-size:2.5rem;margin-bottom:12px;">📭</div>
+            <div>Nenhuma compra neste período</div>
+          </div>
+        `
+        return
+      }
+
+      body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:14px;background:rgba(255,255,255,0.03);border-radius:12px;">
+          <div style="font-size:0.85rem;color:#888;">${lancamentos.length} compras no período</div>
+          <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">Total: ${this.formatMoney(total)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${lancamentos.map(l => {
+            const statusColor = l.status === 'pago' ? '#2FBF71' : '#ffc400'
+            const statusLabel = l.status === 'pago' ? '✅ Pago' : '⏳ Pendente'
+            return `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.03);border-radius:10px;border-left:3px solid ${statusColor};">
+                <div style="flex:1;">
+                  <div style="font-weight:600;font-size:0.88rem;">${l.descricao}</div>
+                  <div style="font-size:0.75rem;color:#666;margin-top:3px;">
+                    ${l.categoria} • Fatura: ${this.formatDate(l.data_fatura)} 
+                    ${l.numero_parcelas > 1 ? `• Parcela ${l.parcela_atual}/${l.numero_parcelas}` : ''}
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="text-align:right;">
+                    <div style="font-weight:700;font-size:0.9rem;">${this.formatMoney(l.valor_total)}</div>
+                    <div style="font-size:0.72rem;color:${statusColor};">${statusLabel}</div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;">
+                    ${l.status !== 'pago' ? `<button onclick="VM.pagarLancamento(${l.id},${cartaoId})" style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;white-space:nowrap;">Marcar pago</button>` : ''}
+                    <button onclick="VM.deleteLancamento(${l.id},${cartaoId})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">Excluir</button>
+                  </div>
+                </div>
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch(e) {
+      if (body) body.innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:24px;">Erro ao carregar compras</div>`
+    }
+  },
+
+  async pagarLancamento(id, cartaoId) {
+    try {
+      await this.api('PATCH', `cartoes/lancamentos/${id}/status`, { status: 'pago' })
+      this.toast('Parcela marcada como paga! ✅')
+      this.carregarLancamentosCartaoModal(cartaoId)
+    } catch(e) {
+      this.toast('Erro ao atualizar', 'error')
+    }
+  },
+
+  async deleteLancamento(id, cartaoId) {
+    if (!confirm('Excluir este lançamento?')) return
+    try {
+      await this.api('DELETE', `cartoes/lancamentos/${id}`)
+      this.toast('Lançamento excluído!')
+      this.carregarLancamentosCartaoModal(cartaoId)
+    } catch(e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  async modalLancarCompraAnterior() {
+    // Buscar cartões para o select
+    let cartoes = []
+    try { const r = await this.api('GET', 'cartoes'); cartoes = r.cartoes || [] } catch(e) {}
+
+    if (cartoes.length === 0) {
+      this.toast('Cadastre um cartão antes de lançar compras', 'warning')
+      return
+    }
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:520px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;">📅 Compra Anterior Parcelada</h3>
+              <div style="font-size:0.78rem;color:#888;margin-top:3px;">Registre compras já realizadas com parcelas em andamento</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          
+          <div style="background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.8rem;color:#cca800;line-height:1.6;">
+            💡 <strong>Exemplo:</strong> Compra de R$ 1.200 em janeiro em 12x. Estamos em março (2 parcelas pagas). 
+            Informe o valor total original, total de parcelas e quantas já foram pagas — o sistema registra apenas as parcelas restantes.
+          </div>
+
+          <form id="compra-ant-form">
+            <div class="form-group">
+              <label class="form-label">Cartão *</label>
+              <select id="ca-cartao" class="form-select">
+                ${cartoes.map(c => `<option value="${c.id}">${c.nome} (${c.bandeira})</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Descrição da Compra *</label>
+              <input type="text" id="ca-desc" class="form-input" placeholder="Ex: Notebook Dell, iPhone 15..." required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Categoria *</label>
+                <select id="ca-cat" class="form-select">
+                  ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Eletrônicos','Pets','Outros'].map(c=>`<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Data original da compra *</label>
+                <input type="date" id="ca-data" class="form-input" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor Total (R$) *</label>
+                <input type="number" id="ca-valor" class="form-input" step="0.01" min="0" placeholder="0,00" required oninput="VM.previewCompraAnterior()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Total de Parcelas *</label>
+                <input type="number" id="ca-parcelas-total" class="form-input" min="2" max="60" placeholder="12" required oninput="VM.previewCompraAnterior()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Já Pagas *</label>
+                <input type="number" id="ca-parcelas-pagas" class="form-input" min="0" max="59" placeholder="2" required oninput="VM.previewCompraAnterior()">
+              </div>
+            </div>
+
+            <!-- Preview calculado -->
+            <div id="ca-preview" style="display:none;padding:14px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.2);border-radius:10px;margin-bottom:16px;font-size:0.82rem;">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <input type="text" id="ca-obs" class="form-input" placeholder="Opcional...">
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="ca-submit"><i class="fas fa-save"></i> Registrar Parcelas Restantes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('compra-ant-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('ca-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      const cartaoId = document.getElementById('ca-cartao').value
+      const totalParcelas = parseInt(document.getElementById('ca-parcelas-total').value)
+      const jasPagas = parseInt(document.getElementById('ca-parcelas-pagas').value)
+      if (jasPagas >= totalParcelas) {
+        this.toast('Parcelas pagas não pode ser igual ou maior que o total', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Registrar Parcelas Restantes'
+        return
+      }
+      try {
+        const res = await this.api('POST', `cartoes/${cartaoId}/lancamentos-retroativos`, {
+          descricao: document.getElementById('ca-desc').value,
+          categoria: document.getElementById('ca-cat').value,
+          valor_total: parseFloat(document.getElementById('ca-valor').value),
+          numero_parcelas: totalParcelas,
+          parcelas_pagas: jasPagas,
+          data_compra: document.getElementById('ca-data').value,
+          observacoes: document.getElementById('ca-obs').value || null
+        })
+        this.toast(res.message || 'Compra registrada!', 'success')
+        this.closeModal()
+        this.carregarCartoes()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao registrar', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Registrar Parcelas Restantes'
+      }
+    })
+  },
+
+  previewCompraAnterior() {
+    const valor = parseFloat(document.getElementById('ca-valor')?.value || 0)
+    const total = parseInt(document.getElementById('ca-parcelas-total')?.value || 0)
+    const pagas = parseInt(document.getElementById('ca-parcelas-pagas')?.value || 0)
+    const preview = document.getElementById('ca-preview')
+    if (!preview) return
+    if (valor > 0 && total >= 2 && pagas >= 0 && pagas < total) {
+      const restantes = total - pagas
+      const valorParcela = valor / total
+      const totalRestante = valorParcela * restantes
+      preview.style.display = 'block'
+      preview.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
+          <div><div style="color:#888;font-size:0.72rem;">Valor por parcela</div><div style="font-weight:700;color:#2FBF71;">${this.formatMoney(valorParcela)}</div></div>
+          <div><div style="color:#888;font-size:0.72rem;">Parcelas a registrar</div><div style="font-weight:700;color:#ffc400;">${restantes} de ${total}</div></div>
+          <div><div style="color:#888;font-size:0.72rem;">Total a registrar</div><div style="font-weight:700;color:#ff6b6b;">${this.formatMoney(totalRestante)}</div></div>
+        </div>
+      `
+    } else {
+      preview.style.display = 'none'
     }
   },
 

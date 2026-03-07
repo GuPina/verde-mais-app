@@ -12,7 +12,31 @@ cartoes.get('/', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(
     'SELECT * FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY nome ASC'
   ).bind(user.id).all()
-  return c.json({ cartoes: result.results })
+
+  // Para cada cartão, calcular o valor utilizado atual (despesas no cartão com status pendente/parcelas abertas)
+  const now = new Date()
+  const mes = String(now.getMonth() + 1).padStart(2, '0')
+  const ano = String(now.getFullYear())
+
+  const cartoesComUso = await Promise.all((result.results as any[]).map(async (cartao) => {
+    // Total de despesas vinculadas ao cartão que ainda não foram pagas (representa uso do limite)
+    const uso = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ? AND cartao_id = ? AND meio_pagamento = 'cartao_credito' AND status = 'pendente'`
+    ).bind(user.id, cartao.id).first() as any
+
+    const limite_utilizado = uso?.total || 0
+    const limite_disponivel = Math.max(0, cartao.limite_total - limite_utilizado)
+
+    return {
+      ...cartao,
+      limite_utilizado,
+      limite_disponivel,
+      percentual_uso: cartao.limite_total > 0 ? Math.round((limite_utilizado / cartao.limite_total) * 100) : 0
+    }
+  }))
+
+  return c.json({ cartoes: cartoesComUso })
 })
 
 // POST /api/cartoes
@@ -153,5 +177,81 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
     await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(userId, codigo).run()
   } catch { /* ignora */ }
 }
+
+// POST /api/cartoes/:id/lancamentos-retroativos — lançar compra anterior com parcelas já em andamento
+cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartao_id = c.req.param('id')
+  const body = await c.req.json()
+  const { 
+    descricao, categoria, valor_total, numero_parcelas, 
+    parcelas_pagas, data_compra, observacoes 
+  } = body
+
+  if (!descricao || !categoria || !valor_total || !numero_parcelas || parcelas_pagas === undefined || !data_compra)
+    return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, numero_parcelas, parcelas_pagas, data_compra' }, 400)
+
+  const cartao = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?').bind(cartao_id, user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const nparcelas = parseInt(numero_parcelas)
+  const jaPagas = parseInt(parcelas_pagas)
+  const parcelasRestantes = nparcelas - jaPagas
+
+  if (parcelasRestantes <= 0) {
+    return c.json({ error: 'Todas as parcelas já foram pagas' }, 400)
+  }
+
+  const valorParcela = parseFloat(valor_total) / nparcelas
+  const ids: number[] = []
+  const dataCompra = new Date(data_compra + 'T12:00:00')
+
+  // Inserir apenas as parcelas restantes (a partir da próxima)
+  for (let i = jaPagas + 1; i <= nparcelas; i++) {
+    const dataFatura = new Date(dataCompra)
+    // Avançar meses a partir da data original da compra
+    dataFatura.setMonth(dataCompra.getMonth() + (i - 1))
+    if (dataCompra.getDate() > cartao.dia_fechamento) {
+      dataFatura.setMonth(dataFatura.getMonth() + 1)
+    }
+    dataFatura.setDate(cartao.dia_vencimento)
+    const dataFaturaStr = dataFatura.toISOString().split('T')[0]
+
+    const r = await c.env.DB.prepare(
+      `INSERT INTO cartao_lancamentos (user_id, cartao_id, descricao, categoria, valor_total, numero_parcelas, parcela_atual, data_compra, data_fatura, status, observacoes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?)`
+    ).bind(
+      user.id, cartao_id,
+      `${descricao} (${i}/${nparcelas})`,
+      categoria, valorParcela, nparcelas, i,
+      data_compra, dataFaturaStr,
+      observacoes ? `[Retroativo - ${jaPagas} parcelas pagas] ${observacoes}` : `[Retroativo - ${jaPagas} parcelas pagas]`
+    ).run()
+    ids.push(r.meta.last_row_id as number)
+
+    // Também criar entrada em despesas para cada parcela restante
+    await c.env.DB.prepare(
+      `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, cartao_id, meio_pagamento)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, 'pendente', 'variavel', ?, 'cartao_credito')`
+    ).bind(
+      user.id, `${descricao} (${i}/${nparcelas})`,
+      dataFaturaStr, categoria, valorParcela,
+      nparcelas, i, parseInt(cartao_id)
+    ).run()
+  }
+
+  // Atualizar limite do cartão com o valor das parcelas restantes
+  const valorRestante = valorParcela * parcelasRestantes
+  await c.env.DB.prepare(
+    'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+  ).bind(valorRestante, parseInt(cartao_id), user.id).run()
+
+  return c.json({ 
+    success: true, ids, 
+    parcelas_restantes: parcelasRestantes,
+    valor_total_restante: valorRestante,
+    message: `${parcelasRestantes} parcela(s) restante(s) registradas! (${jaPagas}/${nparcelas} já pagas)` 
+  }, 201)
+})
 
 export default cartoes
