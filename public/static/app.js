@@ -61,6 +61,13 @@ const VM = {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
   },
 
+  onChangeMeioPagamento(meio) {
+    const cartaoWrapper = document.getElementById('d-cartao-wrapper')
+    const parcelasWrapper = document.getElementById('d-parcelas-wrapper')
+    if (cartaoWrapper) cartaoWrapper.style.display = (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? 'block' : 'none'
+    if (parcelasWrapper) parcelasWrapper.style.display = meio === 'parcelado_cartao' ? 'block' : 'none'
+  },
+
   formatDate(d) {
     if (!d) return '-'
     return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR')
@@ -965,14 +972,23 @@ const VM = {
     }
   },
 
-  modalDespesa(despesa = null) {
+  async modalDespesa(despesa = null) {
     const isEdit = !!despesa
     const today = new Date().toISOString().split('T')[0]
     const categorias = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Moradia', 'Roupas', 'Assinaturas', 'Pets', 'Outros']
 
+    // Buscar cartões cadastrados
+    let cartoes = []
+    try {
+      const cartData = await this.api('GET', 'cartoes')
+      cartoes = cartData.cartoes || []
+    } catch(e) { cartoes = [] }
+
+    const cartaoOptions = cartoes.map(c => `<option value="${c.id}" ${despesa?.cartao_id == c.id ? 'selected' : ''}>${c.nome} (${c.bandeira || 'Cartão'})</option>`).join('')
+
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal">
+        <div class="modal" style="max-width:520px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💸 Nova'} Despesa</h3>
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
@@ -1007,21 +1023,44 @@ const VM = {
                 </select>
               </div>
             </div>
+
+            <!-- Forma de pagamento -->
+            <div class="form-group">
+              <label class="form-label">💳 Forma de Pagamento</label>
+              <select id="d-meio" class="form-select" onchange="VM.onChangeMeioPagamento(this.value)">
+                <option value="dinheiro" ${(despesa?.meio_pagamento||'dinheiro')==='dinheiro'?'selected':''}>💵 Dinheiro / À vista</option>
+                <option value="pix" ${despesa?.meio_pagamento==='pix'?'selected':''}>⚡ PIX</option>
+                <option value="cartao_debito" ${despesa?.meio_pagamento==='cartao_debito'?'selected':''}>💳 Cartão de Débito</option>
+                <option value="cartao_credito" ${despesa?.meio_pagamento==='cartao_credito'?'selected':''}>💳 Cartão de Crédito (à vista)</option>
+                <option value="boleto" ${despesa?.meio_pagamento==='boleto'?'selected':''}>📄 Boleto</option>
+                <option value="transferencia" ${despesa?.meio_pagamento==='transferencia'?'selected':''}>🏦 Transferência</option>
+                ${!isEdit ? `<option value="parcelado_cartao" ${despesa?.parcelado?'selected':''}>💳 Cartão de Crédito Parcelado</option>` : ''}
+              </select>
+            </div>
+
+            <!-- Cartão (aparece quando meio = cartao_credito ou parcelado_cartao) -->
+            <div id="d-cartao-wrapper" style="display:${(despesa?.meio_pagamento==='cartao_credito'||despesa?.parcelado)?'block':'none'};">
+              <div class="form-group">
+                <label class="form-label">Selecionar Cartão</label>
+                <select id="d-cartao-id" class="form-select">
+                  <option value="">— Sem cartão específico —</option>
+                  ${cartaoOptions}
+                </select>
+                ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:#888;margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
+              </div>
+            </div>
+
+            <!-- Parcelas (aparece somente para parcelado) -->
             ${!isEdit ? `
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div id="d-parcelas-wrapper" style="display:none;">
                 <div class="form-group">
-                  <label class="form-label">Parcelado?</label>
-                  <select id="d-parcelado" class="form-select" onchange="document.getElementById('d-parcelas-wrapper').style.display=this.value==='1'?'block':'none'">
-                    <option value="0">Não</option>
-                    <option value="1">Sim</option>
-                  </select>
-                </div>
-                <div class="form-group" id="d-parcelas-wrapper" style="display:none;">
-                  <label class="form-label">Nº de Parcelas</label>
+                  <label class="form-label">🔢 Número de Parcelas</label>
                   <input type="number" id="d-parcelas" class="form-input" min="2" max="60" value="2" placeholder="Ex: 12">
+                  <div style="font-size:0.75rem;color:#888;margin-top:4px;" id="d-parcelas-preview"></div>
                 </div>
               </div>
             ` : ''}
+
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Status</label>
@@ -1046,13 +1085,34 @@ const VM = {
       </div>
     `
 
+    // Inicializar estado do form
+    VM.onChangeMeioPagamento(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
+
+    // Preview de parcelas ao digitar
+    const parcelasEl = document.getElementById('d-parcelas')
+    const valorEl = document.getElementById('d-valor')
+    if (parcelasEl) {
+      const updatePreview = () => {
+        const v = parseFloat(valorEl?.value || 0)
+        const n = parseInt(parcelasEl.value || 2)
+        const preview = document.getElementById('d-parcelas-preview')
+        if (preview && v > 0 && n >= 2) {
+          preview.textContent = `${n}x de R$ ${(v/n).toFixed(2).replace('.',',')} ≈ R$ ${(v/n).toFixed(2).replace('.',',')} / mês`
+        }
+      }
+      parcelasEl.addEventListener('input', updatePreview)
+      valorEl?.addEventListener('input', updatePreview)
+    }
+
     document.getElementById('despesa-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('d-submit')
       btn.disabled = true
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
-        const parcelado = !isEdit && document.getElementById('d-parcelado')?.value === '1'
+        const meio = document.getElementById('d-meio')?.value || 'dinheiro'
+        const parcelado = !isEdit && meio === 'parcelado_cartao'
+        const cartaoId = document.getElementById('d-cartao-id')?.value || null
         const payload = {
           descricao: document.getElementById('d-desc').value,
           categoria: document.getElementById('d-cat').value,
@@ -1061,6 +1121,8 @@ const VM = {
           fixa_ou_variavel: document.getElementById('d-tipo').value,
           status: document.getElementById('d-status').value,
           vencimento: document.getElementById('d-venc').value || null,
+          meio_pagamento: parcelado ? 'cartao_credito' : meio,
+          cartao_id: (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? (cartaoId || null) : null,
           parcelado,
           numero_parcelas: parcelado ? parseInt(document.getElementById('d-parcelas').value) : 1
         }
@@ -1312,6 +1374,8 @@ const VM = {
           valor_atual: parseFloat(document.getElementById('m-atual').value) || 0,
           data_meta: document.getElementById('m-data').value,
           cor: document.getElementById('m-cor').value,
+          categoria: meta?.categoria || 'economia',
+          icone: meta?.icone || 'piggy-bank',
           status: meta?.status || 'ativa'
         }
         if (isEdit) await this.api('PUT', `metas/${meta.id}`, payload)
@@ -1763,40 +1827,103 @@ const VM = {
   },
 
   // ============== PERFIL ==============
-  pagePerfil() {
-    const user = this.user || {}
+  async pagePerfil() {
+    // Buscar perfil atualizado do servidor
+    document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="skeleton" style="height:400px;border-radius:16px;"></div></div>`
+    let perfilData = {}
+    try {
+      const res = await this.api('GET', 'perfil')
+      perfilData = res.perfil || {}
+      // Atualizar user local com dados completos
+      this.user = { ...this.user, ...perfilData }
+    } catch(e) {
+      perfilData = this.user || {}
+    }
+    this.renderPerfil(perfilData)
+  },
+
+  renderPerfil(p) {
     const planoColors = { free: '#888', premium: '#2FBF71', pro: '#a29bfe' }
     const planoIcons = { free: '🌱', premium: '💎', pro: '🚀' }
+    const situacaoLabels = {
+      empregado_clt: 'CLT / Empregado', autonomo: 'Autônomo', empresario: 'Empresário',
+      freelancer: 'Freelancer', servidor_publico: 'Servidor Público', aposentado: 'Aposentado',
+      estudante: 'Estudante', desempregado: 'Buscando emprego'
+    }
+    const perfilInvLabels = { conservador: '🛡️ Conservador', moderado: '⚖️ Moderado', arrojado: '🚀 Arrojado' }
+    const score = p.score_saude || 0
 
     document.getElementById('page-content').innerHTML = `
-      <div style="max-width:600px;">
+      <div style="max-width:700px;">
+
+        <!-- HEADER PERFIL -->
         <div class="card" style="margin-bottom:20px;">
           <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px;">
-            <div style="width:72px;height:72px;background:${user.avatar_color || '#2FBF71'};border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:700;">
-              ${(user.nome || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+            <div style="width:72px;height:72px;background:${p.avatar_color || '#2FBF71'};border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:700;">
+              ${(p.nome || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
             </div>
-            <div>
-              <div style="font-size:1.3rem;font-weight:700;">${user.nome || '-'}</div>
-              <div style="color:#888;font-size:0.9rem;">${user.email || '-'}</div>
-              <div style="margin-top:8px;">
-                <span class="badge" style="background:${planoColors[user.plano] || '#888'}22;color:${planoColors[user.plano] || '#888'};border:1px solid ${planoColors[user.plano] || '#888'}44;font-size:0.8rem;padding:5px 14px;">
-                  ${planoIcons[user.plano] || '🌱'} Plano ${(user.plano || 'Free').charAt(0).toUpperCase() + (user.plano || 'free').slice(1)}
+            <div style="flex:1;">
+              <div style="font-size:1.3rem;font-weight:700;">${p.nome || '-'}</div>
+              <div style="color:#888;font-size:0.9rem;">${p.email || '-'}</div>
+              <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+                <span class="badge" style="background:${planoColors[p.plano]||'#888'}22;color:${planoColors[p.plano]||'#888'};border:1px solid ${planoColors[p.plano]||'#888'}44;font-size:0.8rem;padding:5px 14px;">
+                  ${planoIcons[p.plano]||'🌱'} Plano ${(p.plano||'Free').charAt(0).toUpperCase()+(p.plano||'free').slice(1)}
                 </span>
+                ${p.perfil_completo ? '<span class="badge badge-green" style="font-size:0.75rem;">✓ Perfil Completo</span>' : '<span class="badge" style="background:rgba(255,196,0,0.12);color:#ffc400;font-size:0.75rem;">⚠ Perfil Incompleto</span>'}
               </div>
             </div>
+            <button onclick="VM.editarDadosPessoais()" class="btn-secondary" style="width:auto;padding:8px 16px;font-size:0.85rem;">
+              <i class="fas fa-pen"></i> Editar
+            </button>
           </div>
 
-          <div style="padding:16px;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.15);border-radius:12px;font-size:0.88rem;color:#888;line-height:1.7;">
-            🔐 Para alterar dados pessoais como nome, email ou senha, entre em contato com o suporte.<br>
-            📧 contato@verdemais.app
+          <!-- Dados pessoais rápidos -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            ${[
+              { l: '👤 Profissão', v: p.profissao || '—' },
+              { l: '💼 Situação', v: situacaoLabels[p.situacao_emprego] || '—' },
+              { l: '💰 Renda Mensal', v: p.salario_mensal ? this.formatMoney(p.salario_mensal) : '—' },
+              { l: '➕ Outras Rendas', v: p.outras_rendas ? this.formatMoney(p.outras_rendas) : '—' },
+              { l: '👨‍👩‍👧 Dependentes', v: p.dependentes !== null ? `${p.dependentes} pessoa(s)` : '—' },
+              { l: '💍 Estado Civil', v: p.estado_civil ? p.estado_civil.charAt(0).toUpperCase()+p.estado_civil.slice(1) : '—' },
+              { l: '📍 Cidade/UF', v: (p.cidade||p.estado) ? `${p.cidade||''}${p.estado?' / '+p.estado:''}` : '—' },
+              { l: '📊 Perfil Investidor', v: perfilInvLabels[p.perfil_investidor] || '—' }
+            ].map(item => `
+              <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
+                <div style="font-size:0.75rem;color:#666;margin-bottom:4px;">${item.l}</div>
+                <div style="font-size:0.9rem;font-weight:600;">${item.v}</div>
+              </div>
+            `).join('')}
           </div>
         </div>
 
+        <!-- SEGURANÇA -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:16px;">🔐 Segurança da Conta</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
+              <div>
+                <div style="font-size:0.88rem;font-weight:600;">✉️ E-mail</div>
+                <div style="font-size:0.8rem;color:#888;">${p.email || '-'}</div>
+              </div>
+              <button onclick="VM.modalAlterarEmail()" class="btn-secondary" style="width:auto;padding:6px 14px;font-size:0.8rem;">Alterar</button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
+              <div>
+                <div style="font-size:0.88rem;font-weight:600;">🔑 Senha</div>
+                <div style="font-size:0.8rem;color:#888;">••••••••</div>
+              </div>
+              <button onclick="VM.modalAlterarSenha()" class="btn-secondary" style="width:auto;padding:6px 14px;font-size:0.8rem;">Alterar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MEU PLANO -->
         <div class="card" style="margin-bottom:20px;">
           <div style="font-weight:700;margin-bottom:16px;">📊 Meu Plano</div>
           <div style="display:grid;gap:12px;">
-            ${['free', 'premium', 'pro'].map(p => {
-              const isAtual = user.plano === p
+            ${['free', 'premium', 'pro'].map(pl => {
+              const isAtual = p.plano === pl
               const features = {
                 free: ['Dashboard básico', 'Controle financeiro', 'Até 3 metas', 'Relatório mensal'],
                 premium: ['Tudo do Free', 'Score financeiro', 'Metas ilimitadas', 'Simulações', 'Relatórios avançados'],
@@ -1804,16 +1931,16 @@ const VM = {
               }
               const precos = { free: 'Grátis', premium: 'R$ 19/mês', pro: 'R$ 49/mês' }
               return `
-                <div style="padding:16px;border-radius:12px;border:1px solid ${isAtual ? planoColors[p] : 'rgba(255,255,255,0.08)'};background:${isAtual ? `${planoColors[p]}11` : 'transparent'};">
+                <div style="padding:16px;border-radius:12px;border:1px solid ${isAtual ? planoColors[pl] : 'rgba(255,255,255,0.08)'};background:${isAtual ? `${planoColors[pl]}11` : 'transparent'};">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <div style="font-weight:700;">${planoIcons[p]} ${p.charAt(0).toUpperCase() + p.slice(1)}</div>
+                    <div style="font-weight:700;">${planoIcons[pl]} ${pl.charAt(0).toUpperCase()+pl.slice(1)}</div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                      <div style="font-size:0.9rem;font-weight:600;">${precos[p]}</div>
+                      <div style="font-size:0.9rem;font-weight:600;">${precos[pl]}</div>
                       ${isAtual ? `<span class="badge badge-green" style="font-size:0.7rem;">Atual</span>` : ''}
                     </div>
                   </div>
                   <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                    ${features[p].map(f => `<span style="font-size:0.75rem;color:#888;">✓ ${f}</span>`).join(' ')}
+                    ${features[pl].map(f => `<span style="font-size:0.75rem;color:#888;">✓ ${f}</span>`).join(' ')}
                   </div>
                 </div>
               `
@@ -1826,6 +1953,198 @@ const VM = {
         </button>
       </div>
     `
+  },
+
+  editarDadosPessoais() {
+    const p = this.user || {}
+    const mc = document.getElementById('modal-container')
+    mc.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:540px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">✏️ Editar Perfil</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="perfil-form">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Nome completo *</label>
+                <input type="text" id="p-nome" class="form-input" value="${p.nome||''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Profissão</label>
+                <input type="text" id="p-profissao" class="form-input" placeholder="Ex: Engenheiro" value="${p.profissao||''}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Situação de Emprego</label>
+                <select id="p-situacao" class="form-select">
+                  ${[['empregado_clt','👔 CLT'],['autonomo','💼 Autônomo'],['empresario','🏢 Empresário'],['freelancer','💻 Freelancer'],['servidor_publico','🏛️ Servidor Público'],['aposentado','🌅 Aposentado'],['estudante','🎓 Estudante'],['desempregado','🔍 Buscando emprego']].map(([v,l])=>`<option value="${v}" ${p.situacao_emprego===v?'selected':''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Renda Mensal (R$)</label>
+                <input type="number" id="p-salario" class="form-input" step="0.01" min="0" value="${p.salario_mensal||0}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Outras Rendas (R$)</label>
+                <input type="number" id="p-outras" class="form-input" step="0.01" min="0" value="${p.outras_rendas||0}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Dependentes</label>
+                <input type="number" id="p-dep" class="form-input" min="0" max="20" value="${p.dependentes||0}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Estado Civil</label>
+                <select id="p-ecivil" class="form-select">
+                  ${[['solteiro','Solteiro(a)'],['casado','Casado(a)'],['divorciado','Divorciado(a)'],['viuvo','Viúvo(a)'],['uniao_estavel','União Estável']].map(([v,l])=>`<option value="${v}" ${p.estado_civil===v?'selected':''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cidade</label>
+                <input type="text" id="p-cidade" class="form-input" value="${p.cidade||''}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Estado (UF)</label>
+                <input type="text" id="p-estado" class="form-input" maxlength="2" placeholder="SP" value="${p.estado||''}">
+              </div>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Perfil de Investidor</label>
+                <select id="p-perfinv" class="form-select">
+                  <option value="conservador" ${p.perfil_investidor==='conservador'?'selected':''}>🛡️ Conservador</option>
+                  <option value="moderado" ${p.perfil_investidor==='moderado'?'selected':''}>⚖️ Moderado</option>
+                  <option value="arrojado" ${p.perfil_investidor==='arrojado'?'selected':''}>🚀 Arrojado</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:16px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="p-submit"><i class="fas fa-save"></i> Salvar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('perfil-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('p-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const payload = {
+          nome: document.getElementById('p-nome').value,
+          profissao: document.getElementById('p-profissao').value,
+          situacao_emprego: document.getElementById('p-situacao').value,
+          salario_mensal: parseFloat(document.getElementById('p-salario').value)||0,
+          outras_rendas: parseFloat(document.getElementById('p-outras').value)||0,
+          dependentes: parseInt(document.getElementById('p-dep').value)||0,
+          estado_civil: document.getElementById('p-ecivil').value,
+          cidade: document.getElementById('p-cidade').value,
+          estado: document.getElementById('p-estado').value.toUpperCase(),
+          perfil_investidor: document.getElementById('p-perfinv').value
+        }
+        await this.api('PUT', 'perfil', payload)
+        this.user = { ...this.user, ...payload }
+        localStorage.setItem('vm_user', JSON.stringify(this.user))
+        // Atualizar nome no sidebar
+        const sidebarNome = document.querySelector('.sidebar-user div:first-child')
+        if (sidebarNome) sidebarNome.textContent = payload.nome.split(' ')[0]
+        this.toast('Perfil atualizado! ✅')
+        this.closeModal()
+        this.pagePerfil()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar'
+      }
+    })
+  },
+
+  modalAlterarSenha() {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:400px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">🔑 Alterar Senha</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="senha-form">
+            <div class="form-group">
+              <label class="form-label">Senha Atual *</label>
+              <input type="password" id="s-atual" class="form-input" placeholder="Digite a senha atual" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nova Senha *</label>
+              <input type="password" id="s-nova" class="form-input" placeholder="Mínimo 6 caracteres" minlength="6" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirmar Nova Senha *</label>
+              <input type="password" id="s-conf" class="form-input" placeholder="Repita a nova senha" required>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="s-submit"><i class="fas fa-lock"></i> Alterar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('senha-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const nova = document.getElementById('s-nova').value
+      const conf = document.getElementById('s-conf').value
+      if (nova !== conf) { this.toast('As senhas não coincidem', 'error'); return }
+      const btn = document.getElementById('s-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+      try {
+        await this.api('PATCH', 'perfil/senha', { senha_atual: document.getElementById('s-atual').value, nova_senha: nova })
+        this.toast('Senha alterada com sucesso! 🔐')
+        this.closeModal()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao alterar senha', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-lock"></i> Alterar'
+      }
+    })
+  },
+
+  modalAlterarEmail() {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:400px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">✉️ Alterar E-mail</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="email-form">
+            <div class="form-group">
+              <label class="form-label">Novo E-mail *</label>
+              <input type="email" id="e-novo" class="form-input" placeholder="novo@email.com" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirme sua Senha *</label>
+              <input type="password" id="e-senha" class="form-input" placeholder="Sua senha atual" required>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="e-submit"><i class="fas fa-envelope"></i> Alterar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('email-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('e-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+      try {
+        await this.api('PATCH', 'perfil/email', { email: document.getElementById('e-novo').value, senha: document.getElementById('e-senha').value })
+        this.user.email = document.getElementById('e-novo').value
+        localStorage.setItem('vm_user', JSON.stringify(this.user))
+        this.toast('E-mail atualizado! ✉️')
+        this.closeModal()
+        this.pagePerfil()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao alterar e-mail', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-envelope"></i> Alterar'
+      }
+    })
   },
 
   // ======= ONBOARDING WIZARD =======
@@ -3207,7 +3526,7 @@ const VM = {
       const insights = data.insights || []
       const dados = data.dados_base || {}
 
-      // Calcular score a partir dos dados
+      // Score
       let score_saude = 50
       if (dados.receita_mes > 0) {
         const taxaDespesa = (dados.despesa_mes / dados.receita_mes) * 100
@@ -3219,11 +3538,9 @@ const VM = {
       }
       score_saude = Math.round(score_saude)
 
-      // Separar alertas de insights
       const alertas = insights.filter(i => i.tipo === 'alerta')
-      const recomendacoes_list = insights.filter(i => i.tipo !== 'alerta').map(i => i.conteudo)
+      const sugestoes = insights.filter(i => i.tipo === 'sugestao' || i.tipo === 'dica')
 
-      // Calcular regra 50/30/20
       let regra_5030 = null
       if (dados.receita_mes > 0) {
         regra_5030 = {
@@ -3235,7 +3552,6 @@ const VM = {
 
       const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
       const scoreLabel = score_saude >= 80 ? 'Excelente 🏆' : score_saude >= 60 ? 'Bom 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
-
       const prioColors = { alta: '#ff6b6b', media: '#ffc400', baixa: '#2FBF71' }
 
       container.innerHTML = `
@@ -3266,6 +3582,28 @@ const VM = {
                 <span>💳 Dívidas: <strong style="color:#ffc400;">${dados.comprometimento_dividas || 0}% da renda</strong></span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- ANÁLISE FINANCEIRA PERSONALIZADA (bloco clicável) -->
+        <div id="ia-analise-block" onclick="VM.solicitarAnaliseIA()" style="cursor:pointer;margin-bottom:24px;">
+          <div class="card" style="border:1px solid rgba(47,191,113,0.3);background:linear-gradient(135deg,rgba(47,191,113,0.06),rgba(32,128,64,0.04));transition:all 0.2s;" 
+               onmouseenter="this.style.borderColor='#2FBF71';this.style.transform='translateY(-2px)'" 
+               onmouseleave="this.style.borderColor='rgba(47,191,113,0.3)';this.style.transform='none'">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+              <div style="display:flex;align-items:center;gap:16px;">
+                <div style="width:52px;height:52px;background:linear-gradient(135deg,#2FBF71,#208040);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">🤖</div>
+                <div>
+                  <div style="font-size:1rem;font-weight:800;margin-bottom:4px;">Análise Financeira Personalizada</div>
+                  <div style="font-size:0.82rem;color:#888;line-height:1.5;">Gerada por IA com base nos seus dados reais — receitas, despesas, metas e padrões de comportamento.</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;color:#2FBF71;font-weight:600;font-size:0.88rem;flex-shrink:0;">
+                <span id="ia-analise-status">Clique para gerar análise</span>
+                <i class="fas fa-chevron-right" id="ia-analise-icon"></i>
+              </div>
+            </div>
+            <div id="ia-analise-resultado" style="display:none;margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:20px;"></div>
           </div>
         </div>
 
@@ -3313,7 +3651,7 @@ const VM = {
           </div>
         ` : ''}
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
           ${insights.length > 0 ? `
             <div class="card">
               <div style="font-weight:700;margin-bottom:16px;">💡 Insights do Mentor</div>
@@ -3333,13 +3671,35 @@ const VM = {
           <div class="card">
             <div style="font-weight:700;margin-bottom:16px;">🎯 Plano de Ação Rápido</div>
             <div style="display:flex;flex-direction:column;gap:12px;">
-              ${insights.filter(i=>i.tipo==='sugestao'||i.tipo==='dica').slice(0,5).map((r, idx) => `
+              ${sugestoes.slice(0,5).map((r, idx) => `
                 <div style="display:flex;align-items:flex-start;gap:12px;">
                   <div style="width:28px;height:28px;background:linear-gradient(135deg,#2FBF71,#208040);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;flex-shrink:0;">${idx+1}</div>
                   <div style="font-size:0.85rem;color:#aaa;line-height:1.5;padding-top:4px;">${r.titulo}</div>
                 </div>
               `).join('')}
             </div>
+          </div>
+        </div>
+
+        <!-- SUGESTÕES PERSONALIZADAS (bloco clicável) -->
+        <div id="ia-sugestoes-block" onclick="VM.solicitarSugestoesIA()" style="cursor:pointer;">
+          <div class="card" style="border:1px solid rgba(162,155,254,0.3);background:linear-gradient(135deg,rgba(162,155,254,0.06),rgba(116,185,255,0.04));transition:all 0.2s;"
+               onmouseenter="this.style.borderColor='#a29bfe';this.style.transform='translateY(-2px)'"
+               onmouseleave="this.style.borderColor='rgba(162,155,254,0.3)';this.style.transform='none'">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+              <div style="display:flex;align-items:center;gap:16px;">
+                <div style="width:52px;height:52px;background:linear-gradient(135deg,#a29bfe,#74b9ff);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">✨</div>
+                <div>
+                  <div style="font-size:1rem;font-weight:800;margin-bottom:4px;">Sugestões Personalizadas</div>
+                  <div style="font-size:0.82rem;color:#888;line-height:1.5;">Recomendações exclusivas atualizadas com base no seu perfil e comportamento financeiro atual.</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;color:#a29bfe;font-weight:600;font-size:0.88rem;flex-shrink:0;">
+                <span id="ia-sugestoes-status">Clique para ver sugestões</span>
+                <i class="fas fa-chevron-right" id="ia-sugestoes-icon"></i>
+              </div>
+            </div>
+            <div id="ia-sugestoes-resultado" style="display:none;margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:20px;"></div>
           </div>
         </div>
       `
@@ -3355,6 +3715,163 @@ const VM = {
           </button>
         </div>
       `
+    }
+  },
+
+  async solicitarAnaliseIA() {
+    const resultado = document.getElementById('ia-analise-resultado')
+    const status = document.getElementById('ia-analise-status')
+    const icon = document.getElementById('ia-analise-icon')
+    if (!resultado) return
+
+    // Toggle: se já está aberto, fechar
+    if (resultado.style.display === 'block') {
+      resultado.style.display = 'none'
+      status.textContent = 'Clique para gerar análise'
+      icon.className = 'fas fa-chevron-right'
+      return
+    }
+
+    // Mostrar loading
+    resultado.style.display = 'block'
+    status.textContent = 'Gerando análise...'
+    icon.className = 'fas fa-spinner fa-spin'
+    resultado.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;color:#888;">
+        <i class="fas fa-spinner fa-spin" style="color:#2FBF71;"></i>
+        <span>Analisando seus dados financeiros...</span>
+      </div>
+    `
+
+    try {
+      const data = await this.api('GET', 'ia/insights')
+      const dados = data.dados_base || {}
+      const insights = data.insights || []
+
+      // Montar análise personalizada com os dados reais
+      const poupanca = dados.receita_mes > 0 ? ((dados.receita_mes - dados.despesa_mes) / dados.receita_mes * 100).toFixed(1) : 0
+      const topInsights = insights.slice(0, 4)
+      const analise = [
+        { titulo: '📊 Panorama Financeiro', texto: `No mês atual, suas receitas somam <strong>${this.formatMoney(dados.receita_mes)}</strong> e as despesas <strong>${this.formatMoney(dados.despesa_mes)}</strong>. Sua taxa de poupança é de <strong>${poupanca}%</strong> da renda — ${parseFloat(poupanca) >= 20 ? 'acima da meta recomendada de 20% ✅' : 'abaixo da meta recomendada de 20% ⚠️'}.` },
+        { titulo: '🎯 Metas & Objetivos', texto: `Você tem <strong>${dados.total_metas || 0} metas ativas</strong>. ${dados.total_metas > 0 ? 'Continue monitorando o progresso regularmente e faça aportes mensais para manter o ritmo.' : 'Defina pelo menos uma meta financeira para orientar seus esforços.'}` },
+        { titulo: '📈 Investimentos', texto: `Valor investido: <strong>${this.formatMoney(dados.total_investimentos || 0)}</strong>. ${dados.total_investimentos > 0 ? 'Mantenha a regularidade nos aportes — consistência é mais importante que valores altos.' : 'Comece a investir, mesmo que pequenas quantias mensais fazem diferença no longo prazo.'}` },
+        { titulo: '💳 Compromissos Financeiros', texto: `Seu comprometimento com dívidas é de <strong>${dados.comprometimento_dividas || 0}%</strong> da renda. ${(dados.comprometimento_dividas || 0) <= 30 ? 'Está dentro do limite saudável (até 30%) ✅' : 'Acima do recomendado — priorize quitar as dívidas com juros mais altos ⚠️'}.` }
+      ]
+
+      status.textContent = 'Análise gerada ✓'
+      icon.className = 'fas fa-chevron-up'
+      resultado.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${analise.map(a => `
+            <div style="padding:14px;background:rgba(47,191,113,0.04);border-radius:10px;border-left:3px solid #2FBF71;">
+              <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;">${a.titulo}</div>
+              <div style="font-size:0.82rem;color:#aaa;line-height:1.7;">${a.texto}</div>
+            </div>
+          `).join('')}
+          ${topInsights.length > 0 ? `
+            <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;">
+              <div style="font-weight:700;font-size:0.9rem;margin-bottom:10px;">🔍 Principais Alertas & Recomendações</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                ${topInsights.map(i => `<div style="font-size:0.8rem;color:#888;padding-left:12px;border-left:2px solid ${i.tipo==='alerta'?'#ff6b6b':'#2FBF71'};">• ${i.titulo}</div>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+          <div style="font-size:0.75rem;color:#555;text-align:right;">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+        </div>
+      `
+    } catch(e) {
+      resultado.innerHTML = `<div style="color:#ff6b6b;font-size:0.85rem;">Erro ao gerar análise. Tente novamente.</div>`
+      status.textContent = 'Clique para tentar novamente'
+      icon.className = 'fas fa-chevron-right'
+    }
+  },
+
+  async solicitarSugestoesIA() {
+    const resultado = document.getElementById('ia-sugestoes-resultado')
+    const status = document.getElementById('ia-sugestoes-status')
+    const icon = document.getElementById('ia-sugestoes-icon')
+    if (!resultado) return
+
+    if (resultado.style.display === 'block') {
+      resultado.style.display = 'none'
+      status.textContent = 'Clique para ver sugestões'
+      icon.className = 'fas fa-chevron-right'
+      return
+    }
+
+    resultado.style.display = 'block'
+    status.textContent = 'Gerando sugestões...'
+    icon.className = 'fas fa-spinner fa-spin'
+    resultado.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;color:#888;">
+        <i class="fas fa-spinner fa-spin" style="color:#a29bfe;"></i>
+        <span>Elaborando sugestões personalizadas...</span>
+      </div>
+    `
+
+    try {
+      const data = await this.api('GET', 'ia/insights')
+      const dados = data.dados_base || {}
+      const insights = data.insights || []
+      const saldo = dados.receita_mes - dados.despesa_mes
+
+      const sugestoesMap = [
+        {
+          icon: '💰',
+          cor: '#2FBF71',
+          titulo: 'Aporte mensal recomendado',
+          texto: saldo > 0
+            ? `Com saldo disponível de <strong>${this.formatMoney(saldo)}</strong>, direcione pelo menos <strong>${this.formatMoney(saldo * 0.5)}</strong> para investimentos ou metas prioritárias.`
+            : 'Revise suas despesas para liberar saldo positivo antes de pensar em investir.'
+        },
+        {
+          icon: '🎯',
+          cor: '#74b9ff',
+          titulo: 'Foco nas metas',
+          texto: dados.total_metas > 0
+            ? `Distribua contribuições mensais entre suas ${dados.total_metas} metas. Priorize as com prazo mais próximo.`
+            : 'Crie uma meta de emergência com valor de 3 a 6 meses de despesas fixas.'
+        },
+        {
+          icon: '📉',
+          cor: '#ffc400',
+          titulo: 'Controle de gastos',
+          texto: (dados.despesa_mes / dados.receita_mes) > 0.7
+            ? 'Seus gastos superam 70% da renda. Identifique 2 ou 3 categorias para reduzir em 10% no próximo mês.'
+            : 'Seus gastos estão controlados. Mantenha o registro das despesas para não perder o controle.'
+        },
+        {
+          icon: '🔄',
+          cor: '#fd79a8',
+          titulo: 'Revisão periódica',
+          texto: 'Reserve 30 minutos a cada quinzena para revisar lançamentos e ajustar previsões. Pequenos desvios corrigidos cedo evitam grandes problemas.'
+        },
+        ...insights.filter(i => i.tipo === 'sugestao').slice(0, 3).map(s => ({
+          icon: '✅',
+          cor: '#2FBF71',
+          titulo: s.titulo,
+          texto: s.conteudo
+        }))
+      ]
+
+      status.textContent = 'Sugestões atualizadas ✓'
+      icon.className = 'fas fa-chevron-up'
+      resultado.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          ${sugestoesMap.slice(0, 6).map(s => `
+            <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:12px;border-left:3px solid ${s.cor};">
+              <div style="font-size:1.1rem;margin-bottom:6px;">${s.icon}</div>
+              <div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;">${s.titulo}</div>
+              <div style="font-size:0.78rem;color:#888;line-height:1.6;">${s.texto}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="font-size:0.75rem;color:#555;text-align:right;margin-top:12px;">Atualizado em ${new Date().toLocaleString('pt-BR')}</div>
+      `
+    } catch(e) {
+      resultado.innerHTML = `<div style="color:#ff6b6b;font-size:0.85rem;">Erro ao carregar sugestões. Tente novamente.</div>`
+      status.textContent = 'Clique para tentar novamente'
+      icon.className = 'fas fa-chevron-right'
     }
   },
 

@@ -75,4 +75,57 @@ perfil.post('/onboarding', requireAuth, async (c) => {
   return c.json({ success: true, message: 'Perfil salvo com sucesso!', step_salvo: step })
 })
 
+// PATCH /api/perfil/senha — Alterar senha
+perfil.patch('/senha', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { senha_atual, nova_senha } = await c.req.json()
+
+  if (!senha_atual || !nova_senha) {
+    return c.json({ error: 'Informe a senha atual e a nova senha' }, 400)
+  }
+  if (nova_senha.length < 6) {
+    return c.json({ error: 'Nova senha deve ter pelo menos 6 caracteres' }, 400)
+  }
+
+  const { hashPassword, verifyPassword } = await import('../lib/auth')
+  const userData = await c.env.DB.prepare('SELECT senha FROM users WHERE id = ?').bind(user.id).first() as any
+  const valid = await verifyPassword(senha_atual, userData.senha)
+  if (!valid) {
+    return c.json({ error: 'Senha atual incorreta' }, 400)
+  }
+
+  const novoHash = await hashPassword(nova_senha)
+  await c.env.DB.prepare('UPDATE users SET senha = ? WHERE id = ?').bind(novoHash, user.id).run()
+  // Invalidar todas as sessões exceto a atual
+  const token = c.req.header('Authorization')?.replace('Bearer ', '') || ''
+  await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').bind(user.id, token).run()
+
+  return c.json({ success: true, message: 'Senha alterada com sucesso!' })
+})
+
+// PATCH /api/perfil/email — Alterar email
+perfil.patch('/email', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { email, senha } = await c.req.json()
+
+  if (!email || !senha) {
+    return c.json({ error: 'Informe o novo e-mail e sua senha' }, 400)
+  }
+
+  const { verifyPassword } = await import('../lib/auth')
+  const userData = await c.env.DB.prepare('SELECT senha FROM users WHERE id = ?').bind(user.id).first() as any
+  const valid = await verifyPassword(senha, userData.senha)
+  if (!valid) {
+    return c.json({ error: 'Senha incorreta' }, 400)
+  }
+
+  const exists = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?').bind(email, user.id).first()
+  if (exists) {
+    return c.json({ error: 'E-mail já está em uso' }, 409)
+  }
+
+  await c.env.DB.prepare('UPDATE users SET email = ? WHERE id = ?').bind(email, user.id).run()
+  return c.json({ success: true, message: 'E-mail atualizado!' })
+})
+
 export default perfil
