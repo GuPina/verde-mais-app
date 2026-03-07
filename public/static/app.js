@@ -3747,6 +3747,12 @@ const VM = {
                 </div>
                 
                 ${f.data_previsao_fim ? `<div style="margin-top:12px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(f.data_previsao_fim)}</div>` : ''}
+                ${f.status === 'ativo' && f.parcelas_pagas < f.numero_parcelas ? `
+                <div style="margin-top:14px;">
+                  <button onclick="VM.pagarParcelaFinanciamento(${f.id})" style="width:100%;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Registrar Pagamento da Parcela ${f.parcelas_pagas + 1}/${f.numero_parcelas}
+                  </button>
+                </div>` : ''}
               </div>
             `
           }).join('')}
@@ -3869,11 +3875,26 @@ const VM = {
     })
   },
 
+  async pagarParcelaFinanciamento(id) {
+    if (!confirm('Confirmar pagamento desta parcela de financiamento?')) return
+    try {
+      const res = await this.api('PATCH', `financiamentos/${id}/parcela`)
+      const d = res.data
+      const msg = d.status === 'quitado'
+        ? '🎉 Financiamento quitado! Parabéns!'
+        : `✅ Parcela ${d.parcelas_pagas} paga! Saldo: ${this.formatMoney(d.saldo_devedor)}`
+      this.toast(msg, d.status === 'quitado' ? 'success' : 'success')
+      this.carregarFinanciamentos()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao registrar pagamento', 'error')
+    }
+  },
+
   async deleteFinanciamento(id) {
-    if (!confirm('Excluir este financiamento?')) return
+    if (!confirm('Excluir este financiamento? Todas as parcelas vinculadas também serão removidas.')) return
     try {
       await this.api('DELETE', `financiamentos/${id}`)
-      this.toast('Financiamento excluído!')
+      this.toast('Financiamento e parcelas excluídos!')
       this.carregarFinanciamentos()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')
@@ -3974,6 +3995,12 @@ const VM = {
                   </div>
                 </div>
                 ${e.data_previsao_fim ? `<div style="margin-top:10px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(e.data_previsao_fim)}</div>` : ''}
+                ${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? `
+                <div style="margin-top:14px;">
+                  <button onclick="VM.pagarParcelaEmprestimo(${e.id})" style="width:100%;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Registrar Pagamento da Parcela ${e.parcelas_pagas + 1}/${e.numero_parcelas}
+                  </button>
+                </div>` : ''}
               </div>
             `
           }).join('')}
@@ -4114,11 +4141,26 @@ const VM = {
     })
   },
 
+  async pagarParcelaEmprestimo(id) {
+    if (!confirm('Confirmar pagamento desta parcela de empréstimo?')) return
+    try {
+      const res = await this.api('PATCH', `emprestimos/${id}/parcela`)
+      const d = res.data
+      const msg = d.status === 'quitado'
+        ? '🎉 Empréstimo quitado! Parabéns!'
+        : `✅ Parcela ${d.parcelas_pagas} paga! Saldo: ${this.formatMoney(d.saldo_devedor)}`
+      this.toast(msg, 'success')
+      this.carregarEmprestimos()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao registrar pagamento', 'error')
+    }
+  },
+
   async deleteEmprestimo(id) {
-    if (!confirm('Excluir este empréstimo?')) return
+    if (!confirm('Excluir este empréstimo? Todas as parcelas vinculadas também serão removidas.')) return
     try {
       await this.api('DELETE', `emprestimos/${id}`)
-      this.toast('Empréstimo excluído!')
+      this.toast('Empréstimo e parcelas excluídos!')
       this.carregarEmprestimos()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')

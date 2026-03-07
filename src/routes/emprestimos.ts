@@ -126,6 +126,14 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+
+  // Sincronizar valor das despesas pendentes vinculadas a este empréstimo
+  // (caso o valor_parcela tenha mudado na edição)
+  await c.env.DB.prepare(
+    `UPDATE despesas SET valor = ?, descricao = REPLACE(descricao, SUBSTR(descricao, INSTR(descricao, '(')), '') || '(' || CAST(parcela_atual AS TEXT) || '/' || ? || ')'
+     WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pendente' AND observacoes LIKE ?`
+  ).bind(parseFloat(valor_parcela), parseInt(numero_parcelas), user.id, `%Empréstimo automático #${id}%`).run()
+
   return c.json({ success: true, message: 'Empréstimo atualizado!' })
 })
 
@@ -172,12 +180,24 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   })
 })
 
-// DELETE /api/emprestimos/:id
+// DELETE /api/emprestimos/:id — cascade: apaga todas as despesas pendentes vinculadas
 emprestimos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+
+  // Verifica existência antes de apagar
+  const existing = await c.env.DB.prepare('SELECT id FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!existing) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  // Remove todas as despesas vinculadas (pagas e pendentes) com observacao referenciando este empréstimo
+  await c.env.DB.prepare(
+    `DELETE FROM despesas WHERE user_id = ? AND categoria = 'Empréstimo' AND observacoes LIKE ?`
+  ).bind(user.id, `%Empréstimo automático #${id}%`).run()
+
+  // Remove o empréstimo
   await c.env.DB.prepare('DELETE FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).run()
-  return c.json({ success: true, message: 'Empréstimo removido!' })
+
+  return c.json({ success: true, message: 'Empréstimo e parcelas removidos!' })
 })
 
 /**

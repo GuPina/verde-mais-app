@@ -155,12 +155,28 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
   })
 })
 
-// DELETE /api/financiamentos/:id
+// DELETE /api/financiamentos/:id — cascade: apaga parcelas de entrada e despesas vinculadas
 financiamentos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+
+  const existing = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!existing) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  // Remove despesas automáticas vinculadas (todas, pagas ou pendentes)
+  await c.env.DB.prepare(
+    `DELETE FROM despesas WHERE user_id = ? AND categoria = 'Financiamento' AND observacoes LIKE ?`
+  ).bind(user.id, `%Financiamento automático #${id}%`).run()
+
+  // Remove parcelas de entrada vinculadas
+  await c.env.DB.prepare(
+    'DELETE FROM financiamento_entrada_parcelas WHERE financiamento_id = ? AND user_id = ?'
+  ).bind(id, user.id).run()
+
+  // Remove o financiamento
   await c.env.DB.prepare('DELETE FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).run()
-  return c.json({ success: true, message: 'Financiamento removido!' })
+
+  return c.json({ success: true, message: 'Financiamento e parcelas removidos!' })
 })
 
 // GET /api/financiamentos/:id/simulacao-amortizacao
