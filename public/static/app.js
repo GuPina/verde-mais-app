@@ -66,6 +66,89 @@ const VM = {
     const parcelasWrapper = document.getElementById('d-parcelas-wrapper')
     if (cartaoWrapper) cartaoWrapper.style.display = (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? 'block' : 'none'
     if (parcelasWrapper) parcelasWrapper.style.display = meio === 'parcelado_cartao' ? 'block' : 'none'
+    // Se mudar pra não-parcelado, limpar campos de parcela
+    if (meio !== 'parcelado_cartao') {
+      const retroEl = document.getElementById('d-retroativa-wrapper')
+      if (retroEl) retroEl.style.display = 'none'
+    }
+  },
+
+  // Atualiza preview bidirecional: valor total ↔ valor parcela
+  atualizarPreviewParcela() {
+    const nEl = document.getElementById('d-parcelas')
+    const vTotalEl = document.getElementById('d-valor')
+    const vParcelaEl = document.getElementById('d-vparcela')
+    const retroSim = document.getElementById('d-retro-sim')
+    const retroWrapper = document.getElementById('d-retro-parcelas-wrapper')
+    const parcelasRestEl = document.getElementById('d-parcelas-restantes')
+    const preview = document.getElementById('d-parcelas-preview')
+    if (!nEl || !vTotalEl) return
+    const n = parseInt(nEl.value) || 2
+    const vTotal = parseFloat(vTotalEl.value) || 0
+    const vParcela = parseFloat(vParcelaEl?.value) || 0
+    // Quem foi editado por último?
+    const ultimoEditado = document.getElementById('d-ultimo-editado')?.value || 'total'
+    let totalFinal = vTotal, parcelaFinal = vParcela
+    if (ultimoEditado === 'total' && n > 0 && vTotal > 0) {
+      parcelaFinal = vTotal / n
+      if (vParcelaEl) vParcelaEl.value = parcelaFinal.toFixed(2)
+    } else if (ultimoEditado === 'parcela' && n > 0 && vParcela > 0) {
+      totalFinal = vParcela * n
+      if (vTotalEl) vTotalEl.value = totalFinal.toFixed(2)
+    }
+    if (preview && n >= 2 && totalFinal > 0) {
+      const pRestantes = retroSim?.checked ? (parseInt(parcelasRestEl?.value) || n) : n
+      preview.innerHTML = `<span style="color:#2FBF71;">✓ ${n}x de R$ ${(totalFinal/n).toFixed(2).replace('.',',')} (total: R$ ${totalFinal.toFixed(2).replace('.',',')})</span>`
+    }
+    // Mostrar/ocultar campo parcelas restantes
+    if (retroWrapper) {
+      retroWrapper.style.display = retroSim?.checked ? 'block' : 'none'
+    }
+  },
+
+  onChangeRetroativa(checked) {
+    const wrapper = document.getElementById('d-retro-parcelas-wrapper')
+    const nEl = document.getElementById('d-parcelas')
+    const parcelasRestEl = document.getElementById('d-parcelas-restantes')
+    if (wrapper) wrapper.style.display = checked ? 'block' : 'none'
+    if (checked && parcelasRestEl && nEl) {
+      const n = parseInt(nEl.value) || 2
+      parcelasRestEl.max = n
+      if (!parcelasRestEl.value || parseInt(parcelasRestEl.value) > n) parcelasRestEl.value = n
+    }
+    this.atualizarPreviewParcela()
+  },
+
+  // Recalcular saldo devedor do empréstimo com base em juros compostos
+  recalcularSaldoEmprestimo() {
+    const valorOriginal = parseFloat(document.getElementById('e-valor')?.value) || 0
+    const taxaMensal = parseFloat(document.getElementById('e-juros')?.value) || 0
+    const nParcelas = parseInt(document.getElementById('e-nparcelas')?.value) || 0
+    const nPagas = parseInt(document.getElementById('e-pagas')?.value) || 0
+    const saldoEl = document.getElementById('e-saldo')
+    const previewEl = document.getElementById('e-saldo-preview')
+    if (!saldoEl || valorOriginal <= 0 || nParcelas <= 0) return
+    // Cálculo do saldo devedor pelo método Price
+    let saldo = 0
+    if (taxaMensal > 0) {
+      const t = taxaMensal / 100
+      const fator = Math.pow(1 + t, nParcelas)
+      const fatorPago = Math.pow(1 + t, nPagas)
+      saldo = Math.max(0, valorOriginal * (fator - fatorPago) / (fator - 1))
+    } else {
+      saldo = Math.max(0, valorOriginal * (1 - nPagas / nParcelas))
+    }
+    saldo = Math.round(saldo * 100) / 100
+    // Só preencher automaticamente se o usuário não digitou manualmente
+    if (!saldoEl.dataset.manualEdit) {
+      saldoEl.value = saldo.toFixed(2)
+    }
+    if (previewEl) {
+      const restantes = nParcelas - nPagas
+      previewEl.textContent = restantes > 0
+        ? `${restantes} parcelas restantes • saldo calculado: R$ ${saldo.toFixed(2).replace('.',',')}`
+        : '✅ Empréstimo quitado'
+    }
   },
 
   formatDate(d) {
@@ -487,14 +570,18 @@ const VM = {
 
     try {
       const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, metas, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
+      const { resumo, score_saude, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
 
       const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
       const scoreLabel = score_saude >= 80 ? 'Excelente! 🏆' : score_saude >= 60 ? 'Boa saúde 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
+      const totalDevedor = resumo.total_devedor || 0
+      const parcelaMensal = resumo.total_parcela_mensal_dividas || 0
+      const comprometimento = resumo.comprometimento_dividas_pct || 0
+      const comprometimentoColor = comprometimento > 30 ? '#ff6b6b' : comprometimento > 20 ? '#ffc400' : '#2FBF71'
 
       content.innerHTML = `
-        <!-- STATS ROW -->
-        <div class="grid-4" style="margin-bottom:24px;">
+        <!-- STATS ROW — 4 cards principais -->
+        <div class="grid-4" style="margin-bottom:16px;">
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:8px;">💰 Saldo do Mês</div>
             <div class="stat-value ${resumo.saldo_liquido >= 0 ? 'positive' : 'negative'}">${this.formatMoney(resumo.saldo_liquido)}</div>
@@ -516,6 +603,37 @@ const VM = {
             <div class="stat-label" style="margin-bottom:8px;">📈 Investimentos</div>
             <div class="stat-value positive">${this.formatMoney(resumo.total_investimentos)}</div>
             <div class="stat-change positive">${resumo.percentual_investido}% da renda</div>
+          </div>
+        </div>
+
+        <!-- STATS ROW 2 — Dívidas, metas, comprometimento -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;">
+          <div class="stat-card" style="border-color:${totalDevedor > 0 ? 'rgba(255,107,107,0.3)' : 'rgba(47,191,113,0.2)'};">
+            <div class="stat-label" style="margin-bottom:6px;">🏦 Total Devedor</div>
+            <div class="stat-value" style="color:${totalDevedor > 0 ? '#ff6b6b' : '#2FBF71'};font-size:1.3rem;">
+              ${this.formatMoney(totalDevedor)}
+            </div>
+            <div style="font-size:0.72rem;color:#888;margin-top:4px;">
+              ${resumo.count_emprestimos_ativos > 0 ? `${resumo.count_emprestimos_ativos} emprést.` : ''}
+              ${resumo.count_emprestimos_ativos > 0 && resumo.count_financiamentos_ativos > 0 ? ' + ' : ''}
+              ${resumo.count_financiamentos_ativos > 0 ? `${resumo.count_financiamentos_ativos} financ.` : ''}
+              ${totalDevedor === 0 ? '✅ Sem dívidas' : ''}
+            </div>
+          </div>
+          <div class="stat-card" style="border-color:${comprometimentoColor}30;">
+            <div class="stat-label" style="margin-bottom:6px;">📅 Parcela Mensal (Dívidas)</div>
+            <div class="stat-value" style="color:${comprometimentoColor};font-size:1.3rem;">${this.formatMoney(parcelaMensal)}</div>
+            <div style="font-size:0.72rem;margin-top:4px;color:${comprometimentoColor};">
+              ${comprometimento}% da renda comprometida
+              ${comprometimento > 30 ? ' ⚠️' : comprometimento > 0 ? ' ✓' : ''}
+            </div>
+          </div>
+          <div class="stat-card" style="border-color:rgba(47,191,113,0.2);">
+            <div class="stat-label" style="margin-bottom:6px;">🎯 Metas Financeiras</div>
+            <div class="stat-value positive" style="font-size:1.3rem;">${metas.ativas} ativa${metas.ativas !== 1 ? 's' : ''}</div>
+            <div style="font-size:0.72rem;color:#888;margin-top:4px;">
+              ${metas.ativas > 0 ? `${this.formatMoney(metas.atual_total)} de ${this.formatMoney(metas.objetivo_total)}` : 'Nenhuma meta cadastrada'}
+            </div>
           </div>
         </div>
 
@@ -1102,8 +1220,8 @@ const VM = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
-                <label class="form-label">Valor Total (R$) *</label>
-                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${despesa?.valor || ''}" required>
+                <label class="form-label" id="d-valor-label">Valor Total (R$) *</label>
+                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${despesa?.valor || ''}" oninput="document.getElementById('d-ultimo-editado').value='total';VM.atualizarPreviewParcela()" required>
               </div>
               <div class="form-group">
                 <label class="form-label">Tipo</label>
@@ -1113,6 +1231,7 @@ const VM = {
                 </select>
               </div>
             </div>
+            <input type="hidden" id="d-ultimo-editado" value="total">
 
             <!-- Forma de pagamento -->
             <div class="form-group">
@@ -1143,10 +1262,39 @@ const VM = {
             <!-- Parcelas (aparece somente para parcelado) -->
             ${!isEdit ? `
               <div id="d-parcelas-wrapper" style="display:none;">
-                <div class="form-group">
-                  <label class="form-label">🔢 Número de Parcelas</label>
-                  <input type="number" id="d-parcelas" class="form-input" min="2" max="60" value="2" placeholder="Ex: 12">
-                  <div style="font-size:0.75rem;color:#888;margin-top:4px;" id="d-parcelas-preview"></div>
+                <!-- Número de parcelas + valor da parcela (bidirecional) -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">🔢 Nº Total de Parcelas *</label>
+                    <input type="number" id="d-parcelas" class="form-input" min="2" max="60" value="2" placeholder="Ex: 12"
+                      oninput="VM.atualizarPreviewParcela()">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">💰 Valor da Parcela (R$)</label>
+                    <input type="number" id="d-vparcela" class="form-input" step="0.01" min="0" placeholder="Calculado auto"
+                      oninput="document.getElementById('d-ultimo-editado').value='parcela';VM.atualizarPreviewParcela()">
+                  </div>
+                </div>
+                <div style="font-size:0.78rem;color:#2FBF71;margin-top:-8px;margin-bottom:12px;" id="d-parcelas-preview"></div>
+
+                <!-- Compra retroativa -->
+                <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:12px;">
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
+                    <input type="checkbox" id="d-retro-sim" onchange="VM.onChangeRetroativa(this.checked)"
+                      style="width:18px;height:18px;accent-color:#2FBF71;cursor:pointer;">
+                    📅 Esta compra já está parcelada (parcelas retroativas)
+                  </label>
+                  <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+                    Ex: comprou em janeiro, está cadastrando em março — informe quantas parcelas ainda restam.
+                  </div>
+                  <div id="d-retro-parcelas-wrapper" style="display:none;margin-top:12px;">
+                    <label class="form-label">📆 Parcelas Restantes (a partir de hoje) *</label>
+                    <input type="number" id="d-parcelas-restantes" class="form-input" min="1" placeholder="Ex: 10"
+                      oninput="VM.atualizarPreviewParcela()">
+                    <div style="font-size:0.75rem;color:#888;margin-top:4px;">
+                      O sistema criará apenas as parcelas restantes a partir da data informada.
+                    </div>
+                  </div>
                 </div>
               </div>
             ` : ''}
@@ -1178,22 +1326,6 @@ const VM = {
     // Inicializar estado do form
     VM.onChangeMeioPagamento(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
 
-    // Preview de parcelas ao digitar
-    const parcelasEl = document.getElementById('d-parcelas')
-    const valorEl = document.getElementById('d-valor')
-    if (parcelasEl) {
-      const updatePreview = () => {
-        const v = parseFloat(valorEl?.value || 0)
-        const n = parseInt(parcelasEl.value || 2)
-        const preview = document.getElementById('d-parcelas-preview')
-        if (preview && v > 0 && n >= 2) {
-          preview.textContent = `${n}x de R$ ${(v/n).toFixed(2).replace('.',',')} ≈ R$ ${(v/n).toFixed(2).replace('.',',')} / mês`
-        }
-      }
-      parcelasEl.addEventListener('input', updatePreview)
-      valorEl?.addEventListener('input', updatePreview)
-    }
-
     document.getElementById('despesa-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('d-submit')
@@ -1203,22 +1335,36 @@ const VM = {
         const meio = document.getElementById('d-meio')?.value || 'dinheiro'
         const parcelado = !isEdit && meio === 'parcelado_cartao'
         const cartaoId = document.getElementById('d-cartao-id')?.value || null
+        // Retroativa: usar parcelas restantes se marcado
+        const isRetroativa = parcelado && document.getElementById('d-retro-sim')?.checked
+        const numParcelasTotal = parcelado ? parseInt(document.getElementById('d-parcelas').value) : 1
+        const numParcelasRestantes = isRetroativa
+          ? parseInt(document.getElementById('d-parcelas-restantes')?.value) || numParcelasTotal
+          : numParcelasTotal
+        // Valor: usar valor total (já calculado bidirecionalmente)
+        const valorTotal = parseFloat(document.getElementById('d-valor').value)
         const payload = {
           descricao: document.getElementById('d-desc').value,
           categoria: document.getElementById('d-cat').value,
           data: document.getElementById('d-data').value,
-          valor: parseFloat(document.getElementById('d-valor').value),
+          valor: valorTotal,
           fixa_ou_variavel: document.getElementById('d-tipo').value,
           status: document.getElementById('d-status').value,
           vencimento: document.getElementById('d-venc').value || null,
-          meio_pagamento: parcelado ? 'cartao_credito' : meio,
+          meio_pagamento: parcelado ? 'parcelado_cartao' : meio,
           cartao_id: (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? (cartaoId || null) : null,
           parcelado,
-          numero_parcelas: parcelado ? parseInt(document.getElementById('d-parcelas').value) : 1
+          numero_parcelas: numParcelasRestantes,
+          parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes
         }
         if (isEdit) await this.api('PUT', `despesas/${despesa.id}`, payload)
         else await this.api('POST', 'despesas', payload)
-        this.toast(isEdit ? 'Despesa atualizada!' : (parcelado ? `${payload.numero_parcelas} parcelas criadas! 💸` : 'Despesa adicionada!'))
+        const msg = isEdit ? 'Despesa atualizada!'
+          : parcelado ? (isRetroativa
+            ? `${numParcelasRestantes} parcelas restantes criadas! 📅`
+            : `${numParcelasRestantes} parcelas criadas! 💸`)
+          : 'Despesa adicionada!'
+        this.toast(msg)
         this.closeModal()
         this.carregarDespesas()
       } catch (err) {
@@ -3750,34 +3896,53 @@ const VM = {
                 <input type="text" id="e-credor" class="form-input" placeholder="Ex: Nubank" value="${emp?.credor || ''}">
               </div>
             </div>
+            <!-- Explicação dos campos principais -->
+            <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem;color:#aaa;line-height:1.6;">
+              <strong style="color:#2FBF71;">📌 Como preencher:</strong><br>
+              • <strong style="color:#fff;">Valor Original:</strong> quanto você pegou emprestado (ex: R$ 10.000)<br>
+              • <strong style="color:#fff;">Saldo Devedor Atual:</strong> o quanto você ainda deve <em>com juros acumulados</em> — este valor é usado no Total Devedor do painel. Se não souber, deixe em branco e o sistema calcula automaticamente.<br>
+              • <strong style="color:#fff;">Taxa de Juros Mensal:</strong> a taxa do contrato (ex: 2,52% ao mês)<br>
+              • <strong style="color:#fff;">Parcelas Pagas:</strong> quantas você já pagou — o sistema recalcula o saldo devedor
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
-                <label class="form-label">Valor Original (R$) *</label>
-                <input type="number" id="e-valor" class="form-input" step="0.01" min="0" value="${emp?.valor_original || ''}" required>
+                <label class="form-label">💵 Valor Original do Empréstimo (R$) *</label>
+                <input type="number" id="e-valor" class="form-input" step="0.01" min="0" value="${emp?.valor_original || ''}"
+                  placeholder="Ex: 10000.00" oninput="VM.recalcularSaldoEmprestimo()" required>
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Valor que você recebeu/pegou emprestado</div>
               </div>
               <div class="form-group">
-                <label class="form-label">Saldo Devedor Atual (R$)</label>
-                <input type="number" id="e-saldo" class="form-input" step="0.01" min="0" value="${emp?.saldo_devedor || ''}">
+                <label class="form-label">📉 Saldo Devedor Atual (R$) <span style="color:#888;font-weight:400;">(com juros)</span></label>
+                <input type="number" id="e-saldo" class="form-input" step="0.01" min="0" value="${emp?.saldo_devedor || ''}"
+                  placeholder="Calculado automaticamente">
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Usado no Total Devedor do painel</div>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
-                <label class="form-label">Taxa de Juros Mensal (%) *</label>
-                <input type="number" id="e-juros" class="form-input" step="0.01" min="0" value="${emp?.taxa_juros_mensal || ''}" required>
+                <label class="form-label">📊 Taxa de Juros Mensal (%) *</label>
+                <input type="number" id="e-juros" class="form-input" step="0.01" min="0" value="${emp?.taxa_juros_mensal || ''}"
+                  placeholder="Ex: 2.52" oninput="VM.recalcularSaldoEmprestimo()" required>
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Taxa do contrato ao mês</div>
               </div>
               <div class="form-group">
-                <label class="form-label">Nº de Parcelas *</label>
-                <input type="number" id="e-nparcelas" class="form-input" min="1" value="${emp?.numero_parcelas || ''}" required>
+                <label class="form-label">🔢 Nº Total de Parcelas *</label>
+                <input type="number" id="e-nparcelas" class="form-input" min="1" value="${emp?.numero_parcelas || ''}"
+                  placeholder="Ex: 24" oninput="VM.recalcularSaldoEmprestimo()" required>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
-                <label class="form-label">Valor da Parcela (R$) *</label>
-                <input type="number" id="e-vparcela" class="form-input" step="0.01" min="0" value="${emp?.valor_parcela || ''}" required>
+                <label class="form-label">💳 Valor da Parcela Mensal (R$) *</label>
+                <input type="number" id="e-vparcela" class="form-input" step="0.01" min="0" value="${emp?.valor_parcela || ''}"
+                  placeholder="Ex: 500.00" required>
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Valor que você paga por mês</div>
               </div>
               <div class="form-group">
-                <label class="form-label">Parcelas Pagas</label>
-                <input type="number" id="e-pagas" class="form-input" min="0" value="${emp?.parcelas_pagas || 0}">
+                <label class="form-label">✅ Parcelas Já Pagas</label>
+                <input type="number" id="e-pagas" class="form-input" min="0" value="${emp?.parcelas_pagas || 0}"
+                  oninput="VM.recalcularSaldoEmprestimo()">
+                <div id="e-saldo-preview" style="font-size:0.72rem;color:#2FBF71;margin-top:3px;"></div>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">

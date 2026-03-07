@@ -54,8 +54,37 @@ financiamentos.post('/', requireAuth, async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(user.id, descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFim.toISOString().split('T')[0], sistema_amortizacao, banco || null, contrato || null, indexador, observacoes || null).run()
 
+  const finId = result.meta.last_row_id as number
+
+  // === Criar despesas automáticas das parcelas futuras ===
+  const parcelasPagasN = parseInt(parcelas_pagas)
+  const totalParcelasN = parseInt(numero_parcelas)
+  const valorParcelaN = parseFloat(valor_parcela)
+
+  for (let i = parcelasPagasN; i < totalParcelasN; i++) {
+    const dataParc = new Date(dataInicio)
+    dataParc.setMonth(dataParc.getMonth() + i)
+    const dataParcStr = dataParc.toISOString().split('T')[0]
+    await c.env.DB.prepare(
+      `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      user.id,
+      `${descricao} (${i + 1}/${totalParcelasN})`,
+      dataParcStr,
+      'Financiamento',
+      valorParcelaN,
+      1, totalParcelasN, i + 1,
+      i < parcelasPagasN ? 'pago' : 'pendente',
+      'fixa', 0,
+      dataParcStr,
+      `Financiamento automático #${finId} — ${banco || tipo_imovel}`,
+      'transferencia'
+    ).run()
+  }
+
   await verificarConquista(c.env.DB, user.id, 'planejador')
-  return c.json({ success: true, id: result.meta.last_row_id, message: 'Financiamento cadastrado!' }, 201)
+  return c.json({ success: true, id: finId, message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
 // PUT /api/financiamentos/:id

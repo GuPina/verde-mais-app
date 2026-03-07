@@ -52,7 +52,40 @@ emprestimos.post('/', requireAuth, async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parseInt(parcelas_pagas), saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
 
-  return c.json({ success: true, id: result.meta.last_row_id, message: 'Empréstimo cadastrado!' }, 201)
+  const empId = result.meta.last_row_id as number
+
+  // === Criar despesas automáticas das parcelas futuras ===
+  const parcelasPagas = parseInt(parcelas_pagas)
+  const totalParcelas = parseInt(numero_parcelas)
+  const valorParc = parseFloat(valor_parcela)
+  const diaVenc = parseInt(dia_vencimento) || dataInicio.getDate()
+
+  for (let i = parcelasPagas; i < totalParcelas; i++) {
+    const dataParc = new Date(dataInicio)
+    dataParc.setMonth(dataParc.getMonth() + i)
+    if (diaVenc && diaVenc !== dataParc.getDate()) {
+      dataParc.setDate(Math.min(diaVenc, new Date(dataParc.getFullYear(), dataParc.getMonth() + 1, 0).getDate()))
+    }
+    const dataParcStr = dataParc.toISOString().split('T')[0]
+    await c.env.DB.prepare(
+      `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      user.id,
+      `${descricao} (${i + 1}/${totalParcelas})`,
+      dataParcStr,
+      'Empréstimo',
+      valorParc,
+      1, totalParcelas, i + 1,
+      i < parcelasPagas ? 'pago' : 'pendente',
+      'fixa', 0,
+      dataParcStr,
+      `Empréstimo automático #${empId} — ${credor || tipo}`,
+      'transferencia'
+    ).run()
+  }
+
+  return c.json({ success: true, id: empId, message: 'Empréstimo cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
 // PUT /api/emprestimos/:id

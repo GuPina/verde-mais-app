@@ -34,13 +34,33 @@ dashboard.get('/', requireAuth, async (c) => {
 
   // Total investimentos
   const totalInvestimentos = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor_atual), 0) as total FROM investimentos WHERE user_id = ?`
+    `SELECT COALESCE(SUM(valor_atual), 0) as total, COALESCE(SUM(valor_investido), 0) as investido FROM investimentos WHERE user_id = ?`
   ).bind(user.id).first() as any
 
   // Metas ativas
   const metasAtivas = await c.env.DB.prepare(
     `SELECT COUNT(*) as count, COALESCE(SUM(valor_objetivo), 0) as objetivo_total, 
      COALESCE(SUM(valor_atual), 0) as atual_total FROM metas WHERE user_id = ? AND status = 'ativa'`
+  ).bind(user.id).first() as any
+
+  // === NOVO: Empréstimos ativos ===
+  const emprestimosAtivos = await c.env.DB.prepare(
+    `SELECT 
+       COUNT(*) as count,
+       COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
+       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
+       COALESCE(SUM(valor_original), 0) as total_valor_original
+     FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+  ).bind(user.id).first() as any
+
+  // === NOVO: Financiamentos ativos ===
+  const financiamentosAtivos = await c.env.DB.prepare(
+    `SELECT 
+       COUNT(*) as count,
+       COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
+       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
+       COALESCE(SUM(valor_financiado), 0) as total_valor_financiado
+     FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
   ).bind(user.id).first() as any
 
   // Evolução dos últimos 6 meses
@@ -102,18 +122,31 @@ dashboard.get('/', requireAuth, async (c) => {
   const totalDespesas = despesasMes?.total || 0
   const saldoLiquido = totalReceitas - totalDespesas
   const totalInvest = totalInvestimentos?.total || 0
+  const totalInvestido = totalInvestimentos?.investido || 0
 
-  // Score de saúde financeira (0-100)
+  // Totais de dívidas
+  const totalSaldoEmprestimos = emprestimosAtivos?.total_saldo_devedor || 0
+  const totalSaldoFinanciamentos = financiamentosAtivos?.total_saldo_devedor || 0
+  const totalDevedor = totalSaldoEmprestimos + totalSaldoFinanciamentos
+  const totalParcelaMensal = (emprestimosAtivos?.total_parcela_mensal || 0) + (financiamentosAtivos?.total_parcela_mensal || 0)
+
+  // Score de saúde financeira (0-100) — agora considera dívidas
   let score = 50
   if (totalReceitas > 0) {
     const taxaPoupanca = (saldoLiquido / totalReceitas) * 100
     if (taxaPoupanca >= 20) score += 20
     else if (taxaPoupanca >= 10) score += 10
     else if (taxaPoupanca < 0) score -= 20
-    
-    if (totalInvest > 0) score += 15
-    if ((metasAtivas as any)?.count > 0) score += 10
+
+    if (totalInvest > 0) score += 10
+    if ((metasAtivas as any)?.count > 0) score += 5
     if (saldoLiquido > 0) score += 5
+
+    // Penalidade por comprometimento de dívidas
+    const comprometimento = (totalParcelaMensal / totalReceitas) * 100
+    if (comprometimento > 30) score -= 15
+    else if (comprometimento > 20) score -= 8
+    else if (comprometimento < 10 && totalDevedor === 0) score += 10
   }
   score = Math.min(100, Math.max(0, score))
 
@@ -123,14 +156,36 @@ dashboard.get('/', requireAuth, async (c) => {
       total_despesas: totalDespesas,
       saldo_liquido: saldoLiquido,
       total_investimentos: totalInvest,
+      total_investido: totalInvestido,
       percentual_investido: totalReceitas > 0 ? Math.round((totalInvest / totalReceitas) * 100) : 0,
-      taxa_poupanca: totalReceitas > 0 ? Math.round(((saldoLiquido / totalReceitas) * 100) * 10) / 10 : 0
+      taxa_poupanca: totalReceitas > 0 ? Math.round(((saldoLiquido / totalReceitas) * 100) * 10) / 10 : 0,
+      // === NOVOS CAMPOS DE DÍVIDAS ===
+      total_devedor: totalDevedor,
+      total_saldo_emprestimos: totalSaldoEmprestimos,
+      total_saldo_financiamentos: totalSaldoFinanciamentos,
+      total_parcela_mensal_dividas: totalParcelaMensal,
+      comprometimento_dividas_pct: totalReceitas > 0 ? Math.round((totalParcelaMensal / totalReceitas) * 100) : 0,
+      count_emprestimos_ativos: emprestimosAtivos?.count || 0,
+      count_financiamentos_ativos: financiamentosAtivos?.count || 0
     },
     score_saude: score,
     metas: {
       ativas: (metasAtivas as any)?.count || 0,
       objetivo_total: (metasAtivas as any)?.objetivo_total || 0,
       atual_total: (metasAtivas as any)?.atual_total || 0
+    },
+    // === NOVOS BLOCOS DE DÍVIDAS ===
+    emprestimos: {
+      count: emprestimosAtivos?.count || 0,
+      total_saldo_devedor: totalSaldoEmprestimos,
+      total_parcela_mensal: emprestimosAtivos?.total_parcela_mensal || 0,
+      total_valor_original: emprestimosAtivos?.total_valor_original || 0
+    },
+    financiamentos: {
+      count: financiamentosAtivos?.count || 0,
+      total_saldo_devedor: totalSaldoFinanciamentos,
+      total_parcela_mensal: financiamentosAtivos?.total_parcela_mensal || 0,
+      total_valor_financiado: financiamentosAtivos?.total_valor_financiado || 0
     },
     evolucao,
     categorias_despesas: categoriasDespesas.results,
@@ -152,7 +207,7 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
 
   for (let i = 0; i < 12; i++) {
     const m = String(i + 1).padStart(2, '0')
-    
+
     const rec = await c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
     ).bind(user.id, m, ano).first() as any
@@ -173,6 +228,37 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
   const totalAnualReceitas = relatorio.reduce((sum, m) => sum + m.receitas, 0)
   const totalAnualDespesas = relatorio.reduce((sum, m) => sum + m.despesas, 0)
 
+  // === NOVO: Resumo anual de dívidas ===
+  const emprestimosAnuais = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
+     FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+  ).bind(user.id).first() as any
+
+  const financiamentosAnuais = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
+     FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
+  ).bind(user.id).first() as any
+
+  // === NOVO: Resumo de metas ===
+  const metasResumo = await c.env.DB.prepare(
+    `SELECT 
+       COUNT(*) as total_metas,
+       COALESCE(SUM(CASE WHEN status='ativa' THEN 1 ELSE 0 END), 0) as ativas,
+       COALESCE(SUM(CASE WHEN status='concluida' THEN 1 ELSE 0 END), 0) as concluidas,
+       COALESCE(SUM(valor_objetivo), 0) as total_objetivo,
+       COALESCE(SUM(valor_atual), 0) as total_atual
+     FROM metas WHERE user_id = ?`
+  ).bind(user.id).first() as any
+
+  // === NOVO: Resumo de investimentos ===
+  const investResumo = await c.env.DB.prepare(
+    `SELECT 
+       COUNT(*) as total,
+       COALESCE(SUM(valor_investido), 0) as total_investido,
+       COALESCE(SUM(valor_atual), 0) as total_atual
+     FROM investimentos WHERE user_id = ?`
+  ).bind(user.id).first() as any
+
   return c.json({
     ano,
     relatorio,
@@ -180,7 +266,17 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
       receitas: totalAnualReceitas,
       despesas: totalAnualDespesas,
       saldo: totalAnualReceitas - totalAnualDespesas
-    }
+    },
+    dividas: {
+      total_devedor: (emprestimosAnuais?.saldo || 0) + (financiamentosAnuais?.saldo || 0),
+      emprestimos_saldo: emprestimosAnuais?.saldo || 0,
+      emprestimos_parcela_mensal: emprestimosAnuais?.parcela || 0,
+      financiamentos_saldo: financiamentosAnuais?.saldo || 0,
+      financiamentos_parcela_mensal: financiamentosAnuais?.parcela || 0,
+      total_parcela_mensal: (emprestimosAnuais?.parcela || 0) + (financiamentosAnuais?.parcela || 0)
+    },
+    metas: metasResumo,
+    investimentos: investResumo
   })
 })
 
