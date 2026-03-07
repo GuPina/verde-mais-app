@@ -510,7 +510,74 @@ const VM = {
       const badgeConq = document.getElementById('badge-conquistas')
       if (badgeLemb && lembretes.urgentes > 0) { badgeLemb.textContent = lembretes.urgentes; badgeLemb.style.display = 'inline'; }
       if (badgeConq && conquistas.novas?.length > 0) { badgeConq.textContent = conquistas.novas.length; badgeConq.style.display = 'inline'; }
+      
+      // Mostrar alerta chamativo de conquista nova
+      if (conquistas.novas?.length > 0) {
+        this.mostrarAlertaConquista(conquistas.novas)
+      }
     } catch { }
+  },
+
+  mostrarAlertaConquista(novas) {
+    if (!novas || novas.length === 0) return
+    const conquista = novas[0]
+    // Criar overlay de conquista
+    const overlay = document.createElement('div')
+    overlay.id = 'conquista-overlay'
+    overlay.style.cssText = `
+      position:fixed;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.85);z-index:9999;
+      display:flex;align-items:center;justify-content:center;
+      animation:fadeIn 0.3s ease;
+    `
+    overlay.innerHTML = `
+      <div style="
+        background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);
+        border:2px solid #2FBF71;border-radius:24px;padding:40px;
+        text-align:center;max-width:380px;width:90%;
+        box-shadow:0 0 60px rgba(47,191,113,0.4);
+        animation:conquistaEntrada 0.5s cubic-bezier(0.175,0.885,0.32,1.275);
+      ">
+        <div style="font-size:4rem;margin-bottom:12px;animation:conquista-bounce 0.6s ease infinite alternate;">${conquista.icone || '🏆'}</div>
+        <div style="color:#2FBF71;font-size:0.75rem;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;">🎉 Nova Conquista Desbloqueada!</div>
+        <div style="color:#fff;font-size:1.5rem;font-weight:800;margin-bottom:8px;">${conquista.titulo}</div>
+        <div style="color:#aaa;font-size:0.9rem;margin-bottom:20px;">${conquista.descricao}</div>
+        <div style="background:rgba(47,191,113,0.1);border-radius:12px;padding:10px;margin-bottom:20px;">
+          <span style="color:#2FBF71;font-weight:700;">+${conquista.pontos || 10} pontos</span>
+          ${conquista.raridade && conquista.raridade !== 'comum' ? `<span style="margin-left:12px;color:#FFD700;font-size:0.8rem;">⭐ ${conquista.raridade.toUpperCase()}</span>` : ''}
+        </div>
+        ${novas.length > 1 ? `<div style="color:#888;font-size:0.8rem;margin-bottom:16px;">+${novas.length - 1} mais conquista(s)!</div>` : ''}
+        <button onclick="VM.fecharAlertaConquista()" style="
+          background:#2FBF71;color:#000;border:none;padding:12px 32px;
+          border-radius:50px;font-weight:700;font-size:1rem;cursor:pointer;
+          width:100%;transition:all 0.2s;
+        " onmouseover="this.style.background='#26a060'" onmouseout="this.style.background='#2FBF71'">
+          🎊 Incrível! Ver todas as conquistas
+        </button>
+      </div>
+    `
+    // Injetar animações
+    if (!document.getElementById('conquista-anim')) {
+      const style = document.createElement('style')
+      style.id = 'conquista-anim'
+      style.textContent = `
+        @keyframes conquistaEntrada { from{transform:scale(0.3) rotate(-10deg);opacity:0} to{transform:scale(1) rotate(0deg);opacity:1} }
+        @keyframes conquista-bounce { from{transform:translateY(0) scale(1)} to{transform:translateY(-10px) scale(1.1)} }
+        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+      `
+      document.head.appendChild(style)
+    }
+    document.body.appendChild(overlay)
+    // Marcar como visualizadas
+    this.api('PATCH', 'conquistas/visualizar').catch(() => {})
+  },
+
+  fecharAlertaConquista() {
+    const overlay = document.getElementById('conquista-overlay')
+    if (overlay) overlay.remove()
+    const badgeConq = document.getElementById('badge-conquistas')
+    if (badgeConq) { badgeConq.style.display = 'none'; badgeConq.textContent = ''; }
+    this.navigate('conquistas')
   },
 
   navigate(page) {
@@ -1343,11 +1410,21 @@ const VM = {
           : numParcelasTotal
         // Valor: usar valor total (já calculado bidirecionalmente)
         const valorTotal = parseFloat(document.getElementById('d-valor').value)
+        const valorParcelaDigitado = parseFloat(document.getElementById('d-vparcela')?.value) || 0
+
+        // CORREÇÃO: valor da parcela = total / total_original (não / restantes)
+        // Ex: compra 10x R$222,29 → total R$2.222,90 → parcela = 2222.90/10 = 222.29
+        // Se retroativa: enviar valor_parcela separado para o backend não recalcular errado
+        const valorParcelaFinal = isRetroativa
+          ? (valorParcelaDigitado > 0 ? valorParcelaDigitado : (numParcelasTotal > 0 ? valorTotal / numParcelasTotal : valorTotal))
+          : (numParcelasRestantes > 0 ? valorTotal / numParcelasRestantes : valorTotal)
+
         const payload = {
           descricao: document.getElementById('d-desc').value,
           categoria: document.getElementById('d-cat').value,
           data: document.getElementById('d-data').value,
-          valor: valorTotal,
+          valor: isRetroativa ? valorParcelaFinal * numParcelasRestantes : valorTotal,
+          valor_parcela_override: isRetroativa ? valorParcelaFinal : null,
           fixa_ou_variavel: document.getElementById('d-tipo').value,
           status: document.getElementById('d-status').value,
           vencimento: document.getElementById('d-venc').value || null,
@@ -1661,8 +1738,8 @@ const VM = {
       const container = document.getElementById('invest-container')
       const { investimentos, resumo } = data
 
-      const tipoLabels = { tesouro_direto: 'Tesouro Direto', cdb: 'CDB', lci: 'LCI', lca: 'LCA', acoes: 'Ações', fii: 'FII', cripto: 'Cripto', poupanca: 'Poupança', outros: 'Outros' }
-      const tipoEmojis = { tesouro_direto: '🏛️', cdb: '🏦', lci: '📋', lca: '🌱', acoes: '📊', fii: '🏢', cripto: '₿', poupanca: '🐷', outros: '💼' }
+      const tipoLabels = { tesouro_direto: 'Tesouro Direto', cdb: 'CDB', lci: 'LCI', lca: 'LCA', acoes: 'Ações', fii: 'FII', cripto: 'Cripto', poupanca: 'Poupança', caixinha: 'Caixinha CDI', outros: 'Outros' }
+      const tipoEmojis = { tesouro_direto: '🏛️', cdb: '🏦', lci: '📋', lca: '🌱', acoes: '📊', fii: '🏢', cripto: '₿', poupanca: '🐷', caixinha: '💰', outros: '💼' }
       const riscoColors = { baixo: '#2FBF71', medio: '#ffc400', alto: '#ff6b6b' }
 
       container.innerHTML = `
@@ -1694,6 +1771,8 @@ const VM = {
                     <td>
                       <div style="font-weight:600;">${inv.nome}</div>
                       ${inv.instituicao ? `<div style="font-size:0.75rem;color:#666;">${inv.instituicao}</div>` : ''}
+                      ${inv.tipo === 'caixinha' && inv.cdi_info ? `<div style="font-size:0.72rem;color:#2FBF71;">📊 ${inv.cdi_info}</div>` : ''}
+                      ${inv.tipo === 'caixinha' && inv.dias_decorridos ? `<div style="font-size:0.7rem;color:#888;">${inv.dias_decorridos} dias renderizando</div>` : ''}
                     </td>
                     <td>${tipoEmojis[inv.tipo] || '💼'} ${tipoLabels[inv.tipo] || inv.tipo}</td>
                     <td><span class="badge" style="background:${riscoColors[inv.risco] || '#888'}22;color:${riscoColors[inv.risco] || '#888'};border:1px solid ${riscoColors[inv.risco] || '#888'}44;">${inv.risco}</span></td>
@@ -1719,8 +1798,12 @@ const VM = {
   modalInvestimento(inv = null) {
     const isEdit = !!inv
     const today = new Date().toISOString().split('T')[0]
-    const tipos = ['tesouro_direto', 'cdb', 'lci', 'lca', 'acoes', 'fii', 'cripto', 'poupanca', 'outros']
-    const tipoLabels = { tesouro_direto: 'Tesouro Direto', cdb: 'CDB', lci: 'LCI', lca: 'LCA', acoes: 'Ações', fii: 'FII', cripto: 'Cripto', poupanca: 'Poupança', outros: 'Outros' }
+    const tipos = ['tesouro_direto', 'cdb', 'lci', 'lca', 'acoes', 'fii', 'cripto', 'poupanca', 'caixinha', 'outros']
+    const tipoLabels = { 
+      tesouro_direto: 'Tesouro Direto', cdb: 'CDB', lci: 'LCI', lca: 'LCA', 
+      acoes: 'Ações', fii: 'FII', cripto: 'Cripto', poupanca: 'Poupança', 
+      caixinha: '💰 Caixinha (CDI)', outros: 'Outros' 
+    }
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
@@ -1737,7 +1820,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Tipo *</label>
-                <select id="i-tipo" class="form-select">
+                <select id="i-tipo" class="form-select" onchange="VM.onChangeTipoInvestimento(this.value)">
                   ${tipos.map(t => `<option value="${t}" ${inv?.tipo === t ? 'selected' : ''}>${tipoLabels[t]}</option>`).join('')}
                 </select>
               </div>
@@ -1755,10 +1838,31 @@ const VM = {
                 <label class="form-label">Valor Investido (R$) *</label>
                 <input type="number" id="i-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${inv?.valor_investido || ''}" required>
               </div>
-              <div class="form-group">
+              <div class="form-group" id="i-rent-wrapper">
                 <label class="form-label">Rentabilidade (%)</label>
                 <input type="number" id="i-rent" class="form-input" placeholder="0,00" step="0.01" value="${inv?.rentabilidade_percentual || 0}">
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Rentabilidade acumulada atual</div>
               </div>
+            </div>
+            <!-- Campos específicos Caixinha CDI -->
+            <div id="i-caixinha-wrapper" style="display:none;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:12px;">
+              <div style="font-size:0.82rem;font-weight:600;color:#2FBF71;margin-bottom:10px;">💰 Configuração Caixinha CDI</div>
+              <div style="font-size:0.78rem;color:#aaa;margin-bottom:10px;">
+                A Caixinha rende diariamente com base no CDI. Ex: 140% do CDI = ganho diário calculado sobre 140% da taxa CDI.
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                  <label class="form-label">% do CDI *</label>
+                  <input type="number" id="i-pct-cdi" class="form-input" step="1" min="1" placeholder="Ex: 140" value="${inv?.percentual_cdi || ''}">
+                  <div style="font-size:0.72rem;color:#888;margin-top:3px;">Ex: 140 = 140% do CDI</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">CDI Atual (% a.a.)</label>
+                  <input type="number" id="i-cdi-atual" class="form-input" step="0.01" placeholder="13.65" value="${inv?.cdi_atual || '13.65'}">
+                  <div style="font-size:0.72rem;color:#888;margin-top:3px;">Taxa CDI atual ao ano</div>
+                </div>
+              </div>
+              <div id="i-caixinha-preview" style="font-size:0.8rem;color:#2FBF71;margin-top:6px;"></div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
@@ -1772,7 +1876,7 @@ const VM = {
             </div>
             <div class="form-group">
               <label class="form-label">Instituição</label>
-              <input type="text" id="i-inst" class="form-input" placeholder="Ex: Banco do Brasil, Nubank..." value="${inv?.instituicao || ''}">
+              <input type="text" id="i-inst" class="form-input" placeholder="Ex: Nubank, PicPay, Inter..." value="${inv?.instituicao || ''}">
             </div>
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
@@ -1785,23 +1889,29 @@ const VM = {
       </div>
     `
 
+    // Inicializar visibilidade conforme tipo
+    VM.onChangeTipoInvestimento(inv?.tipo || 'tesouro_direto')
+
     document.getElementById('inv-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('i-submit')
       btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
+        const tipo = document.getElementById('i-tipo').value
         const valorInv = parseFloat(document.getElementById('i-valor').value)
         const rent = parseFloat(document.getElementById('i-rent').value) || 0
         const payload = {
           nome: document.getElementById('i-nome').value,
-          tipo: document.getElementById('i-tipo').value,
+          tipo,
           risco: document.getElementById('i-risco').value,
           valor_investido: valorInv,
           rentabilidade_percentual: rent,
           valor_atual: isEdit ? valorInv * (1 + rent / 100) : undefined,
           data_inicio: document.getElementById('i-inicio').value,
           data_vencimento: document.getElementById('i-venc').value || null,
-          instituicao: document.getElementById('i-inst').value || null
+          instituicao: document.getElementById('i-inst').value || null,
+          percentual_cdi: tipo === 'caixinha' ? (parseFloat(document.getElementById('i-pct-cdi')?.value) || null) : null,
+          cdi_atual: tipo === 'caixinha' ? (parseFloat(document.getElementById('i-cdi-atual')?.value) || 13.65) : null
         }
         if (isEdit) await this.api('PUT', `investimentos/${inv.id}`, payload)
         else await this.api('POST', 'investimentos', payload)
@@ -1812,6 +1922,13 @@ const VM = {
         btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
       }
     })
+  },
+
+  onChangeTipoInvestimento(tipo) {
+    const caixinhaW = document.getElementById('i-caixinha-wrapper')
+    const rentW = document.getElementById('i-rent-wrapper')
+    if (caixinhaW) caixinhaW.style.display = tipo === 'caixinha' ? 'block' : 'none'
+    if (rentW) rentW.style.display = tipo === 'caixinha' ? 'none' : 'block'
   },
 
   async deleteInvestimento(id) {

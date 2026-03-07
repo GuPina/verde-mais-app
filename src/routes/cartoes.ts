@@ -22,7 +22,7 @@ cartoes.get('/', requireAuth, async (c) => {
     // Total de despesas vinculadas ao cartão que ainda não foram pagas (representa uso do limite)
     const uso = await c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
-       WHERE user_id = ? AND cartao_id = ? AND meio_pagamento = 'cartao_credito' AND status = 'pendente'`
+       WHERE user_id = ? AND cartao_id = ? AND meio_pagamento IN ('cartao_credito','parcelado_cartao') AND status = 'pendente'`
     ).bind(user.id, cartao.id).first() as any
 
     const limite_utilizado = uso?.total || 0

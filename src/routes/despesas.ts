@@ -61,7 +61,9 @@ despesas.post('/', requireAuth, async (c) => {
     descricao, data, categoria, subcategoria, valor, 
     parcelado = false, numero_parcelas = 1, status = 'pendente',
     fixa_ou_variavel = 'variavel', recorrente = false, vencimento, observacoes,
-    cartao_id = null, meio_pagamento = 'dinheiro'
+    cartao_id = null, meio_pagamento = 'dinheiro',
+    valor_parcela_override = null,
+    parcelas_total_original = null
   } = body
 
   if (!descricao || !data || !categoria || !valor) {
@@ -69,24 +71,34 @@ despesas.post('/', requireAuth, async (c) => {
   }
 
   const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
-  const valorParcela = parseFloat(valor) / totalParcelas
+  // Se vier valor_parcela_override (compra retroativa), usa ele direto
+  // Senão divide valor pelo total de parcelas normalmente
+  const valorParcela = valor_parcela_override 
+    ? parseFloat(valor_parcela_override)
+    : parseFloat(valor) / totalParcelas
+  // Total original de parcelas (para label ex: 7/10 → parcelas_total_original=10)
+  const totalParcelasLabel = parcelas_total_original ? parseInt(parcelas_total_original) : totalParcelas
   const ids: number[] = []
   const valorTotal = parseFloat(valor)
 
   // Criar parcelas automaticamente
-  for (let i = 1; i <= totalParcelas; i++) {
+  // Para compras retroativas: parcela_atual começa em (totalParcelasLabel - totalParcelas + 1)
+  // Ex: 10x, 3 pagas → restantes=7 → primeira parcela registrada é a 4ª
+  const parcelaInicialLabel = totalParcelasLabel - totalParcelas + 1
+  for (let i = 0; i < totalParcelas; i++) {
     const dataBase = new Date(data)
-    dataBase.setMonth(dataBase.getMonth() + (i - 1))
+    dataBase.setMonth(dataBase.getMonth() + i)
     const dataParcela = dataBase.toISOString().split('T')[0]
+    const parcelaAtualLabel = parcelaInicialLabel + i
 
     const result = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, cartao_id, meio_pagamento) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       user.id, 
-      totalParcelas > 1 ? `${descricao} (${i}/${totalParcelas})` : descricao,
+      totalParcelas > 1 ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao,
       dataParcela, categoria, subcategoria || null, valorParcela,
-      parcelado ? 1 : 0, totalParcelas, i, status,
+      parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
       fixa_ou_variavel, recorrente ? 1 : 0, vencimento || null, observacoes || null,
       cartao_id ? parseInt(cartao_id) : null, meio_pagamento
     ).run()
@@ -94,19 +106,21 @@ despesas.post('/', requireAuth, async (c) => {
     ids.push(result.meta.last_row_id as number)
   }
 
-  // Se tiver cartão associado, reduzir o limite disponível pelo valor TOTAL da compra
+  // Se tiver cartão associado, reduzir o limite disponível pelo valor TOTAL das parcelas RESTANTES
   const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao', 'cartao_debito']
   if (cartao_id && meioPagamentoCartao.includes(meio_pagamento)) {
+    const valorDesconto = valorParcela * totalParcelas
     await c.env.DB.prepare(
       'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-    ).bind(valorTotal, parseInt(cartao_id), user.id).run()
+    ).bind(valorDesconto, parseInt(cartao_id), user.id).run()
   }
 
   return c.json({ 
     success: true, 
     ids, 
     parcelas: totalParcelas,
-    message: totalParcelas > 1 ? `${totalParcelas} parcelas criadas!` : 'Despesa adicionada!'
+    parcelas_total_original: totalParcelasLabel,
+    message: totalParcelas > 1 ? `${totalParcelas} parcelas criadas! (${parcelaInicialLabel}/${totalParcelasLabel} a ${totalParcelas + parcelaInicialLabel - 1}/${totalParcelasLabel})` : 'Despesa adicionada!'
   }, 201)
 })
 

@@ -84,6 +84,8 @@ financiamentos.post('/', requireAuth, async (c) => {
   }
 
   await verificarConquista(c.env.DB, user.id, 'planejador')
+  // Conquista: primeiro imóvel
+  await verificarConquista(c.env.DB, user.id, 'primeiro_imovel')
   return c.json({ success: true, id: finId, message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
@@ -117,13 +119,40 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
 
   const novasParcelas = fin.parcelas_pagas + 1
   const taxaMensal = fin.taxa_juros_mensal / 100
-  const novoSaldo = calcularSaldoDevedor(fin.valor_financiado, taxaMensal, fin.numero_parcelas, novasParcelas)
+
+  // CÁLCULO CORRETO: juros do mês sobre saldo_devedor atual, amortiza a diferença
+  const jurosMes = fin.saldo_devedor * taxaMensal
+  const amortizacao = fin.valor_parcela - jurosMes
+  const novoSaldo = Math.max(0, Math.round((fin.saldo_devedor - amortizacao) * 100) / 100)
   const status = novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare('UPDATE financiamentos SET parcelas_pagas = ?, saldo_devedor = ?, status = ? WHERE id = ? AND user_id = ?').bind(novasParcelas, novoSaldo, status, id, user.id).run()
+
+  // Marcar despesa correspondente como paga (se existir)
+  await c.env.DB.prepare(
+    `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Financiamento' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
+  ).bind(user.id, novasParcelas, `%Financiamento automático #${id}%`).run()
+
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
 
-  return c.json({ success: true, parcelas_pagas: novasParcelas, saldo_devedor: novoSaldo, status, message: status === 'quitado' ? '🎉 Financiamento quitado!' : `Parcela ${novasParcelas}/${fin.numero_parcelas} paga!` })
+  // Verificar conquistas de % quitado do financiamento
+  const percQuitado = fin.numero_parcelas > 0 ? Math.round((novasParcelas / fin.numero_parcelas) * 100) : 0
+  if (percQuitado >= 10) await verificarConquista(c.env.DB, user.id, 'quitou_10pct')
+  if (percQuitado >= 15) await verificarConquista(c.env.DB, user.id, 'quitou_15pct')
+  if (percQuitado >= 20) await verificarConquista(c.env.DB, user.id, 'quitou_20pct')
+  if (percQuitado >= 30) await verificarConquista(c.env.DB, user.id, 'quitou_30pct')
+  if (percQuitado >= 50) await verificarConquista(c.env.DB, user.id, 'quitou_50pct')
+  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'imovel_quitado')
+
+  return c.json({ 
+    success: true, 
+    parcelas_pagas: novasParcelas, 
+    saldo_devedor: novoSaldo, 
+    juros_pagos: Math.round(jurosMes * 100) / 100,
+    amortizacao: Math.round(amortizacao * 100) / 100,
+    status, 
+    message: status === 'quitado' ? '🎉 Financiamento quitado!' : `Parcela ${novasParcelas}/${fin.numero_parcelas} paga! Saldo: R$ ${novoSaldo.toFixed(2)}` 
+  })
 })
 
 // DELETE /api/financiamentos/:id
@@ -165,8 +194,87 @@ function calcularSaldoDevedor(valorFinanciado: number, taxaMensal: number, numPa
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
   try {
-    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(userId, codigo).run()
+    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(userId, codigo).run()
   } catch { }
 }
+
+// ============ PARCELAS DE ENTRADA ============
+
+// GET /api/financiamentos/:id/entrada
+financiamentos.get('/:id/entrada', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const parcelas = await c.env.DB.prepare(
+    'SELECT * FROM financiamento_entrada_parcelas WHERE financiamento_id = ? AND user_id = ? ORDER BY numero ASC'
+  ).bind(id, user.id).all()
+
+  const total = (parcelas.results as any[]).reduce((s, p) => s + p.valor, 0)
+  const totalPago = (parcelas.results as any[]).filter(p => p.status === 'pago').reduce((s, p) => s + p.valor, 0)
+
+  return c.json({ 
+    parcelas: parcelas.results, 
+    resumo: { total, total_pago: totalPago, total_pendente: total - totalPago } 
+  })
+})
+
+// POST /api/financiamentos/:id/entrada — adicionar parcela de entrada
+financiamentos.post('/:id/entrada', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const body = await c.req.json()
+  const { numero, valor, vencimento, observacoes } = body
+  if (!numero || !valor || !vencimento) return c.json({ error: 'Campos obrigatórios: numero, valor, vencimento' }, 400)
+
+  const result = await c.env.DB.prepare(
+    'INSERT INTO financiamento_entrada_parcelas (user_id, financiamento_id, numero, valor, vencimento, observacoes) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(user.id, id, parseInt(numero), parseFloat(valor), vencimento, observacoes || null).run()
+
+  return c.json({ success: true, id: result.meta.last_row_id, message: 'Parcela de entrada adicionada!' }, 201)
+})
+
+// PATCH /api/financiamentos/entrada/:id/status — marcar parcela de entrada como paga
+financiamentos.patch('/entrada/:parcelaId/status', requireAuth, async (c) => {
+  const user = c.get('user')
+  const parcelaId = c.req.param('parcelaId')
+  const { status, data_pagamento } = await c.req.json()
+
+  const parcela = await c.env.DB.prepare('SELECT * FROM financiamento_entrada_parcelas WHERE id = ? AND user_id = ?').bind(parcelaId, user.id).first() as any
+  if (!parcela) return c.json({ error: 'Parcela não encontrada' }, 404)
+
+  await c.env.DB.prepare(
+    'UPDATE financiamento_entrada_parcelas SET status = ?, data_pagamento = ? WHERE id = ? AND user_id = ?'
+  ).bind(status, data_pagamento || null, parcelaId, user.id).run()
+
+  return c.json({ success: true, message: `Parcela marcada como ${status}!` })
+})
+
+// DELETE /api/financiamentos/entrada/:id — remover parcela de entrada
+financiamentos.delete('/entrada/:parcelaId', requireAuth, async (c) => {
+  const user = c.get('user')
+  const parcelaId = c.req.param('parcelaId')
+  await c.env.DB.prepare('DELETE FROM financiamento_entrada_parcelas WHERE id = ? AND user_id = ?').bind(parcelaId, user.id).run()
+  return c.json({ success: true, message: 'Parcela removida!' })
+})
+
+// PATCH /api/financiamentos/:id/evolucao — atualizar % de evolução de obra
+financiamentos.patch('/:id/evolucao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { evolucao_obra_pct } = await c.req.json()
+
+  const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const pct = Math.min(100, Math.max(0, parseFloat(evolucao_obra_pct) || 0))
+  await c.env.DB.prepare('UPDATE financiamentos SET evolucao_obra_pct = ? WHERE id = ? AND user_id = ?').bind(pct, id, user.id).run()
+
+  return c.json({ success: true, evolucao_obra_pct: pct, message: `Evolução de obra atualizada para ${pct}%!` })
+})
 
 export default financiamentos

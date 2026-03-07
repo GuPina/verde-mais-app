@@ -32,7 +32,8 @@ emprestimos.post('/', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json()
   const {
-    descricao, tipo = 'pessoal', valor_original, taxa_juros_mensal, numero_parcelas,
+    descricao, tipo = 'pessoal', valor_original, saldo_devedor: saldoInformado,
+    taxa_juros_mensal, numero_parcelas,
     parcelas_pagas = 0, valor_parcela, data_inicio, dia_vencimento, credor, observacoes
   } = body
 
@@ -41,7 +42,15 @@ emprestimos.post('/', requireAuth, async (c) => {
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
-  const saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parseInt(parcelas_pagas))
+  const parcelasPagasN = parseInt(parcelas_pagas)
+
+  // REGRA: se o usuário informou saldo_devedor_atual, usa ele. Senão, calcula automaticamente.
+  let saldoDevedor: number
+  if (saldoInformado && parseFloat(saldoInformado) > 0) {
+    saldoDevedor = parseFloat(saldoInformado)
+  } else {
+    saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
+  }
 
   const dataInicio = new Date(data_inicio)
   const dataFim = new Date(dataInicio)
@@ -50,17 +59,17 @@ emprestimos.post('/', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(
     `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, observacoes)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parseInt(parcelas_pagas), saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
+  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
 
   const empId = result.meta.last_row_id as number
 
-  // === Criar despesas automáticas das parcelas futuras ===
-  const parcelasPagas = parseInt(parcelas_pagas)
+  // Conquistas por tipo
+  if (tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'primeiro_carro')
   const totalParcelas = parseInt(numero_parcelas)
   const valorParc = parseFloat(valor_parcela)
   const diaVenc = parseInt(dia_vencimento) || dataInicio.getDate()
 
-  for (let i = parcelasPagas; i < totalParcelas; i++) {
+  for (let i = parcelasPagasN; i < totalParcelas; i++) {
     const dataParc = new Date(dataInicio)
     dataParc.setMonth(dataParc.getMonth() + i)
     if (diaVenc && diaVenc !== dataParc.getDate()) {
@@ -77,7 +86,7 @@ emprestimos.post('/', requireAuth, async (c) => {
       'Empréstimo',
       valorParc,
       1, totalParcelas, i + 1,
-      i < parcelasPagas ? 'pago' : 'pendente',
+      i < parcelasPagasN ? 'pago' : 'pendente',
       'fixa', 0,
       dataParcStr,
       `Empréstimo automático #${empId} — ${credor || tipo}`,
@@ -96,22 +105,32 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Empréstimo não encontrado' }, 404)
 
   const body = await c.req.json()
-  const { descricao, tipo, valor_original, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, dia_vencimento, credor, status, observacoes } = body
+  const { descricao, tipo, valor_original, saldo_devedor: saldoInformado, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, dia_vencimento, credor, status, observacoes } = body
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
-  const saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parseInt(parcelas_pagas))
-  const valorPago = parseFloat(valor_parcela) * parseInt(parcelas_pagas)
+  const parcelasPagasN = parseInt(parcelas_pagas)
+
+  // Mesma regra: se informou saldo atual, usa; senão, calcula
+  let saldoDevedor: number
+  if (saldoInformado && parseFloat(saldoInformado) > 0) {
+    saldoDevedor = parseFloat(saldoInformado)
+  } else {
+    saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
+  }
+
+  const valorPago = parseFloat(valor_parcela) * parcelasPagasN
 
   await c.env.DB.prepare(
     `UPDATE emprestimos SET descricao=?, tipo=?, valor_original=?, valor_pago=?, saldo_devedor=?, taxa_juros_mensal=?, taxa_juros_anual=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, data_inicio=?, dia_vencimento=?, credor=?, status=?, observacoes=? WHERE id=? AND user_id=?`
-  ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), data_inicio, parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
+  ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
   return c.json({ success: true, message: 'Empréstimo atualizado!' })
 })
 
 // PATCH /api/emprestimos/:id/parcela
+// Lógica correta: subtrai (parcela - juros_sobre_saldo_atual) do saldo_devedor
 emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
@@ -120,14 +139,37 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
 
   const novasParcelas = emp.parcelas_pagas + 1
   const taxaM = emp.taxa_juros_mensal / 100
-  const novoSaldo = calcSaldo(emp.valor_original, taxaM, emp.numero_parcelas, novasParcelas)
+
+  // CÁLCULO CORRETO: juros do mês sobre saldo_devedor atual, depois amortiza
+  const jurosMes = emp.saldo_devedor * taxaM
+  const amortizacao = emp.valor_parcela - jurosMes
+  const novoSaldo = Math.max(0, Math.round((emp.saldo_devedor - amortizacao) * 100) / 100)
+
   const novoValorPago = emp.valor_pago + emp.valor_parcela
   const status = novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare('UPDATE emprestimos SET parcelas_pagas=?, saldo_devedor=?, valor_pago=?, status=? WHERE id=? AND user_id=?').bind(novasParcelas, novoSaldo, novoValorPago, status, id, user.id).run()
-  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
 
-  return c.json({ success: true, parcelas_pagas: novasParcelas, saldo_devedor: novoSaldo, status, message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `Parcela ${novasParcelas}/${emp.numero_parcelas} paga!` })
+  // Marcar a despesa correspondente como paga (se existir)
+  const parcelaNum = novasParcelas
+  await c.env.DB.prepare(
+    `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Empréstimo' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
+  ).bind(user.id, parcelaNum, `%Empréstimo automático #${id}%`).run()
+
+  if (status === 'quitado') {
+    await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+    if (emp.tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'carro_quitado')
+  }
+
+  return c.json({ 
+    success: true, 
+    parcelas_pagas: novasParcelas, 
+    saldo_devedor: novoSaldo, 
+    juros_pagos: Math.round(jurosMes * 100) / 100,
+    amortizacao: Math.round(amortizacao * 100) / 100,
+    status, 
+    message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `Parcela ${novasParcelas}/${emp.numero_parcelas} paga! Saldo: R$ ${novoSaldo.toFixed(2)}` 
+  })
 })
 
 // DELETE /api/emprestimos/:id
@@ -138,8 +180,12 @@ emprestimos.delete('/:id', requireAuth, async (c) => {
   return c.json({ success: true, message: 'Empréstimo removido!' })
 })
 
+/**
+ * calcSaldo: usado apenas quando o usuário NÃO informa o saldo_devedor_atual.
+ * Calcula o saldo devedor com base na fórmula Price.
+ */
 function calcSaldo(valorOriginal: number, taxaMensal: number, numParcelas: number, parcelasPagas: number): number {
-  if (taxaMensal === 0) return valorOriginal * (1 - parcelasPagas / numParcelas)
+  if (taxaMensal === 0) return Math.max(0, valorOriginal * (1 - parcelasPagas / numParcelas))
   const fator = Math.pow(1 + taxaMensal, numParcelas)
   const fatorPago = Math.pow(1 + taxaMensal, parcelasPagas)
   return Math.max(0, Math.round(valorOriginal * (fator - fatorPago) / (fator - 1) * 100) / 100)
