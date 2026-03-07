@@ -7,6 +7,13 @@ import despesasRoutes from './routes/despesas'
 import metasRoutes from './routes/metas'
 import investimentosRoutes from './routes/investimentos'
 import dashboardRoutes from './routes/dashboard'
+import cartoesRoutes from './routes/cartoes'
+import financiamentosRoutes from './routes/financiamentos'
+import emprestimosRoutes from './routes/emprestimos'
+import lembretesRoutes from './routes/lembretes'
+import conquistasRoutes from './routes/conquistas'
+import iaRoutes from './routes/ia'
+import perfilRoutes from './routes/perfil'
 
 type Bindings = { DB: D1Database }
 
@@ -29,9 +36,16 @@ app.route('/api/despesas', despesasRoutes)
 app.route('/api/metas', metasRoutes)
 app.route('/api/investimentos', investimentosRoutes)
 app.route('/api/dashboard', dashboardRoutes)
+app.route('/api/cartoes', cartoesRoutes)
+app.route('/api/financiamentos', financiamentosRoutes)
+app.route('/api/emprestimos', emprestimosRoutes)
+app.route('/api/lembretes', lembretesRoutes)
+app.route('/api/conquistas', conquistasRoutes)
+app.route('/api/ia', iaRoutes)
+app.route('/api/perfil', perfilRoutes)
 
 // Health check
-app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '1.0.0' }))
+app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '2.0.0' }))
 
 // Landing Page
 app.get('/', (c) => {
@@ -43,6 +57,8 @@ app.get('/app', (c) => c.html(appShell()))
 app.get('/app/*', (c) => c.html(appShell()))
 app.get('/login', (c) => c.html(appShell()))
 app.get('/cadastro', (c) => c.html(appShell()))
+app.get('/onboarding', (c) => c.html(appShell()))
+app.get('/onboarding/*', (c) => c.html(appShell()))
 
 function landingPage() {
   return `<!DOCTYPE html>

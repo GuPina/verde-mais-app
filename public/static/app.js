@@ -16,6 +16,10 @@ const VM = {
     if (path === '/login') return this.renderLogin()
     if (path === '/cadastro') return this.renderCadastro()
     if (path === '/' || path === '') return window.location.href = '/'
+    if (path.startsWith('/onboarding')) {
+      if (!this.token) return window.location.href = '/login'
+      return this.renderOnboarding()
+    }
     if (path.startsWith('/app')) {
       if (!this.token) return window.location.href = '/login'
       this.renderApp()
@@ -140,7 +144,7 @@ const VM = {
   renderCadastro() {
     document.getElementById('app').innerHTML = `
       <div class="auth-page">
-        <div class="auth-card">
+        <div class="auth-card" style="max-width:480px;">
           <div class="auth-logo">
             <div class="logo-icon">💚</div>
             <div style="font-size:1.6rem;font-weight:800;" class="gradient-text">VerdeMais</div>
@@ -154,24 +158,42 @@ const VM = {
           <form id="cadastro-form">
             <div class="form-group">
               <label class="form-label">Nome completo</label>
-              <input type="text" id="cad-nome" class="form-input" placeholder="Seu nome" required>
+              <input type="text" id="cad-nome" class="form-input" placeholder="Seu nome completo" required>
             </div>
             <div class="form-group">
-              <label class="form-label">Email</label>
+              <label class="form-label">E-mail</label>
               <input type="email" id="cad-email" class="form-input" placeholder="seu@email.com" required>
             </div>
             <div class="form-group">
-              <label class="form-label">Senha (mínimo 6 caracteres)</label>
-              <input type="password" id="cad-senha" class="form-input" placeholder="••••••••" required minlength="6">
+              <label class="form-label">Confirmar e-mail</label>
+              <input type="email" id="cad-email2" class="form-input" placeholder="Confirme seu e-mail" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Senha <span style="color:#555;font-size:0.78rem;">(mínimo 6 caracteres)</span></label>
+              <div style="position:relative;">
+                <input type="password" id="cad-senha" class="form-input" placeholder="••••••••" required minlength="6" style="padding-right:44px;">
+                <button type="button" onclick="VM.toggleSenha('cad-senha','eye1')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:1rem;" id="eye1"><i class="fas fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirmar senha</label>
+              <div style="position:relative;">
+                <input type="password" id="cad-senha2" class="form-input" placeholder="••••••••" required minlength="6" style="padding-right:44px;">
+                <button type="button" onclick="VM.toggleSenha('cad-senha2','eye2')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:1rem;" id="eye2"><i class="fas fa-eye"></i></button>
+              </div>
+            </div>
+            <div id="senha-strength" style="margin-bottom:12px;display:none;">
+              <div style="display:flex;gap:4px;margin-bottom:4px;" id="strength-bars"></div>
+              <div style="font-size:0.75rem;" id="strength-label"></div>
             </div>
             <button type="submit" class="btn-primary" id="cad-btn">
               <i class="fas fa-user-plus"></i> Criar conta grátis
             </button>
           </form>
           
-          <div style="text-align:center;margin-top:24px;color:#666;font-size:0.82rem;line-height:1.6;">
+          <div style="text-align:center;margin-top:20px;color:#666;font-size:0.78rem;line-height:1.6;">
             Ao criar conta você concorda com os <a href="#" style="color:#2FBF71;">Termos de Uso</a> e 
-            <a href="#" style="color:#2FBF71;">Política de Privacidade</a>
+            <a href="#" style="color:#2FBF71;">Política de Privacidade</a> (LGPD)
           </div>
           <div style="text-align:center;margin-top:16px;color:#666;font-size:0.88rem;">
             Já tem conta? <a href="/login" style="color:#2FBF71;text-decoration:none;font-weight:600;">Entrar</a>
@@ -180,23 +202,68 @@ const VM = {
       </div>
     `
 
+    // Verificação de força da senha
+    document.getElementById('cad-senha').addEventListener('input', (e) => {
+      const senha = e.target.value
+      const strengthEl = document.getElementById('senha-strength')
+      const barsEl = document.getElementById('strength-bars')
+      const labelEl = document.getElementById('strength-label')
+      if (senha.length === 0) { strengthEl.style.display = 'none'; return }
+      strengthEl.style.display = 'block'
+      let score = 0
+      if (senha.length >= 8) score++
+      if (/[A-Z]/.test(senha)) score++
+      if (/[0-9]/.test(senha)) score++
+      if (/[^A-Za-z0-9]/.test(senha)) score++
+      const levels = [
+        { label: 'Muito fraca', color: '#ff4444' },
+        { label: 'Fraca', color: '#ff8800' },
+        { label: 'Média', color: '#ffc400' },
+        { label: 'Forte', color: '#2FBF71' },
+        { label: 'Muito forte', color: '#00a854' }
+      ]
+      const lvl = levels[score] || levels[0]
+      barsEl.innerHTML = Array(4).fill(0).map((_, i) => `<div style="flex:1;height:4px;border-radius:2px;background:${i < score ? lvl.color : 'rgba(255,255,255,0.1)'}"></div>`).join('')
+      labelEl.innerHTML = `<span style="color:${lvl.color};">${lvl.label}</span>`
+    })
+
     document.getElementById('cadastro-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('cad-btn')
       const errEl = document.getElementById('auth-error')
+      
+      const email = document.getElementById('cad-email').value
+      const email2 = document.getElementById('cad-email2').value
+      const senha = document.getElementById('cad-senha').value
+      const senha2 = document.getElementById('cad-senha2').value
+
+      errEl.style.display = 'none'
+      
+      if (email !== email2) {
+        errEl.textContent = 'Os e-mails não coincidem. Verifique e tente novamente.'
+        errEl.style.display = 'block'; return
+      }
+      if (senha !== senha2) {
+        errEl.textContent = 'As senhas não coincidem. Verifique e tente novamente.'
+        errEl.style.display = 'block'; return
+      }
+      if (senha.length < 6) {
+        errEl.textContent = 'A senha deve ter pelo menos 6 caracteres.'
+        errEl.style.display = 'block'; return
+      }
+
       btn.disabled = true
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Criando conta...'
-      errEl.style.display = 'none'
 
       try {
         const res = await axios.post('/api/auth/register', {
           nome: document.getElementById('cad-nome').value,
-          email: document.getElementById('cad-email').value,
-          senha: document.getElementById('cad-senha').value
+          email, senha
         })
         localStorage.setItem('vm_token', res.data.token)
         localStorage.setItem('vm_user', JSON.stringify(res.data.user))
-        window.location.href = '/app'
+        // Redirecionar para onboarding
+        window.location.href = '/onboarding'
       } catch (e) {
         errEl.textContent = e.response?.data?.error || 'Erro ao criar conta'
         errEl.style.display = 'block'
@@ -204,6 +271,18 @@ const VM = {
         btn.innerHTML = '<i class="fas fa-user-plus"></i> Criar conta grátis'
       }
     })
+  },
+
+  toggleSenha(inputId, btnId) {
+    const input = document.getElementById(inputId)
+    const btn = document.getElementById(btnId)
+    if (input.type === 'password') {
+      input.type = 'text'
+      btn.innerHTML = '<i class="fas fa-eye-slash"></i>'
+    } else {
+      input.type = 'password'
+      btn.innerHTML = '<i class="fas fa-eye"></i>'
+    }
   },
 
   // ======= APP =======
@@ -221,7 +300,8 @@ const VM = {
             <span style="font-size:1.2rem;font-weight:800;" class="gradient-text">VerdeMais</span>
           </div>
           
-          <nav>
+          <nav style="overflow-y:auto;flex:1;padding-bottom:8px;">
+            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:0 14px 8px;font-weight:600;">Principal</div>
             <a class="nav-item active" id="nav-dashboard" onclick="VM.navigate('dashboard')">
               <span class="nav-icon"><i class="fas fa-chart-pie"></i></span> Dashboard
             </a>
@@ -231,28 +311,54 @@ const VM = {
             <a class="nav-item" id="nav-despesas" onclick="VM.navigate('despesas')">
               <span class="nav-icon"><i class="fas fa-arrow-down"></i></span> Despesas
             </a>
+            <a class="nav-item" id="nav-cartoes" onclick="VM.navigate('cartoes')">
+              <span class="nav-icon"><i class="fas fa-credit-card"></i></span> Cartões
+            </a>
+            
+            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Planejamento</div>
             <a class="nav-item" id="nav-metas" onclick="VM.navigate('metas')">
               <span class="nav-icon"><i class="fas fa-bullseye"></i></span> Metas
             </a>
+            <a class="nav-item" id="nav-lembretes" onclick="VM.navigate('lembretes')">
+              <span class="nav-icon"><i class="fas fa-bell"></i></span> Lembretes
+              <span id="badge-lembretes" style="display:none;margin-left:auto;background:#ffc400;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+            </a>
+            
+            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Patrimônio & Dívidas</div>
             <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
               <span class="nav-icon"><i class="fas fa-chart-line"></i></span> Investimentos
             </a>
+            <a class="nav-item" id="nav-financiamentos" onclick="VM.navigate('financiamentos')">
+              <span class="nav-icon"><i class="fas fa-home"></i></span> Financiamentos
+            </a>
+            <a class="nav-item" id="nav-emprestimos" onclick="VM.navigate('emprestimos')">
+              <span class="nav-icon"><i class="fas fa-hand-holding-usd"></i></span> Empréstimos
+            </a>
+            
+            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Análises</div>
             <a class="nav-item" id="nav-relatorios" onclick="VM.navigate('relatorios')">
               <span class="nav-icon"><i class="fas fa-file-alt"></i></span> Relatórios
             </a>
             <a class="nav-item" id="nav-simulacao" onclick="VM.navigate('simulacao')">
               <span class="nav-icon"><i class="fas fa-calculator"></i></span> Simulações
             </a>
+            <a class="nav-item" id="nav-ia" onclick="VM.navigate('ia')">
+              <span class="nav-icon"><i class="fas fa-brain"></i></span> Análise IA ✨
+            </a>
+            <a class="nav-item" id="nav-conquistas" onclick="VM.navigate('conquistas')">
+              <span class="nav-icon"><i class="fas fa-trophy"></i></span> Conquistas
+              <span id="badge-conquistas" style="display:none;margin-left:auto;background:#2FBF71;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+            </a>
           </nav>
           
           <div class="sidebar-user" onclick="VM.navigate('perfil')">
             <div style="display:flex;align-items:center;gap:10px;">
-              <div style="width:36px;height:36px;background:${avatarColor};border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;">${initials}</div>
+              <div style="width:36px;height:36px;background:${avatarColor};border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;">${initials}</div>
               <div style="flex:1;min-width:0;">
                 <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${userName}</div>
                 <div style="font-size:0.72rem;color:#666;">${this.user?.plano || 'Free'}</div>
               </div>
-              <i class="fas fa-ellipsis-v" style="color:#555;font-size:0.75rem;"></i>
+              <i class="fas fa-cog" style="color:#555;font-size:0.75rem;"></i>
             </div>
           </div>
         </aside>
@@ -262,7 +368,7 @@ const VM = {
           <header class="topbar">
             <div style="display:flex;align-items:center;gap:16px;">
               <button onclick="document.getElementById('sidebar').classList.toggle('open')" 
-                style="background:none;border:none;color:#888;font-size:1.1rem;cursor:pointer;display:none;" id="menu-btn">
+                style="background:none;border:none;color:#888;font-size:1.1rem;cursor:pointer;" id="menu-btn">
                 <i class="fas fa-bars"></i>
               </button>
               <div>
@@ -273,7 +379,7 @@ const VM = {
             <div style="display:flex;align-items:center;gap:12px;">
               <div style="font-size:0.8rem;color:#555;" id="topbar-date"></div>
               <button onclick="VM.logout()" class="btn-secondary" style="font-size:0.8rem;padding:8px 14px;">
-                <i class="fas fa-sign-out-alt"></i> Sair
+                <i class="fas fa-sign-out-alt"></i>
               </button>
             </div>
           </header>
@@ -300,10 +406,21 @@ const VM = {
     const page = path.replace('/app/', '').replace('/app', '') || 'dashboard'
     this.navigate(page || 'dashboard')
 
-    // Responsive
-    if (window.innerWidth <= 768) {
-      document.getElementById('menu-btn').style.display = 'block'
-    }
+    // Carregar badges
+    this.carregarBadges()
+  },
+
+  async carregarBadges() {
+    try {
+      const [lembretes, conquistas] = await Promise.all([
+        this.api('GET', 'lembretes').catch(() => ({ urgentes: 0 })),
+        this.api('GET', 'conquistas/novas').catch(() => ({ novas: [] }))
+      ])
+      const badgeLemb = document.getElementById('badge-lembretes')
+      const badgeConq = document.getElementById('badge-conquistas')
+      if (badgeLemb && lembretes.urgentes > 0) { badgeLemb.textContent = lembretes.urgentes; badgeLemb.style.display = 'inline'; }
+      if (badgeConq && conquistas.novas?.length > 0) { badgeConq.textContent = conquistas.novas.length; badgeConq.style.display = 'inline'; }
+    } catch { }
   },
 
   navigate(page) {
@@ -316,10 +433,16 @@ const VM = {
       dashboard: ['Dashboard', 'Visão geral das suas finanças'],
       receitas: ['Receitas', 'Controle de entradas'],
       despesas: ['Despesas', 'Controle de saídas e gastos'],
+      cartoes: ['Cartões', 'Controle de faturas e limites'],
       metas: ['Metas Financeiras', 'Seus objetivos e conquistas'],
+      lembretes: ['Lembretes', 'Contas e vencimentos'],
       investimentos: ['Investimentos', 'Patrimônio e rentabilidade'],
+      financiamentos: ['Financiamentos', 'Imóveis e financiamentos'],
+      emprestimos: ['Empréstimos', 'Controle de dívidas'],
       relatorios: ['Relatórios', 'Análise detalhada'],
       simulacao: ['Simulações', 'Projeções de investimento'],
+      ia: ['Análise com IA ✨', 'Insights personalizados'],
+      conquistas: ['Conquistas', 'Sua evolução financeira'],
       perfil: ['Meu Perfil', 'Configurações da conta']
     }
 
@@ -333,10 +456,16 @@ const VM = {
       dashboard: () => this.pageDashboard(),
       receitas: () => this.pageReceitas(),
       despesas: () => this.pageDespesas(),
+      cartoes: () => this.pageCartoes(),
       metas: () => this.pageMetas(),
+      lembretes: () => this.pageLembretes(),
       investimentos: () => this.pageInvestimentos(),
+      financiamentos: () => this.pageFinanciamentos(),
+      emprestimos: () => this.pageEmprestimos(),
       relatorios: () => this.pageRelatorios(),
       simulacao: () => this.pageSimulacao(),
+      ia: () => this.pageIA(),
+      conquistas: () => this.pageConquistas(),
       perfil: () => this.pagePerfil()
     }
 
@@ -1697,6 +1826,1633 @@ const VM = {
         </button>
       </div>
     `
+  },
+
+  // ======= ONBOARDING WIZARD =======
+  renderOnboarding() {
+    this.onboardingStep = 1
+    this.onboardingData = {}
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;background:linear-gradient(135deg,#0f0f1a 0%,#0d2818 100%);display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div style="width:100%;max-width:600px;">
+          <div style="text-align:center;margin-bottom:32px;">
+            <div style="font-size:2.5rem;margin-bottom:8px;">💚</div>
+            <div style="font-size:1.4rem;font-weight:800;" class="gradient-text">VerdeMais</div>
+            <div style="color:#666;font-size:0.9rem;margin-top:4px;">Vamos personalizar sua experiência</div>
+          </div>
+          
+          <!-- Progress Bar -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:32px;" id="ob-progress">
+            ${[1,2,3,4,5].map(i => `
+              <div style="flex:1;height:4px;border-radius:2px;background:${i===1 ? 'linear-gradient(90deg,#2FBF71,#208040)' : 'rgba(255,255,255,0.1)'};transition:all 0.3s;" id="ob-bar-${i}"></div>
+            `).join('')}
+          </div>
+          
+          <div id="ob-card" style="background:rgba(255,255,255,0.04);border:1px solid rgba(47,191,113,0.15);border-radius:24px;padding:40px;">
+            <!-- Conteúdo será injetado por JS -->
+          </div>
+        </div>
+      </div>
+    `
+    this.renderOnboardingStep(1)
+  },
+
+  renderOnboardingStep(step) {
+    this.onboardingStep = step
+    const card = document.getElementById('ob-card')
+    
+    // Atualizar barra de progresso
+    for (let i = 1; i <= 5; i++) {
+      const bar = document.getElementById(`ob-bar-${i}`)
+      if (bar) {
+        bar.style.background = i <= step ? 'linear-gradient(90deg,#2FBF71,#208040)' : 'rgba(255,255,255,0.1)'
+      }
+    }
+
+    const steps = {
+      1: {
+        icon: '👋',
+        titulo: `Olá, ${this.user?.nome?.split(' ')[0] || 'seja bem-vindo'}!`,
+        subtitulo: 'Antes de começar, queremos entender melhor sua situação financeira para oferecer insights personalizados.',
+        html: `
+          <div class="form-group">
+            <label class="form-label">Qual é sua situação de emprego atual?</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;" id="emprego-options">
+              ${[
+                {v:'empregado_clt', l:'👔 CLT / Empregado'},
+                {v:'autonomo', l:'💼 Autônomo'},
+                {v:'empresario', l:'🏢 Empresário'},
+                {v:'freelancer', l:'💻 Freelancer'},
+                {v:'servidor_publico', l:'🏛️ Servidor Público'},
+                {v:'aposentado', l:'🌅 Aposentado'},
+                {v:'estudante', l:'🎓 Estudante'},
+                {v:'desempregado', l:'🔍 Buscando emprego'}
+              ].map(o => `
+                <div onclick="VM.selectOB('emprego-options','${o.v}',this)" 
+                  data-val="${o.v}"
+                  style="padding:14px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;transition:all 0.2s;font-size:0.88rem;text-align:center;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-emprego" value="">
+          </div>
+        `
+      },
+      2: {
+        icon: '💰',
+        titulo: 'Qual é a sua renda mensal?',
+        subtitulo: 'Estas informações são sigilosas e usadas apenas para calcular seu score e sugestões.',
+        html: `
+          <div class="form-group">
+            <label class="form-label">Renda mensal aproximada (R$)</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;" id="renda-options">
+              ${[
+                {v:'1000', l:'Até R$ 1.000'},
+                {v:'2000', l:'R$ 1.001 – R$ 2.000'},
+                {v:'3500', l:'R$ 2.001 – R$ 5.000'},
+                {v:'7500', l:'R$ 5.001 – R$ 10.000'},
+                {v:'15000', l:'R$ 10.001 – R$ 20.000'},
+                {v:'30000', l:'Acima de R$ 20.000'}
+              ].map(o => `
+                <div onclick="VM.selectOB('renda-options','${o.v}',this)"
+                  data-val="${o.v}"
+                  style="padding:14px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;transition:all 0.2s;font-size:0.88rem;text-align:center;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-renda" value="">
+          </div>
+          
+          <div class="form-group" style="margin-top:20px;">
+            <label class="form-label">Quantas pessoas dependem financeiramente de você?</label>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;" id="dep-options">
+              ${['0','1','2','3','4','5+'].map(d => `
+                <div onclick="VM.selectOB('dep-options','${d}',this)"
+                  data-val="${d}"
+                  style="padding:10px 20px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;font-size:0.9rem;font-weight:600;min-width:52px;text-align:center;">
+                  ${d}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-dependentes" value="">
+          </div>
+        `
+      },
+      3: {
+        icon: '💳',
+        titulo: 'Como são seus hábitos financeiros?',
+        subtitulo: 'Seja honesto! Vamos traçar um plano real para você.',
+        html: `
+          <div class="form-group">
+            <label class="form-label">Atualmente, você consegue poupar?</label>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;" id="poupar-options">
+              ${[
+                {v:'nao', l:'❌ Não, gasto mais do que ganho'},
+                {v:'pouco', l:'⚠️ Às vezes, mas é difícil'},
+                {v:'sim', l:'✅ Sim, consigo poupar todo mês'},
+                {v:'investindo', l:'📈 Sim, e ainda invisto regularmente'}
+              ].map(o => `
+                <div onclick="VM.selectOB('poupar-options','${o.v}',this)"
+                  data-val="${o.v}"
+                  style="padding:14px 18px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;transition:all 0.2s;font-size:0.9rem;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-poupar" value="">
+          </div>
+          
+          <div class="form-group" style="margin-top:20px;">
+            <label class="form-label">Qual é sua maior dificuldade financeira hoje?</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;" id="dific-options">
+              ${[
+                {v:'gastos_excessivos', l:'💸 Gastos excessivos'},
+                {v:'dividas', l:'💳 Dívidas e cartão'},
+                {v:'falta_planejamento', l:'📋 Falta de planejamento'},
+                {v:'renda_baixa', l:'💰 Renda insuficiente'},
+                {v:'investir', l:'📈 Não sei como investir'},
+                {v:'emergencias', l:'🚨 Imprevistos financeiros'}
+              ].map(o => `
+                <div onclick="VM.selectOB('dific-options','${o.v}',this)"
+                  data-val="${o.v}"
+                  style="padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;font-size:0.82rem;text-align:center;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-dificuldade" value="">
+          </div>
+        `
+      },
+      4: {
+        icon: '🎯',
+        titulo: 'Quais são seus objetivos?',
+        subtitulo: 'Selecione tudo que deseja conquistar. Priorizaremos juntos.',
+        html: `
+          <div class="form-group">
+            <label class="form-label">Seus principais objetivos financeiros <span style="color:#555;">(selecione quantos quiser)</span></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;" id="obj-options">
+              ${[
+                {v:'reserva_emergencia', l:'🛡️ Reserva de emergência'},
+                {v:'quitar_dividas', l:'💳 Quitar dívidas'},
+                {v:'comprar_casa', l:'🏠 Comprar imóvel'},
+                {v:'comprar_carro', l:'🚗 Comprar veículo'},
+                {v:'aposentadoria', l:'🌅 Planejar aposentadoria'},
+                {v:'viagem', l:'✈️ Viajar / lazer'},
+                {v:'investir_mais', l:'📈 Ampliar investimentos'},
+                {v:'educacao', l:'🎓 Investir em educação'},
+                {v:'negocio', l:'🏢 Abrir negócio'},
+                {v:'independencia_financeira', l:'🦅 Independência financeira'}
+              ].map(o => `
+                <div onclick="VM.toggleOBMulti(this,'${o.v}')"
+                  data-val="${o.v}"
+                  class="ob-multi"
+                  style="padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;font-size:0.82rem;text-align:center;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <div class="form-group" style="margin-top:20px;">
+            <label class="form-label">Qual o seu perfil de investidor?</label>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;" id="perfil-options">
+              ${[
+                {v:'conservador', l:'🛡️ Conservador – Prefiro segurança, aceito rentabilidade menor'},
+                {v:'moderado', l:'⚖️ Moderado – Equilíbrio entre segurança e crescimento'},
+                {v:'arrojado', l:'🚀 Arrojado – Aceito riscos em busca de maior retorno'}
+              ].map(o => `
+                <div onclick="VM.selectOB('perfil-options','${o.v}',this)"
+                  data-val="${o.v}"
+                  style="padding:14px 18px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;transition:all 0.2s;font-size:0.88rem;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-perfil-inv" value="">
+          </div>
+        `
+      },
+      5: {
+        icon: '🏁',
+        titulo: 'Quase lá! Só mais alguns detalhes.',
+        subtitulo: 'Essas informações nos ajudam a personalizar ainda mais o VerdeMais para você.',
+        html: `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div class="form-group">
+              <label class="form-label">Estado civil</label>
+              <select id="ob-estado-civil" class="form-select">
+                <option value="solteiro">Solteiro(a)</option>
+                <option value="casado">Casado(a)</option>
+                <option value="divorciado">Divorciado(a)</option>
+                <option value="viuvo">Viúvo(a)</option>
+                <option value="uniao_estavel">União estável</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Profissão</label>
+              <input type="text" id="ob-profissao" class="form-input" placeholder="Ex: Analista de Dados">
+            </div>
+          </div>
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div class="form-group">
+              <label class="form-label">Cidade</label>
+              <input type="text" id="ob-cidade" class="form-input" placeholder="Sua cidade">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Estado (UF)</label>
+              <select id="ob-estado" class="form-select">
+                ${['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => `<option>${uf}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Com que frequência você quer revisar suas finanças?</label>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;" id="freq-options">
+              ${[
+                {v:'diario', l:'📆 Diariamente – Sou muito disciplinado'},
+                {v:'semanal', l:'📅 Semanalmente – Prefiro revisões rápidas'},
+                {v:'mensal', l:'📋 Mensalmente – Faço uma revisão mensal completa'}
+              ].map(o => `
+                <div onclick="VM.selectOB('freq-options','${o.v}',this)"
+                  data-val="${o.v}"
+                  style="padding:12px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;transition:all 0.2s;font-size:0.88rem;">
+                  ${o.l}
+                </div>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ob-frequencia" value="">
+          </div>
+        `
+      }
+    }
+
+    const s = steps[step]
+    card.innerHTML = `
+      <div style="text-align:center;margin-bottom:28px;">
+        <div style="font-size:2.5rem;margin-bottom:12px;">${s.icon}</div>
+        <h2 style="font-size:1.3rem;font-weight:700;margin-bottom:8px;">${s.titulo}</h2>
+        <p style="color:#666;font-size:0.9rem;line-height:1.6;">${s.subtitulo}</p>
+      </div>
+      
+      <div style="font-size:0.75rem;color:#444;text-align:center;margin-bottom:20px;">Etapa ${step} de 5</div>
+      
+      ${s.html}
+      
+      <div style="display:flex;gap:12px;margin-top:28px;">
+        ${step > 1 ? `
+          <button onclick="VM.renderOnboardingStep(${step-1})" class="btn-secondary" style="flex:0 0 auto;padding:12px 20px;">
+            <i class="fas fa-arrow-left"></i> Voltar
+          </button>
+        ` : `
+          <button onclick="window.location.href='/app'" class="btn-secondary" style="flex:0 0 auto;padding:12px 20px;">
+            Pular
+          </button>
+        `}
+        <button onclick="VM.nextOnboardingStep(${step})" class="btn-primary" style="flex:1;justify-content:center;" id="ob-next">
+          ${step === 5 ? '<i class="fas fa-rocket"></i> Começar VerdeMais' : 'Próximo <i class="fas fa-arrow-right"></i>'}
+        </button>
+      </div>
+      
+      ${step < 5 ? `<div style="text-align:center;margin-top:16px;"><button onclick="window.location.href='/app'" style="background:none;border:none;color:#444;cursor:pointer;font-size:0.8rem;">Pular configuração</button></div>` : ''}
+    `
+
+    // Restaurar valores já preenchidos
+    if (this.onboardingData) {
+      const restore = {
+        1: () => {
+          if (this.onboardingData.emprego) this.preSelectOB('emprego-options', this.onboardingData.emprego)
+        },
+        2: () => {
+          if (this.onboardingData.renda) this.preSelectOB('renda-options', this.onboardingData.renda)
+          if (this.onboardingData.dependentes) this.preSelectOB('dep-options', this.onboardingData.dependentes)
+        },
+        3: () => {
+          if (this.onboardingData.poupar) this.preSelectOB('poupar-options', this.onboardingData.poupar)
+          if (this.onboardingData.dificuldade) this.preSelectOB('dific-options', this.onboardingData.dificuldade)
+        },
+        4: () => {
+          if (this.onboardingData.perfil_inv) this.preSelectOB('perfil-options', this.onboardingData.perfil_inv)
+          if (this.onboardingData.objetivos) {
+            this.onboardingData.objetivos.forEach(v => {
+              const el = document.querySelector(`[data-val="${v}"].ob-multi`)
+              if (el) { el.style.borderColor = '#2FBF71'; el.style.background = 'rgba(47,191,113,0.12)'; el.style.color = '#2FBF71' }
+            })
+          }
+        }
+      }
+      if (restore[step]) restore[step]()
+    }
+  },
+
+  selectOB(groupId, val, el) {
+    document.querySelectorAll(`#${groupId} [data-val]`).forEach(e => {
+      e.style.borderColor = 'rgba(255,255,255,0.1)'
+      e.style.background = 'transparent'
+      e.style.color = ''
+    })
+    el.style.borderColor = '#2FBF71'
+    el.style.background = 'rgba(47,191,113,0.12)'
+    el.style.color = '#2FBF71'
+    
+    // Encontrar input hidden associado
+    const group = document.getElementById(groupId)
+    if (group) {
+      const hidden = group.nextElementSibling
+      if (hidden && hidden.tagName === 'INPUT') hidden.value = val
+    }
+  },
+
+  preSelectOB(groupId, val) {
+    const el = document.querySelector(`#${groupId} [data-val="${val}"]`)
+    if (el) {
+      el.style.borderColor = '#2FBF71'
+      el.style.background = 'rgba(47,191,113,0.12)'
+      el.style.color = '#2FBF71'
+      const group = document.getElementById(groupId)
+      if (group) {
+        const hidden = group.nextElementSibling
+        if (hidden && hidden.tagName === 'INPUT') hidden.value = val
+      }
+    }
+  },
+
+  toggleOBMulti(el, val) {
+    const isSelected = el.style.borderColor === 'rgb(47, 191, 113)'
+    if (isSelected) {
+      el.style.borderColor = 'rgba(255,255,255,0.1)'
+      el.style.background = 'transparent'
+      el.style.color = ''
+    } else {
+      el.style.borderColor = '#2FBF71'
+      el.style.background = 'rgba(47,191,113,0.12)'
+      el.style.color = '#2FBF71'
+    }
+  },
+
+  async nextOnboardingStep(step) {
+    const btn = document.getElementById('ob-next')
+    
+    // Coletar dados do step atual
+    if (step === 1) {
+      const emprego = document.getElementById('ob-emprego')?.value
+      if (!emprego) { this.toast('Selecione sua situação de emprego', 'warning'); return }
+      this.onboardingData.emprego = emprego
+    } else if (step === 2) {
+      const renda = document.getElementById('ob-renda')?.value
+      const dep = document.getElementById('ob-dependentes')?.value
+      if (!renda) { this.toast('Selecione sua faixa de renda', 'warning'); return }
+      if (dep === '') { this.toast('Informe o número de dependentes', 'warning'); return }
+      this.onboardingData.renda = renda
+      this.onboardingData.dependentes = dep
+    } else if (step === 3) {
+      const poupar = document.getElementById('ob-poupar')?.value
+      const dific = document.getElementById('ob-dificuldade')?.value
+      if (!poupar) { this.toast('Responda sobre sua capacidade de poupar', 'warning'); return }
+      this.onboardingData.poupar = poupar
+      this.onboardingData.dificuldade = dific || 'falta_planejamento'
+    } else if (step === 4) {
+      const perfil = document.getElementById('ob-perfil-inv')?.value
+      const objetivos = [...document.querySelectorAll('.ob-multi')].filter(e => e.style.borderColor === 'rgb(47, 191, 113)').map(e => e.dataset.val)
+      if (!perfil) { this.toast('Selecione seu perfil de investidor', 'warning'); return }
+      this.onboardingData.perfil_inv = perfil
+      this.onboardingData.objetivos = objetivos
+    } else if (step === 5) {
+      // Salvar tudo
+      const freq = document.getElementById('ob-frequencia')?.value
+      this.onboardingData.estado_civil = document.getElementById('ob-estado-civil')?.value
+      this.onboardingData.profissao = document.getElementById('ob-profissao')?.value
+      this.onboardingData.cidade = document.getElementById('ob-cidade')?.value
+      this.onboardingData.estado = document.getElementById('ob-estado')?.value
+      this.onboardingData.frequencia = freq || 'mensal'
+      
+      btn.disabled = true
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      
+      try {
+        await this.api('POST', 'perfil/onboarding', {
+          situacao_emprego: this.onboardingData.emprego,
+          salario_mensal: parseFloat(this.onboardingData.renda) || 0,
+          dependentes: parseInt(this.onboardingData.dependentes) || 0,
+          perfil_investidor: this.onboardingData.perfil_inv,
+          estado_civil: this.onboardingData.estado_civil,
+          profissao: this.onboardingData.profissao,
+          cidade: this.onboardingData.cidade,
+          estado: this.onboardingData.estado,
+          perfil_completo: 1,
+          onboarding_step: 5,
+          meta_poupanca: this.onboardingData.poupar,
+          dificuldade_principal: this.onboardingData.dificuldade,
+          objetivos: this.onboardingData.objetivos || [],
+          frequencia_revisao: this.onboardingData.frequencia
+        })
+        
+        // Atualizar user local
+        this.user = { ...this.user, perfil_investidor: this.onboardingData.perfil_inv }
+        localStorage.setItem('vm_user', JSON.stringify(this.user))
+        
+        // Mostrar tela de conclusão
+        this.renderOnboardingFinal()
+      } catch (e) {
+        this.toast('Erro ao salvar perfil', 'error')
+        btn.disabled = false
+        btn.innerHTML = '<i class="fas fa-rocket"></i> Começar VerdeMais'
+      }
+      return
+    }
+    
+    if (step < 5) this.renderOnboardingStep(step + 1)
+  },
+
+  renderOnboardingFinal() {
+    const nome = this.user?.nome?.split(' ')[0] || 'você'
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;background:linear-gradient(135deg,#0f0f1a 0%,#0d2818 100%);display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div style="width:100%;max-width:520px;text-align:center;">
+          <div style="font-size:4rem;margin-bottom:24px;animation:bounceIn 0.6s ease;">🏆</div>
+          <h1 style="font-size:2rem;font-weight:800;margin-bottom:16px;">
+            Perfil configurado,<br><span class="gradient-text">${nome}!</span>
+          </h1>
+          <p style="color:#888;font-size:1rem;line-height:1.7;margin-bottom:32px;">
+            Seu VerdeMais está personalizado. Agora vamos organizar suas finanças e construir seu futuro juntos. 💚
+          </p>
+          
+          <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:20px;padding:24px;margin-bottom:32px;">
+            <div style="font-weight:700;margin-bottom:16px;color:#2FBF71;">🚀 Próximos passos recomendados</div>
+            <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
+                <div style="width:28px;height:28px;background:#2FBF71;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">1</div>
+                Adicione sua renda mensal no módulo <strong style="color:#fff;">Receitas</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
+                <div style="width:28px;height:28px;background:#208040;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">2</div>
+                Registre suas principais despesas mensais
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
+                <div style="width:28px;height:28px;background:rgba(47,191,113,0.4);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">3</div>
+                Crie sua primeira meta financeira
+              </div>
+            </div>
+          </div>
+          
+          <button onclick="window.location.href='/app/dashboard'" class="btn-primary" style="font-size:1.1rem;padding:16px 48px;width:100%;justify-content:center;">
+            <i class="fas fa-rocket"></i> Abrir meu Dashboard
+          </button>
+        </div>
+      </div>
+      <style>@keyframes bounceIn { 0%{transform:scale(0.3);opacity:0} 60%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }</style>
+    `
+  },
+
+  // ============== CARTÕES ==============
+  async pageCartoes() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">💳 Cartões de Crédito</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas faturas e compras</div>
+        </div>
+        <button onclick="VM.modalCartao()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Novo Cartão
+        </button>
+      </div>
+      <div id="cartoes-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarCartoes()
+  },
+
+  async carregarCartoes() {
+    try {
+      const data = await this.api('GET', 'cartoes')
+      const container = document.getElementById('cartoes-container')
+      const bandeiras = { visa: '💙 Visa', mastercard: '🔴 Mastercard', elo: '💛 Elo', amex: '🟢 Amex', hipercard: '🔵 Hipercard', outros: '💳 Outros' }
+
+      if (data.cartoes.length === 0) {
+        container.innerHTML = `
+          <div class="card" style="text-align:center;padding:60px 40px;">
+            <div style="font-size:3rem;margin-bottom:16px;">💳</div>
+            <h3 style="margin-bottom:8px;">Nenhum cartão cadastrado</h3>
+            <p style="color:#666;margin-bottom:24px;">Adicione seus cartões para controlar faturas e gastos</p>
+            <button onclick="VM.modalCartao()" class="btn-primary" style="width:auto;padding:10px 24px;">
+              <i class="fas fa-plus"></i> Adicionar Cartão
+            </button>
+          </div>
+        `
+        return
+      }
+
+      container.innerHTML = `
+        <div class="grid-3" style="margin-bottom:24px;">
+          ${data.cartoes.map(c => {
+            const usado = c.limite_total - (c.limite_disponivel || 0)
+            const pct = c.limite_total > 0 ? Math.round(usado / c.limite_total * 100) : 0
+            const pctColor = pct > 80 ? '#ff6b6b' : pct > 50 ? '#ffc400' : '#2FBF71'
+            return `
+              <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;">
+                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${c.cor || '#2FBF71'};"></div>
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+                  <div>
+                    <div style="font-size:1rem;font-weight:700;">${c.nome}</div>
+                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}</div>
+                    ${c.ultimos_digitos ? `<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• ${c.ultimos_digitos}</div>` : ''}
+                  </div>
+                  <div style="display:flex;gap:6px;">
+                    <button onclick="VM.modalCartao(${JSON.stringify(c).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                  </div>
+                </div>
+                
+                <div style="margin-bottom:12px;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-size:0.78rem;color:#888;">Limite usado</span>
+                    <span style="font-size:0.78rem;font-weight:700;color:${pctColor};">${pct}%</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:6px;overflow:hidden;">
+                    <div style="background:${pctColor};width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.6s ease;"></div>
+                  </div>
+                </div>
+                
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Limite Total</div>
+                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(c.limite_total)}</div>
+                  </div>
+                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Usado</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(usado)}</div>
+                  </div>
+                  <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Disponível</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.limite_disponivel || 0)}</div>
+                  </div>
+                </div>
+                
+                <div style="display:flex;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
+                  <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
+                </div>
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch (e) {
+      this.toast('Erro ao carregar cartões', 'error')
+    }
+  },
+
+  modalCartao(cartao = null) {
+    const isEdit = !!cartao
+    const bandeiras = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
+    const cores = ['#2FBF71', '#74b9ff', '#fd79a8', '#a29bfe', '#ffc400', '#ff8c42', '#ff6b6b', '#00cec9']
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💳 Novo'} Cartão</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="cartao-form">
+            <div class="form-group">
+              <label class="form-label">Nome do Cartão *</label>
+              <input type="text" id="ct-nome" class="form-input" placeholder="Ex: Nubank Roxinho" value="${cartao?.nome || ''}" required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Bandeira *</label>
+                <select id="ct-bandeira" class="form-select">
+                  ${bandeiras.map(b => `<option value="${b}" ${cartao?.bandeira===b?'selected':''}>${b.charAt(0).toUpperCase()+b.slice(1)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Banco *</label>
+                <input type="text" id="ct-banco" class="form-input" placeholder="Ex: Nubank" value="${cartao?.banco || ''}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Limite Total (R$) *</label>
+                <input type="number" id="ct-limite" class="form-input" step="0.01" min="0" value="${cartao?.limite_total || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">4 últimos dígitos</label>
+                <input type="text" id="ct-digitos" class="form-input" placeholder="0000" maxlength="4" value="${cartao?.ultimos_digitos || ''}">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Dia de Fechamento *</label>
+                <input type="number" id="ct-fecha" class="form-input" min="1" max="31" value="${cartao?.dia_fechamento || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Dia de Vencimento *</label>
+                <input type="number" id="ct-vence" class="form-input" min="1" max="31" value="${cartao?.dia_vencimento || ''}" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Cor</label>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                ${cores.map(c => `
+                  <div onclick="document.getElementById('ct-cor').value='${c}';document.querySelectorAll('.ctcor').forEach(el=>el.style.border='none');this.style.border='3px solid white'"
+                    class="ctcor" style="width:30px;height:30px;background:${c};border-radius:8px;cursor:pointer;border:${(cartao?.cor||'#2FBF71')===c?'3px solid white':'none'};"></div>
+                `).join('')}
+              </div>
+              <input type="hidden" id="ct-cor" value="${cartao?.cor || '#2FBF71'}">
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="ct-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('cartao-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('ct-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const limite = parseFloat(document.getElementById('ct-limite').value)
+        const payload = {
+          nome: document.getElementById('ct-nome').value,
+          bandeira: document.getElementById('ct-bandeira').value,
+          banco: document.getElementById('ct-banco').value,
+          limite_total: limite,
+          limite_disponivel: isEdit ? cartao.limite_disponivel : limite,
+          dia_fechamento: parseInt(document.getElementById('ct-fecha').value),
+          dia_vencimento: parseInt(document.getElementById('ct-vence').value),
+          ultimos_digitos: document.getElementById('ct-digitos').value || null,
+          cor: document.getElementById('ct-cor').value
+        }
+        if (isEdit) await this.api('PUT', `cartoes/${cartao.id}`, payload)
+        else await this.api('POST', 'cartoes', payload)
+        this.toast(isEdit ? 'Cartão atualizado!' : 'Cartão adicionado! 💳')
+        this.closeModal(); this.carregarCartoes()
+      } catch (err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+      }
+    })
+  },
+
+  async deleteCartao(id) {
+    if (!confirm('Excluir este cartão?')) return
+    try {
+      await this.api('DELETE', `cartoes/${id}`)
+      this.toast('Cartão excluído!')
+      this.carregarCartoes()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== LEMBRETES ==============
+  async pageLembretes() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">⏰ Lembretes de Contas</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Nunca perca um vencimento</div>
+        </div>
+        <button onclick="VM.modalLembrete()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Novo Lembrete
+        </button>
+      </div>
+      <div id="lembretes-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarLembretes()
+  },
+
+  async carregarLembretes() {
+    try {
+      const data = await this.api('GET', 'lembretes')
+      const container = document.getElementById('lembretes-container')
+      
+      const tipoIcons = { conta: '📃', imposto: '🏛️', mensalidade: '📅', seguro: '🛡️', aluguel: '🏠', investimento: '📈', outros: '🔔' }
+      const freqLabel = { semanal: 'Semanal', quinzenal: 'Quinzenal', mensal: 'Mensal', bimestral: 'Bimestral', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' }
+
+      if (!data.lembretes || data.lembretes.length === 0) {
+        container.innerHTML = `
+          <div class="card" style="text-align:center;padding:60px 40px;">
+            <div style="font-size:3rem;margin-bottom:16px;">🔔</div>
+            <h3 style="margin-bottom:8px;">Nenhum lembrete cadastrado</h3>
+            <p style="color:#666;margin-bottom:24px;">Adicione contas e lembretes para nunca perder um vencimento</p>
+            <button onclick="VM.modalLembrete()" class="btn-primary" style="width:auto;padding:10px 24px;">
+              <i class="fas fa-plus"></i> Criar Lembrete
+            </button>
+          </div>
+        `
+        return
+      }
+
+      const urgentes = data.lembretes.filter(l => {
+        if (!l.proximo_vencimento) return false
+        const diff = (new Date(l.proximo_vencimento) - new Date()) / 86400000
+        return diff <= 3 && diff >= 0
+      })
+
+      container.innerHTML = `
+        ${urgentes.length > 0 ? `
+          <div class="card" style="border-color:rgba(255,196,0,0.4);margin-bottom:20px;">
+            <div style="font-size:1rem;font-weight:700;color:#ffc400;margin-bottom:16px;">⚠️ Vencimentos Próximos (${urgentes.length})</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${urgentes.map(l => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:rgba(255,196,0,0.06);border-radius:10px;">
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:1.3rem;">${tipoIcons[l.tipo] || '🔔'}</span>
+                    <div>
+                      <div style="font-weight:600;font-size:0.9rem;">${l.titulo}</div>
+                      <div style="font-size:0.75rem;color:#888;">Vence: ${this.formatDate(l.proximo_vencimento)}</div>
+                    </div>
+                  </div>
+                  <div style="font-weight:700;color:#ffc400;">${this.formatMoney(l.valor_estimado)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:16px;">📋 Todos os Lembretes</div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${data.lembretes.map(l => `
+              <div style="display:flex;align-items:center;gap:14px;padding:14px;background:rgba(255,255,255,0.02);border-radius:12px;border:1px solid rgba(255,255,255,0.04);">
+                <div style="width:44px;height:44px;background:rgba(47,191,113,0.12);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;">
+                  ${tipoIcons[l.tipo] || '🔔'}
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:600;font-size:0.9rem;">${l.titulo}</div>
+                  <div style="font-size:0.75rem;color:#666;margin-top:2px;">
+                    ${freqLabel[l.frequencia] || 'Mensal'} • Dia ${l.dia_vencimento || '-'} 
+                    ${l.proximo_vencimento ? '• Próximo: ' + this.formatDate(l.proximo_vencimento) : ''}
+                  </div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(l.valor_estimado)}</div>
+                  <div style="margin-top:6px;">
+                    <span class="badge ${l.ativo ? 'badge-green' : 'badge-red'}" style="font-size:0.7rem;">
+                      ${l.ativo ? '✅ Ativo' : '⏸️ Inativo'}
+                    </span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0;">
+                  <button onclick="VM.modalLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                  <button onclick="VM.deleteLembrete(${l.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `
+    } catch (e) {
+      this.toast('Erro ao carregar lembretes', 'error')
+    }
+  },
+
+  modalLembrete(lembrete = null) {
+    const isEdit = !!lembrete
+    const tipos = [{ v:'conta', l:'📃 Conta' }, { v:'imposto', l:'🏛️ Imposto' }, { v:'mensalidade', l:'📅 Mensalidade' }, { v:'seguro', l:'🛡️ Seguro' }, { v:'aluguel', l:'🏠 Aluguel' }, { v:'investimento', l:'📈 Investimento' }, { v:'outros', l:'🔔 Outros' }]
+    const freqs = [{ v:'semanal', l:'Semanal' }, { v:'quinzenal', l:'Quinzenal' }, { v:'mensal', l:'Mensal' }, { v:'bimestral', l:'Bimestral' }, { v:'trimestral', l:'Trimestral' }, { v:'semestral', l:'Semestral' }, { v:'anual', l:'Anual' }]
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🔔 Novo'} Lembrete</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="lembrete-form">
+            <div class="form-group">
+              <label class="form-label">Título *</label>
+              <input type="text" id="l-titulo" class="form-input" placeholder="Ex: Conta de luz" value="${lembrete?.titulo || ''}" required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Tipo</label>
+                <select id="l-tipo" class="form-select">
+                  ${tipos.map(t => `<option value="${t.v}" ${lembrete?.tipo===t.v?'selected':''}>${t.l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Frequência</label>
+                <select id="l-freq" class="form-select">
+                  ${freqs.map(f => `<option value="${f.v}" ${lembrete?.frequencia===f.v?'selected':''}>${f.l}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor Estimado (R$)</label>
+                <input type="number" id="l-valor" class="form-input" step="0.01" min="0" placeholder="0,00" value="${lembrete?.valor_estimado || ''}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Dia do Vencimento</label>
+                <input type="number" id="l-dia" class="form-input" min="1" max="31" placeholder="Ex: 15" value="${lembrete?.dia_vencimento || ''}">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Alertar quantos dias antes?</label>
+              <select id="l-alerta" class="form-select">
+                ${[1,2,3,5,7,10].map(d => `<option value="${d}" ${lembrete?.alertar_dias_antes===d?'selected':''}>${d} dia${d>1?'s':''} antes</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Descrição</label>
+              <input type="text" id="l-desc" class="form-input" placeholder="Opcional..." value="${lembrete?.descricao || ''}">
+            </div>
+            <div class="form-group" style="display:flex;align-items:center;gap:10px;">
+              <input type="checkbox" id="l-ativo" ${!isEdit || lembrete?.ativo ? 'checked' : ''} style="width:16px;height:16px;accent-color:#2FBF71;">
+              <label for="l-ativo" class="form-label" style="margin:0;">Lembrete ativo</label>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="l-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('lembrete-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('l-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const payload = {
+          titulo: document.getElementById('l-titulo').value,
+          tipo: document.getElementById('l-tipo').value,
+          frequencia: document.getElementById('l-freq').value,
+          valor_estimado: parseFloat(document.getElementById('l-valor').value) || 0,
+          dia_vencimento: parseInt(document.getElementById('l-dia').value) || null,
+          alertar_dias_antes: parseInt(document.getElementById('l-alerta').value),
+          descricao: document.getElementById('l-desc').value,
+          ativo: document.getElementById('l-ativo').checked ? 1 : 0
+        }
+        if (isEdit) await this.api('PUT', `lembretes/${lembrete.id}`, payload)
+        else await this.api('POST', 'lembretes', payload)
+        this.toast(isEdit ? 'Lembrete atualizado!' : 'Lembrete criado! ⏰')
+        this.closeModal(); this.carregarLembretes()
+      } catch (err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar'}`
+      }
+    })
+  },
+
+  async deleteLembrete(id) {
+    if (!confirm('Excluir este lembrete?')) return
+    try {
+      await this.api('DELETE', `lembretes/${id}`)
+      this.toast('Lembrete excluído!')
+      this.carregarLembretes()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== FINANCIAMENTOS ==============
+  async pageFinanciamentos() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">🏠 Financiamentos</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle seus financiamentos imobiliários</div>
+        </div>
+        <button onclick="VM.modalFinanciamento()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Novo Financiamento
+        </button>
+      </div>
+      <div id="fin-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarFinanciamentos()
+  },
+
+  async carregarFinanciamentos() {
+    try {
+      const data = await this.api('GET', 'financiamentos')
+      const container = document.getElementById('fin-container')
+      const fins = data.financiamentos || []
+
+      if (fins.length === 0) {
+        container.innerHTML = `
+          <div class="card" style="text-align:center;padding:60px 40px;">
+            <div style="font-size:3rem;margin-bottom:16px;">🏠</div>
+            <h3 style="margin-bottom:8px;">Nenhum financiamento</h3>
+            <p style="color:#666;margin-bottom:24px;">Adicione seus financiamentos imobiliários para acompanhar o progresso</p>
+            <button onclick="VM.modalFinanciamento()" class="btn-primary" style="width:auto;padding:10px 24px;">
+              <i class="fas fa-plus"></i> Adicionar Financiamento
+            </button>
+          </div>
+        `
+        return
+      }
+
+      const totalPago = fins.reduce((s, f) => s + (f.valor_financiado - f.saldo_devedor), 0)
+      const totalDevedor = fins.reduce((s, f) => s + f.saldo_devedor, 0)
+
+      container.innerHTML = `
+        <div class="grid-3" style="margin-bottom:24px;">
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">🏠 Financiamentos</div><div class="stat-value">${fins.length}</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">✅ Total Pago</div><div class="stat-value positive">${this.formatMoney(totalPago)}</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💳 Saldo Devedor</div><div class="stat-value negative">${this.formatMoney(totalDevedor)}</div></div>
+        </div>
+        
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${fins.map(f => {
+            const pago = f.valor_financiado - f.saldo_devedor
+            const pct = f.valor_financiado > 0 ? Math.round(pago / f.valor_financiado * 100) : 0
+            return `
+              <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+                  <div>
+                    <div style="font-size:1rem;font-weight:700;">${f.descricao}</div>
+                    <div style="font-size:0.8rem;color:#666;margin-top:4px;">
+                      ${f.banco || 'Banco não informado'} • ${f.sistema_amortizacao?.toUpperCase() || 'PRICE'} • ${f.taxa_juros_anual}% a.a.
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <span class="badge ${f.status === 'ativo' ? 'badge-green' : f.status === 'quitado' ? 'badge-blue' : 'badge-red'}">${f.status}</span>
+                    <button onclick="VM.modalFinanciamento(${JSON.stringify(f).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteFinanciamento(${f.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                  </div>
+                </div>
+                
+                <div style="margin-bottom:16px;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-size:0.8rem;color:#888;">Progresso de quitação</span>
+                    <span style="font-size:0.85rem;font-weight:700;color:#2FBF71;">${pct}%</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#2FBF71,#208040);width:${Math.min(pct,100)}%;height:100%;border-radius:50px;"></div>
+                  </div>
+                </div>
+                
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Valor Imóvel</div>
+                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(f.valor_imovel)}</div>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Parcela</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.valor_parcela)}</div>
+                  </div>
+                  <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Pagas</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${f.parcelas_pagas}/${f.numero_parcelas}</div>
+                  </div>
+                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.saldo_devedor)}</div>
+                  </div>
+                </div>
+                
+                ${f.data_previsao_fim ? `<div style="margin-top:12px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(f.data_previsao_fim)}</div>` : ''}
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch (e) {
+      this.toast('Erro ao carregar financiamentos', 'error')
+    }
+  },
+
+  modalFinanciamento(fin = null) {
+    const isEdit = !!fin
+    const today = new Date().toISOString().split('T')[0]
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:560px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🏠 Novo'} Financiamento</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="fin-form">
+            <div class="form-group">
+              <label class="form-label">Descrição *</label>
+              <input type="text" id="f-desc" class="form-input" placeholder="Ex: Apartamento Centro" value="${fin?.descricao || ''}" required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor do Imóvel (R$) *</label>
+                <input type="number" id="f-imovel" class="form-input" step="0.01" min="0" value="${fin?.valor_imovel || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Valor Financiado (R$) *</label>
+                <input type="number" id="f-financiado" class="form-input" step="0.01" min="0" value="${fin?.valor_financiado || ''}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Taxa de Juros Anual (%) *</label>
+                <input type="number" id="f-juros" class="form-input" step="0.01" min="0" value="${fin?.taxa_juros_anual || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Nº de Parcelas *</label>
+                <input type="number" id="f-parcelas" class="form-input" min="1" value="${fin?.numero_parcelas || ''}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor da Parcela (R$) *</label>
+                <input type="number" id="f-vparcela" class="form-input" step="0.01" min="0" value="${fin?.valor_parcela || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Parcelas Pagas</label>
+                <input type="number" id="f-pagas" class="form-input" min="0" value="${fin?.parcelas_pagas || 0}">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Banco</label>
+                <input type="text" id="f-banco" class="form-input" placeholder="Ex: Caixa Econômica" value="${fin?.banco || ''}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Sistema Amortização</label>
+                <select id="f-sistema" class="form-select">
+                  <option value="price" ${fin?.sistema_amortizacao==='price'?'selected':''}>PRICE (parcela fixa)</option>
+                  <option value="sac" ${fin?.sistema_amortizacao==='sac'?'selected':''}>SAC (parcela decrescente)</option>
+                  <option value="sacre" ${fin?.sistema_amortizacao==='sacre'?'selected':''}>SACRE</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Data Início *</label>
+                <input type="date" id="f-inicio" class="form-input" value="${fin?.data_inicio || today}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Saldo Devedor Atual (R$)</label>
+                <input type="number" id="f-saldo" class="form-input" step="0.01" min="0" value="${fin?.saldo_devedor || ''}">
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="f-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('fin-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('f-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const jurosAnual = parseFloat(document.getElementById('f-juros').value)
+        const payload = {
+          descricao: document.getElementById('f-desc').value,
+          valor_imovel: parseFloat(document.getElementById('f-imovel').value),
+          valor_financiado: parseFloat(document.getElementById('f-financiado').value),
+          taxa_juros_anual: jurosAnual,
+          taxa_juros_mensal: jurosAnual / 12,
+          numero_parcelas: parseInt(document.getElementById('f-parcelas').value),
+          valor_parcela: parseFloat(document.getElementById('f-vparcela').value),
+          parcelas_pagas: parseInt(document.getElementById('f-pagas').value) || 0,
+          banco: document.getElementById('f-banco').value || null,
+          sistema_amortizacao: document.getElementById('f-sistema').value,
+          data_inicio: document.getElementById('f-inicio').value,
+          saldo_devedor: parseFloat(document.getElementById('f-saldo').value) || parseFloat(document.getElementById('f-financiado').value)
+        }
+        if (isEdit) await this.api('PUT', `financiamentos/${fin.id}`, payload)
+        else await this.api('POST', 'financiamentos', payload)
+        this.toast(isEdit ? 'Financiamento atualizado!' : 'Financiamento adicionado! 🏠')
+        this.closeModal(); this.carregarFinanciamentos()
+      } catch (err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+      }
+    })
+  },
+
+  async deleteFinanciamento(id) {
+    if (!confirm('Excluir este financiamento?')) return
+    try {
+      await this.api('DELETE', `financiamentos/${id}`)
+      this.toast('Financiamento excluído!')
+      this.carregarFinanciamentos()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== EMPRÉSTIMOS ==============
+  async pageEmprestimos() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">💼 Empréstimos</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas dívidas e parcelas</div>
+        </div>
+        <button onclick="VM.modalEmprestimo()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Novo Empréstimo
+        </button>
+      </div>
+      <div id="emp-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarEmprestimos()
+  },
+
+  async carregarEmprestimos() {
+    try {
+      const data = await this.api('GET', 'emprestimos')
+      const container = document.getElementById('emp-container')
+      const emps = data.emprestimos || []
+      const tipoLabel = { pessoal: '👤 Pessoal', consignado: '🏢 Consignado', veiculo: '🚗 Veículo', estudantil: '🎓 Estudantil', microempresa: '🏪 Microempresa', amigos_familia: '👨‍👩‍👧 Amigos/Família', outros: '📋 Outros' }
+
+      if (emps.length === 0) {
+        container.innerHTML = `
+          <div class="card" style="text-align:center;padding:60px 40px;">
+            <div style="font-size:3rem;margin-bottom:16px;">🙌</div>
+            <h3 style="margin-bottom:8px;">Nenhum empréstimo!</h3>
+            <p style="color:#666;margin-bottom:24px;">Ótimo! Sem dívidas ativas. Caso tenha alguma, registre para controlar.</p>
+            <button onclick="VM.modalEmprestimo()" class="btn-primary" style="width:auto;padding:10px 24px;">
+              <i class="fas fa-plus"></i> Registrar Empréstimo
+            </button>
+          </div>
+        `
+        return
+      }
+
+      const totalDevedor = emps.reduce((s, e) => s + e.saldo_devedor, 0)
+
+      container.innerHTML = `
+        <div class="grid-3" style="margin-bottom:24px;">
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📋 Empréstimos</div><div class="stat-value">${emps.length}</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💸 Total Devedor</div><div class="stat-value negative">${this.formatMoney(totalDevedor)}</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📅 Parcelas/mês</div><div class="stat-value negative">${this.formatMoney(emps.reduce((s,e)=>s+e.valor_parcela,0))}</div></div>
+        </div>
+        
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${emps.map(e => {
+            const pct = e.valor_original > 0 ? Math.round(e.valor_pago / e.valor_original * 100) : 0
+            const statusColors = { ativo: '#2FBF71', quitado: '#74b9ff', em_atraso: '#ff6b6b', negociado: '#ffc400' }
+            return `
+              <div class="card" style="border-left:4px solid ${statusColors[e.status] || '#444'};">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+                  <div>
+                    <div style="font-size:1rem;font-weight:700;">${e.descricao}</div>
+                    <div style="font-size:0.78rem;color:#666;margin-top:3px;">
+                      ${tipoLabel[e.tipo] || e.tipo} • ${e.credor || 'Credor não informado'} • ${e.taxa_juros_mensal}% a.m.
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <span class="badge" style="background:${statusColors[e.status]}22;color:${statusColors[e.status]};border:1px solid ${statusColors[e.status]}44;">${e.status}</span>
+                    <button onclick="VM.modalEmprestimo(${JSON.stringify(e).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteEmprestimo(${e.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                  </div>
+                </div>
+                
+                <div style="margin-bottom:12px;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                    <span style="font-size:0.78rem;color:#888;">Pago (${pct}%)</span>
+                    <span style="font-size:0.78rem;color:#888;">${e.parcelas_pagas}/${e.numero_parcelas} parcelas</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:6px;overflow:hidden;">
+                    <div style="background:#2FBF71;width:${Math.min(pct,100)}%;height:100%;border-radius:50px;"></div>
+                  </div>
+                </div>
+                
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Valor Original</div>
+                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(e.valor_original)}</div>
+                  </div>
+                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.saldo_devedor)}</div>
+                  </div>
+                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.68rem;color:#666;">Parcela</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.valor_parcela)}/mês</div>
+                  </div>
+                </div>
+                ${e.data_previsao_fim ? `<div style="margin-top:10px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(e.data_previsao_fim)}</div>` : ''}
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch (e) {
+      this.toast('Erro ao carregar empréstimos', 'error')
+    }
+  },
+
+  modalEmprestimo(emp = null) {
+    const isEdit = !!emp
+    const today = new Date().toISOString().split('T')[0]
+    const tipos = [{ v:'pessoal', l:'👤 Pessoal' }, { v:'consignado', l:'🏢 Consignado' }, { v:'veiculo', l:'🚗 Veículo' }, { v:'estudantil', l:'🎓 Estudantil' }, { v:'microempresa', l:'🏪 Microempresa' }, { v:'amigos_familia', l:'👨‍👩‍👧 Amigos/Família' }, { v:'outros', l:'📋 Outros' }]
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:540px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💼 Novo'} Empréstimo</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="emp-form">
+            <div class="form-group">
+              <label class="form-label">Descrição *</label>
+              <input type="text" id="e-desc" class="form-input" placeholder="Ex: Empréstimo pessoal Banco X" value="${emp?.descricao || ''}" required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Tipo</label>
+                <select id="e-tipo" class="form-select">
+                  ${tipos.map(t => `<option value="${t.v}" ${emp?.tipo===t.v?'selected':''}>${t.l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Credor</label>
+                <input type="text" id="e-credor" class="form-input" placeholder="Ex: Nubank" value="${emp?.credor || ''}">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor Original (R$) *</label>
+                <input type="number" id="e-valor" class="form-input" step="0.01" min="0" value="${emp?.valor_original || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Saldo Devedor Atual (R$)</label>
+                <input type="number" id="e-saldo" class="form-input" step="0.01" min="0" value="${emp?.saldo_devedor || ''}">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Taxa de Juros Mensal (%) *</label>
+                <input type="number" id="e-juros" class="form-input" step="0.01" min="0" value="${emp?.taxa_juros_mensal || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Nº de Parcelas *</label>
+                <input type="number" id="e-nparcelas" class="form-input" min="1" value="${emp?.numero_parcelas || ''}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor da Parcela (R$) *</label>
+                <input type="number" id="e-vparcela" class="form-input" step="0.01" min="0" value="${emp?.valor_parcela || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Parcelas Pagas</label>
+                <input type="number" id="e-pagas" class="form-input" min="0" value="${emp?.parcelas_pagas || 0}">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Data Início *</label>
+                <input type="date" id="e-inicio" class="form-input" value="${emp?.data_inicio || today}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Dia Vencimento</label>
+                <input type="number" id="e-dia" class="form-input" min="1" max="31" value="${emp?.dia_vencimento || ''}">
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="e-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('emp-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('e-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const jurosMensal = parseFloat(document.getElementById('e-juros').value)
+        const payload = {
+          descricao: document.getElementById('e-desc').value,
+          tipo: document.getElementById('e-tipo').value,
+          credor: document.getElementById('e-credor').value || null,
+          valor_original: parseFloat(document.getElementById('e-valor').value),
+          saldo_devedor: parseFloat(document.getElementById('e-saldo').value) || parseFloat(document.getElementById('e-valor').value),
+          taxa_juros_mensal: jurosMensal,
+          taxa_juros_anual: jurosMensal * 12,
+          numero_parcelas: parseInt(document.getElementById('e-nparcelas').value),
+          valor_parcela: parseFloat(document.getElementById('e-vparcela').value),
+          parcelas_pagas: parseInt(document.getElementById('e-pagas').value) || 0,
+          data_inicio: document.getElementById('e-inicio').value,
+          dia_vencimento: parseInt(document.getElementById('e-dia').value) || null
+        }
+        if (isEdit) await this.api('PUT', `emprestimos/${emp.id}`, payload)
+        else await this.api('POST', 'emprestimos', payload)
+        this.toast(isEdit ? 'Empréstimo atualizado!' : 'Empréstimo registrado!')
+        this.closeModal(); this.carregarEmprestimos()
+      } catch (err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+      }
+    })
+  },
+
+  async deleteEmprestimo(id) {
+    if (!confirm('Excluir este empréstimo?')) return
+    try {
+      await this.api('DELETE', `emprestimos/${id}`)
+      this.toast('Empréstimo excluído!')
+      this.carregarEmprestimos()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== IA ==============
+  async pageIA() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">🧠 Análise com IA ✨</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Insights personalizados sobre suas finanças</div>
+        </div>
+        <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-sync"></i> Atualizar Análise
+        </button>
+      </div>
+      <div id="ia-container">
+        <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarIA()
+  },
+
+  async carregarIA() {
+    try {
+      const data = await this.api('GET', 'ia/insights')
+      const container = document.getElementById('ia-container')
+      const insights = data.insights || []
+      const dados = data.dados_base || {}
+
+      // Calcular score a partir dos dados
+      let score_saude = 50
+      if (dados.receita_mes > 0) {
+        const taxaDespesa = (dados.despesa_mes / dados.receita_mes) * 100
+        const taxaPoupanca = ((dados.receita_mes - dados.despesa_mes) / dados.receita_mes) * 100
+        const compDividas = dados.comprometimento_dividas || 0
+        score_saude = Math.min(100, Math.max(0,
+          50 + (taxaPoupanca > 20 ? 20 : taxaPoupanca) - (taxaDespesa > 70 ? 20 : 0) - (compDividas > 30 ? 15 : 0)
+        ))
+      }
+      score_saude = Math.round(score_saude)
+
+      // Separar alertas de insights
+      const alertas = insights.filter(i => i.tipo === 'alerta')
+      const recomendacoes_list = insights.filter(i => i.tipo !== 'alerta').map(i => i.conteudo)
+
+      // Calcular regra 50/30/20
+      let regra_5030 = null
+      if (dados.receita_mes > 0) {
+        regra_5030 = {
+          necessidades: Math.round((dados.despesa_mes / dados.receita_mes) * 70),
+          desejos: Math.round((dados.despesa_mes / dados.receita_mes) * 30),
+          poupanca: Math.round(((dados.receita_mes - dados.despesa_mes) / dados.receita_mes) * 100)
+        }
+      }
+
+      const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
+      const scoreLabel = score_saude >= 80 ? 'Excelente 🏆' : score_saude >= 60 ? 'Bom 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
+
+      const prioColors = { alta: '#ff6b6b', media: '#ffc400', baixa: '#2FBF71' }
+
+      container.innerHTML = `
+        <!-- SCORE -->
+        <div class="card" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(47,191,113,0.08),rgba(32,128,64,0.05));">
+          <div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
+            <div style="position:relative;width:120px;height:120px;flex-shrink:0;">
+              <svg viewBox="0 0 120 120" style="transform:rotate(-90deg)">
+                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>
+                <circle cx="60" cy="60" r="50" fill="none" stroke="${scoreColor}" stroke-width="10"
+                  stroke-dasharray="${2*Math.PI*50}" stroke-dashoffset="${2*Math.PI*50*(1-score_saude/100)}"
+                  stroke-linecap="round"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <div style="font-size:1.8rem;font-weight:800;color:${scoreColor};">${score_saude}</div>
+                <div style="font-size:0.65rem;color:#666;">/100</div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:1.3rem;font-weight:800;color:${scoreColor};margin-bottom:6px;">Score Financeiro: ${scoreLabel}</div>
+              <p style="color:#888;font-size:0.9rem;line-height:1.6;max-width:500px;">
+                Seu score é calculado com base em receitas, despesas, metas, investimentos e hábitos financeiros.
+                ${score_saude >= 70 ? 'Continue assim! Você está no caminho certo.' : 'Siga as recomendações abaixo para melhorar seu score.'}
+              </p>
+              <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.82rem;color:#666;">
+                <span>💰 Receita: <strong style="color:#2FBF71;">${this.formatMoney(dados.receita_mes)}</strong></span>
+                <span>💸 Despesa: <strong style="color:#ff6b6b;">${this.formatMoney(dados.despesa_mes)}</strong></span>
+                <span>💳 Dívidas: <strong style="color:#ffc400;">${dados.comprometimento_dividas || 0}% da renda</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${alertas.length > 0 ? `
+          <div class="card" style="border-color:rgba(255,107,107,0.4);margin-bottom:24px;">
+            <div style="font-size:1rem;font-weight:700;color:#ff6b6b;margin-bottom:16px;">🚨 Alertas Importantes</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${alertas.map(a => `
+                <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:rgba(255,80,80,0.06);border-radius:10px;">
+                  <span style="font-size:1.2rem;flex-shrink:0;">⚠️</span>
+                  <div>
+                    <div style="font-weight:600;font-size:0.9rem;">${a.titulo}</div>
+                    <div style="font-size:0.8rem;color:#888;margin-top:3px;line-height:1.5;">${a.conteudo}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        ${regra_5030 ? `
+          <div class="card" style="margin-bottom:24px;">
+            <div style="font-weight:700;margin-bottom:16px;">📐 Análise 50/30/20</div>
+            <div style="color:#888;font-size:0.85rem;margin-bottom:16px;">Ideal: 50% necessidades • 30% desejos • 20% investimentos/poupança</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+              ${[
+                { k: 'necessidades', l: '🏠 Necessidades', cor: '#74b9ff', ideal: 50 },
+                { k: 'desejos', l: '🎬 Desejos', cor: '#a29bfe', ideal: 30 },
+                { k: 'poupanca', l: '💰 Poupança/Inv.', cor: '#2FBF71', ideal: 20 }
+              ].map(item => {
+                const atual = regra_5030[item.k] || 0
+                const ok = Math.abs(atual - item.ideal) <= 10
+                return `
+                  <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:16px;text-align:center;">
+                    <div style="font-size:0.82rem;color:#888;margin-bottom:8px;">${item.l}</div>
+                    <div style="font-size:1.6rem;font-weight:800;color:${ok ? item.cor : '#ff6b6b'};">${atual.toFixed(1)}%</div>
+                    <div style="font-size:0.75rem;color:#555;">Meta: ${item.ideal}%</div>
+                    <div style="margin-top:8px;background:rgba(255,255,255,0.08);border-radius:50px;height:4px;overflow:hidden;">
+                      <div style="background:${ok ? item.cor : '#ff6b6b'};width:${Math.min(100,item.ideal > 0 ? atual/item.ideal*100 : 0)}%;height:100%;border-radius:50px;"></div>
+                    </div>
+                  </div>
+                `
+              }).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+          ${insights.length > 0 ? `
+            <div class="card">
+              <div style="font-weight:700;margin-bottom:16px;">💡 Insights do Mentor</div>
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                ${insights.slice(0, 6).map(i => `
+                  <div style="display:flex;gap:10px;padding:12px;background:rgba(255,255,255,0.02);border-radius:10px;border-left:3px solid ${prioColors[i.prioridade] || '#2FBF71'};">
+                    <div>
+                      <div style="font-weight:600;font-size:0.85rem;margin-bottom:3px;">${i.titulo}</div>
+                      <div style="font-size:0.78rem;color:#777;line-height:1.5;">${i.conteudo}</div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:16px;">🎯 Plano de Ação Rápido</div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              ${insights.filter(i=>i.tipo==='sugestao'||i.tipo==='dica').slice(0,5).map((r, idx) => `
+                <div style="display:flex;align-items:flex-start;gap:12px;">
+                  <div style="width:28px;height:28px;background:linear-gradient(135deg,#2FBF71,#208040);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;flex-shrink:0;">${idx+1}</div>
+                  <div style="font-size:0.85rem;color:#aaa;line-height:1.5;padding-top:4px;">${r.titulo}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `
+    } catch (e) {
+      const container = document.getElementById('ia-container')
+      container.innerHTML = `
+        <div class="card" style="text-align:center;padding:60px 40px;">
+          <div style="font-size:3rem;margin-bottom:16px;">🧠</div>
+          <h3 style="margin-bottom:8px;">Análise Indisponível</h3>
+          <p style="color:#666;margin-bottom:24px;">Adicione receitas e despesas para ativar a análise com IA</p>
+          <button onclick="VM.navigate('receitas')" class="btn-primary" style="width:auto;padding:10px 24px;">
+            <i class="fas fa-plus"></i> Adicionar Receitas
+          </button>
+        </div>
+      `
+    }
+  },
+
+  async gerarInsightsIA() {
+    this.toast('Atualizando análise...', 'info')
+    this.carregarIA()
+  },
+
+  // ============== CONQUISTAS ==============
+  async pageConquistas() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">🏆 Conquistas</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Sua jornada de evolução financeira</div>
+        </div>
+      </div>
+      <div id="conq-container">
+        <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarConquistas()
+  },
+
+  async carregarConquistas() {
+    try {
+      const data = await this.api('GET', 'conquistas')
+      const container = document.getElementById('conq-container')
+      const conquistadas = (data.conquistas || []).filter(c => c.conquistada)
+      const disponiveis = (data.conquistas || []).filter(c => !c.conquistada)
+      const pontos_total = data.total_pontos || 0
+
+      const raridadeCores = { comum: '#888', raro: '#74b9ff', epico: '#a29bfe', lendario: '#ffc400' }
+      const raridadeGradients = {
+        comum: 'rgba(136,136,136,0.1)',
+        raro: 'rgba(116,185,255,0.12)',
+        epico: 'rgba(162,155,254,0.12)',
+        lendario: 'rgba(255,196,0,0.12)'
+      }
+
+      container.innerHTML = `
+        <!-- HEADER STATS -->
+        <div class="grid-3" style="margin-bottom:28px;">
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:2.5rem;margin-bottom:8px;">🏆</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">${conquistadas?.length || 0}</div>
+            <div style="color:#888;font-size:0.8rem;">Conquistas Desbloqueadas</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:2.5rem;margin-bottom:8px;">⭐</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#ffc400;">${pontos_total || 0}</div>
+            <div style="color:#888;font-size:0.8rem;">Pontos Acumulados</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:2.5rem;margin-bottom:8px;">🎯</div>
+            <div style="font-size:1.8rem;font-weight:800;">${disponiveis?.length || 0}</div>
+            <div style="color:#888;font-size:0.8rem;">Para Desbloquear</div>
+          </div>
+        </div>
+
+        ${conquistadas && conquistadas.length > 0 ? `
+          <div style="margin-bottom:28px;">
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Desbloqueadas (${conquistadas.length})</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
+              ${conquistadas.map(c => `
+                <div style="background:${raridadeGradients[c.raridade] || 'rgba(255,255,255,0.04)'};border:1px solid ${raridadeCores[c.raridade] || '#444'}44;border-radius:16px;padding:20px;text-align:center;">
+                  <div style="font-size:2.5rem;margin-bottom:10px;">${c.icone || '🏆'}</div>
+                  <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px;">${c.titulo}</div>
+                  <div style="font-size:0.75rem;color:#888;margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
+                  <div style="display:flex;justify-content:center;gap:8px;">
+                    <span style="font-size:0.7rem;background:${raridadeCores[c.raridade]}22;color:${raridadeCores[c.raridade]};padding:3px 10px;border-radius:50px;border:1px solid ${raridadeCores[c.raridade]}44;">${c.raridade}</span>
+                    <span style="font-size:0.7rem;color:#ffc400;">⭐ ${c.pontos} pts</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        ${disponiveis && disponiveis.length > 0 ? `
+          <div>
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">A Desbloquear (${disponiveis.length})</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
+              ${disponiveis.map(c => `
+                <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;text-align:center;opacity:0.6;filter:grayscale(60%);">
+                  <div style="font-size:2.5rem;margin-bottom:10px;filter:grayscale(80%);">${c.icone || '🔒'}</div>
+                  <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px;color:#555;">${c.titulo}</div>
+                  <div style="font-size:0.75rem;color:#444;margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
+                  <div style="font-size:0.7rem;color:#555;">⭐ ${c.pontos} pts • ${c.raridade}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      `
+    } catch (e) {
+      this.toast('Erro ao carregar conquistas', 'error')
+    }
   },
 
   closeModal(event) {
