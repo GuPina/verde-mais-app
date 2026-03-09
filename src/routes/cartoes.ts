@@ -136,9 +136,9 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
   for (let i = 1; i <= nparcelas; i++) {
     const dataCompra = new Date(data_compra)
     const dataFatura = new Date(dataCompra)
-    // Calcula a data da fatura baseado no dia de fechamento
+    // Regra: se a compra foi feita na data de fechamento ou depois, vai para o ciclo seguinte
     dataFatura.setMonth(dataFatura.getMonth() + (i - 1))
-    if (dataCompra.getDate() > cartao.dia_fechamento) {
+    if (dataCompra.getDate() >= cartao.dia_fechamento) {
       dataFatura.setMonth(dataFatura.getMonth() + 1)
     }
     dataFatura.setDate(cartao.dia_vencimento)
@@ -211,7 +211,8 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
     const dataFatura = new Date(dataCompra)
     // Avançar meses a partir da data original da compra
     dataFatura.setMonth(dataCompra.getMonth() + (i - 1))
-    if (dataCompra.getDate() > cartao.dia_fechamento) {
+    // Regra: se a compra foi feita na data de fechamento ou depois, vai para o ciclo seguinte
+    if (dataCompra.getDate() >= cartao.dia_fechamento) {
       dataFatura.setMonth(dataFatura.getMonth() + 1)
     }
     dataFatura.setDate(cartao.dia_vencimento)
@@ -252,6 +253,91 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
     valor_total_restante: valorRestante,
     message: `${parcelasRestantes} parcela(s) restante(s) registradas! (${jaPagas}/${nparcelas} já pagas)` 
   }, 201)
+})
+
+// GET /api/cartoes/:id/compras — lista todas as compras agrupadas (com parcelas expandíveis)
+cartoes.get('/:id/compras', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartao_id = c.req.param('id')
+
+  const cartao = await c.env.DB.prepare('SELECT id FROM cartoes WHERE id = ? AND user_id = ?').bind(cartao_id, user.id).first()
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  // Buscar todas as parcelas agrupadas pela descricao base (sem o sufixo "(x/n)")
+  const lancamentos = await c.env.DB.prepare(
+    `SELECT * FROM cartao_lancamentos WHERE user_id = ? AND cartao_id = ? ORDER BY data_compra DESC, parcela_atual ASC`
+  ).bind(user.id, cartao_id).all()
+
+  // Agrupar por chave única: descricao_base + valor_total + data_compra + numero_parcelas
+  const grupos: Record<string, any> = {}
+  for (const l of lancamentos.results as any[]) {
+    const descBase = l.descricao.replace(/\s*\(\d+\/\d+\)$/, '')
+    const key = `${descBase}||${l.valor_total}||${l.data_compra}||${l.numero_parcelas}`
+    if (!grupos[key]) {
+      grupos[key] = {
+        chave: key,
+        descricao: descBase,
+        categoria: l.categoria,
+        valor_parcela: l.valor_total,
+        valor_total_compra: l.valor_total * l.numero_parcelas,
+        numero_parcelas: l.numero_parcelas,
+        data_compra: l.data_compra,
+        cartao_id: l.cartao_id,
+        parcelas: [],
+        pagas: 0,
+        pendentes: 0
+      }
+    }
+    grupos[key].parcelas.push(l)
+    if (l.status === 'pago') grupos[key].pagas++
+    else grupos[key].pendentes++
+  }
+
+  const compras = Object.values(grupos).sort((a: any, b: any) =>
+    new Date(b.data_compra).getTime() - new Date(a.data_compra).getTime()
+  )
+
+  return c.json({ compras })
+})
+
+// DELETE /api/cartoes/compras/grupo — remove todos os lançamentos de uma compra parcelada
+cartoes.delete('/compras/grupo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { descricao, valor_parcela, data_compra, numero_parcelas, cartao_id } = await c.req.json()
+
+  // Apagar todas as parcelas que correspondem ao grupo
+  const descPattern = numero_parcelas > 1 ? `${descricao} (%/${numero_parcelas})` : descricao
+  await c.env.DB.prepare(
+    `DELETE FROM cartao_lancamentos WHERE user_id = ? AND cartao_id = ? AND data_compra = ? AND numero_parcelas = ? AND valor_total = ?`
+  ).bind(user.id, cartao_id, data_compra, parseInt(numero_parcelas), parseFloat(valor_parcela)).run()
+
+  // Também apagar das despesas vinculadas
+  await c.env.DB.prepare(
+    `DELETE FROM despesas WHERE user_id = ? AND cartao_id = ? AND valor = ? AND numero_parcelas = ?`
+  ).bind(user.id, cartao_id, parseFloat(valor_parcela), parseInt(numero_parcelas)).run()
+
+  return c.json({ success: true, message: 'Compra e parcelas removidas!' })
+})
+
+// PUT /api/cartoes/lancamentos/:id — editar um lançamento individual
+cartoes.put('/lancamentos/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { descricao, categoria, observacoes } = await c.req.json()
+
+  const existing = await c.env.DB.prepare('SELECT id FROM cartao_lancamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  if (!existing) return c.json({ error: 'Lançamento não encontrado' }, 404)
+
+  await c.env.DB.prepare(
+    'UPDATE cartao_lancamentos SET descricao = ?, categoria = ?, observacoes = ? WHERE id = ? AND user_id = ?'
+  ).bind(descricao, categoria, observacoes || null, id, user.id).run()
+
+  // Sincronizar na tabela despesas
+  await c.env.DB.prepare(
+    'UPDATE despesas SET descricao = ?, categoria = ? WHERE user_id = ? AND cartao_id = (SELECT cartao_id FROM cartao_lancamentos WHERE id = ?) AND descricao = (SELECT descricao FROM cartao_lancamentos WHERE id = ?)'
+  ).bind(descricao, categoria, user.id, id, id).run()
+
+  return c.json({ success: true, message: 'Lançamento atualizado!' })
 })
 
 export default cartoes

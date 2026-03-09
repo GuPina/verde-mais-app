@@ -57,6 +57,25 @@ metas.post('/', requireAuth, async (c) => {
     'INSERT INTO metas (user_id, nome, descricao, valor_objetivo, valor_atual, data_meta, categoria, cor, icone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(user.id, nome, descricao || null, parseFloat(valor_objetivo), parseFloat(valor_atual), data_meta, categoria, cor, icone).run()
 
+  // Conquistas por categoria/nome da meta
+  const nomeMin = nome.toLowerCase()
+  const catMeta = categoria || ''
+
+  if (catMeta === 'imovel' || nomeMin.includes('casa') || nomeMin.includes('aparta') || nomeMin.includes('imóvel') || nomeMin.includes('imovel'))
+    await verificarConquista(c.env.DB, user.id, 'meta_casa')
+  if (catMeta === 'veiculo' || nomeMin.includes('carro') || nomeMin.includes('moto') || nomeMin.includes('veículo'))
+    await verificarConquista(c.env.DB, user.id, 'meta_carro')
+  if (catMeta === 'viagem' || nomeMin.includes('viagem') || nomeMin.includes('férias') || nomeMin.includes('ferias') || nomeMin.includes('trip'))
+    await verificarConquista(c.env.DB, user.id, 'meta_viagem')
+  if (catMeta === 'educacao' || nomeMin.includes('curso') || nomeMin.includes('faculdade') || nomeMin.includes('educação') || nomeMin.includes('educacao'))
+    await verificarConquista(c.env.DB, user.id, 'meta_educacao')
+  if (catMeta === 'liberdade' || nomeMin.includes('liberdade') || nomeMin.includes('independência') || nomeMin.includes('independencia') || nomeMin.includes('fire'))
+    await verificarConquista(c.env.DB, user.id, 'meta_liberdade')
+  if (catMeta === 'aposentadoria' || nomeMin.includes('aposenta') || nomeMin.includes('previdência') || nomeMin.includes('previdencia') || nomeMin.includes('reforma'))
+    await verificarConquista(c.env.DB, user.id, 'meta_aposentadoria')
+
+  await verificarConquista(c.env.DB, user.id, 'planejador')
+
   return c.json({ success: true, id: result.meta.last_row_id, message: 'Meta criada!' }, 201)
 })
 
@@ -115,3 +134,9 @@ metas.delete('/:id', requireAuth, async (c) => {
 })
 
 export default metas
+
+async function verificarConquista(db: D1Database, userId: number, codigo: string) {
+  try {
+    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(userId, codigo).run()
+  } catch { }
+}

@@ -103,19 +103,26 @@ investimentos.post('/', requireAuth, async (c) => {
     tipo === 'caixinha' ? new Date().toISOString().split('T')[0] : null
   ).run()
 
-  // Conquista: investidor_cdi para caixinha
-  if (tipo === 'caixinha') {
-    await verificarConquista(c.env.DB, user.id, 'investidor_cdi')
-  }
+  // Conquistas por tipo de investimento
+  if (tipo === 'caixinha') await verificarConquista(c.env.DB, user.id, 'investidor_cdi')
+  if (tipo === 'acoes') await verificarConquista(c.env.DB, user.id, 'investidor_acoes')
+  if (tipo === 'fii') await verificarConquista(c.env.DB, user.id, 'investidor_fii')
+  if (tipo === 'cripto') await verificarConquista(c.env.DB, user.id, 'investidor_cripto')
+  if (tipo === 'tesouro_direto') await verificarConquista(c.env.DB, user.id, 'investidor_tesouro')
+  if (tipo === 'cdb') await verificarConquista(c.env.DB, user.id, 'investidor_cdb')
   await verificarConquista(c.env.DB, user.id, 'investidor')
 
-  // Verificar conquista poupador_dedicado
+  // Verificar conquista poupador_dedicado e portfólio diversificado
   const totalInv = await c.env.DB.prepare(
     'SELECT COALESCE(SUM(valor_atual), 0) as total FROM investimentos WHERE user_id = ?'
   ).bind(user.id).first() as any
-  if ((totalInv?.total || 0) >= 10000) {
-    await verificarConquista(c.env.DB, user.id, 'poupador_dedicado')
-  }
+  if ((totalInv?.total || 0) >= 10000) await verificarConquista(c.env.DB, user.id, 'poupador_dedicado')
+
+  // Diversificado: 3+ tipos diferentes
+  const tiposDistintos = await c.env.DB.prepare(
+    'SELECT COUNT(DISTINCT tipo) as cnt FROM investimentos WHERE user_id = ?'
+  ).bind(user.id).first() as any
+  if ((tiposDistintos?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'investidor_diversificado')
 
   return c.json({ success: true, id: result.meta.last_row_id, message: 'Investimento adicionado!' }, 201)
 })

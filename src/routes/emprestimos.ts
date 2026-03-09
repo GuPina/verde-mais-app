@@ -34,7 +34,8 @@ emprestimos.post('/', requireAuth, async (c) => {
   const {
     descricao, tipo = 'pessoal', valor_original, saldo_devedor: saldoInformado,
     taxa_juros_mensal, numero_parcelas,
-    parcelas_pagas = 0, valor_parcela, data_inicio, dia_vencimento, credor, observacoes
+    parcelas_pagas = 0, valor_parcela, data_inicio, data_primeira_parcela,
+    dia_vencimento, credor, observacoes
   } = body
 
   if (!descricao || !valor_original || !taxa_juros_mensal || !numero_parcelas || !valor_parcela || !data_inicio)
@@ -69,12 +70,28 @@ emprestimos.post('/', requireAuth, async (c) => {
   const valorParc = parseFloat(valor_parcela)
   const diaVenc = parseInt(dia_vencimento) || dataInicio.getDate()
 
-  for (let i = parcelasPagasN; i < totalParcelas; i++) {
-    const dataParc = new Date(dataInicio)
-    dataParc.setMonth(dataParc.getMonth() + i)
-    if (diaVenc && diaVenc !== dataParc.getDate()) {
-      dataParc.setDate(Math.min(diaVenc, new Date(dataParc.getFullYear(), dataParc.getMonth() + 1, 0).getDate()))
+  // Referência para datas das parcelas:
+  // Se informou data_primeira_parcela, usa ela como base (parcela 1 = essa data)
+  // Senão, calcula: próximo dia de vencimento após data_inicio
+  let dataPrimeiraRef: Date
+  if (data_primeira_parcela) {
+    dataPrimeiraRef = new Date(data_primeira_parcela + 'T12:00:00')
+  } else {
+    // Próximo vencimento: mesmo mês se dia_venc > dia da contratação, senão mês seguinte
+    dataPrimeiraRef = new Date(dataInicio.getFullYear(), dataInicio.getMonth(), diaVenc)
+    if (dataPrimeiraRef <= dataInicio) {
+      dataPrimeiraRef.setMonth(dataPrimeiraRef.getMonth() + 1)
     }
+  }
+
+  for (let i = parcelasPagasN; i < totalParcelas; i++) {
+    const dataParc = new Date(dataPrimeiraRef)
+    // Adiciona (i - parcelasPagasN_offset) meses em relação à primeira parcela pendente
+    // Parcela parcelasPagasN+1 = dataPrimeiraRef, parcela parcelasPagasN+2 = +1 mês, etc.
+    dataParc.setMonth(dataPrimeiraRef.getMonth() + (i - parcelasPagasN))
+    // Garantir o dia correto mesmo em meses curtos
+    const maxDia = new Date(dataParc.getFullYear(), dataParc.getMonth() + 1, 0).getDate()
+    dataParc.setDate(Math.min(diaVenc, maxDia))
     const dataParcStr = dataParc.toISOString().split('T')[0]
     await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
@@ -121,9 +138,14 @@ emprestimos.put('/:id', requireAuth, async (c) => {
 
   const valorPago = parseFloat(valor_parcela) * parcelasPagasN
 
+  // Recalcular data_previsao_fim
+  const dataInicioPut = new Date(data_inicio)
+  const dataFimPut = new Date(dataInicioPut)
+  dataFimPut.setMonth(dataFimPut.getMonth() + parseInt(numero_parcelas))
+
   await c.env.DB.prepare(
-    `UPDATE emprestimos SET descricao=?, tipo=?, valor_original=?, valor_pago=?, saldo_devedor=?, taxa_juros_mensal=?, taxa_juros_anual=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, data_inicio=?, dia_vencimento=?, credor=?, status=?, observacoes=? WHERE id=? AND user_id=?`
-  ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
+    `UPDATE emprestimos SET descricao=?, tipo=?, valor_original=?, valor_pago=?, saldo_devedor=?, taxa_juros_mensal=?, taxa_juros_anual=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, data_inicio=?, data_previsao_fim=?, dia_vencimento=?, credor=?, status=?, observacoes=? WHERE id=? AND user_id=?`
+  ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFimPut.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
 
@@ -177,6 +199,54 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
     amortizacao: Math.round(amortizacao * 100) / 100,
     status, 
     message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `Parcela ${novasParcelas}/${emp.numero_parcelas} paga! Saldo: R$ ${novoSaldo.toFixed(2)}` 
+  })
+})
+
+// PATCH /api/emprestimos/:id/amortizacao — amortização extraordinária
+emprestimos.patch('/:id/amortizacao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const emp = await c.env.DB.prepare('SELECT * FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  const { valor_amortizado, novo_saldo, parcelas_antecipadas = 0, observacoes } = await c.req.json()
+  if (!valor_amortizado || novo_saldo === undefined) return c.json({ error: 'valor_amortizado e novo_saldo são obrigatórios' }, 400)
+
+  const novasPagasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas))
+  const novasParcelas = Math.min(emp.numero_parcelas, emp.parcelas_pagas + novasPagasPorAntecipacao)
+  const novoSaldoVal = Math.max(0, parseFloat(novo_saldo))
+  const novoValorPago = emp.valor_pago + parseFloat(valor_amortizado)
+  const status = novoSaldoVal <= 0 || novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
+
+  await c.env.DB.prepare(
+    'UPDATE emprestimos SET saldo_devedor=?, valor_pago=?, parcelas_pagas=?, status=? WHERE id=? AND user_id=?'
+  ).bind(novoSaldoVal, novoValorPago, novasParcelas, status, id, user.id).run()
+
+  // Registrar na tabela de despesas como pagamento extra
+  const hoje = new Date().toISOString().split('T')[0]
+  await c.env.DB.prepare(
+    `INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, fixa_ou_variavel, observacoes, meio_pagamento)
+     VALUES (?, ?, ?, ?, ?, 'pago', 'variavel', ?, 'transferencia')`
+  ).bind(user.id, `Amortização Extraordinária — ${emp.descricao}`, hoje, 'Empréstimo', parseFloat(valor_amortizado), observacoes || `Amortização de R$${valor_amortizado} no empréstimo #${id}`).run()
+
+  // Marcar parcelas antecipadas como pagas nas despesas
+  if (novasPagasPorAntecipacao > 0) {
+    for (let p = emp.parcelas_pagas + 1; p <= novasParcelas; p++) {
+      await c.env.DB.prepare(
+        `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Empréstimo' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
+      ).bind(user.id, p, `%Empréstimo automático #${id}%`).run()
+    }
+  }
+
+  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+  await verificarConquista(c.env.DB, user.id, 'amortizou')
+
+  return c.json({
+    success: true,
+    novo_saldo: novoSaldoVal,
+    parcelas_pagas: novasParcelas,
+    status,
+    message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `⚡ Amortização de R$${parseFloat(valor_amortizado).toFixed(2)} aplicada! Novo saldo: R$${novoSaldoVal.toFixed(2)}`
   })
 })
 

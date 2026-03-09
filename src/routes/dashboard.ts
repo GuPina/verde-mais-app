@@ -130,23 +130,65 @@ dashboard.get('/', requireAuth, async (c) => {
   const totalDevedor = totalSaldoEmprestimos + totalSaldoFinanciamentos
   const totalParcelaMensal = (emprestimosAtivos?.total_parcela_mensal || 0) + (financiamentosAtivos?.total_parcela_mensal || 0)
 
-  // Score de saúde financeira (0-100) — agora considera dívidas
+  // ===== SCORE DE SAÚDE FINANCEIRA com fatores detalhados =====
   let score = 50
+  const fatoresScore: { tipo: 'positivo' | 'negativo' | 'neutro'; descricao: string; pontos: number }[] = []
+
   if (totalReceitas > 0) {
     const taxaPoupanca = (saldoLiquido / totalReceitas) * 100
-    if (taxaPoupanca >= 20) score += 20
-    else if (taxaPoupanca >= 10) score += 10
-    else if (taxaPoupanca < 0) score -= 20
-
-    if (totalInvest > 0) score += 10
-    if ((metasAtivas as any)?.count > 0) score += 5
-    if (saldoLiquido > 0) score += 5
-
-    // Penalidade por comprometimento de dívidas
     const comprometimento = (totalParcelaMensal / totalReceitas) * 100
-    if (comprometimento > 30) score -= 15
-    else if (comprometimento > 20) score -= 8
-    else if (comprometimento < 10 && totalDevedor === 0) score += 10
+
+    // Fator: taxa de poupança
+    if (taxaPoupanca >= 20) {
+      score += 20
+      fatoresScore.push({ tipo: 'positivo', descricao: `Taxa de poupança excelente (${taxaPoupanca.toFixed(1)}%)`, pontos: 20 })
+    } else if (taxaPoupanca >= 10) {
+      score += 10
+      fatoresScore.push({ tipo: 'positivo', descricao: `Boa taxa de poupança (${taxaPoupanca.toFixed(1)}%)`, pontos: 10 })
+    } else if (taxaPoupanca >= 0) {
+      fatoresScore.push({ tipo: 'neutro', descricao: `Taxa de poupança baixa (${taxaPoupanca.toFixed(1)}%) — tente poupar ao menos 10%`, pontos: 0 })
+    } else {
+      score -= 20
+      fatoresScore.push({ tipo: 'negativo', descricao: `Gastos maiores que receitas (${Math.abs(taxaPoupanca).toFixed(1)}% no vermelho)`, pontos: -20 })
+    }
+
+    // Fator: saldo positivo
+    if (saldoLiquido > 0) {
+      score += 5
+      fatoresScore.push({ tipo: 'positivo', descricao: 'Saldo do mês no positivo', pontos: 5 })
+    }
+
+    // Fator: investimentos
+    if (totalInvest > 0) {
+      score += 10
+      fatoresScore.push({ tipo: 'positivo', descricao: 'Você está investindo seu dinheiro', pontos: 10 })
+    } else {
+      fatoresScore.push({ tipo: 'neutro', descricao: 'Nenhum investimento cadastrado — comece com a Caixinha CDI', pontos: 0 })
+    }
+
+    // Fator: metas
+    if ((metasAtivas as any)?.count > 0) {
+      score += 5
+      fatoresScore.push({ tipo: 'positivo', descricao: `${(metasAtivas as any).count} meta(s) ativa(s) — você está planejando o futuro`, pontos: 5 })
+    } else {
+      fatoresScore.push({ tipo: 'neutro', descricao: 'Nenhuma meta financeira cadastrada', pontos: 0 })
+    }
+
+    // Fator: comprometimento de dívidas
+    if (comprometimento > 30) {
+      score -= 15
+      fatoresScore.push({ tipo: 'negativo', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda (limite saudável: 30%)`, pontos: -15 })
+    } else if (comprometimento > 20) {
+      score -= 8
+      fatoresScore.push({ tipo: 'negativo', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda — atenção`, pontos: -8 })
+    } else if (comprometimento > 0) {
+      fatoresScore.push({ tipo: 'neutro', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda — dentro do limite`, pontos: 0 })
+    } else if (totalDevedor === 0) {
+      score += 10
+      fatoresScore.push({ tipo: 'positivo', descricao: 'Sem dívidas ativas — excelente!', pontos: 10 })
+    }
+  } else {
+    fatoresScore.push({ tipo: 'neutro', descricao: 'Cadastre receitas para calcular seu score completo', pontos: 0 })
   }
   score = Math.min(100, Math.max(0, score))
 
@@ -159,7 +201,6 @@ dashboard.get('/', requireAuth, async (c) => {
       total_investido: totalInvestido,
       percentual_investido: totalReceitas > 0 ? Math.round((totalInvest / totalReceitas) * 100) : 0,
       taxa_poupanca: totalReceitas > 0 ? Math.round(((saldoLiquido / totalReceitas) * 100) * 10) / 10 : 0,
-      // === NOVOS CAMPOS DE DÍVIDAS ===
       total_devedor: totalDevedor,
       total_saldo_emprestimos: totalSaldoEmprestimos,
       total_saldo_financiamentos: totalSaldoFinanciamentos,
@@ -169,6 +210,7 @@ dashboard.get('/', requireAuth, async (c) => {
       count_financiamentos_ativos: financiamentosAtivos?.count || 0
     },
     score_saude: score,
+    fatores_score: fatoresScore,
     metas: {
       ativas: (metasAtivas as any)?.count || 0,
       objetivo_total: (metasAtivas as any)?.objetivo_total || 0,

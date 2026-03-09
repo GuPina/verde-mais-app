@@ -418,6 +418,9 @@ const VM = {
             <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
               <span class="nav-icon"><i class="fas fa-chart-line"></i></span> Investimentos
             </a>
+            <a class="nav-item" id="nav-reserva" onclick="VM.navigate('reserva')">
+              <span class="nav-icon"><i class="fas fa-shield-alt"></i></span> Reserva de Emergência
+            </a>
             <a class="nav-item" id="nav-financiamentos" onclick="VM.navigate('financiamentos')">
               <span class="nav-icon"><i class="fas fa-home"></i></span> Financiamentos
             </a>
@@ -594,6 +597,7 @@ const VM = {
       metas: ['Metas Financeiras', 'Seus objetivos e conquistas'],
       lembretes: ['Lembretes', 'Contas e vencimentos'],
       investimentos: ['Investimentos', 'Patrimônio e rentabilidade'],
+      reserva: ['Reserva de Emergência', 'Sua proteção financeira'],
       financiamentos: ['Financiamentos', 'Imóveis e financiamentos'],
       emprestimos: ['Empréstimos', 'Controle de dívidas'],
       relatorios: ['Relatórios', 'Análise detalhada'],
@@ -637,7 +641,7 @@ const VM = {
 
     try {
       const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
+      const { resumo, score_saude, fatores_score = [], metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
 
       const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
       const scoreLabel = score_saude >= 80 ? 'Excelente! 🏆' : score_saude >= 60 ? 'Boa saúde 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
@@ -714,22 +718,46 @@ const VM = {
           </div>
           
           <!-- SCORE -->
-          <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
-            <div style="font-size:0.85rem;color:#888;margin-bottom:16px;">🧠 Score de Saúde Financeira</div>
-            <div style="position:relative;width:140px;height:140px;margin-bottom:16px;">
-              <svg viewBox="0 0 140 140" style="transform:rotate(-90deg)">
-                <circle cx="70" cy="70" r="58" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="12"/>
-                <circle cx="70" cy="70" r="58" fill="none" stroke="${scoreColor}" stroke-width="12"
+          <div class="card" style="display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;position:relative;">
+            <div style="font-size:0.8rem;color:#888;margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;font-weight:600;">🧠 Saúde Financeira</div>
+            <div style="position:relative;width:120px;height:120px;margin-bottom:10px;">
+              <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);width:120px;height:120px;">
+                <circle cx="70" cy="70" r="58" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"/>
+                <circle cx="70" cy="70" r="58" fill="none" stroke="${scoreColor}" stroke-width="14"
                   stroke-dasharray="${2 * Math.PI * 58}" stroke-dashoffset="${2 * Math.PI * 58 * (1 - score_saude / 100)}"
-                  stroke-linecap="round" style="transition:stroke-dashoffset 1s ease;"/>
+                  stroke-linecap="round" style="transition:stroke-dashoffset 1.2s ease;filter:drop-shadow(0 0 6px ${scoreColor}66);"/>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                <div style="font-size:2rem;font-weight:800;color:${scoreColor};">${score_saude}</div>
-                <div style="font-size:0.7rem;color:#666;">/ 100</div>
+                <div style="font-size:1.9rem;font-weight:800;color:${scoreColor};line-height:1;">${score_saude}</div>
+                <div style="font-size:0.62rem;color:#555;margin-top:2px;">/ 100</div>
               </div>
             </div>
-            <div style="font-weight:600;color:${scoreColor};">${scoreLabel}</div>
-            ${metas.ativas > 0 ? `<div style="margin-top:16px;font-size:0.78rem;color:#666;">${metas.ativas} meta${metas.ativas > 1 ? 's' : ''} ativa${metas.ativas > 1 ? 's' : ''}</div>` : ''}
+            <div style="font-weight:700;color:${scoreColor};font-size:0.9rem;margin-bottom:14px;">${scoreLabel}</div>
+            ${fatores_score.length > 0 ? (() => {
+              const positivos = fatores_score.filter(f => f.tipo === 'positivo')
+              const negativos = fatores_score.filter(f => f.tipo === 'negativo')
+              const neutros   = fatores_score.filter(f => f.tipo === 'neutro')
+              const renderGroup = (items, cor, bg, titulo) => items.length === 0 ? '' : `
+                <div style="margin-bottom:8px;">
+                  <div style="font-size:0.65rem;font-weight:700;color:${cor};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;padding:3px 8px;background:${bg};border-radius:6px;display:inline-block;">${titulo}</div>
+                  ${items.map(f => `
+                    <div style="display:flex;align-items:flex-start;gap:7px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                      <div style="flex:1;text-align:left;">
+                        <div style="font-size:0.72rem;color:${cor};line-height:1.4;">${f.descricao}</div>
+                      </div>
+                      <span style="font-size:0.7rem;font-weight:800;color:${f.pontos > 0 ? '#2FBF71' : f.pontos < 0 ? '#ff6b6b' : '#666'};flex-shrink:0;min-width:32px;text-align:right;">${f.pontos > 0 ? '+' : ''}${f.pontos !== 0 ? f.pontos : '—'}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              `
+              return `
+              <div style="width:100%;text-align:left;border-top:1px solid rgba(255,255,255,0.07);padding-top:12px;">
+                <div style="font-size:0.7rem;color:#555;margin-bottom:8px;text-align:center;">Fatores que impactam seu score</div>
+                ${renderGroup(positivos, '#2FBF71', 'rgba(47,191,113,0.12)', '✅ Pontos positivos')}
+                ${renderGroup(negativos, '#ff6b6b', 'rgba(255,107,107,0.12)', '❌ Pontos negativos')}
+                ${renderGroup(neutros,   '#ffc400', 'rgba(255,196,0,0.10)',   '⚠️ Pontos de atenção')}
+              </div>`
+            })() : ''}
           </div>
         </div>
 
@@ -1623,6 +1651,17 @@ const VM = {
     const future = new Date(today); future.setFullYear(future.getFullYear() + 1)
     const defaultDate = future.toISOString().split('T')[0]
     const cores = ['#2FBF71', '#208040', '#74b9ff', '#a29bfe', '#fd79a8', '#ffc400', '#ff8c42', '#00cec9']
+    const categoriasMeta = [
+      { v:'economia', l:'💰 Economia / Reserva' },
+      { v:'imovel', l:'🏠 Imóvel (Casa/Apto)' },
+      { v:'veiculo', l:'🚗 Veículo (Carro/Moto)' },
+      { v:'viagem', l:'✈️ Viagem / Férias' },
+      { v:'educacao', l:'📚 Educação / Curso' },
+      { v:'liberdade', l:'🗽 Liberdade Financeira' },
+      { v:'aposentadoria', l:'👴 Aposentadoria' },
+      { v:'emergencia', l:'🛡️ Reserva de Emergência' },
+      { v:'outros', l:'📋 Outros' },
+    ]
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
@@ -1635,6 +1674,13 @@ const VM = {
             <div class="form-group">
               <label class="form-label">Nome da Meta *</label>
               <input type="text" id="m-nome" class="form-input" placeholder="Ex: Reserva de Emergência" value="${meta?.nome || ''}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Categoria *</label>
+              <select id="m-categoria" class="form-select">
+                ${categoriasMeta.map(c => `<option value="${c.v}" ${(meta?.categoria||'economia')===c.v?'selected':''}>${c.l}</option>`).join('')}
+              </select>
+              <div style="font-size:0.72rem;color:#888;margin-top:3px;">A categoria define quais conquistas você pode desbloquear</div>
             </div>
             <div class="form-group">
               <label class="form-label">Descrição</label>
@@ -1680,6 +1726,7 @@ const VM = {
       const btn = document.getElementById('m-submit')
       btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
+        const categoria = document.getElementById('m-categoria').value
         const payload = {
           nome: document.getElementById('m-nome').value,
           descricao: document.getElementById('m-desc').value,
@@ -1687,7 +1734,7 @@ const VM = {
           valor_atual: parseFloat(document.getElementById('m-atual').value) || 0,
           data_meta: document.getElementById('m-data').value,
           cor: document.getElementById('m-cor').value,
-          categoria: meta?.categoria || 'economia',
+          categoria,
           icone: meta?.icone || 'piggy-bank',
           status: meta?.status || 'ativa'
         }
@@ -1766,25 +1813,31 @@ const VM = {
                 <th style="text-align:right;">Ações</th>
               </tr></thead>
               <tbody>
-                ${investimentos.map(inv => `
+                ${investimentos.map(inv => {
+                  const isCaixinha = inv.tipo === 'caixinha'
+                  const rentLabel = isCaixinha && inv.dias_decorridos === 0
+                    ? '<span style="color:#888;font-size:0.78rem;">Rendendo...</span>'
+                    : `${inv.rentabilidade_percentual >= 0 ? '+' : ''}${inv.rentabilidade_percentual}%`
+                  return `
                   <tr>
                     <td>
                       <div style="font-weight:600;">${inv.nome}</div>
                       ${inv.instituicao ? `<div style="font-size:0.75rem;color:#666;">${inv.instituicao}</div>` : ''}
-                      ${inv.tipo === 'caixinha' && inv.cdi_info ? `<div style="font-size:0.72rem;color:#2FBF71;">📊 ${inv.cdi_info}</div>` : ''}
-                      ${inv.tipo === 'caixinha' && inv.dias_decorridos ? `<div style="font-size:0.7rem;color:#888;">${inv.dias_decorridos} dias renderizando</div>` : ''}
+                      ${isCaixinha && inv.cdi_info ? `<div style="font-size:0.72rem;color:#2FBF71;">📊 ${inv.cdi_info}</div>` : ''}
+                      ${isCaixinha && inv.dias_decorridos > 0 ? `<div style="font-size:0.7rem;color:#888;">${inv.dias_decorridos} dias rendendo</div>` : ''}
+                      ${isCaixinha && inv.dias_decorridos === 0 ? `<div style="font-size:0.7rem;color:#888;">Cadastrado hoje — renderá a partir de amanhã</div>` : ''}
                     </td>
                     <td>${tipoEmojis[inv.tipo] || '💼'} ${tipoLabels[inv.tipo] || inv.tipo}</td>
                     <td><span class="badge" style="background:${riscoColors[inv.risco] || '#888'}22;color:${riscoColors[inv.risco] || '#888'};border:1px solid ${riscoColors[inv.risco] || '#888'}44;">${inv.risco}</span></td>
                     <td style="text-align:right;">${this.formatMoney(inv.valor_investido)}</td>
                     <td style="text-align:right;font-weight:600;color:#2FBF71;">${this.formatMoney(inv.valor_atual || inv.valor_investido)}</td>
-                    <td style="text-align:right;font-weight:600;${inv.rentabilidade_percentual >= 0 ? 'color:#2FBF71' : 'color:#ff6b6b'};">${inv.rentabilidade_percentual}%</td>
+                    <td style="text-align:right;font-weight:600;${inv.rentabilidade_percentual >= 0 ? 'color:#2FBF71' : 'color:#ff6b6b'};">${rentLabel}</td>
                     <td style="text-align:right;">
                       <button onclick="VM.modalInvestimento(${JSON.stringify(inv).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;"><i class="fas fa-edit"></i></button>
                       <button onclick="VM.deleteInvestimento(${inv.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                     </td>
                   </tr>
-                `).join('')}
+                `}).join('')}
               </tbody>
             </table>
           </div>
@@ -3089,11 +3142,121 @@ const VM = {
     const mc = document.getElementById('modal-container')
     mc.innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:760px;max-height:88vh;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:#1a1a2e;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);z-index:1;">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao} — Todas as Compras</h3>
+              <div style="font-size:0.8rem;color:#888;margin-top:2px;">Clique na seta para ver as parcelas</div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="VM.verLancamentosCartaoFatura(${cartaoId},'${nomeCartao}')" style="background:rgba(255,196,0,0.1);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.8rem;">📅 Ver por Fatura</button>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            </div>
+          </div>
+          <div id="compras-modal-body">
+            <div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+          </div>
+        </div>
+      </div>
+    `
+    this.carregarComprasCartao(cartaoId)
+  },
+
+  async carregarComprasCartao(cartaoId) {
+    const body = document.getElementById('compras-modal-body')
+    if (!body) return
+    try {
+      const data = await this.api('GET', `cartoes/${cartaoId}/compras`)
+      const compras = data.compras || []
+
+      if (compras.length === 0) {
+        body.innerHTML = `<div style="text-align:center;padding:48px;color:#666;"><div style="font-size:2.5rem;margin-bottom:12px;">📭</div><div>Nenhuma compra cadastrada</div></div>`
+        return
+      }
+
+      body.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${compras.map((c, idx) => {
+            const statusColor = c.pendentes === 0 ? '#2FBF71' : c.pagas === 0 ? '#ff6b6b' : '#ffc400'
+            const statusLabel = c.pendentes === 0 ? '✅ Quitada' : c.pagas === 0 ? '⏳ Nenhuma paga' : `🔄 ${c.pagas}/${c.numero_parcelas} pagas`
+            const valorTotal = c.valor_parcela * c.numero_parcelas
+            return `
+              <div style="background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;" onclick="VM.toggleParcelasCompra('parcelas-${idx}', 'seta-${idx}')">
+                  <span id="seta-${idx}" style="font-size:0.9rem;transition:transform 0.2s;display:inline-block;">▶</span>
+                  <div style="flex:1;">
+                    <div style="font-weight:700;font-size:0.9rem;">${c.descricao}</div>
+                    <div style="font-size:0.75rem;color:#888;margin-top:2px;">${c.categoria} • Compra: ${this.formatDate(c.data_compra)} • ${c.numero_parcelas}x ${this.formatMoney(c.valor_parcela)}</div>
+                  </div>
+                  <div style="text-align:right;flex-shrink:0;">
+                    <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(valorTotal)}</div>
+                    <div style="font-size:0.72rem;color:${statusColor};">${statusLabel}</div>
+                  </div>
+                  <div style="display:flex;gap:6px;margin-left:8px;" onclick="event.stopPropagation()">
+                    <button onclick="VM.excluirCompraGrupo(${JSON.stringify(c).replace(/"/g,'&quot;')}, ${cartaoId})" style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:6px;padding:5px 9px;cursor:pointer;font-size:0.72rem;" title="Excluir compra e todas as parcelas"><i class="fas fa-trash"></i></button>
+                  </div>
+                </div>
+                <div id="parcelas-${idx}" style="display:none;border-top:1px solid rgba(255,255,255,0.06);">
+                  ${c.parcelas.map(p => {
+                    const pColor = p.status === 'pago' ? '#2FBF71' : '#ffc400'
+                    return `
+                      <div style="display:flex;align-items:center;gap:12px;padding:10px 16px 10px 44px;border-bottom:1px solid rgba(255,255,255,0.03);">
+                        <div style="flex:1;">
+                          <div style="font-size:0.82rem;font-weight:600;">${p.descricao}</div>
+                          <div style="font-size:0.72rem;color:#666;">Fatura: ${this.formatDate(p.data_fatura)}</div>
+                        </div>
+                        <div style="font-weight:700;font-size:0.85rem;">${this.formatMoney(p.valor_total)}</div>
+                        <span style="font-size:0.72rem;color:${pColor};min-width:70px;text-align:center;">${p.status === 'pago' ? '✅ Paga' : '⏳ Pendente'}</span>
+                        ${p.status !== 'pago' ? `<button onclick="VM.pagarLancamento(${p.id},${cartaoId})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">Pagar</button>` : '<div style="width:54px;"></div>'}
+                        <button onclick="VM.deleteLancamento(${p.id},${cartaoId})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-trash"></i></button>
+                      </div>
+                    `
+                  }).join('')}
+                </div>
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch(e) {
+      if(body) body.innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:24px;">Erro ao carregar compras</div>`
+    }
+  },
+
+  toggleParcelasCompra(parcelasId, setaId) {
+    const el = document.getElementById(parcelasId)
+    const seta = document.getElementById(setaId)
+    if (!el) return
+    const isOpen = el.style.display !== 'none'
+    el.style.display = isOpen ? 'none' : 'block'
+    if (seta) seta.style.transform = isOpen ? '' : 'rotate(90deg)'
+  },
+
+  async excluirCompraGrupo(compra, cartaoId) {
+    if (!confirm(`Excluir a compra "${compra.descricao}" e todas as ${compra.numero_parcelas} parcelas?`)) return
+    try {
+      await this.api('DELETE', 'cartoes/compras/grupo', {
+        descricao: compra.descricao,
+        valor_parcela: compra.valor_parcela,
+        data_compra: compra.data_compra,
+        numero_parcelas: compra.numero_parcelas,
+        cartao_id: cartaoId
+      })
+      this.toast('Compra e parcelas excluídas!')
+      this.carregarComprasCartao(cartaoId)
+    } catch(e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  async verLancamentosCartaoFatura(cartaoId, nomeCartao) {
+    const mc = document.getElementById('modal-container')
+    mc.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
         <div class="modal" style="max-width:700px;max-height:85vh;overflow-y:auto;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:#1a1a2e;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);">
             <div>
-              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao}</h3>
-              <div style="font-size:0.8rem;color:#888;margin-top:2px;">Compras no cartão</div>
+              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao} — Por Fatura</h3>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <select id="lc-mes" class="form-select" style="padding:6px 10px;font-size:0.8rem;" onchange="VM.carregarLancamentosCartaoModal(${cartaoId})">
@@ -3178,7 +3341,8 @@ const VM = {
     try {
       await this.api('PATCH', `cartoes/lancamentos/${id}/status`, { status: 'pago' })
       this.toast('Parcela marcada como paga! ✅')
-      this.carregarLancamentosCartaoModal(cartaoId)
+      if (document.getElementById('compras-modal-body')) this.carregarComprasCartao(cartaoId)
+      else this.carregarLancamentosCartaoModal(cartaoId)
     } catch(e) {
       this.toast('Erro ao atualizar', 'error')
     }
@@ -3189,7 +3353,9 @@ const VM = {
     try {
       await this.api('DELETE', `cartoes/lancamentos/${id}`)
       this.toast('Lançamento excluído!')
-      this.carregarLancamentosCartaoModal(cartaoId)
+      // Recarregar a view ativa (compras ou fatura)
+      if (document.getElementById('compras-modal-body')) this.carregarComprasCartao(cartaoId)
+      else this.carregarLancamentosCartaoModal(cartaoId)
     } catch(e) {
       this.toast('Erro ao excluir', 'error')
     }
@@ -3312,12 +3478,31 @@ const VM = {
     const valor = parseFloat(document.getElementById('ca-valor')?.value || 0)
     const total = parseInt(document.getElementById('ca-parcelas-total')?.value || 0)
     const pagas = parseInt(document.getElementById('ca-parcelas-pagas')?.value || 0)
+    const dataCompraStr = document.getElementById('ca-data')?.value || ''
+    const cartaoId = document.getElementById('ca-cartao')?.value || ''
     const preview = document.getElementById('ca-preview')
     if (!preview) return
     if (valor > 0 && total >= 2 && pagas >= 0 && pagas < total) {
       const restantes = total - pagas
       const valorParcela = valor / total
       const totalRestante = valorParcela * restantes
+
+      // Calcular datas estimadas das próximas 3 parcelas (sem saber o cartão atual)
+      let datasHtml = ''
+      if (dataCompraStr) {
+        const dataCompra = new Date(dataCompraStr + 'T12:00:00')
+        const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+        const proximasParc = []
+        for (let i = pagas + 1; i <= Math.min(pagas + 3, total); i++) {
+          const d = new Date(dataCompra)
+          d.setMonth(dataCompra.getMonth() + (i - 1) + 1) // +1 pois normalmente vai para próximo ciclo
+          proximasParc.push(`<span style="background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:6px;">${i}/${total}: ${meses[d.getMonth()]}/${d.getFullYear()}</span>`)
+        }
+        if (proximasParc.length > 0) {
+          datasHtml = `<div style="margin-top:10px;font-size:0.72rem;color:#888;">📅 Próximas parcelas estimadas: ${proximasParc.join(' ')}</div>`
+        }
+      }
+
       preview.style.display = 'block'
       preview.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
@@ -3325,6 +3510,7 @@ const VM = {
           <div><div style="color:#888;font-size:0.72rem;">Parcelas a registrar</div><div style="font-weight:700;color:#ffc400;">${restantes} de ${total}</div></div>
           <div><div style="color:#888;font-size:0.72rem;">Total a registrar</div><div style="font-weight:700;color:#ff6b6b;">${this.formatMoney(totalRestante)}</div></div>
         </div>
+        ${datasHtml}
       `
     } else {
       preview.style.display = 'none'
@@ -3748,9 +3934,12 @@ const VM = {
                 
                 ${f.data_previsao_fim ? `<div style="margin-top:12px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(f.data_previsao_fim)}</div>` : ''}
                 ${f.status === 'ativo' && f.parcelas_pagas < f.numero_parcelas ? `
-                <div style="margin-top:14px;">
-                  <button onclick="VM.pagarParcelaFinanciamento(${f.id})" style="width:100%;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
-                    <i class="fas fa-check-circle"></i> Registrar Pagamento da Parcela ${f.parcelas_pagas + 1}/${f.numero_parcelas}
+                <div style="margin-top:14px;display:flex;gap:8px;">
+                  <button onclick="VM.pagarParcelaFinanciamento(${f.id})" style="flex:1;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Parcela ${f.parcelas_pagas + 1}/${f.numero_parcelas}
+                  </button>
+                  <button onclick="VM.modalAmortizacao('financiamento', ${f.id}, ${f.saldo_devedor}, ${f.valor_parcela}, ${f.numero_parcelas}, ${f.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
+                    <i class="fas fa-bolt"></i> Amortizar
                   </button>
                 </div>` : ''}
               </div>
@@ -3775,16 +3964,25 @@ const VM = {
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="fin-form">
-            <div class="form-group">
-              <label class="form-label">Descrição *</label>
-              <input type="text" id="f-desc" class="form-input" placeholder="Ex: Apartamento Centro" value="${fin?.descricao || ''}" required>
-            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Valor do Imóvel (R$) *</label>
-                <input type="number" id="f-imovel" class="form-input" step="0.01" min="0" value="${fin?.valor_imovel || ''}" required>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Descrição *</label>
+                <input type="text" id="f-desc" class="form-input" placeholder="Ex: Apartamento Centro / Carro / Moto" value="${fin?.descricao || ''}" required>
               </div>
               <div class="form-group">
+                <label class="form-label">Tipo de Financiamento *</label>
+                <select id="f-tipo-bem" class="form-select">
+                  <option value="imovel" ${(fin?.tipo_bem||'imovel')==='imovel'?'selected':''}>🏠 Imóvel Residencial</option>
+                  <option value="imovel_comercial" ${fin?.tipo_bem==='imovel_comercial'?'selected':''}>🏢 Imóvel Comercial</option>
+                  <option value="veiculo" ${fin?.tipo_bem==='veiculo'?'selected':''}>🚗 Veículo (Carro/Moto)</option>
+                  <option value="rural" ${fin?.tipo_bem==='rural'?'selected':''}>🌾 Rural/Terreno</option>
+                  <option value="outros" ${fin?.tipo_bem==='outros'?'selected':''}>📋 Outros Bens</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Valor do Bem (R$) *</label>
+                <input type="number" id="f-imovel" class="form-input" step="0.01" min="0" value="${fin?.valor_imovel || ''}" required>
+              </div>
                 <label class="form-label">Valor Financiado (R$) *</label>
                 <input type="number" id="f-financiado" class="form-input" step="0.01" min="0" value="${fin?.valor_financiado || ''}" required>
               </div>
@@ -3850,8 +4048,11 @@ const VM = {
       btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
         const jurosAnual = parseFloat(document.getElementById('f-juros').value)
+        const tipoBem = document.getElementById('f-tipo-bem')?.value || 'imovel'
         const payload = {
           descricao: document.getElementById('f-desc').value,
+          tipo_bem: tipoBem,
+          tipo_imovel: tipoBem === 'imovel' ? 'residencial' : tipoBem === 'imovel_comercial' ? 'comercial' : tipoBem,
           valor_imovel: parseFloat(document.getElementById('f-imovel').value),
           valor_financiado: parseFloat(document.getElementById('f-financiado').value),
           taxa_juros_anual: jurosAnual,
@@ -3875,15 +4076,97 @@ const VM = {
     })
   },
 
+  modalAmortizacao(tipo, id, saldoAtual, valorParcela, numParcelas, parcelasPagas) {
+    const parcelasRestantes = numParcelas - parcelasPagas
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;">⚡ Amortização Extraordinária</h3>
+              <div style="font-size:0.78rem;color:#888;margin-top:2px;">Pagamento extra que reduz o saldo devedor</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          
+          <div style="background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.8rem;color:#cca800;line-height:1.6;">
+            <strong>Como funciona:</strong> O valor amortizado é abatido diretamente do saldo devedor. Você pode escolher entre reduzir o valor da parcela ou antecipar parcelas finais.
+          </div>
+
+          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;margin-bottom:20px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div style="text-align:center;">
+                <div style="font-size:0.72rem;color:#888;">Saldo Devedor Atual</div>
+                <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldoAtual)}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:0.72rem;color:#888;">Parcelas Restantes</div>
+                <div style="font-size:1rem;font-weight:700;color:#ffc400;">${parcelasRestantes}</div>
+              </div>
+            </div>
+          </div>
+
+          <form id="amort-form">
+            <div class="form-group">
+              <label class="form-label">Valor Amortizado (R$) *</label>
+              <input type="number" id="amort-valor" class="form-input" step="0.01" min="0.01" max="${saldoAtual}" placeholder="Ex: 5000.00" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Parcelas Antecipadas <span style="color:#888;font-size:0.78rem;">(opcional)</span></label>
+              <input type="number" id="amort-parcelas" class="form-input" min="0" max="${parcelasRestantes}" placeholder="Quantas parcelas foram antecipadas?" value="0">
+              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Se pagou parcelas do final, informe quantas para atualizar o contador</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Novo Saldo Devedor (R$) *</label>
+              <input type="number" id="amort-novo-saldo" class="form-input" step="0.01" min="0" placeholder="Informe o saldo após a amortização" required>
+              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Consulte seu banco para o valor exato do novo saldo</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <input type="text" id="amort-obs" class="form-input" placeholder="Ex: Amortização com 13º salário">
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" id="amort-submit" class="btn-primary" style="flex:1;background:linear-gradient(135deg,#ffc400,#cc9900);justify-content:center;">
+                <i class="fas fa-bolt"></i> Aplicar Amortização
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('amort-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault()
+      const btn = document.getElementById('amort-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...'
+      try {
+        const payload = {
+          valor_amortizado: parseFloat(document.getElementById('amort-valor').value),
+          novo_saldo: parseFloat(document.getElementById('amort-novo-saldo').value),
+          parcelas_antecipadas: parseInt(document.getElementById('amort-parcelas').value) || 0,
+          observacoes: document.getElementById('amort-obs').value || null
+        }
+        await this.api('PATCH', `${tipo}s/${id}/amortizacao`, payload)
+        this.toast('Amortização registrada! ⚡')
+        this.closeModal()
+        if (tipo === 'emprestimo') this.carregarEmprestimos()
+        else this.carregarFinanciamentos()
+      } catch(e) {
+        this.toast(e.response?.data?.error || 'Erro ao aplicar amortização', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-bolt"></i> Aplicar Amortização'
+      }
+    })
+  },
+
   async pagarParcelaFinanciamento(id) {
     if (!confirm('Confirmar pagamento desta parcela de financiamento?')) return
     try {
-      const res = await this.api('PATCH', `financiamentos/${id}/parcela`)
-      const d = res.data
+      const d = await this.api('PATCH', `financiamentos/${id}/parcela`)
       const msg = d.status === 'quitado'
         ? '🎉 Financiamento quitado! Parabéns!'
         : `✅ Parcela ${d.parcelas_pagas} paga! Saldo: ${this.formatMoney(d.saldo_devedor)}`
-      this.toast(msg, d.status === 'quitado' ? 'success' : 'success')
+      this.toast(msg, 'success')
       this.carregarFinanciamentos()
     } catch (e) {
       this.toast(e.response?.data?.error || 'Erro ao registrar pagamento', 'error')
@@ -3996,9 +4279,12 @@ const VM = {
                 </div>
                 ${e.data_previsao_fim ? `<div style="margin-top:10px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(e.data_previsao_fim)}</div>` : ''}
                 ${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? `
-                <div style="margin-top:14px;">
-                  <button onclick="VM.pagarParcelaEmprestimo(${e.id})" style="width:100%;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
-                    <i class="fas fa-check-circle"></i> Registrar Pagamento da Parcela ${e.parcelas_pagas + 1}/${e.numero_parcelas}
+                <div style="margin-top:14px;display:flex;gap:8px;">
+                  <button onclick="VM.pagarParcelaEmprestimo(${e.id})" style="flex:1;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Parcela ${e.parcelas_pagas + 1}/${e.numero_parcelas}
+                  </button>
+                  <button onclick="VM.modalAmortizacao('emprestimo', ${e.id}, ${e.saldo_devedor}, ${e.valor_parcela}, ${e.numero_parcelas}, ${e.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
+                    <i class="fas fa-bolt"></i> Amortizar
                   </button>
                 </div>` : ''}
               </div>
@@ -4091,13 +4377,18 @@ const VM = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
-                <label class="form-label">Data Início *</label>
+                <label class="form-label">Data Início (Contratação) *</label>
                 <input type="date" id="e-inicio" class="form-input" value="${emp?.data_inicio || today}" required>
               </div>
               <div class="form-group">
                 <label class="form-label">Dia Vencimento</label>
                 <input type="number" id="e-dia" class="form-input" min="1" max="31" value="${emp?.dia_vencimento || ''}">
               </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Data 1ª Parcela <span style="color:#888;font-size:0.78rem;">(opcional — use se o vencimento for diferente do mês da contratação)</span></label>
+              <input type="date" id="e-primeira-parcela" class="form-input" value="${emp?.data_primeira_parcela || ''}">
+              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Ex: contratado em Jan/2026, 1ª parcela em Mar/2026 → preencha 26/03/2026</div>
             </div>
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
@@ -4128,7 +4419,8 @@ const VM = {
           valor_parcela: parseFloat(document.getElementById('e-vparcela').value),
           parcelas_pagas: parseInt(document.getElementById('e-pagas').value) || 0,
           data_inicio: document.getElementById('e-inicio').value,
-          dia_vencimento: parseInt(document.getElementById('e-dia').value) || null
+          dia_vencimento: parseInt(document.getElementById('e-dia').value) || null,
+          data_primeira_parcela: document.getElementById('e-primeira-parcela')?.value || null
         }
         if (isEdit) await this.api('PUT', `emprestimos/${emp.id}`, payload)
         else await this.api('POST', 'emprestimos', payload)
@@ -4144,8 +4436,7 @@ const VM = {
   async pagarParcelaEmprestimo(id) {
     if (!confirm('Confirmar pagamento desta parcela de empréstimo?')) return
     try {
-      const res = await this.api('PATCH', `emprestimos/${id}/parcela`)
-      const d = res.data
+      const d = await this.api('PATCH', `emprestimos/${id}/parcela`)
       const msg = d.status === 'quitado'
         ? '🎉 Empréstimo quitado! Parabéns!'
         : `✅ Parcela ${d.parcelas_pagas} paga! Saldo: ${this.formatMoney(d.saldo_devedor)}`

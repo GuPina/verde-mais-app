@@ -32,7 +32,7 @@ financiamentos.post('/', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json()
   const {
-    descricao, tipo_imovel = 'residencial', valor_imovel, valor_financiado, valor_entrada = 0,
+    descricao, tipo_imovel = 'residencial', tipo_bem = 'imovel', valor_imovel, valor_financiado, valor_entrada = 0,
     taxa_juros_anual, numero_parcelas, parcelas_pagas = 0, valor_parcela,
     data_inicio, banco, contrato, sistema_amortizacao = 'price', indexador = 'prefixado', observacoes
   } = body
@@ -50,9 +50,9 @@ financiamentos.post('/', requireAuth, async (c) => {
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO financiamentos (user_id, descricao, tipo_imovel, valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, saldo_devedor, data_inicio, data_previsao_fim, sistema_amortizacao, banco, contrato, indexador, observacoes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFim.toISOString().split('T')[0], sistema_amortizacao, banco || null, contrato || null, indexador, observacoes || null).run()
+    `INSERT INTO financiamentos (user_id, descricao, tipo_imovel, tipo_bem, valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, saldo_devedor, data_inicio, data_previsao_fim, sistema_amortizacao, banco, contrato, indexador, observacoes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, descricao, tipo_imovel, tipo_bem, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFim.toISOString().split('T')[0], sistema_amortizacao, banco || null, contrato || null, indexador, observacoes || null).run()
 
   const finId = result.meta.last_row_id as number
 
@@ -85,7 +85,10 @@ financiamentos.post('/', requireAuth, async (c) => {
 
   await verificarConquista(c.env.DB, user.id, 'planejador')
   // Conquista: primeiro imóvel
-  await verificarConquista(c.env.DB, user.id, 'primeiro_imovel')
+  const tipoBem = body.tipo_bem || 'imovel'
+  if (tipoBem === 'imovel' || tipoBem === 'imovel_comercial') await verificarConquista(c.env.DB, user.id, 'primeiro_imovel')
+  if (tipoBem === 'veiculo') await verificarConquista(c.env.DB, user.id, 'financiamento_veiculo')
+  if (tipoBem === 'outros' || tipoBem === 'rural') await verificarConquista(c.env.DB, user.id, 'financiamento_outros')
   return c.json({ success: true, id: finId, message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
@@ -102,9 +105,14 @@ financiamentos.put('/:id', requireAuth, async (c) => {
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
   const saldoDevedor = calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, parseInt(numero_parcelas), parseInt(parcelas_pagas))
 
+  // Recalcular data_previsao_fim
+  const dataInicioPut = new Date(data_inicio)
+  const dataFimPut = new Date(dataInicioPut)
+  dataFimPut.setMonth(dataFimPut.getMonth() + parseInt(numero_parcelas))
+
   await c.env.DB.prepare(
-    `UPDATE financiamentos SET descricao=?, tipo_imovel=?, valor_imovel=?, valor_financiado=?, valor_entrada=?, taxa_juros_anual=?, taxa_juros_mensal=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, saldo_devedor=?, data_inicio=?, banco=?, contrato=?, sistema_amortizacao=?, indexador=?, status=?, observacoes=? WHERE id=? AND user_id=?`
-  ).bind(descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, banco || null, contrato || null, sistema_amortizacao, indexador, status || 'ativo', observacoes || null, id, user.id).run()
+    `UPDATE financiamentos SET descricao=?, tipo_imovel=?, valor_imovel=?, valor_financiado=?, valor_entrada=?, taxa_juros_anual=?, taxa_juros_mensal=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, saldo_devedor=?, data_inicio=?, data_previsao_fim=?, banco=?, contrato=?, sistema_amortizacao=?, indexador=?, status=?, observacoes=? WHERE id=? AND user_id=?`
+  ).bind(descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFimPut.toISOString().split('T')[0], banco || null, contrato || null, sistema_amortizacao, indexador, status || 'ativo', observacoes || null, id, user.id).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
   return c.json({ success: true, message: 'Financiamento atualizado!' })
@@ -152,6 +160,60 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
     amortizacao: Math.round(amortizacao * 100) / 100,
     status, 
     message: status === 'quitado' ? '🎉 Financiamento quitado!' : `Parcela ${novasParcelas}/${fin.numero_parcelas} paga! Saldo: R$ ${novoSaldo.toFixed(2)}` 
+  })
+})
+
+// PATCH /api/financiamentos/:id/amortizacao — amortização extraordinária
+financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const { valor_amortizado, novo_saldo, parcelas_antecipadas = 0, observacoes } = await c.req.json()
+  if (!valor_amortizado || novo_saldo === undefined) return c.json({ error: 'valor_amortizado e novo_saldo são obrigatórios' }, 400)
+
+  const novasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas))
+  const novasParcelas = Math.min(fin.numero_parcelas, fin.parcelas_pagas + novasPorAntecipacao)
+  const novoSaldoVal = Math.max(0, parseFloat(novo_saldo))
+  const status = novoSaldoVal <= 0 || novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
+
+  await c.env.DB.prepare(
+    'UPDATE financiamentos SET saldo_devedor=?, parcelas_pagas=?, status=? WHERE id=? AND user_id=?'
+  ).bind(novoSaldoVal, novasParcelas, status, id, user.id).run()
+
+  // Registrar como despesa
+  const hoje = new Date().toISOString().split('T')[0]
+  await c.env.DB.prepare(
+    `INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, fixa_ou_variavel, observacoes, meio_pagamento)
+     VALUES (?, ?, ?, ?, ?, 'pago', 'variavel', ?, 'transferencia')`
+  ).bind(user.id, `Amortização Extraordinária — ${fin.descricao}`, hoje, 'Financiamento', parseFloat(valor_amortizado), observacoes || `Amortização de R$${valor_amortizado} no financiamento #${id}`).run()
+
+  // Marcar parcelas antecipadas como pagas
+  if (novasPorAntecipacao > 0) {
+    for (let p = fin.parcelas_pagas + 1; p <= novasParcelas; p++) {
+      await c.env.DB.prepare(
+        `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Financiamento' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
+      ).bind(user.id, p, `%Financiamento automático #${id}%`).run()
+    }
+  }
+
+  if (status === 'quitado') {
+    await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+    await verificarConquista(c.env.DB, user.id, 'imovel_quitado')
+  }
+  await verificarConquista(c.env.DB, user.id, 'amortizou')
+  const percQuitado = fin.numero_parcelas > 0 ? Math.round((novasParcelas / fin.numero_parcelas) * 100) : 0
+  if (percQuitado >= 10) await verificarConquista(c.env.DB, user.id, 'quitou_10pct')
+  if (percQuitado >= 20) await verificarConquista(c.env.DB, user.id, 'quitou_20pct')
+  if (percQuitado >= 30) await verificarConquista(c.env.DB, user.id, 'quitou_30pct')
+
+  return c.json({
+    success: true,
+    novo_saldo: novoSaldoVal,
+    parcelas_pagas: novasParcelas,
+    status,
+    message: status === 'quitado' ? '🎉 Financiamento quitado!' : `⚡ Amortização aplicada! Novo saldo: R$${novoSaldoVal.toFixed(2)}`
   })
 })
 
