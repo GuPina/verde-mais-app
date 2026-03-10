@@ -173,6 +173,34 @@ admin.delete('/api/user/:id', async (c) => {
   return c.json({ success: true, message: `Usuário ${id} excluído.` })
 })
 
+// ─── PATCH /admin/api/user/:id/plano  → Alterar plano do usuário ─────────────
+admin.patch('/api/user/:id/plano', async (c) => {
+  const id = c.req.param('id')
+  const { plano } = await c.req.json()
+
+  const planosValidos = ['free', 'premium', 'pro']
+  if (!planosValidos.includes(plano)) {
+    return c.json({ error: 'Plano inválido. Use: free, premium ou pro' }, 400)
+  }
+
+  // Atualiza na tabela users
+  await c.env.DB.prepare('UPDATE users SET plano = ? WHERE id = ?').bind(plano, id).run()
+
+  // Atualiza na tabela assinaturas (se existir)
+  await c.env.DB.prepare(
+    `UPDATE assinaturas SET plano = ?, status = 'ativo'
+     WHERE user_id = ?`
+  ).bind(plano, id).run()
+
+  // Busca nome do usuário para retornar
+  const user = await c.env.DB.prepare('SELECT nome, email FROM users WHERE id = ?').bind(id).first() as any
+
+  return c.json({
+    success: true,
+    message: `Plano de ${user?.nome || 'usuário'} atualizado para ${plano.toUpperCase()}`
+  })
+})
+
 // ─── GET /admin/api/tables  → Listar tabelas ─────────────────────────────────
 admin.get('/api/tables', async (c) => {
   const result = await c.env.DB.prepare(
@@ -346,7 +374,7 @@ function adminPanel() {
         <div class="card-title"><i class="fas fa-users"></i> Últimos Usuários Cadastrados</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Nome</th><th>Email</th><th>Plano</th><th>Receitas</th><th>Despesas</th><th>Conquistas</th><th>Cadastro</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Nome / Email</th><th>Plano</th><th>Receitas</th><th>Despesas</th><th>Conquistas</th><th>Cadastro</th><th></th></tr></thead>
             <tbody id="users-table-body"></tbody>
           </table>
         </div>
@@ -365,7 +393,7 @@ function adminPanel() {
       <div class="card" style="padding:0;">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Nome</th><th>Email</th><th>Plano</th><th>Receitas</th><th>Despesas</th><th>Invest.</th><th>Metas</th><th>Conquistas</th><th>Cadastro</th><th>Ações</th></tr></thead>
+            <thead><tr><th>#</th><th>Nome / Email</th><th>Plano</th><th>Receitas</th><th>Despesas</th><th>Invest.</th><th>Metas</th><th>Conquistas</th><th>Cadastro</th><th>Ações</th></tr></thead>
             <tbody id="all-users-body"></tbody>
           </table>
         </div>
@@ -547,31 +575,49 @@ async function loadStats() {
 function renderUsersTable(users, tbodyId) {
   const tbody = document.getElementById(tbodyId)
   if (!tbody) return
-  tbody.innerHTML = users.map(u => \`
-    <tr>
-      <td style="color:#555;">#\${u.id}</td>
-      <td><strong>\${u.nome}</strong></td>
-      <td style="color:#888;">\${u.email}</td>
-      <td><span class="pill \${planoColor(u.plano)}">\${u.plano||'free'}</span></td>
-      <td style="color:#74b9ff;">\${u.receitas||0}</td>
-      <td style="color:#ff6b6b;">\${u.despesas||0}</td>
-      <td style="color:#a29bfe;">\${u.investimentos||0}</td>
-      <td style="color:#ffc400;">\${u.metas||0}</td>
-      <td style="color:#fdcb6e;">\${u.conquistas||0}</td>
-      <td style="color:#555;font-size:0.75rem;">\${(u.data_criacao||'').slice(0,10)}</td>
-      <td>
-        <button class="btn btn-danger btn-sm" onclick="deleteUser(\${u.id},'\\${u.nome.replace(/'/g,'')}')">
-          <i class="fas fa-trash"></i>
-        </button>
-      </td>
-    </tr>
-  \`).join('') || '<tr><td colspan="11" style="text-align:center;color:#444;padding:24px;">Nenhum usuário</td></tr>'
+  if (!users || users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#444;padding:24px;">Nenhum usuário</td></tr>'
+    return
+  }
+  let html = ''
+  for (const user of users) {
+    const id = user.id
+    const nome = (user.nome || '').replace(/'/g, '')
+    const email = user.email || ''
+    const plano = user.plano || 'free'
+    const planoUpper = plano.toUpperCase()
+    const planoCls = planoColor(plano)
+    const rec = user.receitas || 0
+    const desp = user.despesas || 0
+    const inv = user.investimentos || 0
+    const metas = user.metas || 0
+    const conq = user.conquistas || 0
+    const data = (user.data_criacao || '').slice(0, 10)
+    html += '<tr>'
+    html += '<td style="color:#555;">#' + id + '</td>'
+    html += '<td><strong>' + nome + '</strong><br><span style="font-size:0.7rem;color:#555;">' + email + '</span></td>'
+    html += '<td><div style="display:flex;align-items:center;gap:6px;">'
+    html += '<span class="pill ' + planoCls + '" id="pill-' + id + '-' + tbodyId + '">' + planoUpper + '</span>'
+    html += '<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:0.7rem;" title="Alterar plano" onclick="openPlanModal(' + id + ',\'' + nome + '\',\'' + plano + '\',\'' + tbodyId + '\')">'
+    html += '<i class="fas fa-edit"></i></button>'
+    html += '</div></td>'
+    html += '<td style="color:#74b9ff;">' + rec + '</td>'
+    html += '<td style="color:#ff6b6b;">' + desp + '</td>'
+    html += '<td style="color:#a29bfe;">' + inv + '</td>'
+    html += '<td style="color:#ffc400;">' + metas + '</td>'
+    html += '<td style="color:#fdcb6e;">' + conq + '</td>'
+    html += '<td style="color:#555;font-size:0.75rem;">' + data + '</td>'
+    html += '<td><button class="btn btn-danger btn-sm" onclick="deleteUser(' + id + ',\'' + nome + '\')">'
+    html += '<i class="fas fa-trash"></i></button></td>'
+    html += '</tr>'
+  }
+  tbody.innerHTML = html
 }
 
 function filterUsers(q) {
   const filtered = allUsers.filter(u =>
-    u.nome.toLowerCase().includes(q.toLowerCase()) ||
-    u.email.toLowerCase().includes(q.toLowerCase())
+    (u.nome||'').toLowerCase().includes(q.toLowerCase()) ||
+    (u.email||'').toLowerCase().includes(q.toLowerCase())
   )
   renderUsersTable(filtered, 'all-users-body')
 }
@@ -586,6 +632,107 @@ async function deleteUser(id, nome) {
     renderUsersTable(allUsers.slice(0,5), 'users-table-body')
   } else {
     toast('Erro ao excluir', false)
+  }
+}
+
+// ─── Modal de alteração de plano ──────────────────────────────────────────────
+function openPlanModal(userId, nome, planoAtual, tbodyId) {
+  const old = document.getElementById('plan-modal-overlay')
+  if (old) old.remove()
+
+  const isFree = planoAtual === 'free'
+  const isPremium = planoAtual === 'premium'
+  const isPro = planoAtual === 'pro'
+
+  const freeBorder = isFree ? '#2FBF71' : '#1f2937'
+  const freeBg = isFree ? 'rgba(47,191,113,0.08)' : 'transparent'
+  const premiumBorder = isPremium ? '#74b9ff' : '#1f2937'
+  const premiumBg = isPremium ? 'rgba(116,185,255,0.08)' : 'transparent'
+  const proBorder = isPro ? '#ffd700' : '#1f2937'
+  const proBg = isPro ? 'rgba(255,215,0,0.08)' : 'transparent'
+
+  const freeChecked = isFree ? 'checked' : ''
+  const premiumChecked = isPremium ? 'checked' : ''
+  const proChecked = isPro ? 'checked' : ''
+
+  const overlay = document.createElement('div')
+  overlay.id = 'plan-modal-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;'
+
+  let html = '<div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:32px;width:100%;max-width:400px;position:relative;">'
+  html += '<button onclick="document.getElementById(\'plan-modal-overlay\').remove()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;">✕</button>'
+  html += '<div style="font-size:1.4rem;margin-bottom:4px;">👑 Gerenciar Plano</div>'
+  html += '<div style="color:#888;font-size:0.82rem;margin-bottom:24px;">Usuário: <strong style="color:#e0e0e0;">' + nome + '</strong> <span style="color:#555;">· ID ' + userId + '</span></div>'
+  html += '<div style="font-size:0.82rem;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">Selecionar plano</div>'
+  html += '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px;">'
+
+  // FREE
+  html += '<label style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid ' + freeBorder + ';border-radius:10px;cursor:pointer;background:' + freeBg + '"'
+  html += ' onmouseover="this.style.borderColor=\'#2FBF71\'" onmouseout="this.style.borderColor=document.getElementById(\'plan-radio-free\').checked?\'#2FBF71\':\'#1f2937\'">'
+  html += '<input type="radio" name="novo-plano" id="plan-radio-free" value="free" ' + freeChecked + ' style="accent-color:#2FBF71;">'
+  html += '<div><div style="font-weight:700;color:#e0e0e0;">FREE</div>'
+  html += '<div style="font-size:0.75rem;color:#666;">3 metas · 2 cartões · 30 despesas/mês · sem IA</div></div></label>'
+
+  // PREMIUM
+  html += '<label style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid ' + premiumBorder + ';border-radius:10px;cursor:pointer;background:' + premiumBg + '"'
+  html += ' onmouseover="this.style.borderColor=\'#74b9ff\'" onmouseout="this.style.borderColor=document.getElementById(\'plan-radio-premium\').checked?\'#74b9ff\':\'#1f2937\'">'
+  html += '<input type="radio" name="novo-plano" id="plan-radio-premium" value="premium" ' + premiumChecked + ' style="accent-color:#74b9ff;">'
+  html += '<div><div style="font-weight:700;color:#74b9ff;">PREMIUM</div>'
+  html += '<div style="font-size:0.75rem;color:#666;">Ilimitado · Score · IA insights · Relatório anual</div></div></label>'
+
+  // PRO
+  html += '<label style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid ' + proBorder + ';border-radius:10px;cursor:pointer;background:' + proBg + '"'
+  html += ' onmouseover="this.style.borderColor=\'#ffd700\'" onmouseout="this.style.borderColor=document.getElementById(\'plan-radio-pro\').checked?\'#ffd700\':\'#1f2937\'">'
+  html += '<input type="radio" name="novo-plano" id="plan-radio-pro" value="pro" ' + proChecked + ' style="accent-color:#ffd700;">'
+  html += '<div><div style="font-weight:700;color:#ffd700;">PRO</div>'
+  html += '<div style="font-size:0.75rem;color:#666;">Tudo do Premium + API access · Sem limites</div></div></label>'
+
+  html += '</div>'
+  html += '<button onclick="savePlan(' + userId + ',\'' + nome + '\',\'' + tbodyId + '\')" style="width:100%;background:linear-gradient(135deg,#2FBF71,#208040);color:#fff;border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:700;cursor:pointer;">💾 Salvar alteração</button>'
+  html += '</div>'
+
+  overlay.innerHTML = html
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function savePlan(userId, nome, tbodyId) {
+  const selected = document.querySelector('input[name="novo-plano"]:checked')
+  if (!selected) { toast('Selecione um plano', false); return }
+  
+  const novoPlano = selected.value
+  const btn = document.querySelector('#plan-modal-overlay button:last-child')
+  btn.textContent = 'Salvando...'
+  btn.disabled = true
+  
+  const r = await api(\`/api/user/\${userId}/plano\`, {
+    method: 'PATCH',
+    body: JSON.stringify({ plano: novoPlano })
+  })
+  
+  if (r.success) {
+    // Atualiza o plano no array local
+    const idx = allUsers.findIndex(u => u.id === userId)
+    if (idx >= 0) allUsers[idx].plano = novoPlano
+    
+    // Atualiza a pill na tabela sem re-render completo
+    const pill = document.getElementById(\`pill-\${userId}-\${tbodyId}\`)
+    if (pill) {
+      pill.className = 'pill ' + planoColor(novoPlano)
+      pill.textContent = novoPlano.toUpperCase()
+    }
+    
+    // Fecha modal e exibe toast
+    document.getElementById('plan-modal-overlay').remove()
+    toast(\`✅ \${r.message}\`)
+    
+    // Re-renderiza as duas tabelas para manter consistência
+    renderUsersTable(allUsers, 'all-users-body')
+    renderUsersTable(allUsers.slice(0,5), 'users-table-body')
+  } else {
+    toast(r.error || 'Erro ao atualizar plano', false)
+    btn.textContent = '💾 Salvar alteração'
+    btn.disabled = false
   }
 }
 
