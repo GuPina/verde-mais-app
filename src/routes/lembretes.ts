@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -33,6 +34,15 @@ lembretes.get('/', requireAuth, async (c) => {
 // POST /api/lembretes
 lembretes.post('/', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // ── Limite de plano ──
+  const lim = getLimites(user.plano)
+  if (lim.lembretes !== Infinity) {
+    const count = await c.env.DB.prepare('SELECT COUNT(*) as n FROM lembretes WHERE user_id = ? AND ativo = 1').bind(user.id).first() as any
+    if ((count?.n || 0) >= lim.lembretes)
+      return c.json({ error: MSG_UPGRADE.lembretes, upgrade: true, limite: lim.lembretes, feature: 'lembretes' }, 403)
+  }
+
   const body = await c.req.json()
   const { titulo, descricao, tipo = 'conta', valor_estimado = 0, dia_vencimento, frequencia = 'mensal', alertar_dias_antes = 3 } = body
 

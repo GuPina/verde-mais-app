@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -9,6 +10,13 @@ const ia = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 // GET /api/ia/insights — Análise financeira inteligente (sem IA externa, algoritmo local)
 ia.get('/insights', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // Verifica plano
+  const lim = getLimites(user.plano)
+  if (!lim.ia_insights) {
+    return c.json({ error: MSG_UPGRADE.ia_insights, upgrade: true, feature: 'ia_insights' }, 403)
+  }
+
   const now = new Date()
   const mes = String(now.getMonth() + 1).padStart(2, '0')
   const ano = String(now.getFullYear())

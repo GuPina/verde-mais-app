@@ -259,18 +259,25 @@ function landingPage() {
 <!-- FEATURES -->
 <section id="features" style="background:rgba(255,255,255,0.01);">
   <h2 class="section-title">Tudo que você precisa para <span class="gradient-text">crescer financeiramente</span></h2>
-  <p class="section-sub">Um ecossistema completo de gestão financeira pessoal, moderno e inteligente.</p>
+  <p class="section-sub">Do controle diário de gastos até a construção de patrimônio — tudo numa plataforma só.</p>
   
   <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;">
     ${[
-      { icon: '📊', title: 'Dashboard em Tempo Real', desc: 'Visão 360° das suas finanças. Saldo, receitas, despesas, metas e investimentos numa tela só.' },
-      { icon: '💳', title: 'Controle Total de Gastos', desc: 'Categorize despesas, configure parcelas automáticas e receba alertas de vencimento.' },
-      { icon: '🎯', title: 'Metas Inteligentes', desc: 'Defina objetivos e acompanhe o progresso. O sistema calcula quanto você precisa poupar por mês.' },
-      { icon: '📈', title: 'Simulação de Investimentos', desc: 'Simule Tesouro Direto, CDB, LCI e outros. Veja sua projeção patrimonial futura.' },
-      { icon: '🧠', title: 'Score de Saúde Financeira', desc: 'Avalie de 0 a 100 a saúde das suas finanças e receba recomendações personalizadas.' },
-      { icon: '📋', title: 'Relatórios Profissionais', desc: 'Relatórios mensais, anuais e comparativos. Exporte em PDF para análise detalhada.' }
+      { icon: '📊', badge: null,     title: 'Dashboard em Tempo Real',       desc: 'Visão 360° das suas finanças. Saldo do mês, receitas, despesas, metas, investimentos e dívidas em uma tela só.' },
+      { icon: '💸', badge: 'free',   title: 'Controle de Despesas',          desc: 'Categorize gastos, crie parcelas automáticas, vincule ao cartão e monitore vencimentos. 30 lançamentos/mês no Free.' },
+      { icon: '💰', badge: 'free',   title: 'Receitas & Entradas',           desc: 'Registre salário, freelances e rendimentos. Veja o histórico por categoria e acompanhe a evolução mensal.' },
+      { icon: '🎯', badge: 'free',   title: 'Metas Financeiras',             desc: 'Casa, carro, viagem, aposentadoria. O sistema calcula quanto poupar por mês para alcançar cada objetivo.' },
+      { icon: '🛡️', badge: 'free',   title: 'Reserva de Emergência',         desc: 'Área dedicada para montar e acompanhar sua reserva. Marcos de 1/3/6/12 meses e dicas educativas.' },
+      { icon: '💳', badge: 'free',   title: 'Gestão de Cartões',             desc: 'Controle limite, fatura e gastos de cada cartão. Compras parceladas, lançamentos retroativos e fechamento automático.' },
+      { icon: '📈', badge: 'free',   title: 'Investimentos',                 desc: 'CDB, Tesouro, Ações, FIIs, Cripto, Caixinha CDI e mais. Acompanhe rentabilidade e diversificação da carteira.' },
+      { icon: '🏠', badge: 'free',   title: 'Financiamentos & Empréstimos',  desc: 'Gerencie financiamentos imobiliários, veiculares e empréstimos. PRICE/SAC, simulação e amortização extraordinária.' },
+      { icon: '🔔', badge: 'free',   title: 'Lembretes de Contas',           desc: 'Nunca pague multa por atraso. Configure alertas de vencimento para qualquer conta recorrente.' },
+      { icon: '🧠', badge: 'premium', title: 'Score de Saúde Financeira',    desc: 'Pontuação de 0 a 100 com análise detalhada: taxa de poupança, comprometimento de dívidas e metas.' },
+      { icon: '🤖', badge: 'premium', title: 'Análise com IA',               desc: 'Insights personalizados, alertas de padrão de consumo, análise da regra 50/30/20 e sugestões de economia.' },
+      { icon: '📋', badge: 'premium', title: 'Relatórios & Simulações',      desc: 'Relatório anual mês a mês e simulador de investimentos: CDB, Tesouro, Ações, FII e projeções.' },
     ].map(f => `
-      <div class="card">
+      <div class="card" style="position:relative;">
+        ${f.badge ? `<div style="position:absolute;top:16px;right:16px;background:${f.badge==='free'?'rgba(47,191,113,0.15)':'linear-gradient(135deg,rgba(162,155,254,0.2),rgba(47,191,113,0.15))'};color:${f.badge==='free'?'#2FBF71':'#a29bfe'};border:1px solid ${f.badge==='free'?'rgba(47,191,113,0.3)':'rgba(162,155,254,0.4)'};font-size:0.7rem;padding:3px 10px;border-radius:50px;font-weight:700;">${f.badge==='free'?'🌱 Free':'💎 Premium'}</div>` : ''}
         <div class="feature-icon">${f.icon}</div>
         <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:12px;">${f.title}</h3>
         <p style="color:#888;line-height:1.6;font-size:0.9rem;">${f.desc}</p>
@@ -308,48 +315,58 @@ function landingPage() {
   <div style="max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;align-items:start;">
     
     <div class="plan-card">
-      <div style="font-size:0.8rem;letter-spacing:2px;color:#888;margin-bottom:12px;">FREE</div>
+      <div style="font-size:0.8rem;letter-spacing:2px;color:#888;margin-bottom:12px;">🌱 FREE</div>
       <div style="font-size:3rem;font-weight:900;margin-bottom:4px;">R$ 0</div>
-      <div style="color:#666;margin-bottom:28px;">Para sempre</div>
+      <div style="color:#666;margin-bottom:28px;">Para sempre, sem cartão</div>
       <ul style="list-style:none;margin-bottom:32px;display:flex;flex-direction:column;gap:12px;">
-        <li><span class="check">✓</span> Dashboard básico</li>
-        <li><span class="check">✓</span> Controle de receitas e despesas</li>
+        <li><span class="check">✓</span> Dashboard completo</li>
+        <li><span class="check">✓</span> Até 30 despesas e 10 receitas/mês</li>
         <li><span class="check">✓</span> Até 3 metas financeiras</li>
-        <li><span class="check">✓</span> Relatório mensal</li>
+        <li><span class="check">✓</span> Até 3 investimentos</li>
+        <li><span class="check">✓</span> Até 2 cartões e 5 lembretes</li>
+        <li><span class="check">✓</span> Reserva de emergência</li>
+        <li><span class="check">✓</span> 1 Financiamento e 2 Empréstimos</li>
+        <li><span class="check">✓</span> Conquistas e gamificação</li>
         <li><span class="x-mark">✕</span> <span style="color:#555;">Score financeiro</span></li>
-        <li><span class="x-mark">✕</span> <span style="color:#555;">Simulações avançadas</span></li>
+        <li><span class="x-mark">✕</span> <span style="color:#555;">Análise com IA</span></li>
+        <li><span class="x-mark">✕</span> <span style="color:#555;">Relatório anual</span></li>
+        <li><span class="x-mark">✕</span> <span style="color:#555;">Simulador de investimentos</span></li>
       </ul>
       <a href="/cadastro" class="btn-outline" style="width:100%;justify-content:center;">Começar Grátis</a>
     </div>
     
     <div class="plan-card featured">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div style="font-size:0.8rem;letter-spacing:2px;color:#2FBF71;">PREMIUM</div>
+        <div style="font-size:0.8rem;letter-spacing:2px;color:#2FBF71;">💎 PREMIUM</div>
         <div style="background:#2FBF71;color:#fff;font-size:0.7rem;padding:4px 10px;border-radius:50px;font-weight:700;">MAIS POPULAR</div>
       </div>
       <div style="font-size:3rem;font-weight:900;margin-bottom:4px;">R$ 19<span style="font-size:1rem;color:#888;">/mês</span></div>
-      <div style="color:#666;margin-bottom:28px;">Billed annually</div>
+      <div style="color:#666;margin-bottom:28px;">Faturado mensalmente</div>
       <ul style="list-style:none;margin-bottom:32px;display:flex;flex-direction:column;gap:12px;">
-        <li><span class="check">✓</span> Tudo do Free</li>
-        <li><span class="check">✓</span> Score de saúde financeira</li>
-        <li><span class="check">✓</span> Metas ilimitadas</li>
-        <li><span class="check">✓</span> Simulação de investimentos</li>
-        <li><span class="check">✓</span> Alertas inteligentes</li>
-        <li><span class="check">✓</span> Relatórios avançados + PDF</li>
+        <li><span class="check">✓</span> Tudo do Free, sem limites</li>
+        <li><span class="check">✓</span> Despesas, receitas e metas ilimitadas</li>
+        <li><span class="check">✓</span> Até 10 cartões e lembretes ilimitados</li>
+        <li><span class="check">✓</span> Investimentos e financiamentos ilimitados</li>
+        <li><span class="check">✓</span> Score de saúde financeira (0-100)</li>
+        <li><span class="check">✓</span> Análise com IA e insights personalizados</li>
+        <li><span class="check">✓</span> Relatório anual completo</li>
+        <li><span class="check">✓</span> Simulador de investimentos</li>
+        <li><span class="check">✓</span> Amortização extraordinária</li>
+        <li><span class="check">✓</span> Exportar em PDF</li>
       </ul>
       <a href="/cadastro" class="btn-primary" style="width:100%;justify-content:center;">Assinar Premium</a>
     </div>
     
     <div class="plan-card">
-      <div style="font-size:0.8rem;letter-spacing:2px;color:#888;margin-bottom:12px;">PRO</div>
+      <div style="font-size:0.8rem;letter-spacing:2px;color:#888;margin-bottom:12px;">🚀 PRO</div>
       <div style="font-size:3rem;font-weight:900;margin-bottom:4px;">R$ 49<span style="font-size:1rem;color:#888;">/mês</span></div>
-      <div style="color:#666;margin-bottom:28px;">Para investidores sérios</div>
+      <div style="color:#666;margin-bottom:28px;">Para investidores exigentes</div>
       <ul style="list-style:none;margin-bottom:32px;display:flex;flex-direction:column;gap:12px;">
         <li><span class="check">✓</span> Tudo do Premium</li>
-        <li><span class="check">✓</span> IA financeira personalizada</li>
-        <li><span class="check">✓</span> Projeção patrimonial 5 anos</li>
-        <li><span class="check">✓</span> Regra 50/30/20 ajustável</li>
-        <li><span class="check">✓</span> API para integrações</li>
+        <li><span class="check">✓</span> Cartões ilimitados</li>
+        <li><span class="check">✓</span> Projeção patrimonial avançada</li>
+        <li><span class="check">✓</span> Regra 50/30/20 personalizável</li>
+        <li><span class="check">✓</span> Acesso à API REST para integrações</li>
         <li><span class="check">✓</span> Suporte prioritário</li>
       </ul>
       <a href="/cadastro" class="btn-outline" style="width:100%;justify-content:center;">Assinar Pro</a>

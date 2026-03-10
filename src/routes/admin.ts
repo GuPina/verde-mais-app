@@ -4,26 +4,85 @@ type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
 const admin = new Hono<{ Bindings: Bindings }>()
 
-// ─── Middleware de autenticação Basic Auth ───────────────────────────────────
+// ─── Middleware de autenticação ─────────────────────────────────────────────
+// Aceita: query ?token=SENHA  ou  header Authorization: Bearer SENHA
+// ou cookie admin_token=SENHA (persistência após login pelo painel)
 admin.use('/*', async (c, next) => {
-  const authHeader = c.req.header('Authorization') || ''
   const PASS = c.env.ADMIN_PASSWORD || 'verdemais@admin2026'
 
-  if (authHeader.startsWith('Basic ')) {
-    const b64 = authHeader.slice(6)
-    const decoded = atob(b64)           // "admin:senha"
-    const [, pass] = decoded.split(':')
-    if (pass === PASS) return next()
+  const queryToken   = c.req.query('token') || ''
+  const authHeader   = c.req.header('Authorization') || ''
+  const bearerToken  = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  const cookieHeader = c.req.header('Cookie') || ''
+  const cookieToken  = cookieHeader.match(/admin_token=([^;]+)/)?.[1] || ''
+
+  // Página de login (GET /admin/login)
+  if (c.req.path === '/admin/login') return next()
+
+  if (queryToken === PASS || bearerToken === PASS || cookieToken === PASS) {
+    return next()
   }
 
-  return new Response('Acesso restrito', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="VerdeMais Admin"',
-      'Content-Type': 'text/plain'
-    }
-  })
+  // Redireciona para tela de login embutida
+  return c.html(loginPage())
 })
+
+// ─── GET /admin/login ────────────────────────────────────────────────────────
+admin.get('/login', (c) => c.html(loginPage()))
+
+admin.post('/login', async (c) => {
+  const body   = await c.req.parseBody()
+  const senha  = String(body['senha'] || '')
+  const PASS   = c.env.ADMIN_PASSWORD || 'verdemais@admin2026'
+
+  if (senha === PASS) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': '/admin',
+        'Set-Cookie': `admin_token=${PASS}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=86400`
+      }
+    })
+  }
+  return c.html(loginPage('Senha incorreta. Tente novamente.'))
+})
+
+function loginPage(erro = '') {
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VerdeMais Admin — Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.box{background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:40px 36px;width:100%;max-width:380px;text-align:center}
+.logo{font-size:2.5rem;margin-bottom:8px}
+h1{font-size:1.2rem;font-weight:700;margin-bottom:4px}
+.sub{color:#555;font-size:0.82rem;margin-bottom:28px}
+input{background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:12px 14px;font-size:0.9rem;width:100%;margin-bottom:14px}
+input:focus{outline:none;border-color:#2FBF71}
+button{background:linear-gradient(135deg,#2FBF71,#208040);color:#fff;border:none;border-radius:8px;padding:12px;font-size:0.95rem;font-weight:700;width:100%;cursor:pointer}
+button:hover{opacity:.9}
+.erro{background:rgba(255,71,87,.12);border:1px solid rgba(255,71,87,.3);color:#ff4757;padding:10px 14px;border-radius:8px;font-size:0.82rem;margin-bottom:14px}
+.badge{background:rgba(255,71,87,.12);color:#ff4757;font-size:0.65rem;padding:2px 8px;border-radius:4px;font-weight:700;vertical-align:middle;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo">💚</div>
+  <h1>VerdeMais <span class="badge">ADMIN</span></h1>
+  <div class="sub">Painel restrito — insira a senha de administrador</div>
+  ${erro ? `<div class="erro">⚠️ ${erro}</div>` : ''}
+  <form method="POST" action="/admin/login">
+    <input type="password" name="senha" placeholder="Senha de administrador" autofocus required>
+    <button type="submit">Entrar no painel →</button>
+  </form>
+</div>
+</body>
+</html>`
+}
 
 // ─── GET /admin  → Painel HTML ───────────────────────────────────────────────
 admin.get('/', async (c) => {

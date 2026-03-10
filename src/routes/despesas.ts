@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -56,6 +57,20 @@ despesas.get('/', requireAuth, async (c) => {
 // POST /api/despesas
 despesas.post('/', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // ── Limite de plano ──
+  const lim = getLimites(user.plano)
+  if (lim.despesas_mes !== Infinity) {
+    const now = new Date()
+    const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
+    const anoAtual = String(now.getFullYear())
+    const count = await c.env.DB.prepare(
+      `SELECT COUNT(*) as n FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+    ).bind(user.id, mesAtual, anoAtual).first() as any
+    if ((count?.n || 0) >= lim.despesas_mes)
+      return c.json({ error: MSG_UPGRADE.despesas_mes, upgrade: true, limite: lim.despesas_mes, feature: 'despesas_mes' }, 403)
+  }
+
   const body = await c.req.json()
   const { 
     descricao, data, categoria, subcategoria, valor, 

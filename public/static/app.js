@@ -6,6 +6,54 @@ const VM = {
   user: null,
   currentPage: null,
   charts: {},
+  limites: null, // limites do plano atual, carregados junto com o dashboard
+
+  // ======= UPSELL / PLANOS =======
+  planoTem(feature) {
+    if (!this.limites) return true // se ainda não carregou, permite (o backend vai bloquear)
+    const v = this.limites[feature]
+    if (typeof v === 'boolean') return v
+    if (typeof v === 'number') return v > 0
+    return true
+  },
+
+  upsellModal(feature, tituloExtra) {
+    const msgs = {
+      score_saude: { titulo: '🧠 Score de Saúde Financeira', desc: 'Veja sua pontuação de 0 a 100, os fatores que afetam suas finanças e dicas personalizadas para melhorar.' },
+      ia_insights: { titulo: '🤖 Análise com IA', desc: 'Insights inteligentes sobre seus gastos, receitas e investimentos. A IA identifica padrões e sugere ações concretas.' },
+      relatorio_anual: { titulo: '📋 Relatório Anual', desc: 'Veja sua evolução financeira mês a mês, totais anuais e comparativos de receitas x despesas.' },
+      simulacao: { titulo: '🧮 Simulador de Investimentos', desc: 'Simule Tesouro Direto, CDB, Ações e outros. Veja projeções patrimoniais e compare rendimentos.' },
+      exportar_pdf: { titulo: '📄 Exportar PDF', desc: 'Exporte seus relatórios em PDF para arquivar ou compartilhar com seu contador.' },
+      amortizacao: { titulo: '⚡ Amortização Extraordinária', desc: 'Pague a mais nas parcelas do seu financiamento e reduza juros e prazo. Recurso exclusivo Premium.' },
+      metas: { titulo: '🎯 Metas Ilimitadas', desc: 'O plano Free permite até 3 metas. Com o Premium você cria metas ilimitadas e acompanha todas.' },
+      cartoes: { titulo: '💳 Mais Cartões', desc: 'Adicione até 10 cartões no Premium e controle todos os seus gastos.' },
+      lembretes: { titulo: '🔔 Lembretes Ilimitados', desc: 'Com o Premium você cria lembretes ilimitados e nunca mais perde um vencimento.' },
+      investimentos: { titulo: '📈 Mais Investimentos', desc: 'Registre todos os seus investimentos sem limites no plano Premium.' },
+      emprestimos: { titulo: '💰 Mais Empréstimos', desc: 'Controle todos os seus empréstimos ativos sem restrições no Premium.' },
+      financiamentos: { titulo: '🏠 Mais Financiamentos', desc: 'Gerencie múltiplos financiamentos simultaneamente com o plano Premium.' },
+      despesas_mes: { titulo: '📊 Mais Despesas por Mês', desc: 'O plano Free aceita até 30 despesas por mês. No Premium você tem despesas ilimitadas.' },
+      receitas_mes: { titulo: '💵 Mais Receitas por Mês', desc: 'O plano Free aceita até 10 receitas por mês. No Premium você tem receitas ilimitadas.' },
+    }
+    const info = msgs[feature] || { titulo: tituloExtra || '🌟 Recurso Premium', desc: 'Este recurso está disponível nos planos pagos.' }
+    const plano = this.user?.plano || 'free'
+    const proximo = plano === 'free' ? 'Premium (R$ 19/mês)' : 'Pro (R$ 49/mês)'
+    this.showModal(`
+      <div style="text-align:center;padding:8px 0;">
+        <div style="font-size:2.5rem;margin-bottom:12px;">🔒</div>
+        <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:8px;">${info.titulo}</h3>
+        <p style="color:#888;margin-bottom:20px;font-size:0.9rem;line-height:1.5;">${info.desc}</p>
+        <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:12px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:0.8rem;color:#2FBF71;font-weight:600;margin-bottom:4px;">Disponível no plano</div>
+          <div style="font-size:1.1rem;font-weight:700;">${proximo}</div>
+          <div style="font-size:0.78rem;color:#666;margin-top:4px;">Cancele quando quiser · Sem burocracia</div>
+        </div>
+        <button onclick="VM.navigate('perfil');VM.closeModal()" class="btn-primary" style="width:100%;justify-content:center;">
+          <i class="fas fa-crown"></i> Ver Planos e Fazer Upgrade
+        </button>
+        <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;margin-top:10px;justify-content:center;">Agora não</button>
+      </div>
+    `)
+  },
 
   init() {
     this.token = localStorage.getItem('vm_token')
@@ -35,6 +83,13 @@ const VM = {
     }).then(r => r.data).catch(e => {
       if (e.response?.status === 401) {
         this.logout()
+        throw e
+      }
+      // Interceptar erro 403 com flag upgrade = true — mostrar upsell
+      if (e.response?.status === 403 && e.response?.data?.upgrade) {
+        const feature = e.response.data.feature
+        const msg = e.response.data.error
+        this.upsellModal(feature, msg)
         throw e
       }
       throw e
@@ -642,10 +697,14 @@ const VM = {
 
     try {
       const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, fatores_score = [], metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
+      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
 
-      const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
-      const scoreLabel = score_saude >= 80 ? 'Excelente! 🏆' : score_saude >= 60 ? 'Boa saúde 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
+      // Salvar limites do plano para uso no frontend
+      if (limites) this.limites = limites
+
+      const scoreReal = score_saude !== null ? score_saude : 0
+      const scoreColor = scoreReal >= 70 ? '#2FBF71' : scoreReal >= 40 ? '#ffc400' : '#ff6b6b'
+      const scoreLabel = scoreReal >= 80 ? 'Excelente! 🏆' : scoreReal >= 60 ? 'Boa saúde 👍' : scoreReal >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
       const totalDevedor = resumo.total_devedor || 0
       const parcelaMensal = resumo.total_parcela_mensal_dividas || 0
       const comprometimento = resumo.comprometimento_dividas_pct || 0
@@ -721,15 +780,35 @@ const VM = {
           <!-- SCORE -->
           <div class="card" style="display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;position:relative;">
             <div style="font-size:0.8rem;color:#888;margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;font-weight:600;">🧠 Saúde Financeira</div>
+            ${score_bloqueado ? `
+              <div style="position:relative;width:120px;height:120px;margin-bottom:10px;filter:blur(4px);pointer-events:none;">
+                <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);width:120px;height:120px;">
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"/>
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="#2FBF71" stroke-width="14"
+                    stroke-dasharray="${2 * Math.PI * 58}" stroke-dashoffset="${2 * Math.PI * 58 * 0.4}"
+                    stroke-linecap="round"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                  <div style="font-size:1.9rem;font-weight:800;color:#2FBF71;line-height:1;">??</div>
+                  <div style="font-size:0.62rem;color:#555;margin-top:2px;">/ 100</div>
+                </div>
+              </div>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(15,15,26,0.7);backdrop-filter:blur(2px);border-radius:16px;cursor:pointer;" onclick="VM.upsellModal('score_saude')">
+                <div style="font-size:1.4rem;margin-bottom:6px;">🔒</div>
+                <div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:4px;">Score Financeiro</div>
+                <div style="font-size:0.75rem;color:#2FBF71;font-weight:600;">Plano Premium</div>
+                <div style="font-size:0.7rem;color:#888;margin-top:4px;">Clique para desbloquear</div>
+              </div>
+            ` : `
             <div style="position:relative;width:120px;height:120px;margin-bottom:10px;">
               <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);width:120px;height:120px;">
                 <circle cx="70" cy="70" r="58" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"/>
                 <circle cx="70" cy="70" r="58" fill="none" stroke="${scoreColor}" stroke-width="14"
-                  stroke-dasharray="${2 * Math.PI * 58}" stroke-dashoffset="${2 * Math.PI * 58 * (1 - score_saude / 100)}"
+                  stroke-dasharray="${2 * Math.PI * 58}" stroke-dashoffset="${2 * Math.PI * 58 * (1 - scoreReal / 100)}"
                   stroke-linecap="round" style="transition:stroke-dashoffset 1.2s ease;filter:drop-shadow(0 0 6px ${scoreColor}66);"/>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                <div style="font-size:1.9rem;font-weight:800;color:${scoreColor};line-height:1;">${score_saude}</div>
+                <div style="font-size:1.9rem;font-weight:800;color:${scoreColor};line-height:1;">${scoreReal}</div>
                 <div style="font-size:0.62rem;color:#555;margin-top:2px;">/ 100</div>
               </div>
             </div>
@@ -759,6 +838,7 @@ const VM = {
                 ${renderGroup(neutros,   '#ffc400', 'rgba(255,196,0,0.10)',   '⚠️ Pontos de atenção')}
               </div>`
             })() : ''}
+            `}
           </div>
         </div>
 
@@ -1998,6 +2078,12 @@ const VM = {
 
   // ============== RELATÓRIOS ==============
   async pageRelatorios() {
+    // Verifica se o plano tem acesso a relatórios anuais
+    if (this.limites !== null && !this.limites.relatorio_anual) {
+      this.upsellModal('relatorio_anual')
+      this.navigate('dashboard')
+      return
+    }
     const ano = String(new Date().getFullYear())
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
@@ -2089,6 +2175,12 @@ const VM = {
 
   // ============== SIMULAÇÃO ==============
   pageSimulacao() {
+    // Verifica se o plano tem acesso a simulação
+    if (this.limites !== null && !this.limites.simulacao) {
+      this.upsellModal('simulacao')
+      this.navigate('dashboard')
+      return
+    }
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div class="section-title">🧮 Simulador de Investimentos</div>
@@ -4462,6 +4554,12 @@ const VM = {
 
   // ============== IA ==============
   async pageIA() {
+    // Verifica se o plano tem acesso à IA
+    if (this.limites !== null && !this.limites.ia_insights) {
+      this.upsellModal('ia_insights')
+      this.navigate('dashboard')
+      return
+    }
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
@@ -5352,6 +5450,21 @@ const VM = {
   closeModal(event) {
     if (event && event.target !== event.currentTarget) return
     document.getElementById('modal-container').innerHTML = ''
+  },
+
+  showModal(html) {
+    const container = document.getElementById('modal-container')
+    if (!container) return
+    container.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal-card" style="max-width:440px;">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          ${html}
+        </div>
+      </div>
+    `
   }
 }
 

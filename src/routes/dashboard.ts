@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -192,6 +193,8 @@ dashboard.get('/', requireAuth, async (c) => {
   }
   score = Math.min(100, Math.max(0, score))
 
+  const lim = getLimites(user.plano)
+
   return c.json({
     resumo: {
       total_receitas: totalReceitas,
@@ -209,8 +212,27 @@ dashboard.get('/', requireAuth, async (c) => {
       count_emprestimos_ativos: emprestimosAtivos?.count || 0,
       count_financiamentos_ativos: financiamentosAtivos?.count || 0
     },
-    score_saude: score,
-    fatores_score: fatoresScore,
+    // Score e fatores: disponível apenas para Premium/Pro
+    score_saude: lim.score_saude ? score : null,
+    fatores_score: lim.score_saude ? fatoresScore : null,
+    score_bloqueado: !lim.score_saude,
+    plano: user.plano,
+    limites: {
+      metas: lim.metas,
+      cartoes: lim.cartoes,
+      lembretes: lim.lembretes,
+      investimentos: lim.investimentos,
+      emprestimos: lim.emprestimos,
+      financiamentos: lim.financiamentos,
+      despesas_mes: lim.despesas_mes,
+      receitas_mes: lim.receitas_mes,
+      score_saude: lim.score_saude,
+      ia_insights: lim.ia_insights,
+      relatorio_anual: lim.relatorio_anual,
+      simulacao: lim.simulacao,
+      exportar_pdf: lim.exportar_pdf,
+      amortizacao: lim.amortizacao,
+    },
     metas: {
       ativas: (metasAtivas as any)?.count || 0,
       objetivo_total: (metasAtivas as any)?.objetivo_total || 0,
@@ -243,6 +265,17 @@ dashboard.get('/', requireAuth, async (c) => {
 dashboard.get('/relatorio', requireAuth, async (c) => {
   const user = c.get('user')
   const { ano = String(new Date().getFullYear()) } = c.req.query()
+
+  // Verifica plano para relatório anual
+  const lim = getLimites(user.plano)
+  if (!lim.relatorio_anual) {
+    return c.json({ error: MSG_UPGRADE.relatorio_anual, upgrade: true, feature: 'relatorio_anual' }, 403)
+  }
+
+  // Conquista: analista financeiro (acessou o relatório)
+  try {
+    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'analista').run()
+  } catch {}
 
   const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const relatorio = []
@@ -320,11 +353,6 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
     metas: metasResumo,
     investimentos: investResumo
   })
-
-  // Conquista: analista financeiro (acessou o relatório)
-  try {
-    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'analista').run()
-  } catch {}
 })
 
 export default dashboard

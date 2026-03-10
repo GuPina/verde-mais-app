@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -30,6 +31,15 @@ financiamentos.get('/', requireAuth, async (c) => {
 // POST /api/financiamentos
 financiamentos.post('/', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // ── Limite de plano ──
+  const lim = getLimites(user.plano)
+  if (lim.financiamentos !== Infinity) {
+    const count = await c.env.DB.prepare('SELECT COUNT(*) as n FROM financiamentos WHERE user_id = ? AND status = \'ativo\'').bind(user.id).first() as any
+    if ((count?.n || 0) >= lim.financiamentos)
+      return c.json({ error: MSG_UPGRADE.financiamentos, upgrade: true, limite: lim.financiamentos, feature: 'financiamentos' }, 403)
+  }
+
   const body = await c.req.json()
   const {
     descricao, tipo_imovel = 'residencial', tipo_bem = 'imovel', valor_imovel, valor_financiado, valor_entrada = 0,

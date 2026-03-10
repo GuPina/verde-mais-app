@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -46,6 +47,14 @@ metas.get('/', requireAuth, async (c) => {
 // POST /api/metas
 metas.post('/', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // ── Limite de plano ──
+  const lim = getLimites(user.plano)
+  if (lim.metas !== Infinity) {
+    const count = await c.env.DB.prepare('SELECT COUNT(*) as n FROM metas WHERE user_id = ?').bind(user.id).first() as any
+    if ((count?.n || 0) >= lim.metas)
+      return c.json({ error: MSG_UPGRADE.metas, upgrade: true, limite: lim.metas }, 403)
+  }
   const body = await c.req.json()
   const { nome, descricao, valor_objetivo, valor_atual = 0, data_meta, categoria = 'economia', cor = '#2FBF71', icone = 'piggy-bank' } = body
 
