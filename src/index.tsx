@@ -14,8 +14,9 @@ import conquistasRoutes from './routes/conquistas'
 import iaRoutes from './routes/ia'
 import perfilRoutes from './routes/perfil'
 import reservaRoutes from './routes/reserva'
+import adminRoutes from './routes/admin'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -41,6 +42,9 @@ app.route('/api/conquistas', conquistasRoutes)
 app.route('/api/ia', iaRoutes)
 app.route('/api/perfil', perfilRoutes)
 app.route('/api/reserva', reservaRoutes)
+
+// Admin panel — protegido por Basic Auth
+app.route('/admin', adminRoutes)
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '2.0.0' }))
