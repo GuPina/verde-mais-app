@@ -320,6 +320,11 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
     metas: metasResumo,
     investimentos: investResumo
   })
+
+  // Conquista: analista financeiro (acessou o relatório)
+  try {
+    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'analista').run()
+  } catch {}
 })
 
 export default dashboard

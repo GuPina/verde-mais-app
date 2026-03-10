@@ -152,6 +152,27 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
   await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, id, user.id).run()
+
+  // Conquistas: disciplinado (10 despesas pagas no mesmo mês) e poupador
+  if (status === 'pago') {
+    try {
+      const mes = new Date().toISOString().slice(0, 7) // YYYY-MM
+      const pagasMes = await c.env.DB.prepare(
+        `SELECT COUNT(*) as total FROM despesas WHERE user_id = ? AND status = 'pago' AND strftime('%Y-%m', data) = ?`
+      ).bind(user.id, mes).first() as any
+      if ((pagasMes?.total || 0) >= 10) await verificarConquistaDespesa(c.env.DB, user.id, 'disciplinado')
+
+      // Poupador: se receitas do mês > despesas pagas em 20% ou mais
+      const [receitasMes, despesasMes] = await Promise.all([
+        c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(user.id, mes).first() as any,
+        c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND status IN ('pago','pendente') AND strftime('%Y-%m',data)=?`).bind(user.id, mes).first() as any
+      ])
+      const rec = receitasMes?.total || 0
+      const desp = despesasMes?.total || 0
+      if (rec > 0 && (rec - desp) / rec >= 0.2) await verificarConquistaDespesa(c.env.DB, user.id, 'poupador')
+    } catch {}
+  }
+
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
 })
 
@@ -195,5 +216,11 @@ despesas.get('/categorias', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(query).bind(...params).all()
   return c.json({ categorias: result.results })
 })
+
+async function verificarConquistaDespesa(db: D1Database, userId: number, codigo: string) {
+  try {
+    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(userId, codigo).run()
+  } catch {}
+}
 
 export default despesas

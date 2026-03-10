@@ -62,6 +62,11 @@ receitas.post('/', requireAuth, async (c) => {
     'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(user.id, descricao, data, categoria, parseFloat(valor), recorrente ? 1 : 0, frequencia || null, observacoes || null).run()
 
+  // Conquista: primeira receita
+  try {
+    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'primeira_receita').run()
+  } catch {}
+
   return c.json({ success: true, id: result.meta.last_row_id, message: 'Receita adicionada!' }, 201)
 })
 

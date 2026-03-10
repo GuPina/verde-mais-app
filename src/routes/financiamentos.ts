@@ -114,7 +114,18 @@ financiamentos.put('/:id', requireAuth, async (c) => {
     `UPDATE financiamentos SET descricao=?, tipo_imovel=?, valor_imovel=?, valor_financiado=?, valor_entrada=?, taxa_juros_anual=?, taxa_juros_mensal=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, saldo_devedor=?, data_inicio=?, data_previsao_fim=?, banco=?, contrato=?, sistema_amortizacao=?, indexador=?, status=?, observacoes=? WHERE id=? AND user_id=?`
   ).bind(descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFimPut.toISOString().split('T')[0], banco || null, contrato || null, sistema_amortizacao, indexador, status || 'ativo', observacoes || null, id, user.id).run()
 
-  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+  if (status === 'quitado') {
+    await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+    // sem_dividas_total
+    const aindaTemDividas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM (
+        SELECT id FROM emprestimos WHERE user_id=? AND status='ativo'
+        UNION ALL
+        SELECT id FROM financiamentos WHERE user_id=? AND status='ativo'
+      )`
+    ).bind(user.id, user.id).first() as any
+    if ((aindaTemDividas?.total || 0) === 0) await verificarConquista(c.env.DB, user.id, 'sem_dividas_total')
+  }
   return c.json({ success: true, message: 'Financiamento atualizado!' })
 })
 

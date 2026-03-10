@@ -124,6 +124,9 @@ investimentos.post('/', requireAuth, async (c) => {
   ).bind(user.id).first() as any
   if ((tiposDistintos?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'investidor_diversificado')
 
+  // Milionário: R$100k+ investidos
+  if ((totalInv?.total || 0) >= 100000) await verificarConquista(c.env.DB, user.id, 'milionario')
+
   return c.json({ success: true, id: result.meta.last_row_id, message: 'Investimento adicionado!' }, 201)
 })
 

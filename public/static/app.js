@@ -627,7 +627,8 @@ const VM = {
       simulacao: () => this.pageSimulacao(),
       ia: () => this.pageIA(),
       conquistas: () => this.pageConquistas(),
-      perfil: () => this.pagePerfil()
+      perfil: () => this.pagePerfil(),
+      reserva: () => this.pageReserva()
     }
 
     if (pages[page]) pages[page]()
@@ -3983,6 +3984,7 @@ const VM = {
                 <label class="form-label">Valor do Bem (R$) *</label>
                 <input type="number" id="f-imovel" class="form-input" step="0.01" min="0" value="${fin?.valor_imovel || ''}" required>
               </div>
+              <div class="form-group">
                 <label class="form-label">Valor Financiado (R$) *</label>
                 <input type="number" id="f-financiado" class="form-input" step="0.01" min="0" value="${fin?.valor_financiado || ''}" required>
               </div>
@@ -4839,6 +4841,346 @@ const VM = {
   },
 
   // ============== CONQUISTAS ==============
+  // ============== RESERVA DE EMERGÊNCIA ==============
+  async pageReserva() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">🛡️ Reserva de Emergência</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Sua proteção financeira para imprevistos</div>
+        </div>
+      </div>
+      <div id="reserva-container">
+        <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this.carregarReserva()
+  },
+
+  async carregarReserva() {
+    try {
+      const data = await this.api('GET', 'reserva')
+      const container = document.getElementById('reserva-container')
+      const r = data.reserva
+      const mediaGastos = data.media_gastos_mensais || 0
+      const valorIdeal = data.valor_ideal || 0
+      const cobertura = data.cobertura_pct || 0
+      const mesesCobertos = data.meses_cobertos || 0
+
+      const barColor = cobertura >= 100 ? '#2FBF71' : cobertura >= 60 ? '#ffc400' : '#ff6b6b'
+      const statusIcon = cobertura >= 100 ? '✅' : cobertura >= 60 ? '⚠️' : '🔴'
+      const statusMsg = cobertura >= 100 ? 'Meta atingida! Reserva completa.' : cobertura >= 60 ? 'Quase lá! Continue poupando.' : 'Reserva insuficiente. Priorize isso!'
+
+      if (!r) {
+        // Sem reserva cadastrada
+        container.innerHTML = `
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:28px;">
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:2rem;margin-bottom:8px;">🛡️</div>
+              <div style="font-size:1.4rem;font-weight:800;color:#888;">R$ 0</div>
+              <div style="color:#666;font-size:0.8rem;">Valor Guardado</div>
+            </div>
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
+              <div style="font-size:1.4rem;font-weight:800;color:#888;">${this.formatMoney(valorIdeal)}</div>
+              <div style="color:#666;font-size:0.8rem;">Valor Ideal (6 meses)</div>
+            </div>
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:2rem;margin-bottom:8px;">📊</div>
+              <div style="font-size:1.4rem;font-weight:800;color:#888;">${this.formatMoney(mediaGastos)}</div>
+              <div style="color:#666;font-size:0.8rem;">Média Gastos/Mês</div>
+            </div>
+          </div>
+
+          <div class="stat-card" style="text-align:center;padding:40px 20px;margin-bottom:28px;">
+            <div style="font-size:4rem;margin-bottom:16px;">🛡️</div>
+            <div style="font-size:1.2rem;font-weight:700;margin-bottom:8px;">Você ainda não tem uma reserva cadastrada</div>
+            <div style="color:#666;font-size:0.85rem;margin-bottom:24px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6;">
+              Uma reserva de emergência é essencial para sua segurança financeira. Especialistas recomendam guardar entre 3 a 12 meses de despesas.
+            </div>
+            <button onclick="VM.modalReserva()" class="btn-primary" style="width:auto;padding:12px 28px;">
+              <i class="fas fa-plus"></i> Criar Minha Reserva
+            </button>
+          </div>
+
+          ${this.renderEducacaoReserva()}
+        `
+      } else {
+        const objetivoMeses = r.objetivo_meses || 6
+        container.innerHTML = `
+          <!-- STATS -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px;">
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">🛡️</div>
+              <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${this.formatMoney(r.valor_atual)}</div>
+              <div style="color:#666;font-size:0.78rem;">Valor Guardado</div>
+            </div>
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">🎯</div>
+              <div style="font-size:1.3rem;font-weight:800;color:#74b9ff;">${this.formatMoney(valorIdeal)}</div>
+              <div style="color:#666;font-size:0.78rem;">Meta (${objetivoMeses} meses)</div>
+            </div>
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">📊</div>
+              <div style="font-size:1.3rem;font-weight:800;">${this.formatMoney(mediaGastos)}</div>
+              <div style="color:#666;font-size:0.78rem;">Média Gastos/Mês</div>
+            </div>
+            <div class="stat-card" style="text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">📅</div>
+              <div style="font-size:1.3rem;font-weight:800;color:${barColor};">${mesesCobertos.toFixed(1)} meses</div>
+              <div style="color:#666;font-size:0.78rem;">Cobertura Atual</div>
+            </div>
+          </div>
+
+          <!-- PROGRESSO -->
+          <div class="stat-card" style="margin-bottom:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <div style="font-weight:700;font-size:1rem;">${r.nome || 'Reserva de Emergência'}</div>
+                <div style="font-size:0.8rem;color:#888;margin-top:2px;">${statusIcon} ${statusMsg}</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="VM.modalReservaDeposito(${r.id}, ${r.valor_atual})" class="btn-primary" style="padding:8px 16px;font-size:0.8rem;">
+                  <i class="fas fa-plus"></i> Depositar
+                </button>
+                <button onclick="VM.modalReserva(${JSON.stringify(r).replace(/"/g,'&quot;')})" class="btn-success" style="padding:8px 14px;font-size:0.8rem;">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button onclick="VM.deletarReserva(${r.id})" class="btn-danger" style="padding:8px 14px;font-size:0.8rem;">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Barra de progresso -->
+            <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:14px;overflow:hidden;margin-bottom:10px;">
+              <div style="height:100%;width:${Math.min(100,cobertura)}%;background:${barColor};border-radius:50px;transition:width 0.6s ease;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#888;">
+              <span>${this.formatMoney(r.valor_atual)} guardados</span>
+              <span style="color:${barColor};font-weight:700;">${cobertura}% da meta</span>
+              <span>Meta: ${this.formatMoney(valorIdeal)}</span>
+            </div>
+
+            <!-- Faltante -->
+            ${cobertura < 100 ? `
+              <div style="margin-top:14px;padding:12px 16px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:10px;font-size:0.82rem;color:#cca800;">
+                <i class="fas fa-info-circle"></i> Faltam <strong>${this.formatMoney(Math.max(0,valorIdeal - r.valor_atual))}</strong> para completar sua reserva de ${objetivoMeses} meses.
+                ${mediaGastos > 0 ? `Poupando <strong>${this.formatMoney((valorIdeal - r.valor_atual) / 12)}/mês</strong>, você completa em 12 meses.` : ''}
+              </div>
+            ` : `
+              <div style="margin-top:14px;padding:12px 16px;background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;font-size:0.82rem;color:#2FBF71;">
+                🎉 <strong>Parabéns!</strong> Sua reserva está completa! Considere aumentar a meta para ${objetivoMeses + 3} meses.
+              </div>
+            `}
+          </div>
+
+          <!-- MARCOS -->
+          <div class="stat-card" style="margin-bottom:24px;">
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">🏅 Marcos da Reserva</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;">
+              ${[{m:1,l:'1 mês',i:'🛡️'},{m:3,l:'3 meses',i:'💪'},{m:6,l:'6 meses',i:'🏆'},{m:12,l:'12 meses',i:'👑'}].map(marco => {
+                const atingido = mesesCobertos >= marco.m
+                return `<div style="text-align:center;padding:14px 10px;border-radius:12px;background:${atingido?'rgba(47,191,113,0.1)':'rgba(255,255,255,0.03)'};border:1px solid ${atingido?'rgba(47,191,113,0.3)':'rgba(255,255,255,0.06)'};">
+                  <div style="font-size:1.8rem;margin-bottom:6px;${atingido?'':'filter:grayscale(80%);opacity:0.4;'}">${marco.i}</div>
+                  <div style="font-size:0.78rem;font-weight:700;color:${atingido?'#2FBF71':'#555'};">${marco.l}</div>
+                  <div style="font-size:0.7rem;color:${atingido?'#2FBF71':'#444'};margin-top:2px;">${atingido?'✓ Atingido':'${this.formatMoney(marco.m * mediaGastos)}'}</div>
+                </div>`
+              }).join('')}
+            </div>
+          </div>
+
+          ${this.renderEducacaoReserva()}
+        `
+      }
+    } catch(e) {
+      this.toast('Erro ao carregar reserva', 'error')
+    }
+  },
+
+  renderEducacaoReserva() {
+    return `
+      <div class="stat-card">
+        <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;">📚 Como Funciona uma Reserva de Emergência</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+          <div style="padding:16px;background:rgba(116,185,255,0.07);border:1px solid rgba(116,185,255,0.15);border-radius:12px;">
+            <div style="font-size:1.5rem;margin-bottom:10px;">🤔</div>
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;color:#74b9ff;">O que é?</div>
+            <div style="font-size:0.8rem;color:#aaa;line-height:1.6;">É um valor guardado exclusivamente para situações inesperadas: perda de emprego, doenças, consertos urgentes ou emergências familiares.</div>
+          </div>
+          <div style="padding:16px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:12px;">
+            <div style="font-size:1.5rem;margin-bottom:10px;">💡</div>
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;color:#2FBF71;">Quanto guardar?</div>
+            <div style="font-size:0.8rem;color:#aaa;line-height:1.6;">
+              <strong style="color:#eee;">Assalariado CLT:</strong> 3 a 6 meses<br>
+              <strong style="color:#eee;">Autônomo/Freelancer:</strong> 6 a 12 meses<br>
+              <strong style="color:#eee;">Empresário:</strong> 12 meses ou mais
+            </div>
+          </div>
+          <div style="padding:16px;background:rgba(162,155,254,0.07);border:1px solid rgba(162,155,254,0.15);border-radius:12px;">
+            <div style="font-size:1.5rem;margin-bottom:10px;">🏦</div>
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;color:#a29bfe;">Onde guardar?</div>
+            <div style="font-size:0.8rem;color:#aaa;line-height:1.6;">Escolha investimentos líquidos e seguros: <strong style="color:#eee;">Tesouro Selic</strong>, <strong style="color:#eee;">CDB com liquidez diária</strong> ou <strong style="color:#eee;">Conta Rendimento</strong> (nunca na poupança tradicional).</div>
+          </div>
+          <div style="padding:16px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:12px;">
+            <div style="font-size:1.5rem;margin-bottom:10px;">⚠️</div>
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;color:#ffc400;">Regras de ouro</div>
+            <div style="font-size:0.8rem;color:#aaa;line-height:1.6;">✓ Use APENAS em emergências reais<br>✓ Reponha imediatamente após usar<br>✓ Não misture com metas ou investimentos<br>✓ Revise o valor a cada 6 meses</div>
+          </div>
+        </div>
+      </div>
+    `
+  },
+
+  modalReserva(reserva = null) {
+    const isEdit = !!reserva
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🛡️ Criar'} Reserva de Emergência</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="reserva-form">
+            <div class="form-group">
+              <label class="form-label">Nome da Reserva</label>
+              <input type="text" id="res-nome" class="form-input" placeholder="Ex: Reserva de Emergência" value="${reserva?.nome || 'Reserva de Emergência'}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Objetivo (meses de despesas) *</label>
+              <select id="res-meses" class="form-select">
+                <option value="3" ${(reserva?.objetivo_meses||6)==3?'selected':''}>3 meses (mínimo recomendado)</option>
+                <option value="6" ${(reserva?.objetivo_meses||6)==6?'selected':''}>6 meses (recomendado)</option>
+                <option value="9" ${reserva?.objetivo_meses==9?'selected':''}>9 meses</option>
+                <option value="12" ${reserva?.objetivo_meses==12?'selected':''}>12 meses (autônomos)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Valor Atual Guardado (R$) *</label>
+              <input type="number" id="res-valor" class="form-input" step="0.01" min="0" placeholder="0.00" value="${reserva?.valor_atual || ''}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <textarea id="res-obs" class="form-input" rows="2" placeholder="Ex: Guardado no Tesouro Selic..." style="resize:none;">${reserva?.observacoes || ''}</textarea>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="res-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar Reserva'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('reserva-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('res-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const payload = {
+          nome: document.getElementById('res-nome').value || 'Reserva de Emergência',
+          objetivo_meses: parseInt(document.getElementById('res-meses').value),
+          valor_atual: parseFloat(document.getElementById('res-valor').value) || 0,
+          observacoes: document.getElementById('res-obs').value || null
+        }
+        if (isEdit) await this.api('PUT', `reserva/${reserva.id}`, payload)
+        else await this.api('POST', 'reserva', payload)
+        this.toast(isEdit ? 'Reserva atualizada! 🛡️' : 'Reserva criada! 🎉')
+        this.closeModal(); this.carregarReserva()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar Reserva'}`
+      }
+    })
+  },
+
+  modalReservaDeposito(id, valorAtual) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:400px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">💰 Atualizar Reserva</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.82rem;color:#2FBF71;">
+            Valor atual: <strong>${this.formatMoney(valorAtual)}</strong>
+          </div>
+          <form id="deposito-form">
+            <div class="form-group">
+              <label class="form-label">Tipo de Operação</label>
+              <select id="dep-tipo" class="form-select" onchange="VM.atualizarPreviewDeposito(${valorAtual})">
+                <option value="deposito">💰 Depósito (adicionar)</option>
+                <option value="saque">📤 Retirada (subtrair)</option>
+                <option value="ajuste">✏️ Definir valor total</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Valor (R$) *</label>
+              <input type="number" id="dep-valor" class="form-input" step="0.01" min="0.01" placeholder="0.00" required oninput="VM.atualizarPreviewDeposito(${valorAtual})">
+            </div>
+            <div id="dep-preview" style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:0.82rem;color:#888;margin-bottom:16px;display:none;"></div>
+            <div style="display:flex;gap:12px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="dep-submit"><i class="fas fa-check"></i> Confirmar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('deposito-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('dep-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+      try {
+        const tipo = document.getElementById('dep-tipo').value
+        const valor = parseFloat(document.getElementById('dep-valor').value)
+        let novoValor = valorAtual
+        if (tipo === 'deposito') novoValor = valorAtual + valor
+        else if (tipo === 'saque') novoValor = Math.max(0, valorAtual - valor)
+        else novoValor = valor
+
+        // Precisamos pegar os dados completos da reserva para o PUT
+        const data = await this.api('GET', 'reserva')
+        const res = data.reserva
+        await this.api('PUT', `reserva/${id}`, {
+          nome: res.nome, objetivo_meses: res.objetivo_meses,
+          valor_atual: novoValor, observacoes: res.observacoes
+        })
+        this.toast('Reserva atualizada! 🛡️')
+        this.closeModal(); this.carregarReserva()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmar'
+      }
+    })
+  },
+
+  atualizarPreviewDeposito(valorAtual) {
+    const tipo = document.getElementById('dep-tipo')?.value
+    const valor = parseFloat(document.getElementById('dep-valor')?.value) || 0
+    const preview = document.getElementById('dep-preview')
+    if (!preview || !valor) { if(preview) preview.style.display='none'; return }
+    let novoValor = valorAtual
+    if (tipo === 'deposito') novoValor = valorAtual + valor
+    else if (tipo === 'saque') novoValor = Math.max(0, valorAtual - valor)
+    else novoValor = valor
+    preview.style.display = 'block'
+    preview.innerHTML = `Novo saldo: <strong style="color:#2FBF71;">${this.formatMoney(novoValor)}</strong>`
+  },
+
+  async deletarReserva(id) {
+    if (!confirm('Tem certeza que deseja excluir sua reserva de emergência?')) return
+    try {
+      await this.api('DELETE', `reserva/${id}`)
+      this.toast('Reserva removida.')
+      this.carregarReserva()
+    } catch(e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== CONQUISTAS ==============
   async pageConquistas() {
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
@@ -4870,64 +5212,141 @@ const VM = {
         lendario: 'rgba(255,196,0,0.12)'
       }
 
+      // Tooltip helper — como desbloquear cada conquista
+      const dicas = {
+        primeira_receita: 'Cadastre sua primeira receita no sistema.',
+        organizador: 'Cadastre sua primeira despesa.',
+        sonhador: 'Crie sua primeira meta financeira.',
+        investidor: 'Cadastre qualquer investimento.',
+        carteirinha: 'Adicione um cartão de crédito.',
+        planejador: 'Complete seu perfil ou cadastre uma meta/financiamento.',
+        meta_concluida: 'Conclua uma meta (valor atual ≥ valor alvo).',
+        lembrete_mestre: 'Cadastre pelo menos 5 lembretes.',
+        cartao_zero: 'Marque uma fatura de cartão como paga.',
+        disciplinado: 'Marque 10 despesas como pagas no mesmo mês.',
+        analista: 'Acesse o relatório anual.',
+        poupador: 'Poupe mais de 20% da renda em um mês.',
+        poupador_dedicado: 'Tenha mais de R$ 10.000 investidos.',
+        milionario: 'Acumule mais de R$ 100.000 investidos.',
+        investidor_cdi: 'Cadastre um investimento do tipo Caixinha/CDI.',
+        investidor_cdb: 'Cadastre um CDB.',
+        investidor_acoes: 'Cadastre um investimento em ações.',
+        investidor_fii: 'Cadastre um FII (Fundo Imobiliário).',
+        investidor_cripto: 'Cadastre criptomoedas.',
+        investidor_tesouro: 'Cadastre um Tesouro Direto.',
+        investidor_diversificado: 'Tenha 3 ou mais tipos diferentes de investimentos.',
+        meta_casa: 'Crie uma meta com categoria Imóvel.',
+        meta_carro: 'Crie uma meta com categoria Veículo.',
+        meta_viagem: 'Crie uma meta com categoria Viagem.',
+        meta_educacao: 'Crie uma meta com categoria Educação.',
+        meta_liberdade: 'Crie uma meta com categoria Liberdade Financeira.',
+        meta_aposentadoria: 'Crie uma meta com categoria Aposentadoria.',
+        primeiro_imovel: 'Cadastre um financiamento de imóvel.',
+        primeiro_carro: 'Cadastre um empréstimo do tipo veículo.',
+        financiamento_veiculo: 'Cadastre um financiamento de veículo.',
+        financiamento_outros: 'Cadastre um financiamento rural ou outros bens.',
+        quitou_10pct: 'Quite 10% do seu financiamento.',
+        quitou_15pct: 'Quite 15% do seu financiamento.',
+        quitou_20pct: 'Quite 20% do seu financiamento.',
+        quitou_30pct: 'Quite 30% do seu financiamento.',
+        quitou_50pct: 'Quite 50% do seu financiamento.',
+        imovel_quitado: 'Quite completamente um financiamento de imóvel.',
+        carro_quitado: 'Quite completamente um empréstimo de veículo.',
+        sem_dividas: 'Quite um empréstimo ou financiamento por completo.',
+        sem_dividas_total: 'Quite TODOS os empréstimos e financiamentos.',
+        amortizou: 'Realize uma amortização extraordinária em qualquer dívida.',
+        reserva_iniciada: 'Crie sua reserva de emergência.',
+        reserva_1_mes: 'Acumule 1 mês de despesas na reserva.',
+        reserva_3_meses: 'Acumule 3 meses de despesas na reserva.',
+        reserva_6_meses: 'Acumule 6 meses de despesas na reserva.',
+        reserva_completa: 'Atinja 100% da meta da sua reserva.',
+      }
+
+      const renderCard = (c, bloqueada) => {
+        const bg = bloqueada ? 'rgba(255,255,255,0.02)' : (raridadeGradients[c.raridade] || 'rgba(255,255,255,0.04)')
+        const border = bloqueada ? 'rgba(255,255,255,0.06)' : (raridadeCores[c.raridade] || '#444') + '44'
+        const opacity = bloqueada ? 'opacity:0.55;' : ''
+        const dica = dicas[c.codigo] || c.descricao
+        return `
+          <div style="${opacity}background:${bg};border:1px solid ${border};border-radius:16px;padding:18px;text-align:center;position:relative;cursor:default;"
+               title="${dica}" data-tooltip="${dica}" onmouseenter="VM.showConqTooltip(event)" onmouseleave="VM.hideConqTooltip()">
+            <div style="font-size:2.2rem;margin-bottom:8px;${bloqueada?'filter:grayscale(80%);':'' }">${c.icone || (bloqueada?'🔒':'🏆')}</div>
+            <div style="font-weight:700;font-size:0.88rem;margin-bottom:4px;${bloqueada?'color:#555;':''}">${c.titulo}</div>
+            <div style="font-size:0.72rem;color:${bloqueada?'#444':'#888'};margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
+            ${bloqueada
+              ? `<div style="font-size:0.68rem;color:#555;">⭐ ${c.pontos} pts • ${c.raridade}</div>`
+              : `<div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
+                   <span style="font-size:0.68rem;background:${raridadeCores[c.raridade]}22;color:${raridadeCores[c.raridade]};padding:2px 8px;border-radius:50px;border:1px solid ${raridadeCores[c.raridade]}44;">${c.raridade}</span>
+                   <span style="font-size:0.68rem;color:#ffc400;">⭐ ${c.pontos} pts</span>
+                 </div>`
+            }
+          </div>
+        `
+      }
+
       container.innerHTML = `
+        <div id="conq-tooltip" style="display:none;position:fixed;z-index:9999;background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:10px 14px;font-size:0.78rem;color:#ddd;max-width:240px;line-height:1.5;pointer-events:none;"></div>
         <!-- HEADER STATS -->
         <div class="grid-3" style="margin-bottom:28px;">
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2.5rem;margin-bottom:8px;">🏆</div>
-            <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">${conquistadas?.length || 0}</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">${conquistadas.length}</div>
             <div style="color:#888;font-size:0.8rem;">Conquistas Desbloqueadas</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2.5rem;margin-bottom:8px;">⭐</div>
-            <div style="font-size:1.8rem;font-weight:800;color:#ffc400;">${pontos_total || 0}</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#ffc400;">${pontos_total}</div>
             <div style="color:#888;font-size:0.8rem;">Pontos Acumulados</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2.5rem;margin-bottom:8px;">🎯</div>
-            <div style="font-size:1.8rem;font-weight:800;">${disponiveis?.length || 0}</div>
+            <div style="font-size:1.8rem;font-weight:800;">${disponiveis.length}</div>
             <div style="color:#888;font-size:0.8rem;">Para Desbloquear</div>
           </div>
         </div>
 
-        ${conquistadas && conquistadas.length > 0 ? `
+        ${conquistadas.length > 0 ? `
           <div style="margin-bottom:28px;">
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Desbloqueadas (${conquistadas.length})</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
-              ${conquistadas.map(c => `
-                <div style="background:${raridadeGradients[c.raridade] || 'rgba(255,255,255,0.04)'};border:1px solid ${raridadeCores[c.raridade] || '#444'}44;border-radius:16px;padding:20px;text-align:center;">
-                  <div style="font-size:2.5rem;margin-bottom:10px;">${c.icone || '🏆'}</div>
-                  <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px;">${c.titulo}</div>
-                  <div style="font-size:0.75rem;color:#888;margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
-                  <div style="display:flex;justify-content:center;gap:8px;">
-                    <span style="font-size:0.7rem;background:${raridadeCores[c.raridade]}22;color:${raridadeCores[c.raridade]};padding:3px 10px;border-radius:50px;border:1px solid ${raridadeCores[c.raridade]}44;">${c.raridade}</span>
-                    <span style="font-size:0.7rem;color:#ffc400;">⭐ ${c.pontos} pts</span>
-                  </div>
-                </div>
-              `).join('')}
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">✅ Desbloqueadas (${conquistadas.length})</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
+              ${conquistadas.map(c => renderCard(c, false)).join('')}
             </div>
           </div>
         ` : ''}
 
-        ${disponiveis && disponiveis.length > 0 ? `
+        ${disponiveis.length > 0 ? `
           <div>
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">A Desbloquear (${disponiveis.length})</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
-              ${disponiveis.map(c => `
-                <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;text-align:center;opacity:0.6;filter:grayscale(60%);">
-                  <div style="font-size:2.5rem;margin-bottom:10px;filter:grayscale(80%);">${c.icone || '🔒'}</div>
-                  <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px;color:#555;">${c.titulo}</div>
-                  <div style="font-size:0.75rem;color:#444;margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
-                  <div style="font-size:0.7rem;color:#555;">⭐ ${c.pontos} pts • ${c.raridade}</div>
-                </div>
-              `).join('')}
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">🔒 A Desbloquear (${disponiveis.length}) — passe o mouse para ver como</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
+              ${disponiveis.map(c => renderCard(c, true)).join('')}
             </div>
           </div>
         ` : ''}
       `
-    } catch (e) {
+    } catch(e) {
       this.toast('Erro ao carregar conquistas', 'error')
     }
+  },
+
+  showConqTooltip(event) {
+    const tooltip = document.getElementById('conq-tooltip')
+    if (!tooltip) return
+    const dica = event.currentTarget.dataset.tooltip
+    if (!dica) return
+    tooltip.textContent = '💡 ' + dica
+    tooltip.style.display = 'block'
+    const updatePos = (e) => {
+      tooltip.style.left = (e.clientX + 14) + 'px'
+      tooltip.style.top = (e.clientY - 10) + 'px'
+    }
+    updatePos(event)
+    event.currentTarget._tooltipMove = updatePos
+    event.currentTarget.addEventListener('mousemove', updatePos)
+  },
+
+  hideConqTooltip() {
+    const tooltip = document.getElementById('conq-tooltip')
+    if (tooltip) tooltip.style.display = 'none'
   },
 
   closeModal(event) {

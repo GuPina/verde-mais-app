@@ -42,6 +42,19 @@ ia.get('/insights', requireAuth, async (c) => {
     `SELECT COALESCE(SUM(saldo_devedor), 0) as total, COALESCE(SUM(valor_parcela), 0) as parcelas FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
   ).bind(user.id).first() as any
 
+  // Reserva de emergência real
+  const reservaReal = await c.env.DB.prepare(
+    `SELECT valor_atual, objetivo_meses FROM reserva_emergencia WHERE user_id = ? LIMIT 1`
+  ).bind(user.id).first() as any
+
+  // Média de despesas mensais (últimos 3 meses) para cálculo da reserva ideal
+  const mediaDesp = await c.env.DB.prepare(
+    `SELECT COALESCE(AVG(total_mes), 0) as media FROM (
+      SELECT SUM(valor) as total_mes FROM despesas WHERE user_id = ? AND data >= date('now','-3 months')
+      GROUP BY strftime('%Y-%m', data)
+    )`
+  ).bind(user.id).first() as any
+
   const receita = receitasMes?.total || 0
   const despesa = despesasMes?.total || 0
   const saldo = receita - despesa
@@ -135,19 +148,33 @@ ia.get('/insights', requireAuth, async (c) => {
   }
 
   // === ANÁLISE 5: Reserva de emergência ===
-  if (receita > 0) {
-    const reservaIdeal = receita * 6
-    const investAtual = totalInvestAtual
-    if (investAtual < reservaIdeal) {
-      const faltaReserva = reservaIdeal - investAtual
+  if (receita > 0 || (mediaDesp?.media || 0) > 0) {
+    const mediaGastos = (mediaDesp?.media || 0) > 0 ? (mediaDesp?.media || 0) : despesa
+    const mesesObj = reservaReal?.objetivo_meses || 6
+    const reservaIdeal = mediaGastos * mesesObj
+    const valorReserva = reservaReal?.valor_atual || 0
+
+    if (!reservaReal) {
       insights.push({
-        tipo: 'sugestao', titulo: '🛡️ Construa sua Reserva de Emergência', prioridade: 'media', categoria: 'planejamento',
-        conteudo: `Sua reserva de emergência ideal seria ${formatMoney(reservaIdeal)} (6 meses de renda). Você tem ${formatMoney(investAtual)} guardados. Faltam ${formatMoney(faltaReserva)}. Priorize isso antes de investimentos de maior risco.`
+        tipo: 'sugestao', titulo: '🛡️ Crie sua Reserva de Emergência', prioridade: 'alta', categoria: 'planejamento',
+        conteudo: `Você ainda não criou sua reserva de emergência. O valor ideal é ${formatMoney(reservaIdeal)} (${mesesObj} meses de despesas ≈ ${formatMoney(mediaGastos)}/mês). Acesse "Reserva de Emergência" no menu para configurar e acompanhar seu progresso.`
+      })
+    } else if (valorReserva < reservaIdeal * 0.5) {
+      const faltaReserva = reservaIdeal - valorReserva
+      insights.push({
+        tipo: 'atencao', titulo: '🛡️ Reserva de Emergência Insuficiente', prioridade: 'alta', categoria: 'planejamento',
+        conteudo: `Sua reserva de emergência tem ${formatMoney(valorReserva)}, mas o ideal é ${formatMoney(reservaIdeal)} (${mesesObj} meses). Faltam ${formatMoney(faltaReserva)}. Priorize completar a reserva antes de investimentos de maior risco.`
+      })
+    } else if (valorReserva < reservaIdeal) {
+      const percAtingido = Math.round((valorReserva / reservaIdeal) * 100)
+      insights.push({
+        tipo: 'sugestao', titulo: `🛡️ Reserva: ${percAtingido}% da Meta`, prioridade: 'media', categoria: 'planejamento',
+        conteudo: `Sua reserva de emergência está em ${formatMoney(valorReserva)} (${percAtingido}% da meta). Faltam apenas ${formatMoney(reservaIdeal - valorReserva)} para atingir ${mesesObj} meses de cobertura.`
       })
     } else {
       insights.push({
         tipo: 'positivo', titulo: '🛡️ Reserva de Emergência Completa!', prioridade: 'baixa', categoria: 'planejamento',
-        conteudo: `Excelente! Você tem ${formatMoney(investAtual)}, o equivalente a mais de 6 meses de renda. Com essa segurança, você pode direcionar os excedentes para investimentos de maior rentabilidade.`
+        conteudo: `Excelente! Sua reserva de emergência cobre ${mesesObj} meses de despesas (${formatMoney(valorReserva)}). Com essa segurança, você pode direcionar excedentes para investimentos de maior rentabilidade.`
       })
     }
   }

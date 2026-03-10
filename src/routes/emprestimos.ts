@@ -189,6 +189,15 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   if (status === 'quitado') {
     await verificarConquista(c.env.DB, user.id, 'sem_dividas')
     if (emp.tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'carro_quitado')
+    // sem_dividas_total: verifica se ainda há dívidas ativas
+    const aindaTemDividas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM (
+        SELECT id FROM emprestimos WHERE user_id=? AND status='ativo'
+        UNION ALL
+        SELECT id FROM financiamentos WHERE user_id=? AND status='ativo'
+      )`
+    ).bind(user.id, user.id).first() as any
+    if ((aindaTemDividas?.total || 0) === 0) await verificarConquista(c.env.DB, user.id, 'sem_dividas_total')
   }
 
   return c.json({ 
