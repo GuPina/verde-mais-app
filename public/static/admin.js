@@ -24,9 +24,20 @@ const QUICK_SQL = [
 // ─── API helper ───────────────────────────────────────────────────────────────
 async function api(path, opts) {
   opts = opts || {}
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {})
-  const r = await fetch('/admin' + path, Object.assign({}, opts, { headers: headers }))
-  return r.json()
+  var headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {})
+  var fetchOpts = Object.assign({}, opts, { headers: headers, credentials: 'include' })
+  var url = '/admin' + path
+  try {
+    var r = await fetch(url, fetchOpts)
+    if (!r.ok && r.status === 401) {
+      window.location.href = '/admin/login'
+      return {}
+    }
+    return r.json()
+  } catch(e) {
+    console.error('API error:', e)
+    return { error: e.message }
+  }
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -44,10 +55,27 @@ function toast(msg, ok) {
 function showPage(p, el) {
   document.querySelectorAll('.page').forEach(function(x) { x.classList.remove('active') })
   document.querySelectorAll('.nav-item').forEach(function(x) { x.classList.remove('active') })
-  document.getElementById('page-' + p).classList.add('active')
+  var pageEl = document.getElementById('page-' + p)
+  if (!pageEl) { console.error('Página não encontrada: page-' + p); return }
+  pageEl.classList.add('active')
   if (el) el.classList.add('active')
   var titles = { dashboard: '📊 Dashboard', users: '👥 Usuários', browser: '🗃️ Explorador de Tabelas', query: '🖥️ SQL Console', conquistas: '🏆 Conquistas' }
   document.getElementById('page-title').textContent = titles[p] || p
+  // Carregar dados conforme a página
+  if (p === 'dashboard') {
+    if (!statsData) loadStats()
+    else {
+      // Re-render com dados existentes
+      renderUsersTable(allUsers.slice(0, 5), 'users-table-body')
+    }
+  }
+  if (p === 'users') {
+    if (!allUsers || allUsers.length === 0) {
+      loadStats()
+    } else {
+      renderUsersTable(allUsers, 'all-users-body')
+    }
+  }
   if (p === 'browser' && !currentTable) loadTables()
   if (p === 'conquistas') loadConquistas()
   if (p === 'query') loadQuickSQL()
@@ -429,7 +457,7 @@ function setSQL(btn) {
 
 // ─── Conquistas ───────────────────────────────────────────────────────────────
 async function loadConquistas() {
-  var sql = 'SELECT cd.*, COUNT(cu.id) as desbloqueadas FROM conquistas_definicoes cd LEFT JOIN conquistas_usuario cu ON cd.codigo = cu.conquista_codigo GROUP BY cd.codigo ORDER BY desbloqueadas DESC, cd.pontos ASC'
+  var sql = 'SELECT cd.codigo, cd.titulo, cd.icone, cd.descricao, cd.pontos, cd.raridade, COUNT(cu.id) as desbloqueadas FROM conquistas_definicoes cd LEFT JOIN conquistas_usuario cu ON cd.codigo = cu.conquista_codigo GROUP BY cd.codigo ORDER BY desbloqueadas DESC, cd.pontos ASC'
   var data = await api('/api/query', { method: 'POST', body: JSON.stringify({ sql: sql }) })
   var rows = data.rows || []
   var rarCor = { comum: 'pill-green', raro: 'pill-blue', epico: 'pill-yellow', lendario: 'pill-red' }
@@ -457,6 +485,10 @@ function refreshAll() { loadStats(); toast('Dados atualizados!') }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
-  loadStats()
+  // Carrega stats inicial
+  loadStats().catch(function(e) {
+    console.error('Erro ao carregar stats:', e)
+    document.getElementById('stats-grid').innerHTML = '<div style="color:#ff4757;padding:20px;">Erro ao carregar dados. Verifique o console.</div>'
+  })
   loadQuickSQL()
 })

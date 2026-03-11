@@ -14,13 +14,21 @@ admin.use('/*', async (c, next) => {
   const cookieHeader = c.req.header('Cookie') || ''
   const cookieToken  = cookieHeader.match(/admin_token=([^;]+)/)?.[1] || ''
 
+  // Rota de login sempre livre
   if (c.req.path === '/admin/login') return next()
 
+  // Autenticado?
   if (queryToken === PASS || bearerToken === PASS || cookieToken === PASS) {
     return next()
   }
 
-  return c.html(loginPage())
+  // Para rotas de API, retornar 401 JSON
+  if (c.req.path.startsWith('/admin/api/')) {
+    return c.json({ error: 'Não autorizado' }, 401)
+  }
+
+  // Para rotas HTML, redirecionar para login
+  return c.redirect('/admin/login')
 })
 
 // ─── GET /admin/login ────────────────────────────────────────────────────────
@@ -30,13 +38,15 @@ admin.post('/login', async (c) => {
   const body  = await c.req.parseBody()
   const senha = String(body['senha'] || '')
   const PASS  = c.env.ADMIN_PASSWORD || 'verdemais@admin2026'
+  const isSecure = c.req.url.startsWith('https://')
+  const secureFlag = isSecure ? '; Secure' : ''
 
   if (senha === PASS) {
     return new Response(null, {
       status: 302,
       headers: {
         'Location': '/admin',
-        'Set-Cookie': `admin_token=${PASS}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=86400`
+        'Set-Cookie': `admin_token=${PASS}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureFlag}`
       }
     })
   }
