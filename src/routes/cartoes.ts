@@ -599,6 +599,12 @@ cartoes.get('/:id/lancamentos', requireAuth, async (c) => {
   const mes    = parseInt(c.req.query('mes')  || String(now.getMonth() + 1))
   const ano    = parseInt(c.req.query('ano')  || String(now.getFullYear()))
 
+  // Verificar posse do cartão antes de retornar dados (segurança)
+  const cartao = await c.env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(id, user.id).first()
+  if (!cartao) return c.json({ lancamentos: [], total_fatura: 0 })
+
   const charges = await c.env.DB.prepare(
     `SELECT cc.*, d.categoria, d.observacoes as obs_despesa
      FROM card_charges cc

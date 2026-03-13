@@ -85,6 +85,12 @@ despesas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
 
+  // Validar: se meio de pagamento é cartão, cartao_id é obrigatório
+  const meioPagamentoCartaoCheck = ['cartao_credito', 'parcelado_cartao']
+  if (meioPagamentoCartaoCheck.includes(meio_pagamento) && !cartao_id) {
+    return c.json({ error: 'Selecione um cartão para pagamentos com cartão de crédito.' }, 400)
+  }
+
   const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
   const valorParcela = valor_parcela_override
     ? parseFloat(valor_parcela_override)

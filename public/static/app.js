@@ -1704,6 +1704,15 @@ const VM = {
           numero_parcelas: numParcelasRestantes,
           parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes
         }
+
+        // Validação: cartão obrigatório se meio for cartão de crédito
+        if ((meio === 'cartao_credito' || meio === 'parcelado_cartao') && !cartaoId) {
+          this.toast('Selecione um cartão de crédito para este tipo de pagamento.', 'error')
+          btn.disabled = false
+          btn.innerHTML = `<i class=\"fas fa-save\"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+          return
+        }
+
         if (isEdit) await this.api('PUT', `despesas/${despesa.id}`, payload)
         else await this.api('POST', 'despesas', payload)
         const msg = isEdit ? 'Despesa atualizada!'
@@ -3519,7 +3528,7 @@ const VM = {
             const pctColor = pct > 80 ? '#ff6b6b' : pct > 50 ? '#ffc400' : '#2FBF71'
             return `
               <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;cursor:pointer;"
-                   onclick="VM.abrirFaturaCartao(${c.id}, '${c.nome.replace(/'/g,"\\'")}', '${c.cor||'#2FBF71'}')">
+                   onclick="VM.abrirFaturaCartao(${c.id}, '${c.nome.replace(/'/g,"\\'")}', '${c.cor||'#2FBF71'}', ${c.dia_fechamento || 0})">
                 <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${c.cor || '#2FBF71'};"></div>
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
                   <div>
@@ -3573,15 +3582,25 @@ const VM = {
   },
 
   // ─── FATURA BANCÁRIA REAL ──────────────────────────────────────────────────
-  async abrirFaturaCartao(cartaoId, nomeCartao, cor) {
+  async abrirFaturaCartao(cartaoId, nomeCartao, cor, diaFechamento) {
     const now = new Date()
+    // Calcular o mês de fatura correto baseado no dia de fechamento do cartão
+    // Se hoje está no fechamento ou após → fatura do próximo mês
+    // Se ainda não chegou no fechamento → fatura do mês atual
+    let mesFatura = now.getMonth() + 1
+    let anoFatura = now.getFullYear()
+    if (diaFechamento && now.getDate() >= diaFechamento) {
+      mesFatura++
+      if (mesFatura > 12) { mesFatura = 1; anoFatura++ }
+    }
     // Estado global da fatura atual
     this._faturaState = {
       cartaoId,
       nomeCartao,
       cor: cor || '#2FBF71',
-      mes: now.getMonth() + 1,
-      ano: now.getFullYear()
+      mes: mesFatura,
+      ano: anoFatura,
+      diaFechamento: diaFechamento || 0
     }
     const mc = document.getElementById('modal-container')
     mc.innerHTML = `
@@ -3897,7 +3916,8 @@ const VM = {
 
   async _voltarParaFatura(cartaoId) {
     if (this._faturaState && this._faturaState.cartaoId === cartaoId) {
-      await this.abrirFaturaCartao(cartaoId, this._faturaState.nomeCartao, this._faturaState.cor)
+      // Reutilizar diaFechamento salvo no estado, se disponível
+      await this.abrirFaturaCartao(cartaoId, this._faturaState.nomeCartao, this._faturaState.cor, this._faturaState.diaFechamento)
     } else {
       this.closeModal()
     }
