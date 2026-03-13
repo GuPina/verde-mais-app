@@ -1453,17 +1453,36 @@ const VM = {
         if (!bloco || !cdiData?.cdi_anual) return
         const cdiWidget = document.createElement('div')
         cdiWidget.style.cssText = 'margin-bottom:20px;'
+        const cdiAnual   = cdiData.cdi_anual  || 0
+        const cdiDiario  = cdiData.taxa_diaria || 0
+        const cdiDate    = cdiData.data        || ''
+        const cdiSrc     = cdiData.source      || 'BCB'
+        // Calcular rentabilidade para R$1.000 em 12 meses a X% do CDI
+        const cdi100pct  = +(1000 * (Math.pow(1 + cdiDiario / 100, 252) - 1)).toFixed(2)
         cdiWidget.innerHTML = `
-          <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-            <div style="font-size:1.4rem;">📡</div>
-            <div style="flex:1;min-width:160px;">
-              <div style="font-size:0.72rem;color:#10B981;text-transform:uppercase;letter-spacing:1px;font-weight:700;">CDI Atual (BCB)</div>
-              <div style="font-size:1.1rem;font-weight:800;color:#F8FAFC;">${cdiData.cdi_anual}% <span style="font-size:0.78rem;color:#64748B;font-weight:400;">a.a.</span></div>
+          <div class="card-premium card-premium--highlight" style="padding:16px 20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+              <div style="display:flex;align-items:center;gap:14px;">
+                <div style="width:42px;height:42px;background:linear-gradient(135deg,rgba(16,185,129,0.2),rgba(5,150,105,0.1));border:1px solid rgba(16,185,129,0.3);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;">📡</div>
+                <div>
+                  <div style="font-size:0.65rem;color:#10B981;text-transform:uppercase;letter-spacing:1px;font-weight:800;">CDI Oficial · ${cdiSrc}</div>
+                  <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
+                    <span style="font-size:1.5rem;font-weight:900;color:#F8FAFC;letter-spacing:-1px;">${cdiAnual}%</span>
+                    <span style="font-size:0.8rem;color:#64748B;">a.a.</span>
+                  </div>
+                  <div style="font-size:0.68rem;color:#475569;margin-top:1px;">Diário: ${cdiDiario.toFixed(5)}% · ${cdiDate}</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.15);border-radius:10px;padding:8px 14px;text-align:center;">
+                  <div style="font-size:0.62rem;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">R$1k em 12m (100% CDI)</div>
+                  <div style="font-size:0.95rem;font-weight:800;color:#10B981;">+R$${cdi100pct.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+                </div>
+                <button onclick="VM.navigate('investimentos')" class="button-premium button-premium--sm button-premium--outline">
+                  <i class="fas fa-chart-line"></i> Investir
+                </button>
+              </div>
             </div>
-            <div style="font-size:0.75rem;color:#475569;">Taxa diária: ${(cdiData.taxa_diaria || 0).toFixed(4)}% · ${cdiData.data || ''}</div>
-            <button onclick="VM.navigate('investimentos')" style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10B981;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:0.78rem;font-weight:600;">
-              Ver Investimentos →
-            </button>
           </div>`
         bloco.prepend(cdiWidget)
       }).catch(() => {})
@@ -3484,6 +3503,9 @@ const VM = {
           <button onclick="VM.exportarRelatorioPDF()" class="btn-primary" style="width:auto;padding:9px 16px;background:linear-gradient(135deg,#7C3AED,#6D28D9);">
             <i class="fas fa-file-pdf"></i> Exportar PDF
           </button>
+          <button id="btn-export-excel" onclick="VM.exportarRelatorioExcel()" class="btn-primary" style="width:auto;padding:9px 16px;background:linear-gradient(135deg,#059669,#047857);">
+            <i class="fas fa-file-excel"></i> Exportar Excel
+          </button>
         </div>
       </div>
       <div id="rel-container">
@@ -3730,7 +3752,150 @@ const VM = {
     }
   },
 
-  // ============== SIMULAÇÃO ==============
+  // ─── Exportação Excel via SheetJS (CDN sob demanda) ─────────────────────────
+  async exportarRelatorioExcel() {
+    const hoje = new Date()
+    const mes  = hoje.getMonth() + 1
+    const ano  = hoje.getFullYear()
+    const btnId = 'btn-export-excel'
+    const btn  = document.getElementById(btnId)
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando Excel...' }
+
+    try {
+      // Carregar SheetJS via CDN se não carregado
+      if (!window.XLSX) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+          s.onload = resolve; s.onerror = reject
+          document.head.appendChild(s)
+        })
+      }
+
+      // Buscar dados completos via API (premium) ou fallback anual
+      let relData
+      try {
+        // Tenta dados mensais detalhados
+        relData = await this.api('GET', `relatorio/dados?mes=${mes}&ano=${ano}`)
+      } catch(e) {
+        relData = null
+      }
+
+      // Fallback: usar dados do relatório anual do dashboard
+      let anoData
+      try {
+        anoData = await this.api('GET', `dashboard/relatorio?ano=${ano}`)
+      } catch(e) { anoData = null }
+
+      const XLSX = window.XLSX
+      const wb   = XLSX.utils.book_new()
+
+      // ── Aba 1: Resumo ────────────────────────────────────────────────────────
+      const resumoRows = [
+        ['VerdeMais — Relatório Financeiro', '', '', ''],
+        ['Usuário:', this.user?.nome || '-', 'Plano:', (this.user?.plano || 'free').toUpperCase()],
+        ['Período:', `${new Date().toLocaleDateString('pt-BR')}`, '', ''],
+        ['', '', '', ''],
+        ['RESUMO ANUAL ' + ano, '', '', ''],
+      ]
+
+      if (anoData?.totais) {
+        const t = anoData.totais
+        resumoRows.push(
+          ['Total Receitas',  `R$ ${this.formatMoney(t.receitas  || 0)}`, '', ''],
+          ['Total Despesas',  `R$ ${this.formatMoney(t.despesas  || 0)}`, '', ''],
+          ['Saldo Líquido',   `R$ ${this.formatMoney(t.saldo     || 0)}`, '', ''],
+        )
+      }
+
+      const wsResumo = XLSX.utils.aoa_to_sheet(resumoRows)
+      wsResumo['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }]
+      XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo')
+
+      // ── Aba 2: Evolução Mensal ───────────────────────────────────────────────
+      if (anoData?.relatorio) {
+        const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+        const mesRows = [['Mês', 'Receitas (R$)', 'Despesas (R$)', 'Saldo (R$)', 'Status']]
+        for (const m of anoData.relatorio) {
+          const saldo = m.saldo ?? (m.receitas - m.despesas)
+          mesRows.push([
+            typeof m.mes === 'number' ? mesesNomes[m.mes - 1] : m.mes,
+            m.receitas  || 0,
+            m.despesas  || 0,
+            saldo,
+            saldo >= 0 ? 'Positivo' : 'Negativo'
+          ])
+        }
+        const wsMensal = XLSX.utils.aoa_to_sheet(mesRows)
+        wsMensal['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }]
+        XLSX.utils.book_append_sheet(wb, wsMensal, 'Evolução Mensal')
+      }
+
+      // ── Aba 3: Despesas Mensais (se premium) ─────────────────────────────────
+      if (relData?.despesas?.length > 0) {
+        const despRows = [['Data', 'Descrição', 'Categoria', 'Valor (R$)', 'Status', 'Cartão', 'Tags']]
+        for (const d of relData.despesas) {
+          despRows.push([
+            d.data, d.descricao, d.categoria,
+            d.valor, d.status,
+            d.cartao_nome || '-',
+            d.tags ? d.tags.replace(/\|/g, ', ') : '-'
+          ])
+        }
+        const wsDesp = XLSX.utils.aoa_to_sheet(despRows)
+        wsDesp['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 20 }]
+        XLSX.utils.book_append_sheet(wb, wsDesp, 'Despesas')
+      }
+
+      // ── Aba 4: Receitas Mensais (se premium) ─────────────────────────────────
+      if (relData?.receitas?.length > 0) {
+        const recRows = [['Data', 'Descrição', 'Categoria', 'Valor (R$)', 'Observações']]
+        for (const r of relData.receitas) {
+          recRows.push([r.data, r.descricao, r.categoria, r.valor, r.observacoes || '-'])
+        }
+        const wsRec = XLSX.utils.aoa_to_sheet(recRows)
+        wsRec['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 30 }]
+        XLSX.utils.book_append_sheet(wb, wsRec, 'Receitas')
+      }
+
+      // ── Aba 5: Investimentos ─────────────────────────────────────────────────
+      if (relData?.investimentos?.length > 0) {
+        const invRows = [['Nome', 'Tipo', 'Investido (R$)', 'Atual (R$)', 'Rentabilidade (%)', 'Instituição']]
+        for (const i of relData.investimentos) {
+          invRows.push([i.nome, i.tipo, i.valor_investido, i.valor_atual, i.rentabilidade_percentual || 0, i.instituicao || '-'])
+        }
+        const wsInv = XLSX.utils.aoa_to_sheet(invRows)
+        wsInv['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 20 }]
+        XLSX.utils.book_append_sheet(wb, wsInv, 'Investimentos')
+      }
+
+      // ── Aba 6: Metas ─────────────────────────────────────────────────────────
+      if (relData?.metas?.length > 0) {
+        const metaRows = [['Nome', 'Objetivo (R$)', 'Atual (R$)', 'Progresso (%)', 'Data Meta', 'Status']]
+        for (const m of relData.metas) {
+          metaRows.push([m.nome, m.valor_objetivo, m.valor_atual, m.progresso || 0, m.data_meta, m.status])
+        }
+        const wsMetas = XLSX.utils.aoa_to_sheet(metaRows)
+        wsMetas['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 12 }]
+        XLSX.utils.book_append_sheet(wb, wsMetas, 'Metas')
+      }
+
+      // Gerar arquivo
+      const fileName = `VerdeMais_Relatorio_${ano}_${String(mes).padStart(2,'0')}.xlsx`
+      XLSX.writeFile(wb, fileName)
+      this.toast(`✅ Excel gerado: ${fileName}`, 'success')
+
+      // Conquista: exportador
+      this.api('GET', `relatorio/dados?mes=${mes}&ano=${ano}`).catch(() => {})
+    } catch(err) {
+      console.error('Erro Excel:', err)
+      this.toast('Erro ao gerar Excel. Tente novamente.', 'error')
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-excel"></i> Exportar Excel' }
+    }
+  },
+
+
   pageSimulacao() {
     // Verifica se o plano tem acesso a simulação
     if (this.limites !== null && !this.limites.simulacao) {
@@ -7709,42 +7874,67 @@ const VM = {
 
   showConqToast(conquista) {
     const rarColors = { COMUM: '#10B981', RARO: '#3B82F6', EPICO: '#8B5CF6', LENDARIO: '#F59E0B' }
-    const cor = rarColors[conquista.raridade] || '#10B981'
+    const rarBg    = { COMUM: 'rgba(16,185,129,0.08)', RARO: 'rgba(59,130,246,0.08)', EPICO: 'rgba(139,92,246,0.08)', LENDARIO: 'rgba(245,158,11,0.1)' }
+    const cor  = rarColors[conquista.raridade] || '#10B981'
+    const bg   = rarBg[conquista.raridade]     || 'rgba(16,185,129,0.08)'
     const isEpic = ['EPICO','LENDARIO'].includes(conquista.raridade)
 
-    const el = document.createElement('div')
-    el.style.cssText = `
-      position:fixed;top:20px;right:20px;z-index:99999;
-      background:rgba(15,23,42,0.95);border:1px solid ${cor};
-      border-radius:14px;padding:16px 20px;min-width:280px;max-width:340px;
-      box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 0 1px ${cor}22;
-      display:flex;align-items:center;gap:14px;
-      animation:slideInRight 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
-      backdrop-filter:blur(20px);
-    `
-    el.innerHTML = `
-      <div style="font-size:2.2rem;filter:drop-shadow(0 0 8px ${cor});">${conquista.icone}</div>
-      <div style="flex:1;">
-        <div style="font-size:0.65rem;color:${cor};font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">🏆 Conquista Desbloqueada!</div>
-        <div style="font-size:0.9rem;font-weight:700;color:#f8fafc;">${conquista.titulo}</div>
-        <div style="font-size:0.75rem;color:#94a3b8;margin-top:2px;">${conquista.descricao}</div>
-        <div style="font-size:0.7rem;color:${cor};font-weight:600;margin-top:4px;">+${conquista.pontos} pontos · ${conquista.raridade}</div>
-      </div>
-    `
+    // Injeta estilos uma vez
     if (!document.getElementById('conq-toast-style')) {
       const style = document.createElement('style')
       style.id = 'conq-toast-style'
       style.textContent = `
-        @keyframes slideInRight { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
-        @keyframes slideOutRight { from{transform:translateX(0);opacity:1} to{transform:translateX(100%);opacity:0} }
+        @keyframes conqIn  { 0%{transform:translateX(120%) scale(0.9);opacity:0} 60%{transform:translateX(-6%) scale(1.02)} 100%{transform:translateX(0) scale(1);opacity:1} }
+        @keyframes conqOut { from{transform:translateX(0);opacity:1} to{transform:translateX(120%);opacity:0} }
+        @keyframes conqIconBounce { 0%,100%{transform:scale(1) rotate(0)} 30%{transform:scale(1.3) rotate(-10deg)} 60%{transform:scale(0.9) rotate(8deg)} }
+        @keyframes conqParticle { 0%{transform:translateY(0) rotate(0);opacity:1} 100%{transform:translateY(-60px) rotate(360deg);opacity:0} }
       `
       document.head.appendChild(style)
     }
+
+    const el = document.createElement('div')
+    el.style.cssText = `
+      position:fixed;top:80px;right:20px;z-index:99999;
+      background:linear-gradient(135deg,rgba(15,23,42,0.97) 0%,rgba(30,41,59,0.97) 100%);
+      border:1px solid ${cor};
+      border-radius:18px;padding:18px 20px;min-width:300px;max-width:360px;
+      box-shadow:0 0 0 1px ${cor}22, 0 20px 50px rgba(0,0,0,0.6), 0 0 30px ${cor}15;
+      display:flex;align-items:flex-start;gap:14px;
+      animation:conqIn 0.6s cubic-bezier(0.175,0.885,0.32,1.275) forwards;
+      backdrop-filter:blur(20px);overflow:hidden;
+    `
+
+    // Partículas de fundo para EPICO/LENDARIO
+    const particles = isEpic ? `
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,${cor},transparent);"></div>
+      ${ ['⭐','✨','💫'].map((p,i) => `<span style="position:absolute;top:${10+i*8}px;right:${60+i*20}px;font-size:0.8rem;animation:conqParticle ${1.5+i*0.3}s ease forwards;animation-delay:${i*0.2}s;">${p}</span>`).join('') }
+    ` : ''
+
+    el.innerHTML = `
+      ${particles}
+      <div style="font-size:2.4rem;filter:drop-shadow(0 0 10px ${cor});animation:conqIconBounce 0.8s ease 0.3s;flex-shrink:0;line-height:1;">${conquista.icone}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.6rem;color:${cor};font-weight:800;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:3px;display:flex;align-items:center;gap:6px;">
+          🏆 Conquista Desbloqueada!
+          <span style="background:${bg};border:1px solid ${cor}33;border-radius:50px;padding:1px 7px;font-size:0.58rem;">${conquista.raridade}</span>
+        </div>
+        <div style="font-size:0.95rem;font-weight:800;color:#f8fafc;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${conquista.titulo}</div>
+        <div style="font-size:0.75rem;color:#64748b;line-height:1.4;margin-bottom:6px;">${conquista.descricao}</div>
+        <div style="font-size:0.72rem;color:${cor};font-weight:700;">
+          <i class="fas fa-star" style="font-size:0.65rem;"></i> +${conquista.pontos} pontos
+        </div>
+      </div>
+      <button onclick="this.parentElement.style.animation='conqOut 0.3s ease forwards';setTimeout(()=>this.parentElement.remove(),300)"
+        style="background:none;border:none;color:#334155;cursor:pointer;font-size:1rem;padding:0;line-height:1;flex-shrink:0;align-self:flex-start;">✕</button>
+    `
     document.body.appendChild(el)
+
     setTimeout(() => {
-      el.style.animation = 'slideOutRight 0.4s ease forwards'
-      setTimeout(() => el.remove(), 400)
-    }, 4500)
+      if (el.parentNode) {
+        el.style.animation = 'conqOut 0.4s ease forwards'
+        setTimeout(() => { if (el.parentNode) el.remove() }, 400)
+      }
+    }, 5000)
   },
 
   // ══════════════════════════════════════════════════════════════════════════

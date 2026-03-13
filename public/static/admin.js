@@ -59,7 +59,7 @@ function showPage(p, el) {
   if (!pageEl) { console.error('Página não encontrada: page-' + p); return }
   pageEl.classList.add('active')
   if (el) el.classList.add('active')
-  var titles = { dashboard: '📊 Dashboard', users: '👥 Usuários', browser: '🗃️ Explorador de Tabelas', query: '🖥️ SQL Console', conquistas: '🏆 Conquistas' }
+  var titles = { dashboard: '📊 Dashboard', metrics: '🚀 KPIs Estratégicos', users: '👥 Usuários', browser: '🗃️ Explorador de Tabelas', query: '🖥️ SQL Console', conquistas: '🏆 Conquistas' }
   document.getElementById('page-title').textContent = titles[p] || p
   // Carregar dados conforme a página
   if (p === 'dashboard') {
@@ -79,6 +79,7 @@ function showPage(p, el) {
   if (p === 'browser' && !currentTable) loadTables()
   if (p === 'conquistas') loadConquistas()
   if (p === 'query') loadQuickSQL()
+  if (p === 'metrics') loadMetrics()
 }
 
 // ─── Cor do plano ─────────────────────────────────────────────────────────────
@@ -482,6 +483,210 @@ async function loadConquistas() {
 
 // ─── Refresh ──────────────────────────────────────────────────────────────────
 function refreshAll() { loadStats(); toast('Dados atualizados!') }
+
+// ─── MetricsDashboard (KPIs SaaS) ────────────────────────────────────────────
+async function loadMetrics() {
+  const data = await api('/api/metricas')
+  if (!data || data.error) {
+    document.getElementById('metrics-kpis').innerHTML = '<div style="color:#ff4757;padding:20px;">Erro ao carregar métricas: ' + (data && data.error ? data.error : 'desconhecido') + '</div>'
+    return
+  }
+
+  const { usuarios, receita, engajamento, cadastros_30d, funcionalidades, targets } = data
+
+  // ── KPI Cards ──────────────────────────────────────────────────────────────
+  const kpis = [
+    {
+      label: 'MRR', icon: '💰',
+      value: 'R$ ' + receita.mrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      meta: 'Meta: R$ 50.000', cor: '#10B981',
+      pct: Math.min(100, Math.round(receita.mrr / 50000 * 100)),
+    },
+    {
+      label: 'Conversão Free→Premium', icon: '📈',
+      value: usuarios.conversion_rate.toFixed(1) + '%',
+      meta: 'Meta: 15%', cor: '#3B82F6',
+      pct: Math.min(100, Math.round(usuarios.conversion_rate / 15 * 100)),
+    },
+    {
+      label: 'Total Usuários', icon: '👥',
+      value: usuarios.total,
+      meta: 'Free: ' + usuarios.free + ' | Premium: ' + usuarios.premium + ' | Pro: ' + usuarios.pro,
+      cor: '#8B5CF6', pct: null,
+    },
+    {
+      label: 'Risco de Churn', icon: '⚠️',
+      value: engajamento.churn_risk.toFixed(1) + '%',
+      meta: 'Meta: ≤ 5%', cor: engajamento.churn_risk <= 5 ? '#10B981' : '#F43F5E',
+      pct: Math.min(100, Math.round((1 - engajamento.churn_risk / 100) * 100)),
+    },
+    {
+      label: 'MAU (Ativos/Mês)', icon: '📊',
+      value: engajamento.mau,
+      meta: 'WAU: ' + engajamento.wau, cor: '#F59E0B', pct: null,
+    },
+    {
+      label: 'Novos (7 dias)', icon: '🌱',
+      value: engajamento.novos_7d,
+      meta: (engajamento.crescimento_7d >= 0 ? '↑' : '↓') + ' ' + Math.abs(engajamento.crescimento_7d) + '% vs semana ant.',
+      cor: engajamento.crescimento_7d >= 0 ? '#10B981' : '#F43F5E', pct: null,
+    },
+    {
+      label: 'ARR Estimado', icon: '🎯',
+      value: 'R$ ' + receita.arr.toLocaleString('pt-BR', { minimumFractionDigits: 0 }),
+      meta: 'LTV/user: R$ ' + receita.ltv_estimado.toFixed(0), cor: '#10B981', pct: null,
+    },
+    {
+      label: 'Transações/User', icon: '📝',
+      value: engajamento.avg_transacoes.toFixed(1),
+      meta: 'Média por usuário ativo', cor: '#94A3B8', pct: null,
+    },
+  ]
+
+  document.getElementById('metrics-kpis').innerHTML = kpis.map(k => `
+    <div class="stat-card" style="border-color:${k.cor}22;position:relative;overflow:hidden;">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${k.cor};opacity:0.6;"></div>
+      <div style="font-size:1.5rem;margin-bottom:8px;">${k.icon}</div>
+      <div class="stat-num" style="color:${k.cor};font-size:1.6rem;">${k.value}</div>
+      <div class="stat-label" style="font-size:0.7rem;margin-top:4px;">${k.label}</div>
+      <div style="font-size:0.68rem;color:#444;margin-top:4px;">${k.meta}</div>
+      ${k.pct !== null ? `
+        <div style="margin-top:10px;height:4px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;width:${k.pct}%;background:${k.cor};border-radius:4px;transition:width 1s ease;"></div>
+        </div>
+        <div style="font-size:0.65rem;color:#555;margin-top:3px;">${k.pct}% da meta</div>
+      ` : ''}
+    </div>
+  `).join('')
+
+  // ── Gráfico de crescimento ───────────────────────────────────────────────────
+  const labels = (cadastros_30d || []).map(d => d.dia.slice(5)) // MM-DD
+  const values = (cadastros_30d || []).map(d => d.total)
+
+  const ctxGrowth = document.getElementById('chart-growth')
+  if (ctxGrowth && window.Chart) {
+    if (ctxGrowth._chartInstance) ctxGrowth._chartInstance.destroy()
+    ctxGrowth._chartInstance = new Chart(ctxGrowth, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Novos Usuários',
+          data: values,
+          backgroundColor: 'rgba(47,191,113,0.7)',
+          borderColor: '#2FBF71',
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#555', font: { size: 10 } }, grid: { display: false } },
+          y: { ticks: { color: '#555', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true },
+        }
+      }
+    })
+  }
+
+  // ── Gráfico de planos ────────────────────────────────────────────────────────
+  const ctxPlanos = document.getElementById('chart-planos')
+  if (ctxPlanos && window.Chart) {
+    if (ctxPlanos._chartInstance) ctxPlanos._chartInstance.destroy()
+    ctxPlanos._chartInstance = new Chart(ctxPlanos, {
+      type: 'doughnut',
+      data: {
+        labels: ['Free', 'Premium', 'Pro'],
+        datasets: [{
+          data: [usuarios.free, usuarios.premium, usuarios.pro],
+          backgroundColor: ['rgba(100,116,139,0.8)', 'rgba(59,130,246,0.8)', 'rgba(139,92,246,0.8)'],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#888', font: { size: 11 } }, position: 'bottom' }
+        },
+        cutout: '65%'
+      }
+    })
+  }
+
+  // ── Funcionalidades mais usadas ──────────────────────────────────────────────
+  const funcsEl = document.getElementById('metrics-funcs')
+  const maxFuncs = Math.max(...(funcionalidades || []).map(f => f.cnt), 1)
+  funcsEl.innerHTML = (funcionalidades || []).slice(0, 8).map(f => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <div style="width:90px;font-size:0.78rem;color:#888;flex-shrink:0;">${f.func}</div>
+      <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:${Math.round(f.cnt/maxFuncs*100)}%;background:linear-gradient(90deg,#2FBF71,#059669);border-radius:3px;"></div>
+      </div>
+      <div style="font-size:0.78rem;color:#2FBF71;font-weight:700;width:40px;text-align:right;">${f.cnt}</div>
+    </div>
+  `).join('')
+
+  // ── Metas de negócio ─────────────────────────────────────────────────────────
+  const targetsEl = document.getElementById('metrics-targets')
+  const targetsList = [
+    { key: 'conversion_rate', meta: 15, cor: '#3B82F6', unidade: '%', icon: '📈' },
+    { key: 'mrr', meta: 50000, cor: '#10B981', unidade: 'R$', icon: '💰', prefix: true },
+    { key: 'churn_risk', meta: 5, cor: '#F43F5E', unidade: '%', icon: '⚠️', inverted: true },
+  ]
+
+  targetsEl.innerHTML = targetsList.map(t => {
+    const tgt = targets[t.key]
+    if (!tgt) return ''
+    const pct = t.inverted
+      ? Math.max(0, Math.min(100, Math.round((1 - tgt.atual / tgt.meta) * 100)))
+      : Math.min(100, Math.round(tgt.atual / tgt.meta * 100))
+    const valFmt = t.prefix
+      ? `R$ ${tgt.atual.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      : `${tgt.atual}${t.unidade}`
+    const metaFmt = t.prefix
+      ? `Meta: R$ ${tgt.meta.toLocaleString('pt-BR')}`
+      : `Meta: ${tgt.meta}${t.unidade}`
+    return `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-size:0.82rem;font-weight:600;">${t.icon} ${tgt.label}</div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:0.82rem;color:${t.cor};font-weight:700;">${valFmt}</span>
+            <span style="font-size:0.72rem;color:#555;">${metaFmt}</span>
+            <span style="font-size:0.72rem;font-weight:700;background:${pct >= 80 ? 'rgba(16,185,129,0.15)' : pct >= 40 ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)'};color:${pct >= 80 ? '#10B981' : pct >= 40 ? '#F59E0B' : '#F43F5E'};padding:2px 8px;border-radius:4px;">${pct}%</span>
+          </div>
+        </div>
+        <div style="height:8px;background:rgba(255,255,255,0.05);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${t.cor};border-radius:4px;transition:width 1s ease;"></div>
+        </div>
+      </div>
+    `
+  }).join('')
+
+  // ── MRR breakdown ──────────────────────────────────────────────────────────
+  document.getElementById('metrics-mrr-detail').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px;">
+      <div style="background:#0d1117;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:0.7rem;color:#555;margin-bottom:6px;text-transform:uppercase;">Premium (R$19,90)</div>
+        <div style="font-size:1.4rem;font-weight:800;color:#3B82F6;">R$ ${receita.mrr_premium.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:#444;">${usuarios.premium} usuários</div>
+      </div>
+      <div style="background:#0d1117;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:0.7rem;color:#555;margin-bottom:6px;text-transform:uppercase;">Pro (R$39,90)</div>
+        <div style="font-size:1.4rem;font-weight:800;color:#8B5CF6;">R$ ${receita.mrr_pro.toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:#444;">${usuarios.pro} usuários</div>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding:14px;background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:0.82rem;font-weight:600;">MRR Total</span>
+      <span style="font-size:1.5rem;font-weight:900;color:#10B981;">R$ ${receita.mrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+    </div>
+    <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.78rem;color:#555;">
+      <span>ARR Estimado: R$ ${receita.arr.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</span>
+      <span>LTV Médio: R$ ${receita.ltv_estimado.toFixed(0)}</span>
+    </div>
+  `
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {

@@ -147,6 +147,144 @@ admin.get('/api/stats', async (c) => {
   })
 })
 
+// ─── GET /admin/api/metricas → KPIs estratégicos SaaS ─────────────────────────
+admin.get('/api/metricas', async (c) => {
+  const db = c.env.DB
+
+  // ── Usuários por plano ──────────────────────────────────────────────────────
+  const planos = await db.prepare(
+    `SELECT plano, COUNT(*) as total FROM users GROUP BY plano`
+  ).all<{ plano: string; total: number }>()
+
+  const planoMap: Record<string, number> = {}
+  for (const p of (planos.results || [])) planoMap[p.plano] = p.total
+
+  const totalUsers    = Object.values(planoMap).reduce((a, b) => a + b, 0)
+  const totalPremium  = (planoMap['premium'] || 0) + (planoMap['pro'] || 0)
+  const totalFree     = planoMap['free'] || 0
+
+  // Conversão free→premium
+  const conversionRate = totalUsers > 0 ? Math.round((totalPremium / totalUsers) * 1000) / 10 : 0
+
+  // ── MRR estimado ─────────────────────────────────────────────────────────────
+  const PRECO_PREMIUM = 19.90
+  const PRECO_PRO     = 39.90
+  const mrrEstimado   = (planoMap['premium'] || 0) * PRECO_PREMIUM + (planoMap['pro'] || 0) * PRECO_PRO
+
+  // ── Cadastros por dia (últimos 30 dias) ──────────────────────────────────────
+  const cadastros30d = await db.prepare(
+    `SELECT DATE(data_criacao) as dia, COUNT(*) as total
+     FROM users WHERE data_criacao >= DATE('now', '-30 days')
+     GROUP BY dia ORDER BY dia ASC`
+  ).all<{ dia: string; total: number }>()
+
+  // ── DAU/MAU aproximado (usuários com última atividade) ───────────────────────
+  const ativos7d = await db.prepare(
+    `SELECT COUNT(DISTINCT user_id) as n FROM sessions
+     WHERE created_at >= datetime('now', '-7 days')`
+  ).first<{ n: number }>()
+
+  const ativos30d = await db.prepare(
+    `SELECT COUNT(DISTINCT user_id) as n FROM sessions
+     WHERE created_at >= datetime('now', '-30 days')`
+  ).first<{ n: number }>()
+
+  const mau = ativos30d?.n || 0
+  const wau = ativos7d?.n  || 0
+
+  // ── Churn aproximado: premium que nunca lançaram transação ───────────────────
+  const premiumSemTransacao = await db.prepare(
+    `SELECT COUNT(*) as n FROM users u
+     WHERE u.plano IN ('premium','pro')
+       AND (SELECT COUNT(*) FROM despesas WHERE user_id = u.id) = 0
+       AND (SELECT COUNT(*) FROM receitas WHERE user_id = u.id) = 0`
+  ).first<{ n: number }>()
+
+  const churnRisk = totalPremium > 0
+    ? Math.round(((premiumSemTransacao?.n || 0) / totalPremium) * 1000) / 10
+    : 0
+
+  // ── Engajamento (registros por usuário ativo) ─────────────────────────────────
+  // Simplificado: média de despesas + receitas por todos os usuários
+  const totDesp = await db.prepare(`SELECT COUNT(*) as n FROM despesas`).first<{ n: number }>()
+  const totRec  = await db.prepare(`SELECT COUNT(*) as n FROM receitas`).first<{ n: number }>()
+  const avgTransacoes = totalUsers > 0
+    ? Math.round(((totDesp?.n || 0) + (totRec?.n || 0)) / totalUsers * 10) / 10
+    : 0
+
+  // ── Top funcionalidades usadas ───────────────────────────────────────────────
+  // D1/SQLite tem limite de termos em UNION ALL — buscar contagens separadamente
+  const tabelasFuncs = [
+    { nome: 'Despesas', tabela: 'despesas' },
+    { nome: 'Receitas', tabela: 'receitas' },
+    { nome: 'Investimentos', tabela: 'investimentos' },
+    { nome: 'Metas', tabela: 'metas' },
+    { nome: 'Empréstimos', tabela: 'emprestimos' },
+  ]
+  const funcionalidades: Array<{ func: string; cnt: number }> = []
+  for (const tf of tabelasFuncs) {
+    try {
+      const r = await db.prepare(`SELECT COUNT(*) as n FROM ${tf.tabela}`).first<{ n: number }>()
+      funcionalidades.push({ func: tf.nome, cnt: r?.n || 0 })
+    } catch (_) { funcionalidades.push({ func: tf.nome, cnt: 0 }) }
+  }
+  // Ordenar por cnt
+  funcionalidades.sort((a, b) => b.cnt - a.cnt)
+
+  // ── Crescimento (novos usuários nos últimos 7 dias vs 7 dias anteriores) ──────
+  const novos7d = await db.prepare(
+    `SELECT COUNT(*) as n FROM users
+     WHERE data_criacao >= datetime('now', '-7 days')`
+  ).first<{ n: number }>()
+
+  const novos7d_ant = await db.prepare(
+    `SELECT COUNT(*) as n FROM users
+     WHERE data_criacao >= datetime('now', '-14 days')
+       AND data_criacao < datetime('now', '-7 days')`
+  ).first<{ n: number }>()
+
+  const crescimento7d = (novos7d_ant?.n || 0) > 0
+    ? Math.round(((novos7d?.n || 0) - (novos7d_ant?.n || 0)) / (novos7d_ant?.n || 1) * 1000) / 10
+    : 0
+
+  // ── Metas de negócio (benchmarks) ───────────────────────────────────────────
+  const targets = {
+    conversion_rate: { atual: conversionRate, meta: 15, label: 'Conversão Free→Premium' },
+    mrr: { atual: Math.round(mrrEstimado), meta: 50000, label: 'MRR (R$)' },
+    mau: { atual: mau, meta: 0, label: 'MAU (usuários ativos/mês)' },
+    churn_risk: { atual: churnRisk, meta: 5, label: 'Risco de Churn (%)' }
+  }
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    usuarios: {
+      total: totalUsers,
+      free: totalFree,
+      premium: planoMap['premium'] || 0,
+      pro: planoMap['pro'] || 0,
+      conversion_rate: conversionRate,
+    },
+    receita: {
+      mrr: Math.round(mrrEstimado * 100) / 100,
+      mrr_premium: Math.round((planoMap['premium'] || 0) * PRECO_PREMIUM * 100) / 100,
+      mrr_pro: Math.round((planoMap['pro'] || 0) * PRECO_PRO * 100) / 100,
+      arr: Math.round(mrrEstimado * 12 * 100) / 100,
+      ltv_estimado: Math.round(mrrEstimado / Math.max(totalPremium, 1) * 12 * 100) / 100,
+    },
+    engajamento: {
+      mau: mau,
+      wau: wau,
+      churn_risk: churnRisk,
+      avg_transacoes: avgTransacoes,
+      novos_7d: novos7d?.n || 0,
+      crescimento_7d: crescimento7d,
+    },
+    cadastros_30d: cadastros30d.results || [],
+    funcionalidades,
+    targets,
+  })
+})
+
 // ─── POST /admin/api/query  → SQL (somente SELECT/PRAGMA) ────────────────────
 admin.post('/api/query', async (c) => {
   const { sql } = await c.req.json()
@@ -298,6 +436,7 @@ function adminPanel() {
   </div>
   <div class="nav-section">Visão Geral</div>
   <div class="nav-item active" id="nav-dashboard" onclick="showPage('dashboard', this)"><i class="fas fa-chart-pie"></i> Dashboard</div>
+  <div class="nav-item" id="nav-metrics" onclick="showPage('metrics', this)"><i class="fas fa-rocket"></i> KPIs SaaS</div>
   <div class="nav-item" id="nav-users" onclick="showPage('users', this)"><i class="fas fa-users"></i> Usuários</div>
   <div class="nav-section">Dados</div>
   <div class="nav-item" id="nav-browser" onclick="showPage('browser', this)"><i class="fas fa-table"></i> Explorador</div>
@@ -408,6 +547,52 @@ function adminPanel() {
             <thead><tr><th>Ícone</th><th>Código</th><th>Título</th><th>Descrição</th><th>Pts</th><th>Raridade</th><th>Desbloqueadas</th></tr></thead>
             <tbody id="conquistas-body"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- METRICS DASHBOARD -->
+    <div class="page" id="page-metrics">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;">🚀 KPIs Estratégicos — MetricsDashboard</div>
+          <div style="color:#666;font-size:0.8rem;margin-top:3px;">Metas: Conversão 15% • Churn ≤5% • MRR R$50k em 6 meses • DAU/MAU 45%</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="loadMetrics()"><i class="fas fa-sync-alt"></i> Atualizar</button>
+      </div>
+
+      <!-- KPI Cards row -->
+      <div id="metrics-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+        <div class="stat-card"><div class="stat-icon" style="font-size:1.5rem;">⏳</div><div class="stat-label">Carregando KPIs...</div></div>
+      </div>
+
+      <!-- Charts row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+        <div class="card">
+          <div class="card-title"><i class="fas fa-chart-line"></i> Crescimento de Usuários (30 dias)</div>
+          <div class="chart-wrap"><canvas id="chart-growth"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="fas fa-layer-group"></i> Funcionalidades Mais Usadas</div>
+          <div id="metrics-funcs" style="font-size:0.82rem;"></div>
+        </div>
+      </div>
+
+      <!-- Metas de negócio -->
+      <div class="card">
+        <div class="card-title"><i class="fas fa-bullseye"></i> Progresso em Direção às Metas de Negócio</div>
+        <div id="metrics-targets"></div>
+      </div>
+
+      <!-- Planos breakdown -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+        <div class="card">
+          <div class="card-title"><i class="fas fa-users"></i> Distribuição de Planos</div>
+          <div class="chart-wrap" style="height:160px;"><canvas id="chart-planos"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="fas fa-dollar-sign"></i> Receita Recorrente Mensal (MRR)</div>
+          <div id="metrics-mrr-detail"></div>
         </div>
       </div>
     </div>
