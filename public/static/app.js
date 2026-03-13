@@ -3585,14 +3585,23 @@ const VM = {
   async abrirFaturaCartao(cartaoId, nomeCartao, cor, diaFechamento) {
     const now = new Date()
     // Calcular o mês de fatura correto baseado no dia de fechamento do cartão
-    // Se hoje está no fechamento ou após → fatura do próximo mês
-    // Se ainda não chegou no fechamento → fatura do mês atual
+    // Regra bancária: compra no fechamento ou APÓS → próxima fatura
     let mesFatura = now.getMonth() + 1
     let anoFatura = now.getFullYear()
     if (diaFechamento && now.getDate() >= diaFechamento) {
       mesFatura++
       if (mesFatura > 12) { mesFatura = 1; anoFatura++ }
     }
+    // Se o mês calculado não tiver lançamentos, avança até o primeiro mês com dados (máx 3 meses)
+    try {
+      for (let tentativa = 0; tentativa < 3; tentativa++) {
+        const chk = await this.api('GET', `cartoes/${cartaoId}/fatura?mes=${mesFatura}&ano=${anoFatura}`)
+        if (chk && chk.fatura && chk.fatura.qtd_lancamentos > 0) break
+        // Mês vazio: avançar para o próximo
+        mesFatura++
+        if (mesFatura > 12) { mesFatura = 1; anoFatura++ }
+      }
+    } catch(e) { /* usa o mês calculado mesmo assim */ }
     // Estado global da fatura atual
     this._faturaState = {
       cartaoId,
