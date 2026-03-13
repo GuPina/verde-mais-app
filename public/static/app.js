@@ -545,7 +545,7 @@ const VM = {
               <span class="nav-icon"><i class="fas fa-calculator"></i></span> Simulações
             </a>
             <a class="nav-item" id="nav-ia" onclick="VM.navigate('ia')">
-              <span class="nav-icon"><i class="fas fa-brain"></i></span> Análise IA ✨
+              <span class="nav-icon"><i class="fas fa-brain"></i></span> Diagnóstico 360° ✨
             </a>
             <a class="nav-item" id="nav-conquistas" onclick="VM.navigate('conquistas')">
               <span class="nav-icon"><i class="fas fa-trophy"></i></span> Conquistas
@@ -714,7 +714,7 @@ const VM = {
       relatorios: ['Relatórios', 'Análise detalhada'],
       projecao: ['Projeção Financeira 🔮', 'Veja seu futuro financeiro'],
       simulacao: ['Simulações', 'Projeções de investimento'],
-      ia: ['Análise com IA ✨', 'Insights personalizados'],
+      ia: ['Diagnóstico Financeiro 360° ✨', 'Análise completa em 5 módulos • Hierarquia CFP®'],
       conquistas: ['Conquistas', 'Sua evolução financeira'],
       perfil: ['Meu Perfil', 'Configurações da conta']
     }
@@ -5152,7 +5152,6 @@ const VM = {
 
   // ============== IA ==============
   async pageIA() {
-    // Verifica se o plano tem acesso à IA
     if (this.limites !== null && !this.limites.ia_insights) {
       this.upsellModal('ia_insights')
       this.navigate('dashboard')
@@ -5161,211 +5160,341 @@ const VM = {
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
-          <div class="section-title">🧠 Análise com IA ✨</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Insights personalizados sobre suas finanças</div>
+          <div class="section-title">🧠 Diagnóstico Financeiro 360°</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Análise completa baseada em 5 módulos • Hierarquia CFP®</div>
         </div>
         <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-sync"></i> Atualizar Análise
+          <i class="fas fa-sync"></i> Atualizar
         </button>
       </div>
       <div id="ia-container">
-        <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${[1,2,3].map(() => `<div class="skeleton" style="height:120px;border-radius:16px;"></div>`).join('')}
+        </div>
       </div>
     `
     this.carregarIA()
   },
 
   async carregarIA() {
+    const container = document.getElementById('ia-container')
     try {
-      const data = await this.api('GET', 'ia/insights')
-      const container = document.getElementById('ia-container')
-      const insights = data.insights || []
-      const dados = data.dados_base || {}
+      const d = await this.api('GET', 'ia/insights')
 
-      // Score
-      let score_saude = 50
-      if (dados.receita_mes > 0) {
-        const taxaDespesa = (dados.despesa_mes / dados.receita_mes) * 100
-        const taxaPoupanca = ((dados.receita_mes - dados.despesa_mes) / dados.receita_mes) * 100
-        const compDividas = dados.comprometimento_dividas || 0
-        score_saude = Math.min(100, Math.max(0,
-          50 + (taxaPoupanca > 20 ? 20 : taxaPoupanca) - (taxaDespesa > 70 ? 20 : 0) - (compDividas > 30 ? 15 : 0)
-        ))
+      // Atalhos para os blocos principais
+      const re   = d.resumo_executivo  || {}
+      const sc   = d.scores            || {}
+      const kp   = d.kpis              || {}
+      const ac   = d.alertas_criticos  || []
+      const am   = d.analise_modular   || {}
+      const pa   = d.plano_acao        || []
+      const sg   = d.sugestoes         || {}
+
+      const scoreGeral = sc.geral || 50
+      const corScore   = scoreGeral >= 80 ? '#2FBF71' : scoreGeral >= 55 ? '#74b9ff' : scoreGeral >= 35 ? '#ffc400' : '#ff6b6b'
+      const circum     = 2 * Math.PI * 48
+      const offset     = circum * (1 - scoreGeral / 100)
+
+      // ── helpers inline ──────────────────────────────────────────────────
+      const fmtM = v => this.formatMoney(v || 0)
+      const corSt = st => ({ EXCELENTE:'#2FBF71', BOM:'#74b9ff', ATENCAO:'#ffc400', CRITICO:'#ff6b6b' }[st] || '#888')
+      const badgeSt = st => {
+        const cfg = { EXCELENTE:['#2FBF71','Excelente ✅'], BOM:['#74b9ff','Bom 👍'], ATENCAO:['#ffc400','Atenção ⚠️'], CRITICO:['#ff6b6b','Crítico 🔴'] }
+        const [cor, txt] = cfg[st] || ['#888','—']
+        return `<span style="font-size:0.7rem;font-weight:700;padding:3px 8px;border-radius:20px;background:${cor}22;color:${cor};border:1px solid ${cor}44;">${txt}</span>`
       }
-      score_saude = Math.round(score_saude)
-
-      const alertas = insights.filter(i => i.tipo === 'alerta')
-      const sugestoes = insights.filter(i => i.tipo === 'sugestao' || i.tipo === 'dica')
-
-      let regra_5030 = null
-      if (dados.receita_mes > 0) {
-        regra_5030 = {
-          necessidades: Math.round((dados.despesa_mes / dados.receita_mes) * 70),
-          desejos: Math.round((dados.despesa_mes / dados.receita_mes) * 30),
-          poupanca: Math.round(((dados.receita_mes - dados.despesa_mes) / dados.receita_mes) * 100)
-        }
+      const miniScore = (val, cor) => {
+        const c2 = 2*Math.PI*16; const o2 = c2*(1-val/100)
+        return `<svg width="40" height="40" viewBox="0 0 40 40" style="transform:rotate(-90deg)">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+          <circle cx="20" cy="20" r="16" fill="none" stroke="${cor}" stroke-width="4"
+            stroke-dasharray="${c2}" stroke-dashoffset="${o2}" stroke-linecap="round"/>
+        </svg>`
       }
 
-      const scoreColor = score_saude >= 70 ? '#2FBF71' : score_saude >= 40 ? '#ffc400' : '#ff6b6b'
-      const scoreLabel = score_saude >= 80 ? 'Excelente 🏆' : score_saude >= 60 ? 'Bom 👍' : score_saude >= 40 ? 'Atenção ⚠️' : 'Crítico ❗'
-      const prioColors = { alta: '#ff6b6b', media: '#ffc400', baixa: '#2FBF71' }
+      // ── Módulos de análise ────────────────────────────────────────────
+      const modulos = [
+        { key:'fluxo_caixa',        icon:'💰', label:'Fluxo de Caixa',       hierarquia:'Sobrevivência' },
+        { key:'reserva_emergencia', icon:'🛡️', label:'Reserva de Emergência', hierarquia:'Segurança' },
+        { key:'dividas',            icon:'💳', label:'Dívidas',               hierarquia:'Quitação de Dívidas' },
+        { key:'investimentos',      icon:'📈', label:'Investimentos',         hierarquia:'Acumulação' },
+        { key:'metas',              icon:'🎯', label:'Metas Financeiras',     hierarquia:'Realização' }
+      ]
+
+      // ── 50/30/20 ─────────────────────────────────────────────────────
+      const r5030 = sg.regra_503020
+      const receita = kp.receita_mes || 0
+      const despesa = kp.despesa_mes || 0
+      const poupPct  = receita > 0 ? ((receita - despesa) / receita * 100) : 0
+      const necPct   = receita > 0 ? Math.min(100, despesa / receita * 70) : 0
+      const desPct   = receita > 0 ? Math.min(100, despesa / receita * 30) : 0
 
       container.innerHTML = `
-        <!-- SCORE -->
-        <div class="card" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(47,191,113,0.08),rgba(32,128,64,0.05));">
-          <div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
-            <div style="position:relative;width:120px;height:120px;flex-shrink:0;">
-              <svg viewBox="0 0 120 120" style="transform:rotate(-90deg)">
-                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>
-                <circle cx="60" cy="60" r="50" fill="none" stroke="${scoreColor}" stroke-width="10"
-                  stroke-dasharray="${2*Math.PI*50}" stroke-dashoffset="${2*Math.PI*50*(1-score_saude/100)}"
-                  stroke-linecap="round"/>
+
+        <!-- ═══ CARD 1 — RESUMO EXECUTIVO + SCORE ═══ -->
+        <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(47,191,113,0.07),rgba(32,128,64,0.04));border:1px solid rgba(47,191,113,0.18);">
+          <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+
+            <!-- círculo score -->
+            <div style="position:relative;width:110px;height:110px;flex-shrink:0;">
+              <svg viewBox="0 0 110 110" style="transform:rotate(-90deg);width:110px;height:110px;">
+                <circle cx="55" cy="55" r="48" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="9"/>
+                <circle cx="55" cy="55" r="48" fill="none" stroke="${corScore}" stroke-width="9"
+                  stroke-dasharray="${circum}" stroke-dashoffset="${offset}" stroke-linecap="round"
+                  style="transition:stroke-dashoffset 1s ease"/>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                <div style="font-size:1.8rem;font-weight:800;color:${scoreColor};">${score_saude}</div>
-                <div style="font-size:0.65rem;color:#666;">/100</div>
+                <div style="font-size:1.75rem;font-weight:900;color:${corScore};line-height:1;">${scoreGeral}</div>
+                <div style="font-size:0.6rem;color:#555;letter-spacing:1px;">/ 100</div>
               </div>
             </div>
+
+            <!-- texto direito -->
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:1.15rem;font-weight:800;color:${corScore};margin-bottom:6px;">${re.veredicto || '—'}</div>
+              <div style="font-size:0.82rem;color:#888;line-height:1.6;margin-bottom:12px;">
+                Próxima ação prioritária: <strong style="color:#ddd;">${re.proxima_acao || '—'}</strong>
+              </div>
+              <!-- mini KPIs -->
+              <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:0.8rem;">
+                <span>💰 <strong style="color:#2FBF71;">${fmtM(kp.receita_mes)}</strong></span>
+                <span>💸 <strong style="color:#ff6b6b;">${fmtM(kp.despesa_mes)}</strong></span>
+                <span>💹 Saldo <strong style="color:${(kp.saldo_mes||0)>=0?'#2FBF71':'#ff6b6b'};">${fmtM(kp.saldo_mes)}</strong></span>
+                <span>📊 Poupar <strong style="color:#74b9ff;">${(kp.taxa_poupanca_pct||0).toFixed(1)}%</strong></span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- mini scores dos 5 módulos -->
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);
+                      display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center;">
+            ${modulos.map(m => {
+              const mod  = am[m.key] || {}
+              const val  = mod.score || 0
+              const cor  = corSt(mod.status || 'CRITICO')
+              return `
+                <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                  ${miniScore(val, cor)}
+                  <div style="font-size:0.65rem;color:#666;line-height:1.3;">${m.icon}<br>${m.label.split(' ')[0]}</div>
+                  <div style="font-size:0.7rem;font-weight:700;color:${cor};">${val}</div>
+                </div>`
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- ═══ CARD 2 — ALERTAS CRÍTICOS ═══ -->
+        ${ac.length > 0 ? `
+        <div class="card" style="margin-bottom:20px;border:1px solid rgba(255,107,107,0.3);background:rgba(255,60,60,0.04);">
+          <div style="font-size:0.95rem;font-weight:700;color:#ff6b6b;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+            🚨 Alertas Críticos
+            <span style="font-size:0.7rem;background:rgba(255,107,107,0.2);color:#ff6b6b;padding:2px 8px;border-radius:20px;">${ac.length} ${ac.length===1?'alerta':'alertas'}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${ac.map(a => {
+              const sevCor = a.severidade === 'CRITICO' ? '#ff6b6b' : '#ffc400'
+              return `
+                <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:12px;border-left:4px solid ${sevCor};">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <span style="font-size:0.75rem;font-weight:700;color:${sevCor};background:${sevCor}22;padding:2px 8px;border-radius:20px;">${a.severidade}</span>
+                    <div style="font-weight:700;font-size:0.9rem;">${a.titulo}</div>
+                  </div>
+                  <div style="font-size:0.8rem;color:#999;line-height:1.6;margin-bottom:8px;">${a.descricao}</div>
+                  <div style="font-size:0.78rem;color:#2FBF71;padding:8px 12px;background:rgba(47,191,113,0.06);border-radius:8px;">
+                    <strong>✅ Ação:</strong> ${a.acao}
+                  </div>
+                  ${a.impacto ? `<div style="font-size:0.73rem;color:#555;margin-top:6px;">💡 ${a.impacto}</div>` : ''}
+                </div>`
+            }).join('')}
+          </div>
+        </div>
+        ` : `
+        <div class="card" style="margin-bottom:20px;border:1px solid rgba(47,191,113,0.2);background:rgba(47,191,113,0.04);padding:16px 20px;">
+          <div style="display:flex;align-items:center;gap:12px;color:#2FBF71;">
+            <span style="font-size:1.5rem;">✅</span>
             <div>
-              <div style="font-size:1.3rem;font-weight:800;color:${scoreColor};margin-bottom:6px;">Score Financeiro: ${scoreLabel}</div>
-              <p style="color:#888;font-size:0.9rem;line-height:1.6;max-width:500px;">
-                Seu score é calculado com base em receitas, despesas, metas, investimentos e hábitos financeiros.
-                ${score_saude >= 70 ? 'Continue assim! Você está no caminho certo.' : 'Siga as recomendações abaixo para melhorar seu score.'}
-              </p>
-              <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.82rem;color:#666;">
-                <span>💰 Receita: <strong style="color:#2FBF71;">${this.formatMoney(dados.receita_mes)}</strong></span>
-                <span>💸 Despesa: <strong style="color:#ff6b6b;">${this.formatMoney(dados.despesa_mes)}</strong></span>
-                <span>💳 Dívidas: <strong style="color:#ffc400;">${dados.comprometimento_dividas || 0}% da renda</strong></span>
-              </div>
+              <div style="font-weight:700;font-size:0.9rem;">Nenhum alerta crítico</div>
+              <div style="font-size:0.78rem;color:#666;">Seus dados não apontam conflitos financeiros graves no momento.</div>
             </div>
           </div>
         </div>
+        `}
 
-        <!-- ANÁLISE FINANCEIRA PERSONALIZADA (bloco clicável) -->
-        <div id="ia-analise-block" onclick="VM.solicitarAnaliseIA()" style="cursor:pointer;margin-bottom:24px;">
-          <div class="card" style="border:1px solid rgba(47,191,113,0.3);background:linear-gradient(135deg,rgba(47,191,113,0.06),rgba(32,128,64,0.04));transition:all 0.2s;" 
-               onmouseenter="this.style.borderColor='#2FBF71';this.style.transform='translateY(-2px)'" 
-               onmouseleave="this.style.borderColor='rgba(47,191,113,0.3)';this.style.transform='none'">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-              <div style="display:flex;align-items:center;gap:16px;">
-                <div style="width:52px;height:52px;background:linear-gradient(135deg,#2FBF71,#208040);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">🤖</div>
-                <div>
-                  <div style="font-size:1rem;font-weight:800;margin-bottom:4px;">Análise Financeira Personalizada</div>
-                  <div style="font-size:0.82rem;color:#888;line-height:1.5;">Gerada por IA com base nos seus dados reais — receitas, despesas, metas e padrões de comportamento.</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;color:#2FBF71;font-weight:600;font-size:0.88rem;flex-shrink:0;">
-                <span id="ia-analise-status">Clique para gerar análise</span>
-                <i class="fas fa-chevron-right" id="ia-analise-icon"></i>
-              </div>
-            </div>
-            <div id="ia-analise-resultado" style="display:none;margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:20px;"></div>
+        <!-- ═══ CARD 3 — ANÁLISE MODULAR (5 módulos expansíveis) ═══ -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-size:0.95rem;font-weight:700;margin-bottom:16px;">🔬 Análise por Módulo — Hierarquia CFP®</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${modulos.map((m, idx) => {
+              const mod  = am[m.key] || {}
+              const cor  = corSt(mod.status || 'CRITICO')
+              const val  = mod.score || 0
+              const dados= mod.dados || {}
+              const id   = `mod-detail-${idx}`
+              return `
+                <div style="border:1px solid rgba(255,255,255,0.07);border-radius:12px;overflow:hidden;">
+                  <!-- cabeçalho clicável -->
+                  <div onclick="document.getElementById('${id}').style.display === 'none' ? document.getElementById('${id}').style.display='block' : document.getElementById('${id}').style.display='none'"
+                       style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;background:rgba(255,255,255,0.02);user-select:none;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:${cor}22;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">${m.icon}</div>
+                    <div style="flex:1;">
+                      <div style="font-size:0.6rem;color:#555;letter-spacing:1px;text-transform:uppercase;">${m.hierarquia}</div>
+                      <div style="font-weight:700;font-size:0.88rem;">${m.label}</div>
+                    </div>
+                    ${badgeSt(mod.status || 'CRITICO')}
+                    <div style="display:flex;flex-direction:column;align-items:center;margin-left:8px;">
+                      <div style="font-size:1.1rem;font-weight:800;color:${cor};">${val}</div>
+                      <div style="font-size:0.6rem;color:#555;">/100</div>
+                    </div>
+                    <!-- barra de progresso compacta -->
+                    <div style="width:60px;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;flex-shrink:0;">
+                      <div style="height:100%;width:${val}%;background:${cor};border-radius:3px;transition:width 0.8s ease;"></div>
+                    </div>
+                    <i class="fas fa-chevron-down" style="color:#555;font-size:0.75rem;margin-left:4px;"></i>
+                  </div>
+                  <!-- detalhe (oculto por padrão) -->
+                  <div id="${id}" style="display:none;padding:14px 16px;border-top:1px solid rgba(255,255,255,0.05);background:rgba(0,0,0,0.15);">
+                    <div style="font-size:0.82rem;color:#aaa;line-height:1.7;margin-bottom:10px;">${mod.mensagem || '—'}</div>
+                    <div style="font-size:0.8rem;padding:10px 14px;background:rgba(47,191,113,0.06);border-left:3px solid #2FBF71;border-radius:0 8px 8px 0;color:#ccc;line-height:1.6;margin-bottom:10px;">
+                      <strong style="color:#2FBF71;">Recomendação:</strong> ${mod.recomendacao || '—'}
+                    </div>
+                    ${m.key === 'fluxo_caixa' && dados.top_categorias ? `
+                      <div style="margin-top:8px;">
+                        <div style="font-size:0.72rem;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Top categorias</div>
+                        ${dados.top_categorias.slice(0,4).map(c => `
+                          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                            <div style="font-size:0.78rem;color:#aaa;width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.nome}</div>
+                            <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+                              <div style="height:100%;width:${Math.min(100,c.pct)}%;background:#ff6b6b;border-radius:3px;"></div>
+                            </div>
+                            <div style="font-size:0.75rem;color:#888;width:60px;text-align:right;">${fmtM(c.valor)}</div>
+                          </div>`).join('')}
+                      </div>` : ''}
+                    ${m.key === 'reserva_emergencia' ? `
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                        <span>💰 Atual: <strong style="color:#ddd;">${fmtM(dados.valor_atual)}</strong></span>
+                        <span>🎯 Ideal: <strong style="color:#ddd;">${fmtM(dados.valor_ideal)}</strong></span>
+                        <span>📅 Cobertura: <strong style="color:${(dados.meses_cobertos||0)>=3?'#2FBF71':'#ffc400'};">${(dados.meses_cobertos||0).toFixed(1)} meses</strong></span>
+                      </div>` : ''}
+                    ${m.key === 'dividas' ? `
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                        <span>📊 Comprometimento: <strong style="color:${(dados.comprometimento_pct||0)>30?'#ff6b6b':'#2FBF71'};">${(dados.comprometimento_pct||0).toFixed(1)}%</strong></span>
+                        <span>💸 Parcela/mês: <strong style="color:#ddd;">${fmtM(dados.parcela_mensal)}</strong></span>
+                        ${dados.taxa_max_aa > 0 ? `<span>📈 Taxa máx: <strong style="color:#ffc400;">${dados.taxa_max_aa}% a.a.</strong></span>` : ''}
+                      </div>` : ''}
+                    ${m.key === 'investimentos' ? `
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                        <span>💼 Carteira: <strong style="color:#ddd;">${fmtM(dados.total_atual)}</strong></span>
+                        <span>📊 Rentab.: <strong style="color:${(dados.rentab_pct||0)>=0?'#2FBF71':'#ff6b6b'};">${(dados.rentab_pct||0).toFixed(2)}%</strong></span>
+                        <span>👤 Perfil: <strong style="color:#74b9ff;">${dados.perfil || '—'}</strong></span>
+                      </div>` : ''}
+                    ${m.key === 'metas' && dados.lista && dados.lista.length > 0 ? `
+                      <div style="margin-top:8px;">
+                        ${dados.lista.map(mt => `
+                          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                            <div style="font-size:0.78rem;color:#aaa;flex:1;">${mt.nome}</div>
+                            <div style="width:80px;height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+                              <div style="height:100%;width:${Math.min(100,mt.progresso_pct)}%;background:#74b9ff;border-radius:3px;"></div>
+                            </div>
+                            <div style="font-size:0.72rem;color:#888;">${mt.progresso_pct.toFixed(0)}%</div>
+                          </div>`).join('')}
+                      </div>` : ''}
+                  </div>
+                </div>`
+            }).join('')}
           </div>
         </div>
 
-        ${alertas.length > 0 ? `
-          <div class="card" style="border-color:rgba(255,107,107,0.4);margin-bottom:24px;">
-            <div style="font-size:1rem;font-weight:700;color:#ff6b6b;margin-bottom:16px;">🚨 Alertas Importantes</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              ${alertas.map(a => `
-                <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:rgba(255,80,80,0.06);border-radius:10px;">
-                  <span style="font-size:1.2rem;flex-shrink:0;">⚠️</span>
-                  <div>
-                    <div style="font-weight:600;font-size:0.9rem;">${a.titulo}</div>
-                    <div style="font-size:0.8rem;color:#888;margin-top:3px;line-height:1.5;">${a.conteudo}</div>
+        <!-- ═══ CARD 4 — PLANO DE AÇÃO 90 DIAS ═══ -->
+        ${pa.length > 0 ? `
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-size:0.95rem;font-weight:700;margin-bottom:16px;">🗓️ Plano de Ação — 90 Dias</div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            ${pa.map(p => {
+              const hierCor = p.hierarquia.includes('Sobreviv') ? '#ff6b6b'
+                : p.hierarquia.includes('Segur')   ? '#ffc400'
+                : p.hierarquia.includes('Dívid')   ? '#fd79a8'
+                : p.hierarquia.includes('Acumul')  ? '#74b9ff'
+                : '#2FBF71'
+              return `
+                <div style="border:1px solid rgba(255,255,255,0.07);border-radius:12px;overflow:hidden;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);">
+                    <div style="width:28px;height:28px;border-radius:8px;background:${hierCor}33;color:${hierCor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:800;flex-shrink:0;">${p.prioridade}</div>
+                    <div style="flex:1;">
+                      <div style="font-size:0.6rem;color:${hierCor};font-weight:600;text-transform:uppercase;letter-spacing:1px;">${p.hierarquia}</div>
+                      <div style="font-weight:700;font-size:0.88rem;">${p.titulo}</div>
+                    </div>
+                    <div style="font-size:0.7rem;color:#555;white-space:nowrap;">⏱️ ${p.prazo}</div>
                   </div>
-                </div>
-              `).join('')}
-            </div>
+                  <div style="padding:12px 14px 14px;background:rgba(0,0,0,0.1);">
+                    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+                      ${p.passos.map((ps, i) => `
+                        <div style="display:flex;align-items:flex-start;gap:10px;font-size:0.8rem;color:#aaa;">
+                          <span style="width:18px;height:18px;background:rgba(255,255,255,0.06);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0;margin-top:1px;">${i+1}</span>
+                          <span style="line-height:1.5;">${ps}</span>
+                        </div>`).join('')}
+                    </div>
+                    ${p.impacto ? `<div style="font-size:0.73rem;color:#2FBF71;padding:7px 12px;background:rgba(47,191,113,0.06);border-radius:7px;">💡 ${p.impacto}</div>` : ''}
+                  </div>
+                </div>`
+            }).join('')}
           </div>
+        </div>
         ` : ''}
 
-        ${regra_5030 ? `
-          <div class="card" style="margin-bottom:24px;">
-            <div style="font-weight:700;margin-bottom:16px;">📐 Análise 50/30/20</div>
-            <div style="color:#888;font-size:0.85rem;margin-bottom:16px;">Ideal: 50% necessidades • 30% desejos • 20% investimentos/poupança</div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
-              ${[
-                { k: 'necessidades', l: '🏠 Necessidades', cor: '#74b9ff', ideal: 50 },
-                { k: 'desejos', l: '🎬 Desejos', cor: '#a29bfe', ideal: 30 },
-                { k: 'poupanca', l: '💰 Poupança/Inv.', cor: '#2FBF71', ideal: 20 }
-              ].map(item => {
-                const atual = regra_5030[item.k] || 0
-                const ok = Math.abs(atual - item.ideal) <= 10
-                return `
-                  <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:16px;text-align:center;">
-                    <div style="font-size:0.82rem;color:#888;margin-bottom:8px;">${item.l}</div>
-                    <div style="font-size:1.6rem;font-weight:800;color:${ok ? item.cor : '#ff6b6b'};">${atual.toFixed(1)}%</div>
-                    <div style="font-size:0.75rem;color:#555;">Meta: ${item.ideal}%</div>
-                    <div style="margin-top:8px;background:rgba(255,255,255,0.08);border-radius:50px;height:4px;overflow:hidden;">
-                      <div style="background:${ok ? item.cor : '#ff6b6b'};width:${Math.min(100,item.ideal > 0 ? atual/item.ideal*100 : 0)}%;height:100%;border-radius:50px;"></div>
-                    </div>
-                  </div>
-                `
-              }).join('')}
-            </div>
-          </div>
-        ` : ''}
+        <!-- ═══ CARD 5 — 50/30/20 + SUGESTÕES ═══ -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
-          ${insights.length > 0 ? `
-            <div class="card">
-              <div style="font-weight:700;margin-bottom:16px;">💡 Insights do Mentor</div>
-              <div style="display:flex;flex-direction:column;gap:12px;">
-                ${insights.slice(0, 6).map(i => `
-                  <div style="display:flex;gap:10px;padding:12px;background:rgba(255,255,255,0.02);border-radius:10px;border-left:3px solid ${prioColors[i.prioridade] || '#2FBF71'};">
-                    <div>
-                      <div style="font-weight:600;font-size:0.85rem;margin-bottom:3px;">${i.titulo}</div>
-                      <div style="font-size:0.78rem;color:#777;line-height:1.5;">${i.conteudo}</div>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
-
+          <!-- 50/30/20 -->
           <div class="card">
-            <div style="font-weight:700;margin-bottom:16px;">🎯 Plano de Ação Rápido</div>
-            <div style="display:flex;flex-direction:column;gap:12px;">
-              ${sugestoes.slice(0,5).map((r, idx) => `
-                <div style="display:flex;align-items:flex-start;gap:12px;">
-                  <div style="width:28px;height:28px;background:linear-gradient(135deg,#2FBF71,#208040);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;flex-shrink:0;">${idx+1}</div>
-                  <div style="font-size:0.85rem;color:#aaa;line-height:1.5;padding-top:4px;">${r.titulo}</div>
-                </div>
-              `).join('')}
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:14px;">📐 Regra 50/30/20</div>
+            <div style="color:#666;font-size:0.72rem;margin-bottom:14px;">Ideal: 50% necessidades • 30% desejos • 20% poupança</div>
+            ${r5030 ? `
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                ${[
+                  { l:'🏠 Necessidades', ideal:50, v:necPct,   cor:'#74b9ff', meta:r5030.necessidades_ideal },
+                  { l:'🎬 Desejos',      ideal:30, v:desPct,   cor:'#a29bfe', meta:r5030.desejos_ideal },
+                  { l:'💰 Poupança',     ideal:20, v:poupPct,  cor:'#2FBF71', meta:r5030.investimentos_ideal }
+                ].map(item => {
+                  const ok = Math.abs(item.v - item.ideal) <= 10
+                  return `
+                    <div>
+                      <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:4px;">
+                        <span style="color:#aaa;">${item.l}</span>
+                        <span style="font-weight:700;color:${ok?item.cor:'#ff6b6b'};">${item.v.toFixed(1)}% <span style="color:#555;font-weight:400;">/ ${item.ideal}%</span></span>
+                      </div>
+                      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+                        <div style="height:100%;width:${Math.min(100,item.v)}%;background:${ok?item.cor:'#ff6b6b'};border-radius:3px;transition:width 0.8s;"></div>
+                      </div>
+                      <div style="font-size:0.68rem;color:#555;margin-top:3px;text-align:right;">Ideal: ${item.meta}</div>
+                    </div>`
+                }).join('')}
+              </div>
+            ` : '<div style="color:#555;font-size:0.82rem;text-align:center;padding:20px 0;">Cadastre receitas para ativar</div>'}
+          </div>
+
+          <!-- Sugestões personalizadas -->
+          <div class="card">
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:14px;">✨ Sugestões</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${(sg.cortes_orcamento || []).slice(0,2).map(s => `
+                <div style="font-size:0.78rem;color:#aaa;padding:8px 10px;background:rgba(255,107,107,0.05);border-left:3px solid #ff6b6b;border-radius:0 8px 8px 0;line-height:1.5;">✂️ ${s}</div>`).join('')}
+              ${(sg.otimizacoes || []).slice(0,3).map(s => `
+                <div style="font-size:0.78rem;color:#aaa;padding:8px 10px;background:rgba(47,191,113,0.05);border-left:3px solid #2FBF71;border-radius:0 8px 8px 0;line-height:1.5;">💡 ${s}</div>`).join('')}
             </div>
           </div>
         </div>
 
-        <!-- SUGESTÕES PERSONALIZADAS (bloco clicável) -->
-        <div id="ia-sugestoes-block" onclick="VM.solicitarSugestoesIA()" style="cursor:pointer;">
-          <div class="card" style="border:1px solid rgba(162,155,254,0.3);background:linear-gradient(135deg,rgba(162,155,254,0.06),rgba(116,185,255,0.04));transition:all 0.2s;"
-               onmouseenter="this.style.borderColor='#a29bfe';this.style.transform='translateY(-2px)'"
-               onmouseleave="this.style.borderColor='rgba(162,155,254,0.3)';this.style.transform='none'">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-              <div style="display:flex;align-items:center;gap:16px;">
-                <div style="width:52px;height:52px;background:linear-gradient(135deg,#a29bfe,#74b9ff);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">✨</div>
-                <div>
-                  <div style="font-size:1rem;font-weight:800;margin-bottom:4px;">Sugestões Personalizadas</div>
-                  <div style="font-size:0.82rem;color:#888;line-height:1.5;">Recomendações exclusivas atualizadas com base no seu perfil e comportamento financeiro atual.</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;color:#a29bfe;font-weight:600;font-size:0.88rem;flex-shrink:0;">
-                <span id="ia-sugestoes-status">Clique para ver sugestões</span>
-                <i class="fas fa-chevron-right" id="ia-sugestoes-icon"></i>
-              </div>
-            </div>
-            <div id="ia-sugestoes-resultado" style="display:none;margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:20px;"></div>
-          </div>
+        <!-- rodapé -->
+        <div style="text-align:center;font-size:0.72rem;color:#444;padding:8px 0 20px;">
+          Análise gerada em ${new Date().toLocaleString('pt-BR')} • Período ${re.periodo?.mes || '—'}/${re.periodo?.ano || '—'}
         </div>
       `
     } catch (e) {
-      const container = document.getElementById('ia-container')
       container.innerHTML = `
         <div class="card" style="text-align:center;padding:60px 40px;">
           <div style="font-size:3rem;margin-bottom:16px;">🧠</div>
           <h3 style="margin-bottom:8px;">Análise Indisponível</h3>
-          <p style="color:#666;margin-bottom:24px;">Adicione receitas e despesas para ativar a análise com IA</p>
+          <p style="color:#666;margin-bottom:24px;">Adicione receitas e despesas para ativar o diagnóstico financeiro 360°</p>
           <button onclick="VM.navigate('receitas')" class="btn-primary" style="width:auto;padding:10px 24px;">
             <i class="fas fa-plus"></i> Adicionar Receitas
           </button>
@@ -5374,165 +5503,8 @@ const VM = {
     }
   },
 
-  async solicitarAnaliseIA() {
-    const resultado = document.getElementById('ia-analise-resultado')
-    const status = document.getElementById('ia-analise-status')
-    const icon = document.getElementById('ia-analise-icon')
-    if (!resultado) return
-
-    // Toggle: se já está aberto, fechar
-    if (resultado.style.display === 'block') {
-      resultado.style.display = 'none'
-      status.textContent = 'Clique para gerar análise'
-      icon.className = 'fas fa-chevron-right'
-      return
-    }
-
-    // Mostrar loading
-    resultado.style.display = 'block'
-    status.textContent = 'Gerando análise...'
-    icon.className = 'fas fa-spinner fa-spin'
-    resultado.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;color:#888;">
-        <i class="fas fa-spinner fa-spin" style="color:#2FBF71;"></i>
-        <span>Analisando seus dados financeiros...</span>
-      </div>
-    `
-
-    try {
-      const data = await this.api('GET', 'ia/insights')
-      const dados = data.dados_base || {}
-      const insights = data.insights || []
-
-      // Montar análise personalizada com os dados reais
-      const poupanca = dados.receita_mes > 0 ? ((dados.receita_mes - dados.despesa_mes) / dados.receita_mes * 100).toFixed(1) : 0
-      const topInsights = insights.slice(0, 4)
-      const analise = [
-        { titulo: '📊 Panorama Financeiro', texto: `No mês atual, suas receitas somam <strong>${this.formatMoney(dados.receita_mes)}</strong> e as despesas <strong>${this.formatMoney(dados.despesa_mes)}</strong>. Sua taxa de poupança é de <strong>${poupanca}%</strong> da renda — ${parseFloat(poupanca) >= 20 ? 'acima da meta recomendada de 20% ✅' : 'abaixo da meta recomendada de 20% ⚠️'}.` },
-        { titulo: '🎯 Metas & Objetivos', texto: `Você tem <strong>${dados.total_metas || 0} metas ativas</strong>. ${dados.total_metas > 0 ? 'Continue monitorando o progresso regularmente e faça aportes mensais para manter o ritmo.' : 'Defina pelo menos uma meta financeira para orientar seus esforços.'}` },
-        { titulo: '📈 Investimentos', texto: `Valor investido: <strong>${this.formatMoney(dados.total_investimentos || 0)}</strong>. ${dados.total_investimentos > 0 ? 'Mantenha a regularidade nos aportes — consistência é mais importante que valores altos.' : 'Comece a investir, mesmo que pequenas quantias mensais fazem diferença no longo prazo.'}` },
-        { titulo: '💳 Compromissos Financeiros', texto: `Seu comprometimento com dívidas é de <strong>${dados.comprometimento_dividas || 0}%</strong> da renda. ${(dados.comprometimento_dividas || 0) <= 30 ? 'Está dentro do limite saudável (até 30%) ✅' : 'Acima do recomendado — priorize quitar as dívidas com juros mais altos ⚠️'}.` }
-      ]
-
-      status.textContent = 'Análise gerada ✓'
-      icon.className = 'fas fa-chevron-up'
-      resultado.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:16px;">
-          ${analise.map(a => `
-            <div style="padding:14px;background:rgba(47,191,113,0.04);border-radius:10px;border-left:3px solid #2FBF71;">
-              <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px;">${a.titulo}</div>
-              <div style="font-size:0.82rem;color:#aaa;line-height:1.7;">${a.texto}</div>
-            </div>
-          `).join('')}
-          ${topInsights.length > 0 ? `
-            <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;">
-              <div style="font-weight:700;font-size:0.9rem;margin-bottom:10px;">🔍 Principais Alertas & Recomendações</div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
-                ${topInsights.map(i => `<div style="font-size:0.8rem;color:#888;padding-left:12px;border-left:2px solid ${i.tipo==='alerta'?'#ff6b6b':'#2FBF71'};">• ${i.titulo}</div>`).join('')}
-              </div>
-            </div>
-          ` : ''}
-          <div style="font-size:0.75rem;color:#555;text-align:right;">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
-        </div>
-      `
-    } catch(e) {
-      resultado.innerHTML = `<div style="color:#ff6b6b;font-size:0.85rem;">Erro ao gerar análise. Tente novamente.</div>`
-      status.textContent = 'Clique para tentar novamente'
-      icon.className = 'fas fa-chevron-right'
-    }
-  },
-
-  async solicitarSugestoesIA() {
-    const resultado = document.getElementById('ia-sugestoes-resultado')
-    const status = document.getElementById('ia-sugestoes-status')
-    const icon = document.getElementById('ia-sugestoes-icon')
-    if (!resultado) return
-
-    if (resultado.style.display === 'block') {
-      resultado.style.display = 'none'
-      status.textContent = 'Clique para ver sugestões'
-      icon.className = 'fas fa-chevron-right'
-      return
-    }
-
-    resultado.style.display = 'block'
-    status.textContent = 'Gerando sugestões...'
-    icon.className = 'fas fa-spinner fa-spin'
-    resultado.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;color:#888;">
-        <i class="fas fa-spinner fa-spin" style="color:#a29bfe;"></i>
-        <span>Elaborando sugestões personalizadas...</span>
-      </div>
-    `
-
-    try {
-      const data = await this.api('GET', 'ia/insights')
-      const dados = data.dados_base || {}
-      const insights = data.insights || []
-      const saldo = dados.receita_mes - dados.despesa_mes
-
-      const sugestoesMap = [
-        {
-          icon: '💰',
-          cor: '#2FBF71',
-          titulo: 'Aporte mensal recomendado',
-          texto: saldo > 0
-            ? `Com saldo disponível de <strong>${this.formatMoney(saldo)}</strong>, direcione pelo menos <strong>${this.formatMoney(saldo * 0.5)}</strong> para investimentos ou metas prioritárias.`
-            : 'Revise suas despesas para liberar saldo positivo antes de pensar em investir.'
-        },
-        {
-          icon: '🎯',
-          cor: '#74b9ff',
-          titulo: 'Foco nas metas',
-          texto: dados.total_metas > 0
-            ? `Distribua contribuições mensais entre suas ${dados.total_metas} metas. Priorize as com prazo mais próximo.`
-            : 'Crie uma meta de emergência com valor de 3 a 6 meses de despesas fixas.'
-        },
-        {
-          icon: '📉',
-          cor: '#ffc400',
-          titulo: 'Controle de gastos',
-          texto: (dados.despesa_mes / dados.receita_mes) > 0.7
-            ? 'Seus gastos superam 70% da renda. Identifique 2 ou 3 categorias para reduzir em 10% no próximo mês.'
-            : 'Seus gastos estão controlados. Mantenha o registro das despesas para não perder o controle.'
-        },
-        {
-          icon: '🔄',
-          cor: '#fd79a8',
-          titulo: 'Revisão periódica',
-          texto: 'Reserve 30 minutos a cada quinzena para revisar lançamentos e ajustar previsões. Pequenos desvios corrigidos cedo evitam grandes problemas.'
-        },
-        ...insights.filter(i => i.tipo === 'sugestao').slice(0, 3).map(s => ({
-          icon: '✅',
-          cor: '#2FBF71',
-          titulo: s.titulo,
-          texto: s.conteudo
-        }))
-      ]
-
-      status.textContent = 'Sugestões atualizadas ✓'
-      icon.className = 'fas fa-chevron-up'
-      resultado.innerHTML = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          ${sugestoesMap.slice(0, 6).map(s => `
-            <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:12px;border-left:3px solid ${s.cor};">
-              <div style="font-size:1.1rem;margin-bottom:6px;">${s.icon}</div>
-              <div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;">${s.titulo}</div>
-              <div style="font-size:0.78rem;color:#888;line-height:1.6;">${s.texto}</div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="font-size:0.75rem;color:#555;text-align:right;margin-top:12px;">Atualizado em ${new Date().toLocaleString('pt-BR')}</div>
-      `
-    } catch(e) {
-      resultado.innerHTML = `<div style="color:#ff6b6b;font-size:0.85rem;">Erro ao carregar sugestões. Tente novamente.</div>`
-      status.textContent = 'Clique para tentar novamente'
-      icon.className = 'fas fa-chevron-right'
-    }
-  },
-
   async gerarInsightsIA() {
-    this.toast('Atualizando análise...', 'info')
+    this.toast('Atualizando diagnóstico...', 'info')
     this.carregarIA()
   },
 
