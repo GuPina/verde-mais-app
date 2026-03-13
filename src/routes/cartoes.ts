@@ -184,7 +184,7 @@ cartoes.delete('/lancamentos/:id', requireAuth, async (c) => {
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
   try {
-    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(userId, codigo).run()
+    await db.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(userId, codigo).run()
   } catch { /* ignora */ }
 }
 

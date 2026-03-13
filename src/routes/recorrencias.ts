@@ -158,9 +158,9 @@ recorrencias.post('/processar', requireAuth, async (c) => {
 
     if (rec.tipo === 'despesa') {
       await c.env.DB.prepare(
-        `INSERT INTO despesas (user_id, descricao, valor, categoria, data_vencimento, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual)
-         VALUES (?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, rec.meio_pagamento).run()
+        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento).run()
     } else {
       await c.env.DB.prepare(
         `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
@@ -179,8 +179,8 @@ recorrencias.post('/processar', requireAuth, async (c) => {
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
   await db.prepare(
-    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista)
-     VALUES (?, ?, datetime('now'))`
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
   ).bind(userId, codigo).run()
 }
 

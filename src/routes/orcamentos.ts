@@ -42,8 +42,8 @@ orcamentos.get('/', requireAuth, async (c) => {
       `SELECT COALESCE(SUM(valor), 0) as total
        FROM despesas
        WHERE user_id = ? AND categoria = ?
-         AND strftime('%m', COALESCE(data_vencimento, data_criacao)) = ?
-         AND strftime('%Y', COALESCE(data_vencimento, data_criacao)) = ?
+         AND strftime('%m', COALESCE(vencimento, data)) = ?
+         AND strftime('%Y', COALESCE(vencimento, data)) = ?
          AND status IN ('pago', 'pendente')`
     ).bind(user.id, o.categoria, String(mes).padStart(2,'0'), String(ano)).first() as any
 
@@ -148,8 +148,8 @@ orcamentos.get('/resumo', requireAuth, async (c) => {
      INNER JOIN orcamentos o ON d.categoria = o.categoria AND o.user_id = d.user_id
      WHERE d.user_id = ?
        AND o.mes = ? AND o.ano = ?
-       AND strftime('%m', COALESCE(d.data_vencimento, d.data_criacao)) = ?
-       AND strftime('%Y', COALESCE(d.data_vencimento, d.data_criacao)) = ?
+       AND strftime('%m', COALESCE(d.vencimento, d.data)) = ?
+       AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
        AND d.status IN ('pago', 'pendente')`
   ).bind(user.id, mes, ano, String(mes).padStart(2,'0'), String(ano)).first() as any
 
@@ -163,8 +163,8 @@ orcamentos.get('/resumo', requireAuth, async (c) => {
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
   await db.prepare(
-    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista)
-     VALUES (?, ?, datetime('now'))`
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
   ).bind(userId, codigo).run()
 }
 

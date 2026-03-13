@@ -34,7 +34,7 @@ perfil.put('/', requireAuth, async (c) => {
   ).bind(nome, profissao || null, situacao_emprego || 'empregado', parseFloat(salario_mensal) || 0, parseFloat(outras_rendas) || 0, parseInt(dependentes) || 0, estado_civil || 'solteiro', cidade || null, estado || null, perfil_investidor || 'moderado', perfilCompleto, user.id).run()
 
   if (perfilCompleto) {
-    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(user.id, 'planejador').run().catch(() => {})
+    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'planejador').run().catch(() => {})
   }
 
   return c.json({ success: true, message: 'Perfil atualizado!', perfil_completo: !!perfilCompleto })
@@ -69,7 +69,7 @@ perfil.post('/onboarding', requireAuth, async (c) => {
   // Se perfil completo, dar conquista
   if (parseInt(step) >= 5 || dados.perfil_completo) {
     await c.env.DB.prepare('UPDATE users SET perfil_completo = 1 WHERE id = ?').bind(user.id).run()
-    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(user.id, 'planejador').run().catch(() => {})
+    await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'planejador').run().catch(() => {})
   }
 
   return c.json({ success: true, message: 'Perfil salvo com sucesso!', step_salvo: step })

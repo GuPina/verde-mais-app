@@ -15,6 +15,10 @@ import iaRoutes from './routes/ia'
 import perfilRoutes from './routes/perfil'
 import reservaRoutes from './routes/reserva'
 import adminRoutes from './routes/admin'
+import orcamentosRoutes from './routes/orcamentos'
+import recorrenciasRoutes from './routes/recorrencias'
+import projecaoRoutes from './routes/projecao'
+import asaasRoutes from './routes/asaas'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -42,6 +46,10 @@ app.route('/api/conquistas', conquistasRoutes)
 app.route('/api/ia', iaRoutes)
 app.route('/api/perfil', perfilRoutes)
 app.route('/api/reserva', reservaRoutes)
+app.route('/api/orcamentos', orcamentosRoutes)
+app.route('/api/recorrencias', recorrenciasRoutes)
+app.route('/api/projecao', projecaoRoutes)
+app.route('/api/asaas', asaasRoutes)
 
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)

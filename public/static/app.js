@@ -47,7 +47,7 @@ const VM = {
           <div style="font-size:1.1rem;font-weight:700;">${proximo}</div>
           <div style="font-size:0.78rem;color:#666;margin-top:4px;">Cancele quando quiser · Sem burocracia</div>
         </div>
-        <button onclick="VM.navigate('perfil');VM.closeModal()" class="btn-primary" style="width:100%;justify-content:center;">
+        <button onclick="VM.closeModal();VM.openPricingModal()" class="btn-primary" style="width:100%;justify-content:center;">
           <i class="fas fa-crown"></i> Ver Planos e Fazer Upgrade
         </button>
         <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;margin-top:10px;justify-content:center;">Agora não</button>
@@ -71,6 +71,8 @@ const VM = {
     if (path.startsWith('/app')) {
       if (!this.token) return window.location.href = '/login'
       this.renderApp()
+      // Iniciar polling de conquistas (F2)
+      setTimeout(() => this.startConqPoll(), 5000)
     }
   },
 
@@ -113,6 +115,11 @@ const VM = {
   },
 
   formatMoney(v) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
+  },
+
+  // Alias curto para formatMoney
+  fmt(v) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
   },
 
@@ -464,6 +471,14 @@ const VM = {
             <a class="nav-item" id="nav-metas" onclick="VM.navigate('metas')">
               <span class="nav-icon"><i class="fas fa-bullseye"></i></span> Metas
             </a>
+            <a class="nav-item" id="nav-orcamentos" onclick="VM.navigate('orcamentos')">
+              <span class="nav-icon"><i class="fas fa-sliders-h"></i></span> Orçamentos
+              <span style="margin-left:auto;background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
+            </a>
+            <a class="nav-item" id="nav-recorrencias" onclick="VM.navigate('recorrencias')">
+              <span class="nav-icon"><i class="fas fa-sync-alt"></i></span> Recorrências
+              <span style="margin-left:auto;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
+            </a>
             <a class="nav-item" id="nav-lembretes" onclick="VM.navigate('lembretes')">
               <span class="nav-icon"><i class="fas fa-bell"></i></span> Lembretes
               <span id="badge-lembretes" style="display:none;margin-left:auto;background:#ffc400;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
@@ -484,6 +499,10 @@ const VM = {
             </a>
             
             <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Análises</div>
+            <a class="nav-item" id="nav-projecao" onclick="VM.navigate('projecao')">
+              <span class="nav-icon"><i class="fas fa-chart-area"></i></span> Projeção Financeira
+              <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
+            </a>
             <a class="nav-item" id="nav-relatorios" onclick="VM.navigate('relatorios')">
               <span class="nav-icon"><i class="fas fa-file-alt"></i></span> Relatórios
             </a>
@@ -650,12 +669,15 @@ const VM = {
       despesas: ['Despesas', 'Controle de saídas e gastos'],
       cartoes: ['Cartões', 'Controle de faturas e limites'],
       metas: ['Metas Financeiras', 'Seus objetivos e conquistas'],
+      orcamentos: ['Orçamentos por Categoria', 'Controle proativo dos seus gastos'],
+      recorrencias: ['Recorrências Automáticas', 'Despesas e receitas fixas do mês'],
       lembretes: ['Lembretes', 'Contas e vencimentos'],
       investimentos: ['Investimentos', 'Patrimônio e rentabilidade'],
       reserva: ['Reserva de Emergência', 'Sua proteção financeira'],
       financiamentos: ['Financiamentos', 'Imóveis e financiamentos'],
       emprestimos: ['Empréstimos', 'Controle de dívidas'],
       relatorios: ['Relatórios', 'Análise detalhada'],
+      projecao: ['Projeção Financeira 🔮', 'Veja seu futuro financeiro'],
       simulacao: ['Simulações', 'Projeções de investimento'],
       ia: ['Análise com IA ✨', 'Insights personalizados'],
       conquistas: ['Conquistas', 'Sua evolução financeira'],
@@ -674,6 +696,8 @@ const VM = {
       despesas: () => this.pageDespesas(),
       cartoes: () => this.pageCartoes(),
       metas: () => this.pageMetas(),
+      orcamentos: () => this.pageOrcamentos(),
+      recorrencias: () => this.pageRecorrencias(),
       lembretes: () => this.pageLembretes(),
       investimentos: () => this.pageInvestimentos(),
       financiamentos: () => this.pageFinanciamentos(),
@@ -681,6 +705,7 @@ const VM = {
       relatorios: () => this.pageRelatorios(),
       simulacao: () => this.pageSimulacao(),
       ia: () => this.pageIA(),
+      projecao: () => this.pageProjecao(),
       conquistas: () => this.pageConquistas(),
       perfil: () => this.pagePerfil(),
       reserva: () => this.pageReserva()
@@ -897,10 +922,19 @@ const VM = {
 
         <!-- BLOCO CARTÕES -->
         <div id="dash-cartoes-block" style="margin-top:20px;"></div>
+
+        <!-- WIDGET ORÇAMENTOS + PROJEÇÃO -->
+        <div id="dash-orcamentos-block" style="margin-top:20px;"></div>
       `
 
       // Carregar cartões no dashboard de forma assíncrona
       this.carregarCartoesNoDashboard()
+
+      // Carregar widget de orçamentos (F1) e projeção (F4)
+      const planoUser = this.user?.plano || 'free'
+      if (planoUser !== 'free') {
+        this.carregarWidgetOrcamentos()
+      }
 
       // Chart Evolução
       const ctxEv = document.getElementById('chart-evolucao')
@@ -1034,6 +1068,78 @@ const VM = {
     } catch(e) {
       // silencioso — cartões são opcionais no dashboard
     }
+  },
+
+  // ─── WIDGET DE ORÇAMENTOS NO DASHBOARD (F1) ───────────────────────────────
+  async carregarWidgetOrcamentos() {
+    const block = document.getElementById('dash-orcamentos-block')
+    if (!block) return
+    try {
+      const hoje = new Date()
+      const mes = hoje.getMonth() + 1
+      const ano = hoje.getFullYear()
+      const data = await this.api('GET', `orcamentos?mes=${mes}&ano=${ano}`)
+      const orcs = data.orcamentos || []
+      if (orcs.length === 0) return
+
+      const excedidos = orcs.filter(o => o.status === 'exceeded').length
+      const alertas   = orcs.filter(o => ['warning','attention'].includes(o.status)).length
+      const totalLim  = orcs.reduce((s,o) => s + o.limite, 0)
+      const totalGasto = orcs.reduce((s,o) => s + o.gasto, 0)
+      const pctGlobal = totalLim > 0 ? Math.round(totalGasto / totalLim * 100) : 0
+      const corGlobal = pctGlobal > 100 ? '#F43F5E' : pctGlobal >= 80 ? '#F97316' : '#10B981'
+
+      // Top 4 por percentual (priorizando excedidos)
+      const topOrcs = [...orcs].sort((a,b) => b.percentual - a.percentual).slice(0,4)
+
+      block.innerHTML = `
+        <div class="card" style="border-color:${excedidos > 0 ? 'rgba(244,63,94,0.3)' : alertas > 0 ? 'rgba(249,115,22,0.2)' : '#1f2937'};">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="font-size:1rem;font-weight:700;">📊 Orçamentos do Mês</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              ${excedidos > 0 ? `<span style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);border-radius:20px;font-size:0.7rem;font-weight:700;padding:3px 10px;">🚨 ${excedidos} excedido${excedidos>1?'s':''}</span>` : ''}
+              ${alertas > 0  ? `<span style="background:rgba(249,115,22,0.12);color:#F97316;border:1px solid rgba(249,115,22,0.25);border-radius:20px;font-size:0.7rem;font-weight:700;padding:3px 10px;">⚠️ ${alertas} em alerta</span>` : ''}
+              <button onclick="VM.navigate('orcamentos')" class="btn-secondary" style="font-size:0.75rem;padding:6px 12px;">Gerenciar</button>
+            </div>
+          </div>
+
+          <!-- Barra global -->
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;">
+              <span style="color:#888;">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
+              <span style="color:#888;">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLim)}</strong> · <strong style="color:${corGlobal};">${pctGlobal}%</strong></span>
+            </div>
+            <div style="background:#1a1a2e;border-radius:20px;height:8px;overflow:hidden;">
+              <div style="background:${corGlobal};height:100%;border-radius:20px;width:${Math.min(pctGlobal,100)}%;transition:width 0.6s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Top categorias -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;">
+            ${topOrcs.map(o => {
+              const pct = Math.min(o.percentual, 100)
+              const cor = o.status === 'exceeded' ? '#F43F5E' : o.status === 'warning' ? '#F97316' : o.status === 'attention' ? '#F59E0B' : '#10B981'
+              return `
+                <div style="background:rgba(255,255,255,0.02);border:1px solid #1f2937;border-radius:10px;padding:12px;" onclick="VM.navigate('orcamentos')" style="cursor:pointer;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:0.82rem;font-weight:600;">${o.label}</span>
+                    <span style="font-size:0.78rem;font-weight:700;color:${cor};">${o.percentual}%</span>
+                  </div>
+                  <div style="background:#1a1a2e;border-radius:20px;height:5px;overflow:hidden;">
+                    <div style="background:${cor};height:100%;border-radius:20px;width:${pct}%;transition:width 0.5s ease;"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.7rem;color:#666;">
+                    <span>${this.fmt(o.gasto)}</span>
+                    <span>${this.fmt(o.restante)} restante</span>
+                  </div>
+                </div>`
+            }).join('')}
+          </div>
+
+          ${orcs.length > 4 ? `<div style="text-align:center;margin-top:12px;"><a href="#" onclick="VM.navigate('orcamentos');return false;" style="color:#74b9ff;font-size:0.78rem;">+ ${orcs.length - 4} outros orçamentos →</a></div>` : ''}
+        </div>
+      `
+    } catch(e) { /* silencioso */ }
   },
 
   // ============== RECEITAS ==============
@@ -2419,32 +2525,48 @@ const VM = {
 
         <!-- MEU PLANO -->
         <div class="card" style="margin-bottom:20px;">
-          <div style="font-weight:700;margin-bottom:16px;">📊 Meu Plano</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="font-weight:700;">📊 Meu Plano</div>
+            ${p.plano !== 'pro' ? `<button onclick="VM.openPricingModal()" class="btn-primary" style="width:auto;padding:8px 18px;font-size:0.82rem;"><i class="fas fa-crown"></i> Fazer Upgrade</button>` : ''}
+          </div>
           <div style="display:grid;gap:12px;">
             ${['free', 'premium', 'pro'].map(pl => {
               const isAtual = p.plano === pl
+              const planoColors = { free: '#888', premium: '#2FBF71', pro: '#a29bfe' }
+              const planoIcons  = { free: '🌱', premium: '💎', pro: '🚀' }
               const features = {
-                free: ['Dashboard básico', 'Controle financeiro', 'Até 3 metas', 'Relatório mensal'],
-                premium: ['Tudo do Free', 'Score financeiro', 'Metas ilimitadas', 'Simulações', 'Relatórios avançados'],
-                pro: ['Tudo do Premium', 'IA financeira', 'Projeção 5 anos', 'Regra 50/30/20', 'API access']
+                free:    ['Dashboard básico', 'Até 30 despesas/mês', 'Até 3 metas', 'Reserva de emergência'],
+                premium: ['Lançamentos ilimitados', 'Orçamentos por categoria', 'Recorrências automáticas', 'Projeção financeira', 'Score financeiro + IA'],
+                pro:     ['Tudo do Premium', 'Multi-usuário familiar', 'Fluxo de caixa futuro', 'Suporte WhatsApp', 'API access']
               }
-              const precos = { free: 'Grátis', premium: 'R$ 19/mês', pro: 'R$ 49/mês' }
+              const precos = { free: 'Grátis', premium: 'R$ 17,90/mês', pro: 'R$ 37,90/mês' }
+              const podeUpgrade = !isAtual && (pl !== 'free') && (pl === 'pro' ? p.plano !== 'pro' : p.plano === 'free')
               return `
-                <div style="padding:16px;border-radius:12px;border:1px solid ${isAtual ? planoColors[pl] : 'rgba(255,255,255,0.08)'};background:${isAtual ? `${planoColors[pl]}11` : 'transparent'};">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <div style="font-weight:700;">${planoIcons[pl]} ${pl.charAt(0).toUpperCase()+pl.slice(1)}</div>
+                <div style="padding:16px;border-radius:12px;border:2px solid ${isAtual ? planoColors[pl] : 'rgba(255,255,255,0.06)'};background:${isAtual ? `${planoColors[pl]}08` : 'transparent'};transition:border-color 0.2s;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <div style="font-weight:700;font-size:0.95rem;">${planoIcons[pl]} ${pl.charAt(0).toUpperCase()+pl.slice(1)}</div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                      <div style="font-size:0.9rem;font-weight:600;">${precos[pl]}</div>
-                      ${isAtual ? `<span class="badge badge-green" style="font-size:0.7rem;">Atual</span>` : ''}
+                      <div style="font-size:0.9rem;font-weight:600;color:${planoColors[pl]};">${precos[pl]}</div>
+                      ${isAtual ? `<span style="background:${planoColors[pl]}22;color:${planoColors[pl]};border:1px solid ${planoColors[pl]}44;font-size:0.68rem;font-weight:700;padding:3px 10px;border-radius:20px;">✓ Atual</span>` : ''}
+                      ${podeUpgrade ? `<button onclick="VM.openUpgradeModal('${pl}')" style="background:${planoColors[pl]}22;color:${planoColors[pl]};border:1px solid ${planoColors[pl]}44;font-size:0.72rem;font-weight:700;padding:5px 12px;border-radius:20px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='${planoColors[pl]}33'" onmouseout="this.style.background='${planoColors[pl]}22'">Assinar →</button>` : ''}
                     </div>
                   </div>
                   <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                    ${features[pl].map(f => `<span style="font-size:0.75rem;color:#888;">✓ ${f}</span>`).join(' ')}
+                    ${features[pl].map(f => `<span style="font-size:0.72rem;color:${isAtual ? '#94a3b8' : '#475569'};background:rgba(255,255,255,0.03);border-radius:4px;padding:2px 6px;">✓ ${f}</span>`).join('')}
                   </div>
                 </div>
               `
             }).join('')}
           </div>
+          ${p.plano === 'free' ? `
+            <div style="margin-top:16px;padding:14px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:10px;display:flex;align-items:center;gap:14px;">
+              <div style="font-size:1.5rem;">🚀</div>
+              <div style="flex:1;">
+                <div style="font-size:0.85rem;font-weight:700;margin-bottom:2px;">Desbloqueie o plano completo</div>
+                <div style="font-size:0.78rem;color:#888;">Orçamentos, recorrências, projeção financeira e muito mais por <strong style="color:#3B82F6;">R$ 17,90/mês</strong></div>
+              </div>
+              <button onclick="VM.openPricingModal()" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap;">Ver Planos</button>
+            </div>` : ''}
         </div>
 
         <button onclick="VM.logout()" class="btn-danger" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;">
@@ -5446,6 +5568,1023 @@ const VM = {
     const tooltip = document.getElementById('conq-tooltip')
     if (tooltip) tooltip.style.display = 'none'
   },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // F1 — ORÇAMENTOS POR CATEGORIA
+  // ══════════════════════════════════════════════════════════════════════════
+  async pageOrcamentos() {
+    const content = document.getElementById('page-content')
+    const plano = this.user?.plano || 'free'
+
+    if (plano === 'free') {
+      content.innerHTML = this.upsellBlock('orcamentos', '📊 Orçamentos por Categoria',
+        'Defina limites mensais por categoria e veja em tempo real quanto você ainda pode gastar.',
+        ['Alertas automáticos ao atingir 80% do limite', 'Barras de progresso visuais por categoria', 'Histórico e comparativo mensal', 'Proteja seu orçamento antes de gastar demais'])
+      return
+    }
+
+    const hoje = new Date()
+    let mesSel = hoje.getMonth() + 1
+    let anoSel = hoje.getFullYear()
+
+    const renderPage = async () => {
+      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
+      const data = await this.api('GET', `orcamentos?mes=${mesSel}&ano=${anoSel}`)
+      const orcs = data.orcamentos || []
+      const sem  = data.semOrcamento || []
+
+      const mesNomes = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const statusCfg = {
+        ok:        { cor: '#10B981', bg: 'rgba(16,185,129,0.12)', txt: '✅ OK' },
+        attention: { cor: '#F59E0B', bg: 'rgba(245,158,11,0.12)', txt: '⚠️ Atenção' },
+        warning:   { cor: '#F97316', bg: 'rgba(249,115,22,0.12)', txt: '🔶 Alerta' },
+        exceeded:  { cor: '#F43F5E', bg: 'rgba(244,63,94,0.12)', txt: '🚨 Excedido' }
+      }
+
+      const totalLimite = orcs.reduce((s, o) => s + o.limite, 0)
+      const totalGasto  = orcs.reduce((s, o) => s + o.gasto, 0)
+      const pctGlobal   = totalLimite > 0 ? Math.round(totalGasto / totalLimite * 100) : 0
+      const corGlobal   = pctGlobal > 100 ? '#F43F5E' : pctGlobal >= 80 ? '#F97316' : '#10B981'
+
+      content.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;">📊 Orçamentos por Categoria</div>
+            <div style="color:#666;font-size:0.82rem;margin-top:2px;">Defina e acompanhe limites mensais de gastos</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <select id="sel-mes" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
+              ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${m===mesSel?'selected':''}>${mesNomes[m]}</option>`).join('')}
+            </select>
+            <select id="sel-ano" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
+              ${[2024,2025,2026,2027].map(a => `<option value="${a}" ${a===anoSel?'selected':''}>${a}</option>`).join('')}
+            </select>
+            <button onclick="VM._abrirNovoOrcamento()" class="btn-primary" style="padding:8px 16px;font-size:0.82rem;gap:6px;">
+              <i class="fas fa-plus"></i> Novo Orçamento
+            </button>
+          </div>
+        </div>
+
+        ${orcs.length > 0 ? `
+        <!-- Resumo Global -->
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:0.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Visão Geral do Mês</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:0.82rem;color:#94a3b8;">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
+              <span style="font-size:0.82rem;color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLimite)}</strong></span>
+            </div>
+            <div style="background:#1a1a2e;border-radius:20px;height:10px;overflow:hidden;">
+              <div style="background:${corGlobal};height:100%;border-radius:20px;width:${Math.min(pctGlobal,100)}%;transition:width 0.5s ease;"></div>
+            </div>
+            <div style="font-size:0.75rem;color:${corGlobal};margin-top:4px;font-weight:700;">${pctGlobal}% utilizado</div>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;">
+            ${[
+              { label: 'Orçamentos', val: orcs.length, cor: '#74b9ff' },
+              { label: 'Excedidos', val: orcs.filter(o=>o.status==='exceeded').length, cor: '#F43F5E' },
+              { label: 'Em Alerta', val: orcs.filter(o=>['warning','attention'].includes(o.status)).length, cor: '#F59E0B' },
+              { label: 'No Verde', val: orcs.filter(o=>o.status==='ok').length, cor: '#10B981' }
+            ].map(s => `
+              <div style="text-align:center;">
+                <div style="font-size:1.5rem;font-weight:800;color:${s.cor};">${s.val}</div>
+                <div style="font-size:0.7rem;color:#555;">${s.label}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Cards de Orçamento -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px;">
+          ${orcs.map(o => {
+            const cfg = statusCfg[o.status] || statusCfg.ok
+            const pct = Math.min(o.percentual, 100)
+            return `
+            <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${cfg.cor}'" onmouseout="this.style.borderColor='#1f2937'">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="font-size:1.6rem;">${o.label.split(' ')[0]}</div>
+                  <div>
+                    <div style="font-weight:600;font-size:0.9rem;">${o.label.replace(/^[^\s]+\s/,'')}</div>
+                    <div style="font-size:0.7rem;padding:2px 8px;border-radius:20px;background:${cfg.bg};color:${cfg.cor};font-weight:700;margin-top:2px;display:inline-block;">${cfg.txt}</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:4px;">
+                  <button onclick="VM._editarOrcamento(${o.id},'${o.categoria}',${o.limite},${o.alerta_percentual})" style="background:rgba(255,255,255,0.06);border:1px solid #333;color:#aaa;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                  <button onclick="VM._deletarOrcamento(${o.id},'${o.label}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:6px;">
+                <span style="color:#94a3b8;">Gasto: <strong style="color:${cfg.cor};">${this.fmt(o.gasto)}</strong></span>
+                <span style="color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(o.limite)}</strong></span>
+              </div>
+              <div style="background:#1a1a2e;border-radius:20px;height:8px;overflow:hidden;margin-bottom:6px;">
+                <div style="background:${cfg.cor};height:100%;border-radius:20px;width:${pct}%;transition:width 0.6s ease;"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.72rem;">
+                <span style="color:${cfg.cor};font-weight:700;">${o.percentual}%</span>
+                <span style="color:#555;">Restam: ${this.fmt(o.restante)}</span>
+              </div>
+            </div>`
+          }).join('')}
+        </div>
+        ` : `
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:40px;text-align:center;margin-bottom:20px;">
+          <div style="font-size:3rem;margin-bottom:12px;">📊</div>
+          <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px;">Nenhum orçamento em ${mesNomes[mesSel]}/${anoSel}</div>
+          <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Crie orçamentos por categoria para controlar seus gastos proativamente.</div>
+          <button onclick="VM._abrirNovoOrcamento()" class="btn-primary" style="padding:10px 24px;">
+            <i class="fas fa-plus"></i> Criar Primeiro Orçamento
+          </button>
+        </div>
+        `}
+
+        ${sem.length > 0 ? `
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;">
+          <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">💡 Categorias sem orçamento</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${sem.map(s => `
+              <button onclick="VM._abrirNovoOrcamento('${s.categoria}')" style="background:rgba(255,255,255,0.04);border:1px solid #1f2937;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.78rem;transition:all 0.2s;" onmouseover="this.style.borderColor='#10B981';this.style.color='#10B981'" onmouseout="this.style.borderColor='#1f2937';this.style.color='#888'">
+                ${s.label} <span style="color:#10B981;margin-left:4px;">+</span>
+              </button>`).join('')}
+          </div>
+        </div>
+        ` : ''}
+      `
+
+      // Guardar estado para os selects
+      document.getElementById('sel-mes').onchange = () => {
+        mesSel = parseInt(document.getElementById('sel-mes').value)
+        anoSel = parseInt(document.getElementById('sel-ano').value)
+        renderPage()
+      }
+      document.getElementById('sel-ano').onchange = () => {
+        mesSel = parseInt(document.getElementById('sel-mes').value)
+        anoSel = parseInt(document.getElementById('sel-ano').value)
+        renderPage()
+      }
+    }
+
+    // Métodos auxiliares
+    this._orcMesChange = () => {
+      mesSel = parseInt(document.getElementById('sel-mes')?.value || mesSel)
+      anoSel = parseInt(document.getElementById('sel-ano')?.value || anoSel)
+      renderPage()
+    }
+
+    this._abrirNovoOrcamento = (catPre = '') => {
+      const catLabel = {
+        alimentacao:'🍽️ Alimentação', moradia:'🏠 Moradia', transporte:'🚗 Transporte',
+        saude:'🏥 Saúde', educacao:'📚 Educação', lazer:'🎮 Lazer', vestuario:'👕 Vestuário',
+        beleza:'💄 Beleza', pets:'🐾 Pets', assinaturas:'📱 Assinaturas',
+        tecnologia:'💻 Tecnologia', viagem:'✈️ Viagens', outros:'📦 Outros',
+        fixo:'📌 Gastos Fixos', supermercado:'🛒 Supermercado'
+      }
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">📊 Novo Orçamento</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Defina o limite mensal para uma categoria</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
+            <select id="orc-cat" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              ${Object.entries(catLabel).map(([v,l]) => `<option value="${v}" ${v===catPre?'selected':''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite (R$)</label>
+            <input id="orc-limite" type="number" min="1" step="0.01" placeholder="Ex: 500,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
+            <input id="orc-alerta" type="number" min="50" max="100" value="80" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <span style="font-size:0.75rem;color:#888;">Mês/Ano:</span>
+            <span style="font-size:0.75rem;color:#10B981;font-weight:600;">${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="VM._salvarOrcamento(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
+            <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
+          </div>
+        </div>
+      `)
+    }
+
+    this._editarOrcamento = (id, cat, limite, alerta) => {
+      const catLabel = {
+        alimentacao:'🍽️ Alimentação', moradia:'🏠 Moradia', transporte:'🚗 Transporte',
+        saude:'🏥 Saúde', educacao:'📚 Educação', lazer:'🎮 Lazer', vestuario:'👕 Vestuário',
+        beleza:'💄 Beleza', pets:'🐾 Pets', assinaturas:'📱 Assinaturas',
+        tecnologia:'💻 Tecnologia', viagem:'✈️ Viagens', outros:'📦 Outros',
+        fixo:'📌 Gastos Fixos', supermercado:'🛒 Supermercado'
+      }
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">✏️ Editar Orçamento</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">${catLabel[cat] || cat}</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <input type="hidden" id="orc-edit-id" value="${id}">
+          <input type="hidden" id="orc-cat" value="${cat}">
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite (R$)</label>
+            <input id="orc-limite" type="number" min="1" step="0.01" value="${limite}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
+            <input id="orc-alerta" type="number" min="50" max="100" value="${alerta}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="VM._salvarOrcamento(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
+            <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
+          </div>
+        </div>
+      `)
+    }
+
+    this._salvarOrcamento = async (mes, ano) => {
+      const cat    = document.getElementById('orc-cat').value
+      const limite = parseFloat(document.getElementById('orc-limite').value)
+      const alerta = parseInt(document.getElementById('orc-alerta').value) || 80
+      if (!cat || !limite || limite <= 0) { this.toast('Preencha todos os campos', 'error'); return }
+      const r = await this.api('POST', 'orcamentos', { categoria: cat, mes, ano, limite, alerta_percentual: alerta })
+      if (r.success) { this.closeModal(); this.toast('✅ Orçamento salvo!'); renderPage() }
+      else this.toast(r.error || 'Erro ao salvar', 'error')
+    }
+
+    this._deletarOrcamento = async (id, label) => {
+      if (!confirm(`Excluir o orçamento "${label}"?`)) return
+      const r = await this.api('DELETE', `orcamentos/${id}`)
+      if (r.success) { this.toast('✅ Orçamento removido'); renderPage() }
+      else this.toast('Erro ao remover', 'error')
+    }
+
+    renderPage()
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // F2 — NOTIFICAÇÕES DE CONQUISTAS (polling 30s)
+  // ══════════════════════════════════════════════════════════════════════════
+  startConqPoll() {
+    if (this._conqPollTimer) return
+    this._conqPollTimer = setInterval(() => this.checkNovasConquistas(), 30000)
+  },
+
+  async checkNovasConquistas() {
+    try {
+      const data = await this.api('GET', 'conquistas/novas')
+      const novas = data.novas || []
+      if (novas.length === 0) return
+
+      // Marcar como visualizadas
+      await this.api('PATCH', 'conquistas/visualizar')
+
+      // Mostrar toast para cada conquista nova
+      novas.forEach((c, i) => {
+        setTimeout(() => this.showConqToast(c), i * 1500)
+      })
+
+      // Atualizar badge na sidebar
+      const badge = document.getElementById('badge-conquistas')
+      if (badge) { badge.textContent = ''; badge.style.display = 'none' }
+    } catch(e) {}
+  },
+
+  showConqToast(conquista) {
+    const rarColors = { COMUM: '#10B981', RARO: '#3B82F6', EPICO: '#8B5CF6', LENDARIO: '#F59E0B' }
+    const cor = rarColors[conquista.raridade] || '#10B981'
+    const isEpic = ['EPICO','LENDARIO'].includes(conquista.raridade)
+
+    const el = document.createElement('div')
+    el.style.cssText = `
+      position:fixed;top:20px;right:20px;z-index:99999;
+      background:rgba(15,23,42,0.95);border:1px solid ${cor};
+      border-radius:14px;padding:16px 20px;min-width:280px;max-width:340px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 0 1px ${cor}22;
+      display:flex;align-items:center;gap:14px;
+      animation:slideInRight 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
+      backdrop-filter:blur(20px);
+    `
+    el.innerHTML = `
+      <div style="font-size:2.2rem;filter:drop-shadow(0 0 8px ${cor});">${conquista.icone}</div>
+      <div style="flex:1;">
+        <div style="font-size:0.65rem;color:${cor};font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">🏆 Conquista Desbloqueada!</div>
+        <div style="font-size:0.9rem;font-weight:700;color:#f8fafc;">${conquista.titulo}</div>
+        <div style="font-size:0.75rem;color:#94a3b8;margin-top:2px;">${conquista.descricao}</div>
+        <div style="font-size:0.7rem;color:${cor};font-weight:600;margin-top:4px;">+${conquista.pontos} pontos · ${conquista.raridade}</div>
+      </div>
+    `
+    if (!document.getElementById('conq-toast-style')) {
+      const style = document.createElement('style')
+      style.id = 'conq-toast-style'
+      style.textContent = `
+        @keyframes slideInRight { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes slideOutRight { from{transform:translateX(0);opacity:1} to{transform:translateX(100%);opacity:0} }
+      `
+      document.head.appendChild(style)
+    }
+    document.body.appendChild(el)
+    setTimeout(() => {
+      el.style.animation = 'slideOutRight 0.4s ease forwards'
+      setTimeout(() => el.remove(), 400)
+    }, 4500)
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // F3 — RECORRÊNCIAS AUTOMÁTICAS
+  // ══════════════════════════════════════════════════════════════════════════
+  async pageRecorrencias() {
+    const content = document.getElementById('page-content')
+    const plano = this.user?.plano || 'free'
+
+    if (plano === 'free') {
+      content.innerHTML = this.upsellBlock('recorrencias', '🔄 Recorrências Automáticas',
+        'Cadastre uma vez suas despesas e receitas fixas. Elas aparecem automaticamente todo mês.',
+        ['Zero digitação para contas fixas mensais', 'Controle de salário, aluguel, Netflix e mais', 'Nunca mais esqueça uma despesa fixa', 'Fluxo de caixa futuro automático'])
+      return
+    }
+
+    const renderRec = async () => {
+      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i></div>`
+      const data = await this.api('GET', 'recorrencias')
+      const recs   = data.recorrencias || []
+      const resumo = data.resumo || {}
+
+      const tipoConfig = {
+        despesa: { cor: '#F43F5E', bg: 'rgba(244,63,94,0.1)', icon: 'fa-arrow-down', label: 'Despesa' },
+        receita: { cor: '#10B981', bg: 'rgba(16,185,129,0.1)', icon: 'fa-arrow-up',   label: 'Receita' }
+      }
+
+      content.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;">🔄 Recorrências Automáticas</div>
+            <div style="color:#666;font-size:0.82rem;">Transações fixas geradas automaticamente todo mês</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="VM._processarRecorrencias()" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#74b9ff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-play"></i> Processar Hoje</button>
+            <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:8px 16px;font-size:0.82rem;"><i class="fas fa-plus"></i> Nova Recorrência</button>
+          </div>
+        </div>
+
+        <!-- Resumo -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px;">
+          ${[
+            { icon:'🔄', val: resumo.total||0, label:'Total', cor:'#74b9ff' },
+            { icon:'✅', val: resumo.ativas||0, label:'Ativas', cor:'#10B981' },
+            { icon:'💸', val: this.fmt(resumo.total_despesas||0), label:'Saídas/mês', cor:'#F43F5E' },
+            { icon:'💰', val: this.fmt(resumo.total_receitas||0), label:'Entradas/mês', cor:'#10B981' }
+          ].map(s => `
+            <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:14px 16px;">
+              <div style="font-size:1.4rem;margin-bottom:6px;">${s.icon}</div>
+              <div style="font-size:1.4rem;font-weight:800;color:${s.cor};">${s.val}</div>
+              <div style="font-size:0.72rem;color:#555;">${s.label}</div>
+            </div>`).join('')}
+        </div>
+
+        ${recs.length === 0 ? `
+          <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:40px;text-align:center;">
+            <div style="font-size:3rem;margin-bottom:12px;">🔄</div>
+            <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px;">Nenhuma recorrência cadastrada</div>
+            <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Cadastre suas contas fixas para gerar automaticamente todo mês.</div>
+            <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:10px 24px;"><i class="fas fa-plus"></i> Criar Primeira Recorrência</button>
+          </div>
+        ` : `
+          <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+              <thead><tr style="border-bottom:1px solid #1f2937;">
+                <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Descrição</th>
+                <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Tipo</th>
+                <th style="padding:12px 16px;text-align:right;color:#888;font-size:0.72rem;text-transform:uppercase;">Valor</th>
+                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Dia</th>
+                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Status</th>
+                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Ações</th>
+              </tr></thead>
+              <tbody>
+                ${recs.map(r => {
+                  const cfg = tipoConfig[r.tipo] || tipoConfig.despesa
+                  return `<tr style="border-bottom:1px solid #1a1a2e;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+                    <td style="padding:12px 16px;">
+                      <div style="font-weight:600;">${r.descricao}</div>
+                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}</div>
+                    </td>
+                    <td style="padding:12px 16px;">
+                      <span style="background:${cfg.bg};color:${cfg.cor};border:1px solid ${cfg.cor}33;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
+                        <i class="fas ${cfg.icon}"></i> ${cfg.label}
+                      </span>
+                    </td>
+                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:${cfg.cor};">${this.fmt(r.valor)}</td>
+                    <td style="padding:12px 16px;text-align:center;color:#94a3b8;">${r.dia_vencimento}</td>
+                    <td style="padding:12px 16px;text-align:center;">
+                      <span style="background:${r.ativa?'rgba(16,185,129,0.1)':'rgba(100,116,139,0.1)'};color:${r.ativa?'#10B981':'#64748b'};border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
+                        ${r.ativa ? '● Ativa' : '○ Pausada'}
+                      </span>
+                    </td>
+                    <td style="padding:12px 16px;text-align:center;">
+                      <div style="display:flex;gap:4px;justify-content:center;">
+                        <button onclick="VM._toggleRecorrencia(${r.id},${r.ativa})" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
+                        <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                      </div>
+                    </td>
+                  </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
+      `
+    }
+
+    this._abrirNovaRecorrencia = () => {
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">🔄 Nova Recorrência</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Transação que se repete todo mês automaticamente</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Tipo</label>
+            <select id="rec-tipo" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              <option value="despesa">💸 Despesa Fixa</option>
+              <option value="receita">💰 Receita Fixa</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Descrição</label>
+            <input id="rec-desc" type="text" placeholder="Ex: Aluguel, Netflix, Salário..." style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Valor (R$)</label>
+              <input id="rec-valor" type="number" min="0.01" step="0.01" placeholder="0,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            </div>
+            <div>
+              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Dia do mês</label>
+              <input id="rec-dia" type="number" min="1" max="31" placeholder="1-31" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
+            <select id="rec-cat" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              ${['Moradia','Alimentação','Transporte','Saúde','Educação','Lazer','Assinaturas','Salário','Freelance','Outros'].map(c => `<option value="${c.toLowerCase()}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="VM._salvarRecorrencia()" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Criar Recorrência</button>
+            <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
+          </div>
+        </div>
+      `)
+    }
+
+    this._salvarRecorrencia = async () => {
+      const tipo = document.getElementById('rec-tipo').value
+      const desc = document.getElementById('rec-desc').value.trim()
+      const valor = parseFloat(document.getElementById('rec-valor').value)
+      const dia   = parseInt(document.getElementById('rec-dia').value)
+      const cat   = document.getElementById('rec-cat').value
+      if (!desc || !valor || !dia || dia < 1 || dia > 31) { this.toast('Preencha todos os campos corretamente', 'error'); return }
+      const r = await this.api('POST', 'recorrencias', { tipo, descricao: desc, valor, dia_vencimento: dia, categoria: cat })
+      if (r.success) { this.closeModal(); this.toast('✅ Recorrência criada!'); renderRec() }
+      else this.toast(r.error || 'Erro ao criar', 'error')
+    }
+
+    this._toggleRecorrencia = async (id, ativa) => {
+      await this.api('PATCH', `recorrencias/${id}/toggle`)
+      this.toast(ativa ? '⏸️ Recorrência pausada' : '▶️ Recorrência ativada')
+      renderRec()
+    }
+
+    this._deletarRecorrencia = async (id, desc) => {
+      if (!confirm(`Excluir a recorrência "${desc}"?`)) return
+      await this.api('DELETE', `recorrencias/${id}`)
+      this.toast('✅ Recorrência removida'); renderRec()
+    }
+
+    this._processarRecorrencias = async () => {
+      const r = await this.api('POST', 'recorrencias/processar', {})
+      this.toast(`✅ ${r.geradas || 0} transação(ões) gerada(s) para hoje`)
+      renderRec()
+    }
+
+    renderRec()
+
+    // ── Fluxo de Caixa Futuro (PRO) ───────────────────────────────────────────
+    const planoUser = this.user?.plano || 'free'
+    if (planoUser === 'pro') {
+      setTimeout(() => this._renderFluxoCaixaFuturo(), 300)
+    }
+  },
+
+  _renderFluxoCaixaFuturo() {
+    const pageContent = document.getElementById('page-content')
+    if (!pageContent) return
+
+    this.api('GET', 'recorrencias').then(data => {
+      const recs = (data.recorrencias || []).filter(r => r.ativa)
+      if (recs.length === 0) return
+
+      const hoje = new Date()
+      const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const fluxo = []
+
+      for (let i = 0; i < 6; i++) {
+        let m = hoje.getMonth() + 1 + i
+        let a = hoje.getFullYear()
+        while (m > 12) { m -= 12; a += 1 }
+        const entradas = recs.filter(r => r.tipo === 'receita').reduce((s,r) => s + r.valor, 0)
+        const saidas   = recs.filter(r => r.tipo === 'despesa').reduce((s,r) => s + r.valor, 0)
+        fluxo.push({ label: `${mesesNomes[m-1]}/${a}`, entradas, saidas, saldo: entradas - saidas })
+      }
+
+      const block = document.createElement('div')
+      block.style.marginTop = '20px'
+      block.innerHTML = `
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div>
+              <div style="font-size:0.9rem;font-weight:700;">📅 Fluxo de Caixa Futuro <span style="background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);font-size:0.65rem;padding:2px 8px;border-radius:20px;margin-left:8px;">PRO</span></div>
+              <div style="font-size:0.75rem;color:#555;margin-top:2px;">Projeção dos próximos 6 meses com base nas recorrências ativas</div>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.78rem;min-width:500px;">
+              <thead><tr style="border-bottom:1px solid #1f2937;">
+                <th style="padding:8px 12px;text-align:left;color:#888;font-size:0.7rem;text-transform:uppercase;">Mês</th>
+                <th style="padding:8px 12px;text-align:right;color:#10B981;font-size:0.7rem;text-transform:uppercase;">Entradas</th>
+                <th style="padding:8px 12px;text-align:right;color:#F43F5E;font-size:0.7rem;text-transform:uppercase;">Saídas</th>
+                <th style="padding:8px 12px;text-align:right;color:#888;font-size:0.7rem;text-transform:uppercase;">Saldo</th>
+                <th style="padding:8px 12px;text-align:left;color:#888;font-size:0.7rem;text-transform:uppercase;">Distribuição</th>
+              </tr></thead>
+              <tbody>
+                ${fluxo.map(f => {
+                  const corSaldo = f.saldo >= 0 ? '#10B981' : '#F43F5E'
+                  const pctEnt   = f.entradas + f.saidas > 0 ? Math.round(f.entradas / (f.entradas + f.saidas) * 100) : 50
+                  return `<tr style="border-bottom:1px solid #1a1a2e;">
+                    <td style="padding:10px 12px;font-weight:600;">${f.label}</td>
+                    <td style="padding:10px 12px;text-align:right;color:#10B981;font-weight:600;">${this.fmt(f.entradas)}</td>
+                    <td style="padding:10px 12px;text-align:right;color:#F43F5E;font-weight:600;">${this.fmt(f.saidas)}</td>
+                    <td style="padding:10px 12px;text-align:right;color:${corSaldo};font-weight:700;">${this.fmt(f.saldo)}</td>
+                    <td style="padding:10px 12px;">
+                      <div style="background:#1a1a2e;border-radius:10px;height:6px;overflow:hidden;display:flex;">
+                        <div style="background:#10B981;width:${pctEnt}%;"></div>
+                        <div style="background:#F43F5E;width:${100-pctEnt}%;"></div>
+                      </div>
+                    </td>
+                  </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:14px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;font-size:0.78rem;color:#94a3b8;">
+            💡 <strong style="color:#F59E0B;">Dica Pro:</strong> Este fluxo considera apenas suas recorrências ativas. Acesse a <a href="#" onclick="VM.navigate('projecao');return false;" style="color:#74b9ff;">Projeção Financeira</a> para uma visão completa com histórico real.
+          </div>
+        </div>
+      `
+      pageContent.appendChild(block)
+    }).catch(() => {})
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // F4 — PROJEÇÃO FINANCEIRA INTELIGENTE
+  // ══════════════════════════════════════════════════════════════════════════
+  async pageProjecao() {
+    const content = document.getElementById('page-content')
+    const plano = this.user?.plano || 'free'
+
+    if (plano === 'free') {
+      content.innerHTML = this.upsellBlock('projecao', '🔮 Projeção Financeira',
+        'Veja como seu patrimônio vai evoluir nos próximos 6 a 12 meses com base no seu histórico real.',
+        ['Projeção de 6 e 12 meses baseada no seu histórico', 'Tendência de crescimento ou queda patrimonial', 'Insights personalizados sobre sua situação', 'Confiança da projeção calculada automaticamente'])
+      return
+    }
+
+    content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i> Calculando projeção...</div>`
+
+    let data
+    try {
+      data = await this.api('GET', 'projecao')
+    } catch(e) {
+      const msg = e.response?.data?.error || 'Erro ao carregar projeção financeira.'
+      content.innerHTML = `
+        <div style="text-align:center;padding:60px;">
+          <div style="font-size:2.5rem;margin-bottom:16px;">⚠️</div>
+          <div style="color:#F43F5E;font-size:1rem;font-weight:600;margin-bottom:8px;">${msg}</div>
+          <button onclick="VM.pageProjecao()" style="margin-top:16px;background:#2FBF71;color:#fff;border:none;border-radius:8px;padding:10px 24px;cursor:pointer;font-weight:600;">
+            <i class="fas fa-redo"></i> Tentar Novamente
+          </button>
+        </div>`
+      return
+    }
+
+    if (!data || data.error) {
+      content.innerHTML = `<div style="text-align:center;padding:60px;color:#F43F5E;">${data?.error || 'Erro desconhecido'}</div>`
+      return
+    }
+
+    const tendCfg = {
+      positive: { cor: '#10B981', icon: '📈', label: 'Tendência de Crescimento' },
+      negative: { cor: '#F43F5E', icon: '📉', label: 'Tendência de Queda' },
+      stable:   { cor: '#F59E0B', icon: '📊', label: 'Estável' }
+    }
+    const t = tendCfg[data.tendencia] || tendCfg.stable
+
+    // Período selecionado
+    let periodoSel = 12
+
+    const renderGrafico = (periodo) => {
+      const projs = (data.projecoes || []).slice(0, periodo)
+      const hist  = data.historico || []
+
+      // Canvas simples com Chart.js
+      const container = document.getElementById('proj-chart-container')
+      if (!container) return
+
+      // Se não há dados reais, mostrar mensagem orientativa
+      const temDadosReais = hist.some(h => h.receitas > 0 || h.despesas > 0)
+      if (!temDadosReais) {
+        container.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;">
+            <div style="font-size:2.5rem;">📊</div>
+            <div style="color:#888;font-size:0.9rem;text-align:center;max-width:320px;line-height:1.5;">
+              <strong style="color:#94a3b8;">Nenhum dado histórico ainda.</strong><br>
+              Lance suas receitas e despesas dos últimos meses para ver a projeção com dados reais.
+            </div>
+            <button onclick="VM.navigate('receitas')" style="background:#2FBF71;color:#fff;border:none;border-radius:8px;padding:8px 20px;cursor:pointer;font-weight:600;font-size:0.82rem;">
+              <i class="fas fa-plus"></i> Lançar Receita
+            </button>
+          </div>`
+        return
+      }
+
+      container.innerHTML = '<canvas id="proj-canvas" height="200"></canvas>'
+      const ctx = document.getElementById('proj-canvas').getContext('2d')
+
+      const labelsHist = hist.map(h => h.label)
+      const labelsProj = projs.map(p => p.label)
+      const todosLabels = [...labelsHist, ...labelsProj]
+
+      // Saldo acumulado histórico (aproximado)
+      let saldoAcum = 0
+      const saldosHist = hist.map(h => { saldoAcum += h.saldo; return Math.round(saldoAcum * 100) / 100 })
+      const saldosProj = projs.map(p => p.valor)
+
+      // Preencher lacunas para alinhar datasets
+      const nullsHist = new Array(labelsProj.length).fill(null)
+      const nullsProj = new Array(labelsHist.length - 1).fill(null)
+
+      if (window._projChart) window._projChart.destroy()
+      window._projChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: todosLabels,
+          datasets: [
+            {
+              label: 'Histórico',
+              data: [...saldosHist, ...nullsHist],
+              borderColor: '#74b9ff',
+              backgroundColor: 'rgba(116,185,255,0.08)',
+              fill: true, tension: 0.4, pointRadius: 4,
+              pointBackgroundColor: '#74b9ff', borderWidth: 2
+            },
+            {
+              label: 'Projeção',
+              data: [...nullsProj, saldosHist[saldosHist.length-1], ...saldosProj],
+              borderColor: t.cor,
+              backgroundColor: `${t.cor}15`,
+              fill: true, tension: 0.4, pointRadius: 4,
+              pointBackgroundColor: t.cor, borderWidth: 2,
+              borderDash: [6,3]
+            }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: true, labels: { color: '#94a3b8', font: { size: 11 } } },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            y: { ticks: { color: '#666', callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: '#1a1a2e' } },
+            x: { ticks: { color: '#666', maxTicksLimit: 8 }, grid: { display: false } }
+          }
+        }
+      })
+    }
+
+    content.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;">🔮 Projeção Financeira</div>
+          <div style="color:#666;font-size:0.82rem;">Baseada nos últimos 6 meses do seu histórico real</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${[6,12].map(p => `
+            <button id="btn-proj-${p}" onclick="VM._selProjPeriodo(${p})"
+              style="background:${p===periodoSel?t.cor:'rgba(255,255,255,0.05)'};color:${p===periodoSel?'#fff':'#888'};border:1px solid ${p===periodoSel?t.cor:'#333'};border-radius:8px;padding:6px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.2s;">
+              ${p} meses
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px;">
+        <div style="background:#111827;border:1px solid ${t.cor}44;border-radius:10px;padding:16px 18px;">
+          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tendência</div>
+          <div style="font-size:1.3rem;font-weight:800;color:${t.cor};">${t.icon} ${t.label}</div>
+        </div>
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
+          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Média Mensal</div>
+          <div style="font-size:1.3rem;font-weight:800;color:${data.media_mensal>=0?'#10B981':'#F43F5E'};">${this.fmt(data.media_mensal)}</div>
+          <div style="font-size:0.7rem;color:#555;">saldo médio/mês</div>
+        </div>
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
+          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 6 meses</div>
+          <div style="font-size:1.3rem;font-weight:800;color:${data.resumo?.projecao_6m>=0?'#10B981':'#F43F5E'};">${this.fmt(data.resumo?.projecao_6m||0)}</div>
+        </div>
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
+          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 12 meses</div>
+          <div style="font-size:1.3rem;font-weight:800;color:${data.resumo?.projecao_12m>=0?'#10B981':'#F43F5E'};">${this.fmt(data.resumo?.projecao_12m||0)}</div>
+        </div>
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
+          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Confiança</div>
+          <div style="font-size:1.3rem;font-weight:800;color:${data.confianca>=70?'#10B981':data.confianca>=40?'#F59E0B':'#F43F5E'};">${data.confianca}%</div>
+          <div style="font-size:0.7rem;color:#555;">${data.confianca>=70?'Alta':data.confianca>=40?'Média':'Baixa'}</div>
+        </div>
+      </div>
+
+      <!-- Gráfico -->
+      <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;margin-bottom:20px;">
+        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">📈 Evolução Patrimonial</div>
+        <div id="proj-chart-container" style="height:220px;"></div>
+      </div>
+
+      <!-- Insights -->
+      <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;">
+        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">💡 Insights Personalizados</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${(data.insights||[]).map(ins => `
+            <div style="background:rgba(255,255,255,0.02);border:1px solid #1f2937;border-radius:8px;padding:12px 14px;font-size:0.84rem;color:#94a3b8;line-height:1.5;">
+              ${ins}
+            </div>`).join('')}
+        </div>
+      </div>
+    `
+
+    // Render inicial do gráfico
+    setTimeout(() => renderGrafico(periodoSel), 100)
+
+    this._selProjPeriodo = (p) => {
+      periodoSel = p
+      ;[6,12].forEach(pp => {
+        const btn = document.getElementById(`btn-proj-${pp}`)
+        if (btn) {
+          btn.style.background = pp===p ? t.cor : 'rgba(255,255,255,0.05)'
+          btn.style.color = pp===p ? '#fff' : '#888'
+          btn.style.borderColor = pp===p ? t.cor : '#333'
+        }
+      })
+      renderGrafico(p)
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // F5 — MODAL DE ASSINATURA / GATEWAY ASAAS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Modal de Pricing — comparação completa FREE / PREMIUM / PRO
+  openPricingModal() {
+    const planoAtual = this.user?.plano || 'free'
+    const planos = [
+      {
+        id: 'free', nome: 'Free', emoji: '🌱', preco: 'R$ 0', periodo: 'para sempre',
+        cor: '#64748b', corBtn: '#374151', textoBtn: 'Plano Atual',
+        features: [
+          'Dashboard completo',
+          'Até 30 despesas/mês',
+          'Até 10 receitas/mês',
+          'Até 3 metas financeiras',
+          'Até 2 cartões e 5 lembretes',
+          'Reserva de emergência',
+          'Conquistas e gamificação',
+          { neg: 'Score financeiro' },
+          { neg: 'Orçamentos por categoria' },
+          { neg: 'Recorrências automáticas' },
+          { neg: 'Projeção financeira' },
+          { neg: 'IA personalizada' },
+        ]
+      },
+      {
+        id: 'premium', nome: 'Premium', emoji: '💎', preco: 'R$ 17,90', periodo: '/mês',
+        cor: '#3B82F6', corBtn: 'linear-gradient(135deg,#3B82F6,#2563EB)', textoBtn: 'Assinar Premium',
+        destaque: true, destaque_label: '🔥 MAIS POPULAR',
+        features: [
+          'Tudo do Free, sem limites',
+          'Despesas, receitas ilimitadas',
+          'Metas e cartões ilimitados',
+          '📊 Orçamentos por categoria + alertas',
+          '🔄 Recorrências automáticas',
+          '🔮 Projeção financeira inteligente',
+          '🧠 Score de saúde financeira',
+          '🤖 IA personalizada e insights',
+          '📋 Relatórios e simulações',
+          '📄 Exportação em PDF',
+          '🏆 Conquistas em tempo real',
+        ]
+      },
+      {
+        id: 'pro', nome: 'Pro', emoji: '🚀', preco: 'R$ 37,90', periodo: '/mês',
+        cor: '#F59E0B', corBtn: 'linear-gradient(135deg,#F59E0B,#D97706)', textoBtn: 'Assinar Pro',
+        features: [
+          'Tudo do Premium',
+          '👨‍👩‍👧 Multi-usuário familiar (até 3)',
+          '💼 Múltiplas reservas de emergência',
+          '📅 Fluxo de caixa futuro detalhado',
+          '⚡ Simulador de amortização avançado',
+          '📞 Consultoria financeira (30min/mês)',
+          '💬 Suporte prioritário via WhatsApp',
+          '🔌 Acesso à API REST',
+        ]
+      }
+    ]
+
+    this.showModal(`
+      <div>
+        <div style="text-align:center;margin-bottom:20px;">
+          <div style="font-size:1.4rem;font-weight:800;margin-bottom:4px;">Escolha seu plano</div>
+          <div style="color:#888;font-size:0.85rem;">Cancele quando quiser · Sem burocracia</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+          ${planos.map(p => {
+            const isAtual = planoAtual === p.id
+            const podeUpgrade = planoAtual !== p.id && p.id !== 'free'
+            return `
+              <div style="border:2px solid ${p.destaque ? p.cor : isAtual ? p.cor : '#1f2937'};border-radius:12px;padding:16px;background:${p.destaque ? p.cor+'10' : 'rgba(255,255,255,0.02)'};position:relative;">
+                ${p.destaque ? `<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:${p.cor};color:#fff;font-size:0.6rem;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;">${p.destaque_label}</div>` : ''}
+                <div style="text-align:center;margin-bottom:12px;">
+                  <div style="font-size:1.6rem;">${p.emoji}</div>
+                  <div style="font-size:0.85rem;font-weight:700;margin-top:4px;">${p.nome}</div>
+                  <div style="font-size:1.3rem;font-weight:800;color:${p.cor};margin-top:4px;">${p.preco}</div>
+                  <div style="font-size:0.65rem;color:#666;">${p.periodo}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
+                  ${p.features.map(f => typeof f === 'string'
+                    ? `<div style="font-size:0.7rem;color:#94a3b8;display:flex;gap:6px;align-items:flex-start;"><span style="color:${p.cor};flex-shrink:0;">✓</span><span>${f}</span></div>`
+                    : `<div style="font-size:0.7rem;color:#475569;display:flex;gap:6px;align-items:flex-start;"><span style="color:#374151;flex-shrink:0;">✕</span><span style="text-decoration:line-through;">${f.neg}</span></div>`
+                  ).join('')}
+                </div>
+                ${isAtual
+                  ? `<div style="text-align:center;padding:8px;background:${p.cor}15;border:1px solid ${p.cor}33;border-radius:8px;font-size:0.75rem;font-weight:700;color:${p.cor};">✓ Plano Atual</div>`
+                  : podeUpgrade
+                  ? `<button onclick="VM.closeModal();VM.openUpgradeModal('${p.id}')" style="width:100%;background:${p.corBtn};color:#fff;border:none;border-radius:8px;padding:9px;font-size:0.8rem;font-weight:700;cursor:pointer;">${p.textoBtn}</button>`
+                  : `<div style="text-align:center;padding:8px;border:1px solid #1f2937;border-radius:8px;font-size:0.75rem;color:#555;">${p.textoBtn}</div>`
+                }
+              </div>`
+          }).join('')}
+        </div>
+        <div style="text-align:center;color:#555;font-size:0.72rem;">🔒 Pagamento seguro via Asaas · Pix, Boleto ou Cartão · SSL 256-bit</div>
+      </div>
+    `)
+    // Expandir o modal para caber os 3 planos
+    setTimeout(() => {
+      const card = document.querySelector('.modal-card')
+      if (card) card.style.maxWidth = '780px'
+    }, 50)
+  },
+
+  openUpgradeModal(planoAlvo) {
+    const planoAtual = this.user?.plano || 'free'
+    if (planoAlvo === planoAtual) return
+
+    const config = {
+      premium: {
+        nome: 'Premium', valor: 'R$ 17,90/mês', cor: '#3B82F6',
+        features: ['Lançamentos ilimitados', 'Score de saúde financeira', 'IA personalizada', 'Orçamentos por categoria', 'Recorrências automáticas', 'Projeção financeira', 'Relatórios PDF']
+      },
+      pro: {
+        nome: 'Pro', valor: 'R$ 37,90/mês', cor: '#F59E0B',
+        features: ['Tudo do Premium', 'Multi-usuário familiar', 'Múltiplas reservas', 'Simulador avançado', 'Suporte WhatsApp', 'Consultoria mensal']
+      }
+    }
+    const cfg = config[planoAlvo] || config.premium
+
+    this.showModal(`
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-size:2.5rem;margin-bottom:8px;">⭐</div>
+        <div style="font-size:1.2rem;font-weight:700;">Assinar ${cfg.nome}</div>
+        <div style="font-size:1.5rem;font-weight:800;color:${cfg.cor};margin-top:4px;">${cfg.valor}</div>
+      </div>
+
+      <div style="background:rgba(255,255,255,0.02);border:1px solid #1f2937;border-radius:10px;padding:14px;margin-bottom:18px;">
+        ${cfg.features.map(f => `<div style="font-size:0.8rem;color:#94a3b8;padding:4px 0;display:flex;align-items:center;gap:8px;"><span style="color:${cfg.cor};">✓</span> ${f}</div>`).join('')}
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">CPF (obrigatório)</label>
+          <input id="asm-cpf" type="text" placeholder="000.000.000-00" maxlength="14" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;" oninput="this.value=this.value.replace(/\\D/g,'').replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{2})/,'$1.$2.$3-$4').slice(0,14)">
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">Forma de Pagamento</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            ${[
+              { val:'PIX', icon:'fas fa-qrcode', label:'Pix', desc:'Aprovação imediata' },
+              { val:'BOLETO', icon:'fas fa-barcode', label:'Boleto', desc:'3 dias úteis' },
+              { val:'CREDIT_CARD', icon:'fas fa-credit-card', label:'Cartão', desc:'Parcelamento' }
+            ].map((f,i) => `
+              <label style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;background:${i===0?'rgba(59,130,246,0.1)':'rgba(255,255,255,0.03)'};border:2px solid ${i===0?'#3B82F6':'#1f2937'};border-radius:8px;cursor:pointer;text-align:center;transition:all 0.2s;" id="pay-opt-${f.val}" onclick="VM._selPagamento('${f.val}')">
+                <input type="radio" name="forma-pag" value="${f.val}" ${i===0?'checked':''} style="display:none;">
+                <i class="${f.icon}" style="font-size:1.2rem;color:${i===0?'#3B82F6':'#666'}" id="pay-icon-${f.val}"></i>
+                <span style="font-size:0.72rem;font-weight:700;color:${i===0?'#e0e0e0':'#666'}" id="pay-lbl-${f.val}">${f.label}</span>
+                <span style="font-size:0.62rem;color:#555;">${f.desc}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div id="asm-err" style="display:none;color:#F43F5E;font-size:0.78rem;text-align:center;"></div>
+        <button id="btn-assinar" onclick="VM._confirmarAssinatura('${planoAlvo}')" class="btn-primary" style="width:100%;justify-content:center;padding:12px;font-size:0.95rem;">
+          🔒 Assinar com Segurança
+        </button>
+        <div style="font-size:0.7rem;color:#555;text-align:center;">Cancelamento a qualquer momento · Dados protegidos · SSL 256-bit</div>
+      </div>
+    `)
+    this._formaPag = 'PIX'
+  },
+
+  _selPagamento(forma) {
+    this._formaPag = forma
+    ;['PIX','BOLETO','CREDIT_CARD'].forEach(f => {
+      const opt = document.getElementById(`pay-opt-${f}`)
+      const icon = document.getElementById(`pay-icon-${f}`)
+      const lbl = document.getElementById(`pay-lbl-${f}`)
+      if (opt) {
+        const sel = f === forma
+        opt.style.background = sel ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.03)'
+        opt.style.borderColor = sel ? '#3B82F6' : '#1f2937'
+        if (icon) icon.style.color = sel ? '#3B82F6' : '#666'
+        if (lbl) lbl.style.color = sel ? '#e0e0e0' : '#666'
+      }
+    })
+  },
+
+  async _confirmarAssinatura(plano) {
+    const cpf = (document.getElementById('asm-cpf')?.value || '').replace(/\D/g,'')
+    const errEl = document.getElementById('asm-err')
+    if (cpf.length !== 11) {
+      if (errEl) { errEl.textContent = '⚠️ CPF inválido. Informe 11 dígitos.'; errEl.style.display='block' }
+      return
+    }
+    if (errEl) errEl.style.display = 'none'
+
+    const btn = document.getElementById('btn-assinar')
+    if (btn) { btn.textContent = '⏳ Processando...'; btn.disabled = true }
+
+    const r = await this.api('POST', 'asaas/checkout', { plano, forma_pagamento: this._formaPag || 'PIX', cpf })
+
+    if (r.error) {
+      if (errEl) { errEl.textContent = '❌ ' + r.error; errEl.style.display='block' }
+      if (btn) { btn.textContent = '🔒 Assinar com Segurança'; btn.disabled = false }
+      return
+    }
+
+    this.closeModal()
+
+    if (this._formaPag === 'PIX' && r.pix_copia_cola) {
+      this.showModal(`
+        <div style="text-align:center;padding:8px 0;">
+          <div style="font-size:2rem;margin-bottom:8px;">🔲</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">Pagar via Pix</div>
+          <div style="color:#666;font-size:0.82rem;margin-bottom:16px;">Copie o código abaixo e pague no seu banco</div>
+          <div style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;font-size:0.72rem;color:#94a3b8;word-break:break-all;margin-bottom:12px;text-align:left;">${r.pix_copia_cola}</div>
+          <button onclick="navigator.clipboard.writeText('${r.pix_copia_cola}');VM.toast('✅ Código copiado!')" class="btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;">📋 Copiar Código Pix</button>
+          ${r.checkout_url ? `<a href="${r.checkout_url}" target="_blank" style="display:block;text-align:center;color:#74b9ff;font-size:0.8rem;">Abrir página de pagamento →</a>` : ''}
+          ${r.aviso ? `<div style="color:#F59E0B;font-size:0.72rem;margin-top:12px;">⚠️ ${r.aviso}</div>` : ''}
+        </div>
+      `)
+    } else if (r.checkout_url) {
+      window.open(r.checkout_url, '_blank')
+      this.toast('✅ Redirecionando para pagamento...')
+    } else {
+      this.toast(r.aviso || '✅ Pedido registrado! Aguarde confirmação.')
+    }
+  },
+
+  // ── Bloco de Upsell (reutilizável) ─────────────────────────────────────────
+  upsellBlock(feature, titulo, desc, beneficios) {
+    return `
+      <div style="max-width:540px;margin:60px auto;text-align:center;">
+        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:20px;padding:40px 36px;">
+          <div style="font-size:3rem;margin-bottom:12px;">🔒</div>
+          <div style="font-size:1.3rem;font-weight:700;margin-bottom:8px;">${titulo}</div>
+          <div style="color:#94a3b8;font-size:0.9rem;line-height:1.6;margin-bottom:24px;">${desc}</div>
+          <div style="text-align:left;background:rgba(255,255,255,0.02);border-radius:10px;padding:16px;margin-bottom:24px;">
+            ${beneficios.map(b => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:0.84rem;color:#94a3b8;"><span style="color:#10B981;font-size:1rem;">✓</span> ${b}</div>`).join('')}
+          </div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+            <button onclick="VM.openPricingModal()" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:0.9rem;font-weight:700;cursor:pointer;">
+              🌟 Ver Planos e Preços
+            </button>
+          </div>
+        </div>
+      </div>
+    `
+  },
+
+
 
   closeModal(event) {
     if (event && event.target !== event.currentTarget) return

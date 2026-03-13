@@ -211,7 +211,7 @@ ia.get('/insights', requireAuth, async (c) => {
   await c.env.DB.prepare('DELETE FROM ia_insights WHERE user_id = ? AND valido_ate < datetime("now")').bind(user.id).run()
 
   // Verificar conquista de uso da IA
-  await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo) VALUES (?, ?)').bind(user.id, 'analista').run().catch(() => {})
+  await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'analista').run().catch(() => {})
 
   return c.json({
     insights,
