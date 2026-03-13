@@ -1,5 +1,6 @@
 // BUG 1.5 — src/routes/despesas-compartilhadas.ts
-// CRUD completo para shared_expenses (despesas compartilhadas entre pessoas)
+// CRUD adaptado à estrutura real da tabela shared_expenses
+// Colunas reais: id, expense_id, user_id, partner_name, partner_email, user_percentage, partner_percentage, status, created_at
 
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
@@ -10,124 +11,137 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 const despesasCompartilhadas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // GET /api/despesas-compartilhadas
+// Lista todas as divisões de despesas do usuário (join com despesas)
 despesasCompartilhadas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const { status, limit = '50', offset = '0' } = c.req.query()
 
   let sql = `
-    SELECT * FROM shared_expenses
-    WHERE user_id = ?
+    SELECT 
+      se.id,
+      se.expense_id,
+      se.partner_name,
+      se.partner_email,
+      se.user_percentage,
+      se.partner_percentage,
+      se.status,
+      se.created_at,
+      d.descricao,
+      d.valor as total_valor,
+      d.data,
+      d.categoria,
+      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
+      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
+    FROM shared_expenses se
+    LEFT JOIN despesas d ON se.expense_id = d.id
+    WHERE se.user_id = ?
   `
   const params: any[] = [user.id]
 
   if (status) {
-    sql += ' AND status = ?'
+    sql += ' AND se.status = ?'
     params.push(status)
   }
 
-  sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+  sql += ' ORDER BY se.created_at DESC LIMIT ? OFFSET ?'
   params.push(parseInt(limit), parseInt(offset))
 
   const result = await c.env.DB.prepare(sql).bind(...params).all()
   const rows = result.results as any[]
-
-  // Para cada despesa compartilhada, buscar os participantes
-  const despesasComDetalhes = await Promise.all(rows.map(async (desp) => {
-    // Parsear participantes (stored as JSON string)
-    let participantes = []
-    try {
-      participantes = JSON.parse(desp.participants || '[]')
-    } catch (_) {
-      participantes = []
-    }
-    return { ...desp, participantes }
-  }))
 
   // Resumo
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as n FROM shared_expenses WHERE user_id = ?'
   ).bind(user.id).first() as any
 
-  const totalValor = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(total_amount), 0) as total FROM shared_expenses WHERE user_id = ?`
-  ).bind(user.id).first() as any
-
   const pendente = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(total_amount), 0) as total FROM shared_expenses WHERE user_id = ? AND status = 'pending'`
+    `SELECT COUNT(*) as n FROM shared_expenses WHERE user_id = ? AND status = 'pending'`
   ).bind(user.id).first() as any
 
   return c.json({
-    despesas: despesasComDetalhes,
+    despesas: rows,
     resumo: {
       total: totalCount?.n || 0,
-      valor_total: parseFloat(totalValor?.total || 0),
-      valor_pendente: parseFloat(pendente?.total || 0)
+      pendentes: pendente?.n || 0
     }
   })
 })
 
 // POST /api/despesas-compartilhadas
+// Compartilhar uma despesa existente com alguém
 despesasCompartilhadas.post('/', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json()
 
   const {
+    expense_id,          // ID da despesa existente
+    partner_name,        // Nome do parceiro
+    partner_email,       // Email do parceiro (opcional)
+    user_percentage = 50, // % que o usuário paga (default 50%)
+    // partner_percentage é automaticamente 100 - user_percentage
+    // Modo alternativo: criar despesa nova e compartilhar
+    criar_despesa,       // Se true, cria despesa e compartilha
     descricao,
-    total_amount,
+    valor,
     data,
-    categoria = 'Outros',
-    participantes = [], // Array de { nome, email?, valor_devido }
-    minha_parte,
-    status = 'pending',
-    observacoes,
-    registrar_como_despesa = false
+    categoria = 'Outros'
   } = body
 
-  if (!descricao || !total_amount || !data) {
-    return c.json({ error: 'Campos obrigatórios: descricao, total_amount, data' }, 400)
+  if (!partner_name) {
+    return c.json({ error: 'Nome do parceiro é obrigatório' }, 400)
   }
 
-  const totalAmount = parseFloat(total_amount)
-  const minhaParteCalc = minha_parte ? parseFloat(minha_parte) : (totalAmount / (participantes.length + 1))
+  const userPct = Math.min(100, Math.max(0, parseFloat(user_percentage)))
+  const partnerPct = 100 - userPct
+
+  let despesaId = expense_id
+
+  // Modo criar+compartilhar
+  if (criar_despesa) {
+    if (!descricao || !valor || !data) {
+      return c.json({ error: 'Para criar despesa: descricao, valor e data são obrigatórios' }, 400)
+    }
+    const minhaParte = parseFloat(valor) * userPct / 100
+    const newDesp = await c.env.DB.prepare(`
+      INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, meio_pagamento)
+      VALUES (?, ?, ?, ?, ?, 'pendente', 'outros')
+    `).bind(user.id, descricao, data, categoria, Math.round(minhaParte * 100) / 100).run()
+    despesaId = newDesp.meta.last_row_id
+  }
+
+  if (!despesaId) {
+    return c.json({ error: 'expense_id é obrigatório ou use criar_despesa=true' }, 400)
+  }
+
+  // Verificar se despesa pertence ao usuário
+  const despesa = await c.env.DB.prepare(
+    'SELECT id, valor FROM despesas WHERE id = ? AND user_id = ?'
+  ).bind(despesaId, user.id).first() as any
+  if (!despesa) return c.json({ error: 'Despesa não encontrada ou sem permissão' }, 404)
 
   const result = await c.env.DB.prepare(`
-    INSERT INTO shared_expenses (
-      user_id, description, total_amount, my_share, status,
-      participants, split_type, notes, expense_date, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'equal', ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO shared_expenses (user_id, expense_id, partner_name, partner_email, user_percentage, partner_percentage, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending')
   `).bind(
     user.id,
-    descricao,
-    totalAmount,
-    Math.round(minhaParteCalc * 100) / 100,
-    status,
-    JSON.stringify(participantes),
-    observacoes || null,
-    data
+    despesaId,
+    partner_name,
+    partner_email || null,
+    userPct,
+    partnerPct
   ).run()
 
   const novoId = result.meta.last_row_id
-
-  // Opcionalmente registrar minha parte como despesa regular
-  if (registrar_como_despesa && minhaParteCalc > 0) {
-    await c.env.DB.prepare(`
-      INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, meio_pagamento, observacoes)
-      VALUES (?, ?, ?, ?, ?, 'pago', 'outros', ?)
-    `).bind(
-      user.id,
-      `Despesa compartilhada: ${descricao}`,
-      data,
-      categoria,
-      Math.round(minhaParteCalc * 100) / 100,
-      `Despesa compartilhada com ${participantes.length} pessoa(s)`
-    ).run()
-  }
+  const minhaParte = Math.round(parseFloat(despesa.valor) * userPct / 100 * 100) / 100
+  const parteParceiro = Math.round(parseFloat(despesa.valor) * partnerPct / 100 * 100) / 100
 
   return c.json({
     success: true,
     id: novoId,
-    message: 'Despesa compartilhada criada!',
-    minha_parte: Math.round(minhaParteCalc * 100) / 100
+    expense_id: despesaId,
+    minha_parte: minhaParte,
+    parte_parceiro: parteParceiro,
+    message: `Despesa compartilhada com ${partner_name}! Você paga R$ ${minhaParte.toFixed(2)} (${userPct}%)`
   }, 201)
 })
 
@@ -136,55 +150,19 @@ despesasCompartilhadas.get('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  const desp = await c.env.DB.prepare(
-    'SELECT * FROM shared_expenses WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first() as any
+  const row = await c.env.DB.prepare(`
+    SELECT 
+      se.*,
+      d.descricao, d.valor as total_valor, d.data, d.categoria,
+      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
+      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
+    FROM shared_expenses se
+    LEFT JOIN despesas d ON se.expense_id = d.id
+    WHERE se.id = ? AND se.user_id = ?
+  `).bind(id, user.id).first()
 
-  if (!desp) return c.json({ error: 'Despesa compartilhada não encontrada' }, 404)
-
-  let participantes = []
-  try { participantes = JSON.parse(desp.participants || '[]') } catch (_) {}
-
-  return c.json({ ...desp, participantes })
-})
-
-// PUT /api/despesas-compartilhadas/:id
-despesasCompartilhadas.put('/:id', requireAuth, async (c) => {
-  const user = c.get('user')
-  const id = c.req.param('id')
-
-  const existing = await c.env.DB.prepare(
-    'SELECT id FROM shared_expenses WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first()
-  if (!existing) return c.json({ error: 'Despesa compartilhada não encontrada' }, 404)
-
-  const body = await c.req.json()
-  const {
-    descricao, total_amount, data, status, participantes, minha_parte, observacoes
-  } = body
-
-  await c.env.DB.prepare(`
-    UPDATE shared_expenses SET
-      description = COALESCE(?, description),
-      total_amount = COALESCE(?, total_amount),
-      my_share = COALESCE(?, my_share),
-      status = COALESCE(?, status),
-      participants = COALESCE(?, participants),
-      notes = COALESCE(?, notes),
-      expense_date = COALESCE(?, expense_date)
-    WHERE id = ? AND user_id = ?
-  `).bind(
-    descricao || null,
-    total_amount ? parseFloat(total_amount) : null,
-    minha_parte ? parseFloat(minha_parte) : null,
-    status || null,
-    participantes ? JSON.stringify(participantes) : null,
-    observacoes || null,
-    data || null,
-    id, user.id
-  ).run()
-
-  return c.json({ success: true, message: 'Despesa compartilhada atualizada!' })
+  if (!row) return c.json({ error: 'Compartilhamento não encontrado' }, 404)
+  return c.json(row)
 })
 
 // PATCH /api/despesas-compartilhadas/:id/status
@@ -193,7 +171,7 @@ despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
   const id = c.req.param('id')
   const { status } = await c.req.json()
 
-  const validStatus = ['pending', 'paid', 'cancelled', 'partial']
+  const validStatus = ['pending', 'paid', 'cancelled']
   if (!validStatus.includes(status)) {
     return c.json({ error: `Status inválido. Use: ${validStatus.join(', ')}` }, 400)
   }
@@ -201,7 +179,7 @@ despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
   const existing = await c.env.DB.prepare(
     'SELECT id FROM shared_expenses WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first()
-  if (!existing) return c.json({ error: 'Despesa compartilhada não encontrada' }, 404)
+  if (!existing) return c.json({ error: 'Compartilhamento não encontrado' }, 404)
 
   await c.env.DB.prepare(
     'UPDATE shared_expenses SET status = ? WHERE id = ? AND user_id = ?'
@@ -218,58 +196,38 @@ despesasCompartilhadas.delete('/:id', requireAuth, async (c) => {
   const existing = await c.env.DB.prepare(
     'SELECT id FROM shared_expenses WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first()
-  if (!existing) return c.json({ error: 'Despesa compartilhada não encontrada' }, 404)
+  if (!existing) return c.json({ error: 'Compartilhamento não encontrado' }, 404)
 
   await c.env.DB.prepare(
     'DELETE FROM shared_expenses WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).run()
 
-  return c.json({ success: true, message: 'Despesa compartilhada excluída!' })
+  return c.json({ success: true, message: 'Compartilhamento removido!' })
 })
 
 // GET /api/despesas-compartilhadas/resumo/pendencias
-// Retorna quem te deve e quanto você deve
 despesasCompartilhadas.get('/resumo/pendencias', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const pending = await c.env.DB.prepare(`
-    SELECT description, total_amount, my_share, participants, expense_date
-    FROM shared_expenses
-    WHERE user_id = ? AND status = 'pending'
-    ORDER BY expense_date DESC
+  const result = await c.env.DB.prepare(`
+    SELECT 
+      se.partner_name,
+      se.partner_email,
+      COUNT(*) as qtd_despesas,
+      SUM(ROUND(d.valor * se.partner_percentage / 100, 2)) as total_a_receber
+    FROM shared_expenses se
+    LEFT JOIN despesas d ON se.expense_id = d.id
+    WHERE se.user_id = ? AND se.status = 'pending'
+    GROUP BY se.partner_name, se.partner_email
+    ORDER BY total_a_receber DESC
   `).bind(user.id).all()
 
-  const rows = pending.results as any[]
-  let totalDevido = 0
-  let totalAReceber = 0
-
-  const detalhes = rows.map(row => {
-    let participantes = []
-    try { participantes = JSON.parse(row.participants || '[]') } catch (_) {}
-
-    // Calcular quanto outros devem (total - minha parte)
-    const aReceber = Math.max(0, parseFloat(row.total_amount) - parseFloat(row.my_share))
-    totalAReceber += aReceber
-    totalDevido += parseFloat(row.my_share)
-
-    return {
-      descricao: row.description,
-      total: row.total_amount,
-      minha_parte: row.my_share,
-      a_receber: Math.round(aReceber * 100) / 100,
-      participantes,
-      data: row.expense_date
-    }
-  })
+  const rows = result.results as any[]
+  const totalGeral = rows.reduce((s, r) => s + parseFloat(r.total_a_receber || 0), 0)
 
   return c.json({
-    pendencias: detalhes,
-    resumo: {
-      total_itens: rows.length,
-      total_a_pagar: Math.round(totalDevido * 100) / 100,
-      total_a_receber: Math.round(totalAReceber * 100) / 100,
-      saldo_liquido: Math.round((totalAReceber - totalDevido) * 100) / 100
-    }
+    pendencias_por_parceiro: rows,
+    total_a_receber: Math.round(totalGeral * 100) / 100
   })
 })
 

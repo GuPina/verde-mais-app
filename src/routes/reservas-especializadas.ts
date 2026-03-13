@@ -75,7 +75,7 @@ reservasEsp.post('/', requireAuth, async (c) => {
   }
 
   const body = await c.req.json()
-  const { type = 'custom', name, description, target_amount, current_amount = 0, deadline, monthly_target, priority } = body
+  const { type = 'custom', name, description, target_amount, current_amount = 0, deadline, monthly_target, priority, linked_meta_id } = body
 
   if (!name || !target_amount || target_amount <= 0)
     return c.json({ error: 'Nome e valor meta são obrigatórios' }, 400)
@@ -84,15 +84,16 @@ reservasEsp.post('/', requireAuth, async (c) => {
 
   const result = await c.env.DB.prepare(
     `INSERT INTO specialized_reserves 
-     (user_id, type, name, description, target_amount, current_amount, priority, deadline, icon, color, monthly_target, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+     (user_id, type, name, description, target_amount, current_amount, priority, deadline, icon, color, monthly_target, linked_meta_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
   ).bind(
     user.id, type, name, description || null,
     parseFloat(target_amount), parseFloat(current_amount),
     priority || cfg.priority,
     deadline || null,
     cfg.icon, cfg.color,
-    monthly_target ? parseFloat(monthly_target) : null
+    monthly_target ? parseFloat(monthly_target) : null,
+    linked_meta_id ? parseInt(linked_meta_id) : null
   ).run()
 
   const id = result.meta.last_row_id
@@ -186,11 +187,23 @@ reservasEsp.post('/:id/depositar', requireAuth, async (c) => {
     await checkConquista(c.env.DB, user.id, 'reserva_spec_completa')
   }
 
+  // ── BLOCO 6.5: Integração Reservas → Metas ─────────────────────────────────
+  // Se a reserva está vinculada a uma meta (linked_meta_id), atualizar o valor atual da meta
+  let meta_sincronizada = false
+  if (reserve.linked_meta_id) {
+    await c.env.DB.prepare(`
+      UPDATE metas SET valor_atual = MIN(valor_atual + ?, valor_objetivo)
+      WHERE id = ? AND user_id = ? AND status = 'ativa'
+    `).bind(actualDeposit, reserve.linked_meta_id, user.id).run()
+    meta_sincronizada = true
+  }
+
   return c.json({
     success: true,
     new_amount: newAmount,
     percent_complete: Math.round((newAmount / reserve.target_amount) * 100),
     completed,
+    meta_sincronizada,
     message: completed ? `🎉 Reserva "${reserve.name}" completada!` : `Depósito de R$ ${actualDeposit.toFixed(2)} realizado!`
   })
 })

@@ -80,7 +80,7 @@ app.route('/api/assistente', assistenteRoutes)
 app.route('/admin', adminRoutes)
 
 // Health check
-app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '3.0.0', fase: '3B+3C', timestamp: new Date().toISOString() }))
+app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '3.0.0', fase: '3B+3C+4', features: ['patrimônio', 'assistente-ia', 'desafio-configuravel', 'regra-editavel', 'tags-receitas', 'integracoes-modulos', 'despesas-compartilhadas'], timestamp: new Date().toISOString() }))
 
 // Service Worker — servido inline para evitar problemas de CORS/path no wrangler
 app.get('/sw.js', (c) => {

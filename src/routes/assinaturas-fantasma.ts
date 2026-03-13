@@ -261,13 +261,43 @@ assinaturas.patch('/:id/feedback', requireAuth, async (c) => {
     ).bind(user.id).run()
   }
 
+  // ── BLOCO 6.1: Integração Detector → Recorrências ─────────────────────────
+  // Se usuário confirma uso regular, criar/vincular recorrência automaticamente
+  let recorrencia_criada = false
+  if (feedback === 'use_regularly' && sub.amount > 0) {
+    // Verificar se já existe recorrência similar (mesmo nome e valor)
+    const recExist = await c.env.DB.prepare(`
+      SELECT id FROM recorrencias
+      WHERE user_id = ? AND LOWER(descricao) = LOWER(?) AND ABS(valor - ?) < 5
+    `).bind(user.id, sub.service_name || sub.description, sub.amount).first()
+
+    if (!recExist) {
+      // Criar recorrência automaticamente
+      await c.env.DB.prepare(`
+        INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo, origem)
+        VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1, 'detector_assinaturas')
+      `).bind(
+        user.id,
+        sub.service_name || sub.description,
+        parseFloat(sub.amount)
+      ).run().catch(() => {
+        // origem pode não existir — tentar sem ela
+        return c.env.DB.prepare(`
+          INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo)
+          VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1)
+        `).bind(user.id, sub.service_name || sub.description, parseFloat(sub.amount)).run()
+      })
+      recorrencia_criada = true
+    }
+  }
+
   const messages: Record<string, string> = {
-    use_regularly: '✅ Marcado como assinatura ativa',
-    want_cancel: `✂️ Adicionado à lista — você economizará R$ ${sub.yearly_cost.toFixed(2)}/ano!`,
+    use_regularly: `✅ Marcado como assinatura ativa${recorrencia_criada ? ' — Recorrência criada automaticamente!' : ''}`,
+    want_cancel: `✂️ Adicionado à lista — você economizará R$ ${(sub.yearly_cost || sub.amount * 12).toFixed(2)}/ano!`,
     ignore: '🤐 Esta despesa não será mais sugerida'
   }
 
-  return c.json({ success: true, message: messages[feedback] })
+  return c.json({ success: true, message: messages[feedback], recorrencia_criada })
 })
 
 export default assinaturas

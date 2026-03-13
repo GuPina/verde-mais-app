@@ -57,9 +57,9 @@ async function buscarContexto(db: D1Database, userId: number) {
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_atual),0) as total FROM investimentos WHERE user_id=?`).bind(userId).first() as any,
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM financiamentos WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
-    db.prepare(`SELECT COALESCE(SUM(current_amount),0) as total, COALESCE(SUM(target_amount),0) as meta FROM specialized_reserves WHERE user_id=? AND is_active=1`).bind(userId).first() as any,
+    db.prepare(`SELECT COALESCE(SUM(current_amount),0) as total, COALESCE(SUM(target_amount),0) as meta FROM specialized_reserves WHERE user_id=? AND status IN ('active','completed')`).bind(userId).first() as any,
     db.prepare(`SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=?`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND strftime('%Y',week_date)=?`).bind(userId, anoStr).first() as any
+    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year = ?`).bind(userId, anoStr).first() as any
   ])
 
   const totalReceitas = parseFloat((receitas as any)?.total || 0)
@@ -214,7 +214,7 @@ assistente.post('/chat', requireAuth, async (c) => {
 
   // 4. Salvar na tabela de conversas
   await c.env.DB.prepare(`
-    INSERT INTO assistente_conversas (user_id, mensagem_usuario, resposta_ia, intencao, created_at)
+    INSERT INTO assistente_conversas (user_id, mensagem, resposta, intencao, created_at)
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).bind(user.id, mensagem.trim(), resposta, intencao).run()
 
@@ -233,7 +233,7 @@ assistente.get('/historico', requireAuth, async (c) => {
   const user = c.get('user')
 
   const result = await c.env.DB.prepare(`
-    SELECT id, mensagem_usuario, resposta_ia, intencao, created_at
+    SELECT id, mensagem as mensagem_usuario, resposta as resposta_ia, intencao, created_at
     FROM assistente_conversas
     WHERE user_id = ?
     ORDER BY created_at DESC

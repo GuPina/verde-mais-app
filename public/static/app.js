@@ -1040,6 +1040,10 @@ const VM = {
               <span class="nav-icon">🎯</span> Desafio 52 Semanas
               <span style="margin-left:auto;background:linear-gradient(135deg,#EC4899,#DB2777);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
             </a>
+            <a class="nav-item" id="nav-assistente" onclick="VM.navigate('assistente')">
+              <span class="nav-icon">🤖</span> Assistente IA
+              <span style="margin-left:auto;background:linear-gradient(135deg,#06B6D4,#0891B2);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
           </nav>
           
           <div class="sidebar-user" onclick="VM.navigate('perfil')">
@@ -1222,7 +1226,8 @@ const VM = {
       'assinaturas-fantasma': ['👻 Assinaturas Fantasma', 'Detecte gastos recorrentes esquecidos'],
       'regra-503020': ['⚖️ Regra 50/30/20', 'Equilíbrio das suas finanças pessoais'],
       'desafio-52': ['🎯 Desafio 52 Semanas', 'Poupe R$ 1.378 ao longo do ano'],
-      'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros']
+      'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros'],
+      'assistente': ['🤖 Assistente VerdeMais', 'Tire dúvidas sobre suas finanças com IA']
     }
 
     const [title, sub] = titles[page] || ['', '']
@@ -1257,7 +1262,8 @@ const VM = {
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
       'regra-503020': () => this.pageRegra503020(),
       'desafio-52': () => this.pageDesafio52(),
-      'amortizacao': () => this.pageAmortizacao()
+      'amortizacao': () => this.pageAmortizacao(),
+      'assistente': () => this.pageAssistente()
     }
 
     if (pages[page]) pages[page]()
@@ -1271,7 +1277,7 @@ const VM = {
 
     try {
       const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos } = data
+      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52 } = data
 
       // Salvar limites do plano para uso no frontend
       if (limites) this.limites = limites
@@ -1283,6 +1289,17 @@ const VM = {
       const parcelaMensal = resumo.total_parcela_mensal_dividas || 0
       const comprometimento = resumo.comprometimento_dividas_pct || 0
       const comprometimentoColor = comprometimento > 30 ? '#ff6b6b' : comprometimento > 20 ? '#ffc400' : '#2FBF71'
+      
+      // Novos campos 2.1
+      const patrimonioLiquido = resumo.patrimonio_liquido || 0
+      const patrimonioBruto = resumo.patrimonio_bruto || 0
+      const patrimonioColor = patrimonioLiquido >= 0 ? '#2FBF71' : '#ff6b6b'
+      const reservasTotal = reservas_esp?.total_guardado || 0
+      const reservasProgresso = reservas_esp?.progresso_pct || 0
+      const desafio52Concluidas = desafio_52?.concluidas || 0
+      const desafio52Guardado = desafio_52?.valor_guardado || 0
+      const assinaturasTem = alerta_assinaturas?.tem_alerta || false
+      const assinaturasGasto = alerta_assinaturas?.custo_mensal_estimado || 0
 
       content.innerHTML = `
         <!-- STATS ROW — 4 cards principais -->
@@ -1338,6 +1355,42 @@ const VM = {
             <div class="stat-value positive" style="font-size:1.3rem;">${metas.ativas} ativa${metas.ativas !== 1 ? 's' : ''}</div>
             <div style="font-size:0.72rem;color:#888;margin-top:4px;">
               ${metas.ativas > 0 ? `${this.formatMoney(metas.atual_total)} de ${this.formatMoney(metas.objetivo_total)}` : 'Nenhuma meta cadastrada'}
+            </div>
+          </div>
+        </div>
+
+        <!-- STATS ROW 3 — Novos cards Melhoria 2.1: Patrimônio, Reservas, Assinaturas, Desafio 52 -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+          <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;border-color:${patrimonioColor}30;" title="Patrimônio = Investimentos + Reservas - Dívidas">
+            <div class="stat-label" style="margin-bottom:6px;">🏦 Patrimônio Líquido</div>
+            <div class="stat-value" style="color:${patrimonioColor};font-size:1.2rem;">${this.formatMoney(patrimonioLiquido)}</div>
+            <div style="font-size:0.7rem;color:#666;margin-top:4px;">Bruto: ${this.formatMoney(patrimonioBruto)}</div>
+          </div>
+          <div class="stat-card" onclick="VM.navigate('reservas-esp')" style="cursor:pointer;border-color:rgba(16,185,129,0.2);">
+            <div class="stat-label" style="margin-bottom:6px;">🛡️ Reservas Especializadas</div>
+            <div class="stat-value positive" style="font-size:1.2rem;">${this.formatMoney(reservasTotal)}</div>
+            <div style="font-size:0.7rem;margin-top:4px;">
+              <div style="background:#1a3a1a;border-radius:4px;height:4px;margin-top:4px;">
+                <div style="background:#2FBF71;height:4px;border-radius:4px;width:${Math.min(100,reservasProgresso)}%;"></div>
+              </div>
+              <span style="color:#666;">${reservasProgresso}% da meta</span>
+            </div>
+          </div>
+          <div class="stat-card" onclick="VM.navigate('assinaturas-fantasma')" style="cursor:pointer;border-color:${assinaturasTem ? 'rgba(139,92,246,0.3)' : 'rgba(42,58,42,0.5)'};">
+            <div class="stat-label" style="margin-bottom:6px;">👻 Assinaturas Detectadas</div>
+            <div class="stat-value" style="color:${assinaturasTem ? '#A78BFA' : '#666'};font-size:1.2rem;">${alerta_assinaturas?.total_detectadas || 0}</div>
+            <div style="font-size:0.7rem;color:${assinaturasTem ? '#A78BFA' : '#555'};margin-top:4px;">
+              ${assinaturasTem ? `~${this.formatMoney(assinaturasGasto)}/mês ⚠️` : 'Nenhuma detectada ✅'}
+            </div>
+          </div>
+          <div class="stat-card" onclick="VM.navigate('desafio-52')" style="cursor:pointer;border-color:rgba(236,72,153,0.2);">
+            <div class="stat-label" style="margin-bottom:6px;">🗓️ Desafio 52 Semanas</div>
+            <div class="stat-value" style="color:#EC4899;font-size:1.2rem;">${desafio52Concluidas}/52</div>
+            <div style="font-size:0.7rem;margin-top:4px;">
+              <div style="background:#2a1a2a;border-radius:4px;height:4px;margin-top:4px;">
+                <div style="background:#EC4899;height:4px;border-radius:4px;width:${Math.round(desafio52Concluidas/52*100)}%;"></div>
+              </div>
+              <span style="color:#666;">R$ ${desafio52Guardado} guardados</span>
             </div>
           </div>
         </div>
@@ -9792,6 +9845,200 @@ const VM = {
       this.toast(resp.message, nextStatus === 'completed' ? 'success' : 'info')
       this.pageDesafio52()
     } catch (err) {
+      this.toast(err.message, 'error')
+    }
+  },
+
+  // ============== ASSISTENTE IA CONVERSACIONAL ==============
+  async pageAssistente() {
+    const content = document.getElementById('page-content')
+    let historico = []
+    
+    try {
+      const data = await this.api('GET', 'assistente/historico')
+      historico = (data.historico || []).reverse() // mostrar em ordem cronológica
+    } catch(_) {}
+
+    const renderHistorico = (msgs) => msgs.map(m => `
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:4px;">
+        <div style="display:flex;justify-content:flex-end;">
+          <div style="max-width:75%;background:linear-gradient(135deg,#10B981,#059669);color:#fff;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:0.87rem;line-height:1.5;word-break:break-word;">
+            ${this.escapeHtml(m.mensagem_usuario)}
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-start;gap:8px;">
+          <div style="width:32px;height:32px;background:#1a2a1a;border:1px solid #2FBF71;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🤖</div>
+          <div style="max-width:80%;background:#1a2a1a;border:1px solid #2a3a2a;padding:12px 14px;border-radius:4px 18px 18px 18px;font-size:0.87rem;line-height:1.6;word-break:break-word;white-space:pre-line;">
+            ${this.markdownToHtml(m.resposta_ia)}
+          </div>
+        </div>
+      </div>
+    `).join('')
+
+    const sugestoesPadrao = ['Ver saldo do mês', 'Como estão meus gastos?', 'Status das metas', 'Dicas para economizar', 'Ver investimentos', 'Ajuda']
+
+    content.innerHTML = `
+      <div style="max-width:760px;margin:0 auto;display:flex;flex-direction:column;height:calc(100vh - 160px);">
+        
+        <!-- Chat Area -->
+        <div style="flex:1;overflow-y:auto;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:16px;padding:20px;margin-bottom:12px;display:flex;flex-direction:column;gap:16px;" id="chat-messages">
+          ${historico.length === 0 ? `
+            <div style="text-align:center;padding:40px 20px;">
+              <div style="font-size:3rem;margin-bottom:12px;">🤖</div>
+              <div style="font-size:1.1rem;font-weight:700;color:#2FBF71;margin-bottom:8px;">Olá! Sou o Assistente VerdeMais</div>
+              <div style="font-size:0.85rem;color:#666;max-width:400px;margin:0 auto;line-height:1.6;">
+                Posso responder perguntas sobre seu saldo, gastos, metas, investimentos, dívidas, reservas e muito mais!
+                <br><br>
+                <strong style="color:#888;">Experimente perguntar:</strong>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px;">
+                ${sugestoesPadrao.map(s => `<button onclick="VM.assistenteSend('${s}')" style="background:#1a2a1a;border:1px solid #2FBF71;color:#2FBF71;padding:6px 14px;border-radius:20px;font-size:0.8rem;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='#2FBF71';this.style.color='#000'" onmouseout="this.style.background='#1a2a1a';this.style.color='#2FBF71'">${s}</button>`).join('')}
+              </div>
+            </div>
+          ` : renderHistorico(historico)}
+        </div>
+
+        <!-- Sugestões rápidas -->
+        <div id="chat-sugestoes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+          ${sugestoesPadrao.slice(0, 4).map(s => `<button onclick="VM.assistenteSend('${s}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:#888;padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`).join('')}
+        </div>
+
+        <!-- Input Area -->
+        <div style="display:flex;gap:10px;align-items:flex-end;">
+          <div style="flex:1;background:#1a2a1a;border:1px solid #2a3a2a;border-radius:12px;padding:4px 8px;display:flex;align-items:center;gap:8px;transition:border-color 0.2s;" onfocus="this.style.borderColor='#2FBF71'" id="chat-input-wrap">
+            <textarea id="chat-input" placeholder="Digite sua pergunta financeira..." 
+              style="flex:1;background:none;border:none;outline:none;color:#e0e0e0;font-size:0.9rem;padding:8px 4px;resize:none;max-height:100px;font-family:inherit;line-height:1.5;"
+              rows="1"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();VM.assistenteEnviar()}"
+              oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"
+            ></textarea>
+          </div>
+          <button onclick="VM.assistenteEnviar()" id="btn-enviar-chat"
+            style="background:linear-gradient(135deg,#10B981,#059669);border:none;color:#fff;width:44px;height:44px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;transition:opacity 0.2s;">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+          <button onclick="VM.assistenteLimpar()" title="Limpar histórico"
+            style="background:#1a2a1a;border:1px solid #2a3a2a;color:#555;width:44px;height:44px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
+      </div>
+    `
+    
+    // Scroll para o fim
+    const chatMsgs = document.getElementById('chat-messages')
+    if (chatMsgs) chatMsgs.scrollTop = chatMsgs.scrollHeight
+    
+    // Focus no input
+    setTimeout(() => document.getElementById('chat-input')?.focus(), 100)
+  },
+
+  markdownToHtml(text) {
+    if (!text) return ''
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>')
+  },
+
+  escapeHtml(text) {
+    const div = document.createElement('div')
+    div.appendChild(document.createTextNode(text))
+    return div.innerHTML
+  },
+
+  async assistenteEnviar() {
+    const input = document.getElementById('chat-input')
+    if (!input) return
+    const mensagem = input.value.trim()
+    if (!mensagem) return
+    await this.assistenteSend(mensagem)
+    input.value = ''
+    input.style.height = 'auto'
+  },
+
+  async assistenteSend(mensagem) {
+    const chatMsgs = document.getElementById('chat-messages')
+    if (!chatMsgs) return
+
+    // Adicionar mensagem do usuário imediatamente
+    const msgUser = document.createElement('div')
+    msgUser.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-bottom:4px;'
+    msgUser.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;">
+        <div style="max-width:75%;background:linear-gradient(135deg,#10B981,#059669);color:#fff;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:0.87rem;line-height:1.5;">
+          ${this.escapeHtml(mensagem)}
+        </div>
+      </div>
+    `
+    chatMsgs.appendChild(msgUser)
+    
+    // Indicador de digitação
+    const typing = document.createElement('div')
+    typing.id = 'typing-indicator'
+    typing.style.cssText = 'display:flex;justify-content:flex-start;gap:8px;margin-bottom:4px;'
+    typing.innerHTML = `
+      <div style="width:32px;height:32px;background:#1a2a1a;border:1px solid #2FBF71;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🤖</div>
+      <div style="background:#1a2a1a;border:1px solid #2a3a2a;padding:12px 16px;border-radius:4px 18px 18px 18px;">
+        <span style="display:inline-flex;gap:4px;">
+          <span style="width:6px;height:6px;background:#2FBF71;border-radius:50%;animation:bounce 1.2s infinite;"></span>
+          <span style="width:6px;height:6px;background:#2FBF71;border-radius:50%;animation:bounce 1.2s infinite 0.2s;"></span>
+          <span style="width:6px;height:6px;background:#2FBF71;border-radius:50%;animation:bounce 1.2s infinite 0.4s;"></span>
+        </span>
+      </div>
+    `
+    chatMsgs.appendChild(typing)
+    chatMsgs.scrollTop = chatMsgs.scrollHeight
+
+    try {
+      const resp = await this.api('POST', 'assistente/chat', { mensagem })
+      
+      // Remover indicador
+      document.getElementById('typing-indicator')?.remove()
+      
+      // Adicionar resposta da IA
+      const msgIA = document.createElement('div')
+      msgIA.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-bottom:4px;'
+      msgIA.innerHTML = `
+        <div style="display:flex;justify-content:flex-start;gap:8px;">
+          <div style="width:32px;height:32px;background:#1a2a1a;border:1px solid #2FBF71;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🤖</div>
+          <div style="max-width:80%;background:#1a2a1a;border:1px solid #2a3a2a;padding:12px 14px;border-radius:4px 18px 18px 18px;font-size:0.87rem;line-height:1.6;white-space:pre-line;">
+            ${this.markdownToHtml(resp.resposta)}
+          </div>
+        </div>
+      `
+      chatMsgs.appendChild(msgIA)
+      
+      // Atualizar sugestões
+      if (resp.sugestoes && resp.sugestoes.length > 0) {
+        const sug = document.getElementById('chat-sugestoes')
+        if (sug) {
+          sug.innerHTML = resp.sugestoes.slice(0, 4).map(s => 
+            `<button onclick="VM.assistenteSend('${s.replace(/'/g, "\\'")}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:#888;padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`
+          ).join('')
+        }
+      }
+    } catch(err) {
+      document.getElementById('typing-indicator')?.remove()
+      const errMsg = document.createElement('div')
+      errMsg.style.cssText = 'display:flex;justify-content:flex-start;gap:8px;margin-bottom:4px;'
+      errMsg.innerHTML = `
+        <div style="background:#2a1a1a;border:1px solid #ff6b6b33;padding:10px 14px;border-radius:4px 18px 18px 18px;font-size:0.85rem;color:#ff9999;">
+          ⚠️ Erro: ${err.message || 'Tente novamente.'}
+        </div>
+      `
+      chatMsgs.appendChild(errMsg)
+    }
+    
+    chatMsgs.scrollTop = chatMsgs.scrollHeight
+  },
+
+  async assistenteLimpar() {
+    if (!confirm('Limpar todo o histórico de conversa?')) return
+    try {
+      await this.api('DELETE', 'assistente/historico')
+      this.toast('Histórico limpo!', 'success')
+      this.pageAssistente()
+    } catch(err) {
       this.toast(err.message, 'error')
     }
   },

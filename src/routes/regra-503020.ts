@@ -202,6 +202,47 @@ regra503020.get('/', requireAuth, async (c) => {
     .filter(([cat]) => WANTS_CATS.some(w => cat.toLowerCase().includes(w.toLowerCase())))
     .sort(([, a], [, b]) => b - a).slice(0, 5)
 
+  // ── BLOCO 6.2: Integração Regra 50/30/20 → Orçamentos ─────────────────────
+  // Sugerir orçamentos para categorias que estão acima do ideal
+  const sugestoes_orcamento: Array<{ categoria: string; limite_sugerido: number; gasto_atual: number; motivo: string }> = []
+  if (income > 0) {
+    // Se necessidades > 50%: sugerir orçamentos para categorias de necessidades acima de 10%
+    for (const [cat, val] of topNeeds.slice(0, 3)) {
+      const pctCat = (val / income) * 100
+      if (pctCat > 10) {
+        // Checar se já tem orçamento para essa categoria no mês
+        const orcExist = await c.env.DB.prepare(
+          `SELECT id FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?`
+        ).bind(user.id, cat, mes, ano).first()
+        if (!orcExist) {
+          sugestoes_orcamento.push({
+            categoria: cat,
+            limite_sugerido: Math.round(income * 0.10),
+            gasto_atual: Math.round(val * 100) / 100,
+            motivo: `${cat} representa ${pctCat.toFixed(0)}% da renda — acima do ideal`
+          })
+        }
+      }
+    }
+    // Se desejos > 30%: sugerir orçamento para categorias de desejos
+    for (const [cat, val] of topWants.slice(0, 2)) {
+      const pctCat = (val / income) * 100
+      if (pctCat > 8) {
+        const orcExist = await c.env.DB.prepare(
+          `SELECT id FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?`
+        ).bind(user.id, cat, mes, ano).first()
+        if (!orcExist) {
+          sugestoes_orcamento.push({
+            categoria: cat,
+            limite_sugerido: Math.round(income * 0.08),
+            gasto_atual: Math.round(val * 100) / 100,
+            motivo: `${cat} representa ${pctCat.toFixed(0)}% da renda — considere definir um orçamento`
+          })
+        }
+      }
+    }
+  }
+
   return c.json({
     mes, ano, income,
     // Melhoria 3.2: retornar a regra em uso
@@ -229,6 +270,8 @@ regra503020.get('/', requireAuth, async (c) => {
     },
     score,
     recommendations,
+    // Bloco 6.2: sugestões de orçamento
+    sugestoes_orcamento,
     breakdown: {
       top_needs: topNeeds.map(([cat, val]) => ({ cat, val: Math.round(val * 100) / 100 })),
       top_wants: topWants.map(([cat, val]) => ({ cat, val: Math.round(val * 100) / 100 })),

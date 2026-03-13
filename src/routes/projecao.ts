@@ -196,6 +196,37 @@ projecao.get('/', requireAuth, async (c) => {
      VALUES (?, ?, datetime('now'), 0)`
   ).bind(user.id, 'projetor').run().catch(() => {})
 
+  // ── BLOCO 6.3: Integração Projeção → Metas ─────────────────────────────────
+  // Verificar se metas ativas serão atingíveis com a projeção atual
+  const metasAtivas = await c.env.DB.prepare(`
+    SELECT id, nome, valor_objetivo, valor_atual, data_meta
+    FROM metas WHERE user_id = ? AND status = 'ativa' AND data_meta IS NOT NULL
+    ORDER BY data_meta ASC LIMIT 5
+  `).bind(user.id).all()
+
+  const metas_analise = (metasAtivas.results as any[]).map(meta => {
+    const faltante = parseFloat(meta.valor_objetivo) - parseFloat(meta.valor_atual)
+    const dataMeta = new Date(meta.data_meta)
+    const hoje = new Date()
+    const mesesRestantes = Math.max(0, Math.ceil((dataMeta.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24 * 30)))
+    const poupancaNecessaria = mesesRestantes > 0 ? faltante / mesesRestantes : faltante
+    const viavel = mediaPonderada >= poupancaNecessaria
+    return {
+      id: meta.id,
+      nome: meta.nome,
+      valor_faltante: Math.round(faltante * 100) / 100,
+      meses_restantes: mesesRestantes,
+      poupanca_necessaria_mes: Math.round(poupancaNecessaria * 100) / 100,
+      viavel_com_projecao: viavel,
+      alerta: !viavel ? `⚠️ Meta "${meta.nome}" pode não ser atingida: você precisa poupar R$ ${poupancaNecessaria.toFixed(0)}/mês mas seu saldo médio é R$ ${mediaPonderada.toFixed(0)}/mês.` : null
+    }
+  })
+
+  // Adicionar alertas de metas aos insights
+  for (const meta of metas_analise) {
+    if (meta.alerta) insights.push(meta.alerta)
+  }
+
   return c.json({
     historico: meses,
     projecoes,
@@ -213,6 +244,8 @@ projecao.get('/', requireAuth, async (c) => {
       meses_com_parcelas: Object.keys(parcelasMap).length,
       total_parcelas_futuras: Math.round(Object.values(parcelasMap).reduce((a, b) => a + b, 0) * 100) / 100
     },
+    // Bloco 6.3: análise de viabilidade das metas
+    metas_analise,
     resumo: {
       projecao_6m: Math.round((projecoes[5]?.valor || 0) * 100) / 100,
       projecao_12m: Math.round((projecoes[11]?.valor || 0) * 100) / 100,

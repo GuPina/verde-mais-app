@@ -101,12 +101,31 @@ desafio52.patch('/:semana', requireAuth, async (c) => {
     WHERE user_id = ? AND year = ? AND week_number = ?
   `).bind(status, status, user.id, ano, weekNum).run()
 
+  // ── BLOCO 6.4: Integração Desafio 52 → Metas ───────────────────────────────
+  // Se há meta vinculada na config do desafio, depositar o valor da semana nela
+  let meta_atualizada = false
+  if (status === 'completed') {
+    const config = await c.env.DB.prepare(
+      `SELECT meta_vinculada FROM desafio_config WHERE user_id = ?`
+    ).bind(user.id).first() as any
+
+    if (config?.meta_vinculada) {
+      // Depositar valor da semana na meta vinculada
+      await c.env.DB.prepare(`
+        UPDATE metas SET valor_atual = MIN(valor_atual + ?, valor_objetivo)
+        WHERE id = ? AND user_id = ? AND status = 'ativa'
+      `).bind(week.target_amount, config.meta_vinculada, user.id).run()
+      meta_atualizada = true
+    }
+  }
+
   return c.json({
     success: true,
     week: weekNum,
     amount: week.target_amount,
+    meta_atualizada,
     message: status === 'completed'
-      ? `✅ Semana ${weekNum} concluída! +R$ ${week.target_amount.toFixed(2)} guardados`
+      ? `✅ Semana ${weekNum} concluída! +R$ ${week.target_amount.toFixed(2)} guardados${meta_atualizada ? ' — meta atualizada!' : ''}`
       : status === 'skipped'
       ? `↩️ Semana ${weekNum} pulada. Não desista!`
       : `⏳ Semana ${weekNum} marcada como pendente`
