@@ -86,44 +86,87 @@ despesas.post('/', requireAuth, async (c) => {
   }
 
   const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
-  // Se vier valor_parcela_override (compra retroativa), usa ele direto
-  // Senão divide valor pelo total de parcelas normalmente
-  const valorParcela = valor_parcela_override 
+  const valorParcela = valor_parcela_override
     ? parseFloat(valor_parcela_override)
     : parseFloat(valor) / totalParcelas
-  // Total original de parcelas (para label ex: 7/10 → parcelas_total_original=10)
   const totalParcelasLabel = parcelas_total_original ? parseInt(parcelas_total_original) : totalParcelas
   const ids: number[] = []
-  const valorTotal = parseFloat(valor)
 
-  // Criar parcelas automaticamente
-  // Para compras retroativas: parcela_atual começa em (totalParcelasLabel - totalParcelas + 1)
-  // Ex: 10x, 3 pagas → restantes=7 → primeira parcela registrada é a 4ª
+  // Buscar dados do cartão para calcular billing correto
+  let cartaoInfo: any = null
+  const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao']
+  if (cartao_id && meioPagamentoCartao.includes(meio_pagamento)) {
+    cartaoInfo = await c.env.DB.prepare(
+      'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+    ).bind(parseInt(cartao_id), user.id).first() as any
+  }
+
+  // Gerar UUID simples para agrupar parcelas
+  const groupId = cartaoInfo
+    ? 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,
+        c2 => { const r=(Math.random()*16)|0; return (c2==='x'?r:(r&0x3)|0x8).toString(16) })
+    : null
+
   const parcelaInicialLabel = totalParcelasLabel - totalParcelas + 1
   for (let i = 0; i < totalParcelas; i++) {
-    const dataBase = new Date(data)
+    const dataBase = new Date(data + 'T12:00:00')
     dataBase.setMonth(dataBase.getMonth() + i)
     const dataParcela = dataBase.toISOString().split('T')[0]
     const parcelaAtualLabel = parcelaInicialLabel + i
 
+    // Calcular billing_month/year se houver cartão
+    let bMonth: number | null = null
+    let bYear:  number | null = null
+    let dataVenc: string | null = vencimento || null
+
+    if (cartaoInfo) {
+      const dDay = dataBase.getDate()
+      let m = dataBase.getMonth() + 1
+      let y = dataBase.getFullYear()
+      if (dDay >= cartaoInfo.dia_fechamento) { m++; if (m > 12) { m = 1; y++ } }
+      bMonth = m; bYear = y
+      const lastDay = new Date(y, m, 0).getDate()
+      const vDay = Math.min(cartaoInfo.dia_vencimento, lastDay)
+      dataVenc = `${y}-${String(m).padStart(2,'0')}-${String(vDay).padStart(2,'0')}`
+    }
+
     const result = await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, cartao_id, meio_pagamento) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor,
+       parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente,
+       vencimento, observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      user.id, 
+      user.id,
       totalParcelas > 1 ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao,
       dataParcela, categoria, subcategoria || null, valorParcela,
       parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
-      fixa_ou_variavel, recorrente ? 1 : 0, vencimento || null, observacoes || null,
-      cartao_id ? parseInt(cartao_id) : null, meio_pagamento
+      fixa_ou_variavel, recorrente ? 1 : 0, dataVenc || null, observacoes || null,
+      cartao_id ? parseInt(cartao_id) : null, meio_pagamento,
+      bMonth, bYear, groupId
     ).run()
-    
     ids.push(result.meta.last_row_id as number)
+
+    // Criar card_charge vinculado se for cartão de crédito
+    if (cartaoInfo && bMonth && bYear) {
+      const descParcela = totalParcelas > 1
+        ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao
+      await c.env.DB.prepare(
+        `INSERT INTO card_charges (card_id, expense_id, descricao, valor, data_compra,
+         data_vencimento, billing_month, billing_year, parcela_atual, total_parcelas,
+         purchase_group_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        parseInt(cartao_id), result.meta.last_row_id, descParcela, valorParcela,
+        dataParcela, dataVenc, bMonth, bYear,
+        totalParcelas > 1 ? parcelaAtualLabel : null,
+        totalParcelas > 1 ? totalParcelasLabel : null,
+        groupId, status === 'pago' ? 'pago' : 'pendente'
+      ).run()
+    }
   }
 
-  // Se tiver cartão associado, reduzir o limite disponível pelo valor TOTAL das parcelas RESTANTES
-  const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao', 'cartao_debito']
-  if (cartao_id && meioPagamentoCartao.includes(meio_pagamento)) {
+  // Reduzir limite do cartão pelo total de parcelas pendentes
+  if (cartaoInfo && meioPagamentoCartao.includes(meio_pagamento) && status !== 'pago') {
     const valorDesconto = valorParcela * totalParcelas
     await c.env.DB.prepare(
       'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
@@ -163,10 +206,36 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   const id = c.req.param('id')
   const { status } = await c.req.json()
 
-  const existing = await c.env.DB.prepare('SELECT id FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
   await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, id, user.id).run()
+
+  // Sincronizar card_charge vinculado (baixa bidirecional)
+  if (existing.cartao_id) {
+    const charge = await c.env.DB.prepare(
+      'SELECT * FROM card_charges WHERE expense_id = ?'
+    ).bind(id).first() as any
+    if (charge && charge.status !== status) {
+      await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE id = ?').bind(
+        status === 'pago' ? 'pago' : 'pendente', charge.id
+      ).run()
+      // Restaurar limite ao pagar
+      if (status === 'pago' && charge.status === 'pendente') {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
+        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
+      }
+      // Decrementar limite ao despagar
+      if (status !== 'pago' && charge.status === 'pago') {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
+      }
+    }
+  }
 
   // Conquistas: disciplinado (10 despesas pagas no mesmo mês) e poupador
   if (status === 'pago') {

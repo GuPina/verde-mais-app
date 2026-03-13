@@ -56,15 +56,54 @@ metas.post('/', requireAuth, async (c) => {
       return c.json({ error: MSG_UPGRADE.metas, upgrade: true, limite: lim.metas }, 403)
   }
   const body = await c.req.json()
-  const { nome, descricao, valor_objetivo, valor_atual = 0, data_meta, categoria = 'economia', cor = '#2FBF71', icone = 'piggy-bank' } = body
+  const {
+    nome, descricao, valor_objetivo, valor_atual = 0, data_meta,
+    categoria = 'economia', cor = '#2FBF71', icone = 'piggy-bank',
+    // Campos extras para meta de dívidas
+    linked_debt_type = null, linked_debt_id = null
+  } = body
 
-  if (!nome || !valor_objetivo || !data_meta) {
-    return c.json({ error: 'Campos obrigatórios: nome, valor_objetivo, data_meta' }, 400)
+  if (!nome || !data_meta) {
+    return c.json({ error: 'Campos obrigatórios: nome, data_meta' }, 400)
+  }
+
+  // ── Meta de quitar dívidas: calcular valores automaticamente ──
+  let valorObj     = valor_objetivo ? parseFloat(valor_objetivo) : 0
+  let valorAtual   = parseFloat(valor_atual)
+  let originalDebt = null
+
+  if (categoria === 'debt_payoff' && linked_debt_type) {
+    try {
+      const { total, pago } = await calcDebtTotals(c.env.DB, user.id, linked_debt_type, linked_debt_id)
+      if (total > 0) {
+        valorObj   = total + pago
+        valorAtual = pago
+        originalDebt = valorObj
+      } else if (valorObj > 0) {
+        originalDebt = valorObj
+      } else {
+        return c.json({ error: 'Nenhuma dívida ativa encontrada. Informe o valor_objetivo manualmente.' }, 400)
+      }
+    } catch (err) {
+      // Se falhou ao buscar dívidas mas temos valor_objetivo manual, continua
+      if (valorObj <= 0) {
+        return c.json({ error: 'Campo obrigatório: valor_objetivo' }, 400)
+      }
+      originalDebt = valorObj
+    }
+  } else if (!valor_objetivo) {
+    return c.json({ error: 'Campo obrigatório: valor_objetivo' }, 400)
   }
 
   const result = await c.env.DB.prepare(
-    'INSERT INTO metas (user_id, nome, descricao, valor_objetivo, valor_atual, data_meta, categoria, cor, icone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(user.id, nome, descricao || null, parseFloat(valor_objetivo), parseFloat(valor_atual), data_meta, categoria, cor, icone).run()
+    `INSERT INTO metas (user_id, nome, descricao, valor_objetivo, valor_atual, data_meta,
+     categoria, cor, icone, linked_debt_type, linked_debt_id, original_debt_amount)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    user.id, nome, descricao || null,
+    valorObj, valorAtual, data_meta, categoria, cor, icone,
+    linked_debt_type, linked_debt_id ? parseInt(linked_debt_id) : null, originalDebt
+  ).run()
 
   // Conquistas por categoria/nome da meta
   const nomeMin = nome.toLowerCase()
@@ -142,7 +181,103 @@ metas.delete('/:id', requireAuth, async (c) => {
   return c.json({ success: true, message: 'Meta excluída!' })
 })
 
+// POST /api/metas/sincronizar-dividas — atualiza progresso das metas debt_payoff
+metas.post('/sincronizar-dividas', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const metasDivida = await c.env.DB.prepare(
+    `SELECT * FROM metas WHERE user_id = ? AND categoria = 'debt_payoff' AND status = 'ativa'`
+  ).bind(user.id).all()
+
+  let atualizadas = 0
+  for (const meta of metasDivida.results as any[]) {
+    const { total, pago } = await calcDebtTotals(
+      c.env.DB, user.id, meta.linked_debt_type, meta.linked_debt_id
+    )
+    const originalDebt = Number(meta.original_debt_amount) || (total + pago)
+    const valorAtual   = originalDebt - total  // quanto já foi quitado
+    const concluida    = total === 0
+
+    await c.env.DB.prepare(
+      `UPDATE metas SET valor_atual = ?, status = ?, original_debt_amount = ?
+       WHERE id = ? AND user_id = ?`
+    ).bind(
+      Math.max(0, valorAtual),
+      concluida ? 'concluida' : 'ativa',
+      originalDebt,
+      meta.id, user.id
+    ).run()
+
+    if (concluida) {
+      await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+    }
+    atualizadas++
+  }
+
+  return c.json({ success: true, metas_atualizadas: atualizadas })
+})
+
 export default metas
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Calcula saldo devedor atual + valor já pago para metas de dívidas */
+async function calcDebtTotals(
+  db: D1Database, userId: number,
+  debtType: string | null, debtId: number | null
+): Promise<{ total: number; pago: number }> {
+  if (!debtType) return { total: 0, pago: 0 }
+
+  if (debtType === 'all') {
+    const [f, e] = await Promise.all([
+      db.prepare(
+        `SELECT COALESCE(SUM(saldo_devedor),0) as saldo,
+                COALESCE(SUM(valor_pago),0) as pago
+         FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
+      ).bind(userId).first() as any,
+      db.prepare(
+        `SELECT COALESCE(SUM(saldo_devedor),0) as saldo,
+                COALESCE(SUM(valor_pago),0) as pago
+         FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+      ).bind(userId).first() as any
+    ])
+    return {
+      total: Number(f?.saldo || 0) + Number(e?.saldo || 0),
+      pago:  Number(f?.pago  || 0) + Number(e?.pago  || 0)
+    }
+  }
+
+  if (debtType === 'financiamento') {
+    const r = await db.prepare(
+      `SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_pago),0) as pago
+       FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(userId).first() as any
+    return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
+  }
+
+  if (debtType === 'emprestimo') {
+    const r = await db.prepare(
+      `SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_pago),0) as pago
+       FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(userId).first() as any
+    return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
+  }
+
+  if (debtType === 'especifico' && debtId) {
+    // Busca em financiamentos primeiro, depois emprestimos
+    let r = await db.prepare(
+      'SELECT saldo_devedor as saldo, valor_pago as pago FROM financiamentos WHERE id = ? AND user_id = ?'
+    ).bind(debtId, userId).first() as any
+    if (!r) {
+      r = await db.prepare(
+        'SELECT saldo_devedor as saldo, valor_pago as pago FROM emprestimos WHERE id = ? AND user_id = ?'
+      ).bind(debtId, userId).first() as any
+    }
+    return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
+  }
+
+  return { total: 0, pago: 0 }
+}
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
   try {

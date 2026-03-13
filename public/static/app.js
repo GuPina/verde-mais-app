@@ -1847,6 +1847,7 @@ const VM = {
       { v:'liberdade', l:'🗽 Liberdade Financeira' },
       { v:'aposentadoria', l:'👴 Aposentadoria' },
       { v:'emergencia', l:'🛡️ Reserva de Emergência' },
+      { v:'debt_payoff', l:'💳 Quitar Dívidas' },
       { v:'outros', l:'📋 Outros' },
     ]
 
@@ -1864,10 +1865,22 @@ const VM = {
             </div>
             <div class="form-group">
               <label class="form-label">Categoria *</label>
-              <select id="m-categoria" class="form-select">
+              <select id="m-categoria" class="form-select" onchange="VM._toggleDebtPayoff()">
                 ${categoriasMeta.map(c => `<option value="${c.v}" ${(meta?.categoria||'economia')===c.v?'selected':''}>${c.l}</option>`).join('')}
               </select>
               <div style="font-size:0.72rem;color:#888;margin-top:3px;">A categoria define quais conquistas você pode desbloquear</div>
+            </div>
+            <!-- Bloco debt_payoff (oculto por padrão) -->
+            <div id="debt-payoff-block" style="display:${(meta?.categoria==='debt_payoff')?'block':'none'};">
+              <div class="form-group">
+                <label class="form-label">Tipo de Dívida</label>
+                <select id="m-debt-type" class="form-select">
+                  <option value="all" ${meta?.linked_debt_type==='all'?'selected':''}>🏦 Todas as dívidas (financiamentos + empréstimos)</option>
+                  <option value="financiamento" ${meta?.linked_debt_type==='financiamento'?'selected':''}>🏠 Somente Financiamentos</option>
+                  <option value="emprestimo" ${meta?.linked_debt_type==='emprestimo'?'selected':''}>💰 Somente Empréstimos</option>
+                </select>
+                <div style="font-size:0.72rem;color:#4ade80;margin-top:4px;">✨ O valor objetivo será calculado automaticamente com base nas suas dívidas ativas</div>
+              </div>
             </div>
             <div class="form-group">
               <label class="form-label">Descrição</label>
@@ -1914,18 +1927,27 @@ const VM = {
       btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
         const categoria = document.getElementById('m-categoria').value
+        const isDebtPayoff = categoria === 'debt_payoff'
         const payload = {
           nome: document.getElementById('m-nome').value,
           descricao: document.getElementById('m-desc').value,
-          valor_objetivo: parseFloat(document.getElementById('m-obj').value),
+          valor_objetivo: isDebtPayoff ? undefined : parseFloat(document.getElementById('m-obj').value),
           valor_atual: parseFloat(document.getElementById('m-atual').value) || 0,
           data_meta: document.getElementById('m-data').value,
           cor: document.getElementById('m-cor').value,
           categoria,
           icone: meta?.icone || 'piggy-bank',
-          status: meta?.status || 'ativa'
+          status: meta?.status || 'ativa',
+          ...(isDebtPayoff ? {
+            linked_debt_type: document.getElementById('m-debt-type').value
+          } : {})
         }
-        if (isEdit) await this.api('PUT', `metas/${meta.id}`, payload)
+        if (!isDebtPayoff && (!payload.valor_objetivo || isNaN(payload.valor_objetivo))) {
+          this.toast('Informe o valor objetivo', 'error')
+          btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar Meta'}`
+          return
+        }
+        if (isEdit) await this.api('PUT', `metas/${meta.id}`, {...payload, valor_objetivo: payload.valor_objetivo || meta.valor_objetivo})
         else await this.api('POST', 'metas', payload)
         this.toast(isEdit ? 'Meta atualizada!' : 'Meta criada! 🎯')
         this.closeModal(); this.carregarMetas()
@@ -1934,6 +1956,13 @@ const VM = {
         btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Criar Meta'}`
       }
     })
+  },
+
+  _toggleDebtPayoff() {
+    const cat = document.getElementById('m-categoria')?.value
+    const block = document.getElementById('debt-payoff-block')
+    const objField = document.getElementById('m-obj')?.closest('.form-group')?.parentElement
+    if (block) block.style.display = cat === 'debt_payoff' ? 'block' : 'none'
   },
 
   async deleteMeta(id) {
@@ -3254,7 +3283,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">💳 Cartões de Crédito</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas faturas e compras</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Faturas, compras e controle de limite</div>
         </div>
         <div style="display:flex;gap:10px;">
           <button onclick="VM.modalLancarCompraAnterior()" class="btn-secondary" style="width:auto;padding:10px 16px;font-size:0.85rem;">
@@ -3299,8 +3328,8 @@ const VM = {
             const pct = c.percentual_uso || 0
             const pctColor = pct > 80 ? '#ff6b6b' : pct > 50 ? '#ffc400' : '#2FBF71'
             return `
-              <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;cursor:pointer;" 
-                   onclick="VM.verLancamentosCartao(${c.id}, '${c.nome.replace(/'/g,"\\'")}', '${c.cor||'#2FBF71'}')">
+              <div class="card" style="border-color:${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;cursor:pointer;"
+                   onclick="VM.abrirFaturaCartao(${c.id}, '${c.nome.replace(/'/g,"\\'")}', '${c.cor||'#2FBF71'}')">
                 <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${c.cor || '#2FBF71'};"></div>
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
                   <div>
@@ -3313,7 +3342,7 @@ const VM = {
                     <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                   </div>
                 </div>
-                
+
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                     <span style="font-size:0.78rem;color:#888;">Limite usado</span>
@@ -3323,7 +3352,7 @@ const VM = {
                     <div style="background:${pctColor};width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.6s ease;"></div>
                   </div>
                 </div>
-                
+
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Limite Total</div>
@@ -3338,10 +3367,10 @@ const VM = {
                     <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.limite_disponivel || 0)}</div>
                   </div>
                 </div>
-                
+
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
                   <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
-                  <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-list"></i> Ver compras</span>
+                  <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
                 </div>
               </div>
             `
@@ -3353,231 +3382,339 @@ const VM = {
     }
   },
 
-  async verLancamentosCartao(cartaoId, nomeCartao, cor) {
+  // ─── FATURA BANCÁRIA REAL ──────────────────────────────────────────────────
+  async abrirFaturaCartao(cartaoId, nomeCartao, cor) {
+    const now = new Date()
+    // Estado global da fatura atual
+    this._faturaState = {
+      cartaoId,
+      nomeCartao,
+      cor: cor || '#2FBF71',
+      mes: now.getMonth() + 1,
+      ano: now.getFullYear()
+    }
     const mc = document.getElementById('modal-container')
     mc.innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:760px;max-height:88vh;overflow-y:auto;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:#1a1a2e;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);z-index:1;">
-            <div>
-              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao} — Todas as Compras</h3>
-              <div style="font-size:0.8rem;color:#888;margin-top:2px;">Clique na seta para ver as parcelas</div>
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button onclick="VM.verLancamentosCartaoFatura(${cartaoId},'${nomeCartao}')" style="background:rgba(255,196,0,0.1);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.8rem;">📅 Ver por Fatura</button>
-              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
-            </div>
-          </div>
-          <div id="compras-modal-body">
-            <div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
-          </div>
-        </div>
-      </div>
-    `
-    this.carregarComprasCartao(cartaoId)
-  },
-
-  async carregarComprasCartao(cartaoId) {
-    const body = document.getElementById('compras-modal-body')
-    if (!body) return
-    try {
-      const data = await this.api('GET', `cartoes/${cartaoId}/compras`)
-      const compras = data.compras || []
-
-      if (compras.length === 0) {
-        body.innerHTML = `<div style="text-align:center;padding:48px;color:#666;"><div style="font-size:2.5rem;margin-bottom:12px;">📭</div><div>Nenhuma compra cadastrada</div></div>`
-        return
-      }
-
-      body.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          ${compras.map((c, idx) => {
-            const statusColor = c.pendentes === 0 ? '#2FBF71' : c.pagas === 0 ? '#ff6b6b' : '#ffc400'
-            const statusLabel = c.pendentes === 0 ? '✅ Quitada' : c.pagas === 0 ? '⏳ Nenhuma paga' : `🔄 ${c.pagas}/${c.numero_parcelas} pagas`
-            const valorTotal = c.valor_parcela * c.numero_parcelas
-            return `
-              <div style="background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
-                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;" onclick="VM.toggleParcelasCompra('parcelas-${idx}', 'seta-${idx}')">
-                  <span id="seta-${idx}" style="font-size:0.9rem;transition:transform 0.2s;display:inline-block;">▶</span>
-                  <div style="flex:1;">
-                    <div style="font-weight:700;font-size:0.9rem;">${c.descricao}</div>
-                    <div style="font-size:0.75rem;color:#888;margin-top:2px;">${c.categoria} • Compra: ${this.formatDate(c.data_compra)} • ${c.numero_parcelas}x ${this.formatMoney(c.valor_parcela)}</div>
-                  </div>
-                  <div style="text-align:right;flex-shrink:0;">
-                    <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(valorTotal)}</div>
-                    <div style="font-size:0.72rem;color:${statusColor};">${statusLabel}</div>
-                  </div>
-                  <div style="display:flex;gap:6px;margin-left:8px;" onclick="event.stopPropagation()">
-                    <button onclick="VM.excluirCompraGrupo(${JSON.stringify(c).replace(/"/g,'&quot;')}, ${cartaoId})" style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:6px;padding:5px 9px;cursor:pointer;font-size:0.72rem;" title="Excluir compra e todas as parcelas"><i class="fas fa-trash"></i></button>
-                  </div>
-                </div>
-                <div id="parcelas-${idx}" style="display:none;border-top:1px solid rgba(255,255,255,0.06);">
-                  ${c.parcelas.map(p => {
-                    const pColor = p.status === 'pago' ? '#2FBF71' : '#ffc400'
-                    return `
-                      <div style="display:flex;align-items:center;gap:12px;padding:10px 16px 10px 44px;border-bottom:1px solid rgba(255,255,255,0.03);">
-                        <div style="flex:1;">
-                          <div style="font-size:0.82rem;font-weight:600;">${p.descricao}</div>
-                          <div style="font-size:0.72rem;color:#666;">Fatura: ${this.formatDate(p.data_fatura)}</div>
-                        </div>
-                        <div style="font-weight:700;font-size:0.85rem;">${this.formatMoney(p.valor_total)}</div>
-                        <span style="font-size:0.72rem;color:${pColor};min-width:70px;text-align:center;">${p.status === 'pago' ? '✅ Paga' : '⏳ Pendente'}</span>
-                        ${p.status !== 'pago' ? `<button onclick="VM.pagarLancamento(${p.id},${cartaoId})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">Pagar</button>` : '<div style="width:54px;"></div>'}
-                        <button onclick="VM.deleteLancamento(${p.id},${cartaoId})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-trash"></i></button>
-                      </div>
-                    `
-                  }).join('')}
+        <div class="modal" style="max-width:800px;max-height:90vh;overflow-y:auto;padding:0;">
+          <!-- Cabeçalho sticky -->
+          <div style="position:sticky;top:0;background:#1a1a2e;z-index:10;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 14px;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:10px;height:10px;border-radius:50%;background:${cor || '#2FBF71'};"></div>
+                <div>
+                  <div style="font-size:1.05rem;font-weight:700;">💳 ${nomeCartao}</div>
+                  <div style="font-size:0.75rem;color:#888;">Extrato bancário</div>
                 </div>
               </div>
-            `
-          }).join('')}
-        </div>
-      `
-    } catch(e) {
-      if(body) body.innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:24px;">Erro ao carregar compras</div>`
-    }
-  },
-
-  toggleParcelasCompra(parcelasId, setaId) {
-    const el = document.getElementById(parcelasId)
-    const seta = document.getElementById(setaId)
-    if (!el) return
-    const isOpen = el.style.display !== 'none'
-    el.style.display = isOpen ? 'none' : 'block'
-    if (seta) seta.style.transform = isOpen ? '' : 'rotate(90deg)'
-  },
-
-  async excluirCompraGrupo(compra, cartaoId) {
-    if (!confirm(`Excluir a compra "${compra.descricao}" e todas as ${compra.numero_parcelas} parcelas?`)) return
-    try {
-      await this.api('DELETE', 'cartoes/compras/grupo', {
-        descricao: compra.descricao,
-        valor_parcela: compra.valor_parcela,
-        data_compra: compra.data_compra,
-        numero_parcelas: compra.numero_parcelas,
-        cartao_id: cartaoId
-      })
-      this.toast('Compra e parcelas excluídas!')
-      this.carregarComprasCartao(cartaoId)
-    } catch(e) {
-      this.toast('Erro ao excluir', 'error')
-    }
-  },
-
-  async verLancamentosCartaoFatura(cartaoId, nomeCartao) {
-    const mc = document.getElementById('modal-container')
-    mc.innerHTML = `
-      <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:700px;max-height:85vh;overflow-y:auto;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:#1a1a2e;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);">
-            <div>
-              <h3 style="font-size:1.1rem;font-weight:700;">💳 ${nomeCartao} — Por Fatura</h3>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button onclick="VM.modalNovaCompraCartao(${cartaoId})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.8rem;"><i class="fas fa-plus"></i> Nova Compra</button>
+                <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
+              </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <select id="lc-mes" class="form-select" style="padding:6px 10px;font-size:0.8rem;" onchange="VM.carregarLancamentosCartaoModal(${cartaoId})">
-                ${Array.from({length:12},(_,i)=>{
-                  const d=new Date(); d.setMonth(d.getMonth()-i);
-                  const m=String(d.getMonth()+1).padStart(2,'0'); const a=d.getFullYear();
-                  const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-                  return `<option value="${m}/${a}" ${i===0?'selected':''}>${meses[d.getMonth()]}/${a}</option>`
-                }).join('')}
-              </select>
-              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <!-- Navegação de mês -->
+            <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:0 20px 14px;">
+              <button onclick="VM._navFatura(-1)" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#ccc;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:1rem;">‹</button>
+              <div id="fatura-mes-label" style="font-size:0.95rem;font-weight:700;min-width:130px;text-align:center;">—</div>
+              <button onclick="VM._navFatura(1)" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#ccc;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:1rem;">›</button>
             </div>
           </div>
-          <div id="lancamentos-modal-body">
-            <div style="text-align:center;padding:40px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+          <!-- Corpo da fatura -->
+          <div id="fatura-body" style="padding:20px;">
+            <div style="text-align:center;padding:60px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando fatura...</div>
           </div>
         </div>
       </div>
     `
-    this.carregarLancamentosCartaoModal(cartaoId)
+    await this._carregarFatura()
   },
 
-  async carregarLancamentosCartaoModal(cartaoId) {
-    const body = document.getElementById('lancamentos-modal-body')
-    if (!body) return
-    try {
-      const selVal = document.getElementById('lc-mes')?.value || ''
-      const [mes, ano] = selVal ? selVal.split('/') : [String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getFullYear())]
-      const data = await this.api('GET', `cartoes/${cartaoId}/lancamentos?mes=${mes}&ano=${ano}`)
-      const lancamentos = data.lancamentos || []
-      const total = data.total_fatura || 0
+  _navFatura(delta) {
+    if (!this._faturaState) return
+    let { mes, ano } = this._faturaState
+    mes += delta
+    if (mes < 1)  { mes = 12; ano-- }
+    if (mes > 12) { mes = 1;  ano++ }
+    this._faturaState.mes = mes
+    this._faturaState.ano = ano
+    this._carregarFatura()
+  },
 
+  async _carregarFatura() {
+    const { cartaoId, mes, ano, cor } = this._faturaState
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const lbl = document.getElementById('fatura-mes-label')
+    if (lbl) lbl.textContent = `${meses[mes-1]} ${ano}`
+
+    const body = document.getElementById('fatura-body')
+    if (!body) return
+    body.innerHTML = `<div style="text-align:center;padding:60px;color:#666;"><i class="fas fa-spinner fa-spin"></i></div>`
+
+    try {
+      const data = await this.api('GET', `cartoes/${cartaoId}/fatura?mes=${mes}&ano=${ano}`)
+      const { cartao, fatura, lancamentos } = data
+
+      const statusConfig = {
+        futura:  { label: 'Fatura Futura',  color: '#74b9ff', bg: 'rgba(116,185,255,0.1)' },
+        aberta:  { label: 'Fatura Aberta',  color: '#ffc400', bg: 'rgba(255,196,0,0.1)' },
+        fechada: { label: 'Fatura Fechada', color: '#fd79a8', bg: 'rgba(253,121,168,0.1)' },
+        paga:    { label: 'Fatura Paga',    color: '#2FBF71', bg: 'rgba(47,191,113,0.1)' }
+      }
+      const sc = statusConfig[fatura.status] || statusConfig.aberta
+
+      // Cards de resumo
+      const resumoHtml = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+          <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">TOTAL DA FATURA</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(fatura.total)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">PENDENTE</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#ffc400;">${this.formatMoney(fatura.total_pendente)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">LIMITE DISPONÍVEL</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#2FBF71;">${this.formatMoney(cartao.limite_disponivel)}</div>
+          </div>
+          <div style="background:${sc.bg};border-radius:12px;padding:14px;text-align:center;border:1px solid ${sc.color}40;">
+            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">STATUS</div>
+            <div style="font-size:0.85rem;font-weight:700;color:${sc.color};">${sc.label}</div>
+            <div style="font-size:0.68rem;color:#666;margin-top:2px;">Vence: ${fatura.data_vencimento ? this.formatDate(fatura.data_vencimento) : '—'}</div>
+          </div>
+        </div>
+      `
+
+      // Botão pagar fatura completa
+      const btnPagarFatura = fatura.total_pendente > 0 ? `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+          <button onclick="VM._pagarFaturaCompleta(${cartaoId}, ${mes}, ${ano})"
+            style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:10px;padding:9px 18px;cursor:pointer;font-size:0.85rem;font-weight:600;">
+            <i class="fas fa-check-double"></i> Pagar Fatura Completa (${this.formatMoney(fatura.total_pendente)})
+          </button>
+        </div>
+      ` : ''
+
+      // Lista de lançamentos estilo extrato bancário
+      let listaHtml = ''
       if (lancamentos.length === 0) {
-        body.innerHTML = `
+        listaHtml = `
           <div style="text-align:center;padding:48px 24px;color:#666;">
             <div style="font-size:2.5rem;margin-bottom:12px;">📭</div>
-            <div>Nenhuma compra neste período</div>
+            <div style="font-size:0.9rem;">Nenhum lançamento nesta fatura</div>
+            <button onclick="VM.modalNovaCompraCartao(${cartaoId})" style="margin-top:16px;background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:0.82rem;">
+              <i class="fas fa-plus"></i> Adicionar compra
+            </button>
           </div>
         `
-        return
-      }
+      } else {
+        // Agrupar por data de compra (extrato cronológico)
+        const grupoDatas = {}
+        for (const l of lancamentos) {
+          const key = l.data_compra || 'sem-data'
+          if (!grupoDatas[key]) grupoDatas[key] = []
+          grupoDatas[key].push(l)
+        }
+        const datasOrdenadas = Object.keys(grupoDatas).sort((a,b) => b.localeCompare(a))
 
-      body.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:14px;background:rgba(255,255,255,0.03);border-radius:12px;">
-          <div style="font-size:0.85rem;color:#888;">${lancamentos.length} compras no período</div>
-          <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">Total: ${this.formatMoney(total)}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          ${lancamentos.map(l => {
-            const statusColor = l.status === 'pago' ? '#2FBF71' : '#ffc400'
-            const statusLabel = l.status === 'pago' ? '✅ Pago' : '⏳ Pendente'
-            return `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.03);border-radius:10px;border-left:3px solid ${statusColor};">
-                <div style="flex:1;">
-                  <div style="font-weight:600;font-size:0.88rem;">${l.descricao}</div>
-                  <div style="font-size:0.75rem;color:#666;margin-top:3px;">
-                    ${l.categoria} • Fatura: ${this.formatDate(l.data_fatura)} 
-                    ${l.numero_parcelas > 1 ? `• Parcela ${l.parcela_atual}/${l.numero_parcelas}` : ''}
-                  </div>
+        listaHtml = `<div style="display:flex;flex-direction:column;gap:2px;">`
+        for (const data of datasOrdenadas) {
+          const itens = grupoDatas[data]
+          listaHtml += `
+            <div style="font-size:0.72rem;color:#555;padding:10px 4px 6px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">
+              ${this.formatDate(data)}
+            </div>
+          `
+          for (const l of itens) {
+            const isPago = l.status === 'pago'
+            const sColor = isPago ? '#2FBF71' : '#ffc400'
+            const parcelaInfo = (l.total_parcelas && l.total_parcelas > 1)
+              ? `<span style="background:rgba(255,255,255,0.06);border-radius:4px;padding:1px 6px;font-size:0.68rem;">${l.parcela_atual}/${l.total_parcelas}</span>`
+              : ''
+            const catLabel = l.categoria ? `<span style="color:#777;font-size:0.72rem;">${l.categoria}</span>` : ''
+
+            listaHtml += `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;margin-bottom:2px;border-left:3px solid ${sColor};">
+                <div style="width:36px;height:36px;background:rgba(255,255,255,0.05);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
+                  ${this._catIcon(l.categoria)}
                 </div>
-                <div style="display:flex;align-items:center;gap:12px;">
-                  <div style="text-align:right;">
-                    <div style="font-weight:700;font-size:0.9rem;">${this.formatMoney(l.valor_total)}</div>
-                    <div style="font-size:0.72rem;color:${statusColor};">${statusLabel}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ${l.descricao} ${parcelaInfo}
                   </div>
-                  <div style="display:flex;flex-direction:column;gap:4px;">
-                    ${l.status !== 'pago' ? `<button onclick="VM.pagarLancamento(${l.id},${cartaoId})" style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;white-space:nowrap;">Marcar pago</button>` : ''}
-                    <button onclick="VM.deleteLancamento(${l.id},${cartaoId})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">Excluir</button>
-                  </div>
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:2px;">${catLabel}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(l.valor)}</div>
+                  <div style="font-size:0.7rem;color:${sColor};">${isPago ? '✅ Pago' : '⏳ Pendente'}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;" onclick="event.stopPropagation()">
+                  ${!isPago ? `<button onclick="VM._pagarCharge(${l.id})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;white-space:nowrap;">Pagar</button>` : '<div style="width:50px;"></div>'}
+                  <button onclick="VM._excluirCharge(${l.id})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                 </div>
               </div>
             `
-          }).join('')}
+          }
+        }
+        listaHtml += `</div>`
+      }
+
+      body.innerHTML = resumoHtml + btnPagarFatura + listaHtml
+
+    } catch(e) {
+      if (body) body.innerHTML = `
+        <div style="text-align:center;padding:48px;color:#ff6b6b;">
+          <div style="font-size:2rem;margin-bottom:12px;">⚠️</div>
+          <div>Erro ao carregar fatura</div>
+          <button onclick="VM._carregarFatura()" style="margin-top:12px;background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:8px;padding:6px 14px;cursor:pointer;font-size:0.8rem;">Tentar novamente</button>
         </div>
       `
-    } catch(e) {
-      if (body) body.innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:24px;">Erro ao carregar compras</div>`
     }
   },
 
-  async pagarLancamento(id, cartaoId) {
+  _catIcon(cat) {
+    const icons = {
+      alimentacao:'🍽️', alimentação:'🍽️', transporte:'🚗', saude:'💊', saúde:'💊',
+      educacao:'📚', educação:'📚', lazer:'🎮', moradia:'🏠', roupas:'👕',
+      assinaturas:'📱', eletronicos:'💻', eletrônicos:'💻', pets:'🐾', outros:'💳',
+      viagem:'✈️', beleza:'💄', esporte:'⚽'
+    }
+    const k = (cat || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    return icons[k] || icons[(cat||'').toLowerCase()] || '💳'
+  },
+
+  async _pagarCharge(chargeId) {
     try {
-      await this.api('PATCH', `cartoes/lancamentos/${id}/status`, { status: 'pago' })
-      this.toast('Parcela marcada como paga! ✅')
-      if (document.getElementById('compras-modal-body')) this.carregarComprasCartao(cartaoId)
-      else this.carregarLancamentosCartaoModal(cartaoId)
+      await this.api('PATCH', `cartoes/charges/${chargeId}/pagar`, {})
+      this.toast('Parcela paga! Limite restaurado. ✅')
+      await this._carregarFatura()
+      this.carregarCartoes()
     } catch(e) {
-      this.toast('Erro ao atualizar', 'error')
+      this.toast(e.response?.data?.error || 'Erro ao pagar', 'error')
     }
   },
 
-  async deleteLancamento(id, cartaoId) {
+  async _pagarFaturaCompleta(cartaoId, mes, ano) {
+    if (!confirm(`Pagar toda a fatura de ${mes}/${ano}?`)) return
+    try {
+      const r = await this.api('PATCH', `cartoes/${cartaoId}/pagar-fatura`, { mes, ano })
+      this.toast(r.message || 'Fatura paga! 🎉', 'success')
+      await this._carregarFatura()
+      this.carregarCartoes()
+    } catch(e) {
+      this.toast(e.response?.data?.error || 'Erro ao pagar fatura', 'error')
+    }
+  },
+
+  async _excluirCharge(chargeId) {
     if (!confirm('Excluir este lançamento?')) return
     try {
-      await this.api('DELETE', `cartoes/lancamentos/${id}`)
+      await this.api('DELETE', `cartoes/lancamentos/${chargeId}`)
       this.toast('Lançamento excluído!')
-      // Recarregar a view ativa (compras ou fatura)
-      if (document.getElementById('compras-modal-body')) this.carregarComprasCartao(cartaoId)
-      else this.carregarLancamentosCartaoModal(cartaoId)
+      await this._carregarFatura()
+      this.carregarCartoes()
     } catch(e) {
       this.toast('Erro ao excluir', 'error')
     }
   },
 
+  // ─── MODAL NOVA COMPRA ──────────────────────────────────────────────────────
+  async modalNovaCompraCartao(cartaoId) {
+    // Fechar modal atual e abrir modal de compra
+    const mc = document.getElementById('modal-container')
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    const hoje = new Date().toISOString().split('T')[0]
+    const cats = ['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Eletrônicos','Pets','Outros']
+
+    mc.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;">💳 Nova Compra no Cartão</h3>
+              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Lançamento com cálculo automático da fatura</div>
+            </div>
+            <button onclick="VM._voltarParaFatura(${cartaoId})" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="nova-compra-form">
+            <div class="form-group">
+              <label class="form-label">Descrição *</label>
+              <input type="text" id="nc-desc" class="form-input" placeholder="Ex: Supermercado, Netflix..." required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Categoria *</label>
+                <select id="nc-cat" class="form-select">
+                  ${cats.map(c=>`<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Data da Compra *</label>
+                <input type="date" id="nc-data" class="form-input" value="${hoje}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor Total (R$) *</label>
+                <input type="number" id="nc-valor" class="form-input" step="0.01" min="0.01" placeholder="0,00" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Parcelas</label>
+                <select id="nc-parcelas" class="form-select">
+                  ${[1,2,3,4,5,6,7,8,9,10,11,12,18,24].map(n=>`<option value="${n}">${n===1?'À vista':'${n}x'}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <input type="text" id="nc-obs" class="form-input" placeholder="Opcional...">
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM._voltarParaFatura(${cartaoId})" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="nc-submit"><i class="fas fa-save"></i> Lançar Compra</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    // Corrigir o template literal do select de parcelas
+    document.querySelectorAll('#nc-parcelas option').forEach(opt => {
+      if (opt.value !== '1') opt.textContent = opt.value + 'x'
+    })
+
+    document.getElementById('nova-compra-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('nc-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
+      try {
+        const r = await this.api('POST', `cartoes/${cartaoId}/compra`, {
+          descricao:       document.getElementById('nc-desc').value,
+          categoria:       document.getElementById('nc-cat').value,
+          valor_total:     parseFloat(document.getElementById('nc-valor').value),
+          numero_parcelas: parseInt(document.getElementById('nc-parcelas').value),
+          data_compra:     document.getElementById('nc-data').value,
+          observacoes:     document.getElementById('nc-obs').value || null
+        })
+        this.toast(r.message || 'Compra lançada!', 'success')
+        await this._voltarParaFatura(cartaoId)
+        this.carregarCartoes()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao lançar compra', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Lançar Compra'
+      }
+    })
+  },
+
+  async _voltarParaFatura(cartaoId) {
+    if (this._faturaState && this._faturaState.cartaoId === cartaoId) {
+      await this.abrirFaturaCartao(cartaoId, this._faturaState.nomeCartao, this._faturaState.cor)
+    } else {
+      this.closeModal()
+    }
+  },
+
+  // ─── COMPRA ANTERIOR / RETROATIVA ─────────────────────────────────────────
   async modalLancarCompraAnterior() {
-    // Buscar cartões para o select
     let cartoes = []
     try { const r = await this.api('GET', 'cartoes'); cartoes = r.cartoes || [] } catch(e) {}
 
@@ -3596,10 +3733,10 @@ const VM = {
             </div>
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
-          
+
           <div style="background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.8rem;color:#cca800;line-height:1.6;">
-            💡 <strong>Exemplo:</strong> Compra de R$ 1.200 em janeiro em 12x. Estamos em março (2 parcelas pagas). 
-            Informe o valor total original, total de parcelas e quantas já foram pagas — o sistema registra apenas as parcelas restantes.
+            💡 <strong>Exemplo:</strong> Compra de R$ 1.200 em janeiro em 12x. Estamos em março (2 parcelas pagas).
+            Informe o valor total original, total de parcelas e quantas já foram pagas — o sistema registra apenas as parcelas restantes nas faturas corretas.
           </div>
 
           <form id="compra-ant-form">
@@ -3640,9 +3777,7 @@ const VM = {
               </div>
             </div>
 
-            <!-- Preview calculado -->
-            <div id="ca-preview" style="display:none;padding:14px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.2);border-radius:10px;margin-bottom:16px;font-size:0.82rem;">
-            </div>
+            <div id="ca-preview" style="display:none;padding:14px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.2);border-radius:10px;margin-bottom:16px;font-size:0.82rem;"></div>
 
             <div class="form-group">
               <label class="form-label">Observações</label>
@@ -3670,14 +3805,14 @@ const VM = {
         return
       }
       try {
-        const res = await this.api('POST', `cartoes/${cartaoId}/lancamentos-retroativos`, {
-          descricao: document.getElementById('ca-desc').value,
-          categoria: document.getElementById('ca-cat').value,
-          valor_total: parseFloat(document.getElementById('ca-valor').value),
+        const res = await this.api('POST', `cartoes/${cartaoId}/compra-retroativa`, {
+          descricao:       document.getElementById('ca-desc').value,
+          categoria:       document.getElementById('ca-cat').value,
+          valor_total:     parseFloat(document.getElementById('ca-valor').value),
           numero_parcelas: totalParcelas,
-          parcelas_pagas: jasPagas,
-          data_compra: document.getElementById('ca-data').value,
-          observacoes: document.getElementById('ca-obs').value || null
+          parcelas_pagas:  jasPagas,
+          data_compra:     document.getElementById('ca-data').value,
+          observacoes:     document.getElementById('ca-obs').value || null
         })
         this.toast(res.message || 'Compra registrada!', 'success')
         this.closeModal()
@@ -3693,31 +3828,12 @@ const VM = {
     const valor = parseFloat(document.getElementById('ca-valor')?.value || 0)
     const total = parseInt(document.getElementById('ca-parcelas-total')?.value || 0)
     const pagas = parseInt(document.getElementById('ca-parcelas-pagas')?.value || 0)
-    const dataCompraStr = document.getElementById('ca-data')?.value || ''
-    const cartaoId = document.getElementById('ca-cartao')?.value || ''
     const preview = document.getElementById('ca-preview')
     if (!preview) return
     if (valor > 0 && total >= 2 && pagas >= 0 && pagas < total) {
       const restantes = total - pagas
       const valorParcela = valor / total
       const totalRestante = valorParcela * restantes
-
-      // Calcular datas estimadas das próximas 3 parcelas (sem saber o cartão atual)
-      let datasHtml = ''
-      if (dataCompraStr) {
-        const dataCompra = new Date(dataCompraStr + 'T12:00:00')
-        const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-        const proximasParc = []
-        for (let i = pagas + 1; i <= Math.min(pagas + 3, total); i++) {
-          const d = new Date(dataCompra)
-          d.setMonth(dataCompra.getMonth() + (i - 1) + 1) // +1 pois normalmente vai para próximo ciclo
-          proximasParc.push(`<span style="background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:6px;">${i}/${total}: ${meses[d.getMonth()]}/${d.getFullYear()}</span>`)
-        }
-        if (proximasParc.length > 0) {
-          datasHtml = `<div style="margin-top:10px;font-size:0.72rem;color:#888;">📅 Próximas parcelas estimadas: ${proximasParc.join(' ')}</div>`
-        }
-      }
-
       preview.style.display = 'block'
       preview.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
@@ -3725,13 +3841,13 @@ const VM = {
           <div><div style="color:#888;font-size:0.72rem;">Parcelas a registrar</div><div style="font-weight:700;color:#ffc400;">${restantes} de ${total}</div></div>
           <div><div style="color:#888;font-size:0.72rem;">Total a registrar</div><div style="font-weight:700;color:#ff6b6b;">${this.formatMoney(totalRestante)}</div></div>
         </div>
-        ${datasHtml}
       `
     } else {
       preview.style.display = 'none'
     }
   },
 
+  // ─── CRUD CARTÃO ───────────────────────────────────────────────────────────
   modalCartao(cartao = null) {
     const isEdit = !!cartao
     const bandeiras = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
@@ -3840,6 +3956,7 @@ const VM = {
       this.toast('Erro ao excluir', 'error')
     }
   },
+
 
   // ============== LEMBRETES ==============
   async pageLembretes() {
