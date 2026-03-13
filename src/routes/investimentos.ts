@@ -214,6 +214,18 @@ investimentos.get('/simulacao', async (c) => {
     return c.json({ error: 'Parâmetros: valor, tipo, prazo_meses' }, 400)
   }
 
+  // Buscar CDI real do cache local (tabela cdi_historico)
+  let CDI_EFETIVO = CDI_PADRAO_AA
+  try {
+    const cdiCached = await c.env.DB.prepare(
+      `SELECT taxa, data FROM cdi_historico ORDER BY data DESC LIMIT 1`
+    ).first<{taxa:number; data:string}>()
+    if (cdiCached?.taxa) {
+      // Converter taxa diária para anual: (1 + taxa_diaria/100)^252 - 1
+      CDI_EFETIVO = (Math.pow(1 + cdiCached.taxa / 100, 252) - 1) * 100
+    }
+  } catch (_) {}
+
   const taxas: Record<string, number> = {
     'poupanca': 0.005,
     'cdb': 0.009,
@@ -230,7 +242,7 @@ investimentos.get('/simulacao', async (c) => {
   let taxaMensal: number
   if (tipo === 'caixinha' && percentual_cdi) {
     // CDI mensal: (1 + CDI_aa/100)^(1/12) - 1
-    const cdiMensal = Math.pow(1 + CDI_PADRAO_AA / 100, 1 / 12) - 1
+    const cdiMensal = Math.pow(1 + CDI_EFETIVO / 100, 1 / 12) - 1
     taxaMensal = cdiMensal * (parseFloat(percentual_cdi) / 100)
   } else {
     taxaMensal = taxa_personalizada ? parseFloat(taxa_personalizada) / 100 : (taxas[tipo] || 0.008)

@@ -5,7 +5,50 @@ type Bindings = { DB: D1Database }
 
 const auth = new Hono<{ Bindings: Bindings }>()
 
-// Middleware para verificar autenticação
+// ─── Domínios de e-mail temporário bloqueados ────────────────────────────────
+const BLOCKED_DOMAINS = new Set([
+  'tempmail.com','temp-mail.org','guerrillamail.com','mailinator.com',
+  'yopmail.com','10minutemail.com','throwam.com','fakeinbox.com',
+  'sharklasers.com','guerrillamailblock.com','grr.la','guerrillamail.info',
+  'spam4.me','trashmail.com','trashmail.me','dispostable.com',
+  'spamgourmet.com','spamgourmet.net','binkmail.com','bob.spamgourmet.com',
+  'trashmail.at','trashmail.io','trashmail.me','discard.email',
+  'spamspot.com','spamevader.com','spamfree24.org','spaml.com',
+  'spammotel.com','spamthisplease.com','mailnull.com','spaminator.de',
+  'maildrop.cc','mailnesia.com','mailnull.com','nospamfor.us',
+  'ownmail.net','pecinan.com','qq.com.cn','rcpt.at',
+  'spam.la','superrito.com','trbvm.com','uggsrock.com',
+  'vomoto.com','wile.com','ze.am','zoemail.com',
+  'filzmail.com','trbvm.com','mohmal.com','emailondeck.com',
+  'tempinbox.com','tempr.email','throwam.com','spamgrap.com',
+])
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function isBlockedEmail(email: string): boolean {
+  const domain = email.toLowerCase().split('@')[1] || ''
+  return BLOCKED_DOMAINS.has(domain)
+}
+
+function isValidEmailFormat(email: string): boolean {
+  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email)
+}
+
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+function getOTPExpiry(): string {
+  const d = new Date()
+  d.setMinutes(d.getMinutes() + 10)
+  return d.toISOString().replace('T', ' ').split('.')[0]
+}
+
+export function getCookieToken(cookieHeader: string): string | null {
+  const match = cookieHeader.match(/vm_token=([^;]+)/)
+  return match ? match[1] : null
+}
+
+// ─── Middleware de autenticação ───────────────────────────────────────────────
 export async function requireAuth(c: any, next: any) {
   const token = c.req.header('Authorization')?.replace('Bearer ', '') || 
                 getCookieToken(c.req.header('Cookie') || '')
@@ -31,12 +74,30 @@ export async function requireAuth(c: any, next: any) {
   }
 }
 
-function getCookieToken(cookieHeader: string): string | null {
-  const match = cookieHeader.match(/vm_token=([^;]+)/)
-  return match ? match[1] : null
-}
+// ─── GET /api/auth/check-email ────────────────────────────────────────────────
+// Valida e-mail em tempo real: formato, domínio bloqueado, disponibilidade
+auth.get('/check-email', async (c) => {
+  const email = (c.req.query('email') || '').trim().toLowerCase()
 
-// POST /api/auth/register
+  if (!email) return c.json({ valid: false, error: 'E-mail obrigatório' })
+
+  if (!isValidEmailFormat(email)) {
+    return c.json({ valid: false, error: 'Formato de e-mail inválido' })
+  }
+
+  if (isBlockedEmail(email)) {
+    return c.json({ valid: false, error: 'E-mails temporários não são permitidos' })
+  }
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
+  if (existing) {
+    return c.json({ valid: false, error: 'Este e-mail já está cadastrado' })
+  }
+
+  return c.json({ valid: true, message: 'E-mail válido e disponível ✓' })
+})
+
+// ─── POST /api/auth/register ──────────────────────────────────────────────────
 auth.post('/register', async (c) => {
   try {
     const { nome, email, senha } = await c.req.json()
@@ -44,8 +105,17 @@ auth.post('/register', async (c) => {
     if (!nome || !email || !senha) {
       return c.json({ error: 'Nome, email e senha são obrigatórios' }, 400)
     }
-    if (senha.length < 6) {
-      return c.json({ error: 'Senha deve ter pelo menos 6 caracteres' }, 400)
+    if (nome.trim().length < 3) {
+      return c.json({ error: 'Nome deve ter pelo menos 3 caracteres' }, 400)
+    }
+    if (!isValidEmailFormat(email)) {
+      return c.json({ error: 'Formato de e-mail inválido' }, 400)
+    }
+    if (isBlockedEmail(email)) {
+      return c.json({ error: 'E-mails temporários não são permitidos' }, 400)
+    }
+    if (senha.length < 8) {
+      return c.json({ error: 'Senha deve ter pelo menos 8 caracteres' }, 400)
     }
 
     const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
@@ -59,7 +129,7 @@ auth.post('/register', async (c) => {
 
     const result = await c.env.DB.prepare(
       'INSERT INTO users (nome, email, senha, plano, avatar_color) VALUES (?, ?, ?, "free", ?)'
-    ).bind(nome, email, senhaHash, color).run()
+    ).bind(nome.trim(), email.toLowerCase(), senhaHash, color).run()
 
     const userId = result.meta.last_row_id
     
@@ -68,27 +138,118 @@ auth.post('/register', async (c) => {
       'INSERT INTO assinaturas (user_id, plano, status) VALUES (?, "free", "ativo")'
     ).bind(userId).run()
 
-    // Criar sessão
+    // Gerar e salvar OTP
+    const otp = generateOTP()
+    const expiresAt = getOTPExpiry()
+    await c.env.DB.prepare(
+      `INSERT INTO email_verifications (user_id, email, code, attempts, expires_at)
+       VALUES (?, ?, ?, 0, ?)`
+    ).bind(userId, email.toLowerCase(), otp, expiresAt).run()
+
+    // Criar sessão temporária (usuário pode navegar mas não confirmado)
     const token = generateToken()
-    const expiresAt = getTokenExpiry()
+    const tokenExpiry = getTokenExpiry()
     await c.env.DB.prepare(
       'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)'
-    ).bind(userId, token, expiresAt).run()
+    ).bind(userId, token, tokenExpiry).run()
 
-    const response = c.json({
+    return c.json({
       success: true,
-      message: 'Conta criada com sucesso!',
-      user: { id: userId, nome, email, plano: 'free' },
-      token
+      message: 'Conta criada! Verifique seu e-mail.',
+      user: { id: userId, nome: nome.trim(), email: email.toLowerCase(), plano: 'free' },
+      token,
+      otp_required: true,
+      // Em produção NUNCA retornar o OTP — aqui somente para demo/dev
+      _dev_otp: otp
     }, 201)
-
-    return response
   } catch (e: any) {
     return c.json({ error: 'Erro ao criar conta', details: e.message }, 500)
   }
 })
 
-// POST /api/auth/login
+// ─── POST /api/auth/verify-otp ────────────────────────────────────────────────
+auth.post('/verify-otp', async (c) => {
+  try {
+    const { email, code } = await c.req.json()
+    if (!email || !code) return c.json({ error: 'E-mail e código são obrigatórios' }, 400)
+
+    const record = await c.env.DB.prepare(
+      `SELECT * FROM email_verifications
+       WHERE email = ? AND verified_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`
+    ).bind(email.toLowerCase()).first() as any
+
+    if (!record) return c.json({ error: 'Nenhuma verificação pendente para este e-mail' }, 404)
+
+    // Expirado
+    if (new Date(record.expires_at) < new Date()) {
+      return c.json({ error: 'Código expirado. Solicite um novo.', expired: true }, 400)
+    }
+
+    // Muitas tentativas
+    if (record.attempts >= 5) {
+      return c.json({ error: 'Muitas tentativas. Solicite um novo código.', locked: true }, 429)
+    }
+
+    // Incrementar tentativas
+    await c.env.DB.prepare(
+      'UPDATE email_verifications SET attempts = attempts + 1 WHERE id = ?'
+    ).bind(record.id).run()
+
+    if (record.code !== String(code)) {
+      const remaining = 4 - record.attempts
+      return c.json({ error: `Código incorreto. ${remaining > 0 ? remaining + ' tentativas restantes.' : 'Última tentativa.'}`, invalid: true }, 400)
+    }
+
+    // Marcar como verificado
+    await c.env.DB.prepare(
+      'UPDATE email_verifications SET verified_at = datetime("now") WHERE id = ?'
+    ).bind(record.id).run()
+
+    return c.json({ success: true, message: 'E-mail verificado com sucesso!' })
+  } catch (e: any) {
+    return c.json({ error: 'Erro na verificação', details: e.message }, 500)
+  }
+})
+
+// ─── POST /api/auth/resend-otp ────────────────────────────────────────────────
+auth.post('/resend-otp', async (c) => {
+  try {
+    const { email } = await c.req.json()
+    if (!email) return c.json({ error: 'E-mail obrigatório' }, 400)
+
+    const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first() as any
+    if (!user) return c.json({ error: 'Usuário não encontrado' }, 404)
+
+    // Checar cooldown de 1 minuto
+    const recent = await c.env.DB.prepare(
+      `SELECT created_at FROM email_verifications
+       WHERE user_id = ? AND created_at > datetime('now', '-1 minute')
+       ORDER BY created_at DESC LIMIT 1`
+    ).bind(user.id).first() as any
+
+    if (recent) {
+      return c.json({ error: 'Aguarde 1 minuto antes de solicitar novo código', cooldown: true }, 429)
+    }
+
+    const otp = generateOTP()
+    const expiresAt = getOTPExpiry()
+    await c.env.DB.prepare(
+      `INSERT INTO email_verifications (user_id, email, code, attempts, expires_at)
+       VALUES (?, ?, ?, 0, ?)`
+    ).bind(user.id, email.toLowerCase(), otp, expiresAt).run()
+
+    return c.json({
+      success: true,
+      message: 'Novo código enviado!',
+      _dev_otp: otp
+    })
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao reenviar código', details: e.message }, 500)
+  }
+})
+
+// ─── POST /api/auth/login ─────────────────────────────────────────────────────
 auth.post('/login', async (c) => {
   try {
     const { email, senha } = await c.req.json()
@@ -110,10 +271,8 @@ auth.post('/login', async (c) => {
       return c.json({ error: 'Email ou senha incorretos' }, 401)
     }
 
-    // Atualizar último acesso
     await c.env.DB.prepare('UPDATE users SET ultimo_acesso = datetime("now") WHERE id = ?').bind(user.id).run()
 
-    // Criar nova sessão
     const token = generateToken()
     const expiresAt = getTokenExpiry()
     await c.env.DB.prepare(
@@ -131,14 +290,14 @@ auth.post('/login', async (c) => {
   }
 })
 
-// POST /api/auth/logout
+// ─── POST /api/auth/logout ────────────────────────────────────────────────────
 auth.post('/logout', requireAuth, async (c) => {
   const token = c.get('token')
   await c.env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run()
   return c.json({ success: true, message: 'Logout realizado' })
 })
 
-// GET /api/auth/me
+// ─── GET /api/auth/me ─────────────────────────────────────────────────────────
 auth.get('/me', requireAuth, async (c) => {
   const user = c.get('user')
   return c.json({ user })

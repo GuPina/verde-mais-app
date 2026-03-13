@@ -19,6 +19,11 @@ import orcamentosRoutes from './routes/orcamentos'
 import recorrenciasRoutes from './routes/recorrencias'
 import projecaoRoutes from './routes/projecao'
 import asaasRoutes from './routes/asaas'
+import comparativoRoutes from './routes/comparativo'
+import cdiRoutes from './routes/cdi'
+import tagsRoutes from './routes/tags'
+import relatorioRoutes from './routes/relatorio'
+import alertasCartaoRoutes from './routes/alertas-cartao'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -50,12 +55,66 @@ app.route('/api/orcamentos', orcamentosRoutes)
 app.route('/api/recorrencias', recorrenciasRoutes)
 app.route('/api/projecao', projecaoRoutes)
 app.route('/api/asaas', asaasRoutes)
+app.route('/api/comparativo', comparativoRoutes)
+app.route('/api/cdi', cdiRoutes)
+app.route('/api/tags', tagsRoutes)
+app.route('/api/relatorio', relatorioRoutes)
+app.route('/api/alertas-cartao', alertasCartaoRoutes)
 
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '2.0.0' }))
+
+// Service Worker — servido inline para evitar problemas de CORS/path no wrangler
+app.get('/sw.js', (c) => {
+  const swContent = `// VerdeMais Service Worker v2
+const CACHE = 'vm-v2'
+
+self.addEventListener('install', () => self.skipWaiting())
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  )
+})
+
+self.addEventListener('push', (e) => {
+  let d = {}
+  try { d = e.data?.json() || {} } catch(_) {}
+  const title   = d.title   || 'VerdeMais'
+  const options = {
+    body:    d.body    || 'Nova notificação',
+    icon:    d.icon    || '/favicon.svg',
+    badge:   '/favicon.svg',
+    tag:     d.tag     || 'vm',
+    vibrate: d.urgente ? [200,100,200] : [100],
+    data:    { url: d.url || '/app' }
+  }
+  e.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const url = e.notification.data?.url || '/app'
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wcs => {
+      for (const wc of wcs) {
+        if ('focus' in wc) { wc.focus(); wc.postMessage({ type: 'NAVIGATE', url }); return }
+      }
+      if (clients.openWindow) return clients.openWindow(url)
+    })
+  )
+})
+`
+  return c.text(swContent, 200, {
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Service-Worker-Allowed': '/',
+    'Cache-Control': 'no-cache'
+  })
+})
 
 // Landing Page
 app.get('/', (c) => {
@@ -67,6 +126,7 @@ app.get('/app', (c) => c.html(appShell()))
 app.get('/app/*', (c) => c.html(appShell()))
 app.get('/login', (c) => c.html(appShell()))
 app.get('/cadastro', (c) => c.html(appShell()))
+app.get('/verificar-email', (c) => c.html(appShell()))
 app.get('/onboarding', (c) => c.html(appShell()))
 app.get('/onboarding/*', (c) => c.html(appShell()))
 
@@ -111,6 +171,8 @@ function landingPage() {
     
     .floating { animation: float 6s ease-in-out infinite; }
     @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-20px); } }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+    @keyframes fadeSlideIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
     
     .mockup { background: rgba(255,255,255,0.05); border: 1px solid rgba(47,191,113,0.2); border-radius: 24px; padding: 24px; backdrop-filter: blur(20px); }
     
@@ -529,6 +591,24 @@ function appShell() {
     </div>
   </div>
   <script src="/static/app.js"></script>
+  <script>
+    // Registrar Service Worker para notificações push
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then(reg => {
+            window._swReg = reg
+            // Ouvir mensagens do SW (ex: navegação)
+            navigator.serviceWorker.addEventListener('message', e => {
+              if (e.data?.type === 'NAVIGATE' && window.VM) {
+                const page = e.data.url.replace('/app/', '').replace('/app', '') || 'dashboard'
+                VM.navigate(page)
+              }
+            })
+          }).catch(() => {})
+      })
+    }
+  </script>
 </body>
 </html>`
 }

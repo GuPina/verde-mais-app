@@ -63,6 +63,7 @@ const VM = {
     const path = window.location.pathname
     if (path === '/login') return this.renderLogin()
     if (path === '/cadastro') return this.renderCadastro()
+    if (path === '/verificar-email') return this.renderOTP()
     if (path === '/' || path === '') return window.location.href = '/'
     if (path.startsWith('/onboarding')) {
       if (!this.token) return window.location.href = '/login'
@@ -330,132 +331,311 @@ const VM = {
 
   renderCadastro() {
     document.getElementById('app').innerHTML = `
-      <div class="auth-page">
-        <div class="auth-card" style="max-width:480px;">
-          <div class="auth-logo">
-            <div class="logo-icon">💚</div>
-            <div style="font-size:1.6rem;font-weight:800;" class="gradient-text">VerdeMais</div>
-            <div style="color:#666;font-size:0.85rem;margin-top:4px;">Comece sua jornada financeira</div>
+      <div style="min-height:100vh;background:#0F172A;display:flex;">
+
+        <!-- ── LADO ESQUERDO — value proposition (oculto em mobile) ── -->
+        <div style="flex:1;background:linear-gradient(135deg,#0F172A 0%,#0d2b18 60%,#0a3d20 100%);display:flex;flex-direction:column;justify-content:center;padding:60px 48px;border-right:1px solid rgba(16,185,129,0.12);" class="auth-left-panel">
+          <!-- Logo -->
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:56px;">
+            <div style="width:42px;height:42px;background:linear-gradient(135deg,#10B981,#059669);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;">🌱</div>
+            <div>
+              <div style="font-size:1.3rem;font-weight:800;color:#F8FAFC;letter-spacing:-0.5px;">VerdeMais</div>
+              <div style="font-size:0.72rem;color:#34D399;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;">Controle financeiro inteligente</div>
+            </div>
           </div>
-          
-          <h2 style="font-size:1.3rem;font-weight:700;margin-bottom:24px;text-align:center;">Criar conta gratuita</h2>
-          
-          <div id="auth-error" style="display:none;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#ff6b6b;font-size:0.88rem;"></div>
-          
-          <form id="cadastro-form">
-            <div class="form-group">
-              <label class="form-label">Nome completo</label>
-              <input type="text" id="cad-nome" class="form-input" placeholder="Seu nome completo" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">E-mail</label>
-              <input type="email" id="cad-email" class="form-input" placeholder="seu@email.com" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Confirmar e-mail</label>
-              <input type="email" id="cad-email2" class="form-input" placeholder="Confirme seu e-mail" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Senha <span style="color:#555;font-size:0.78rem;">(mínimo 6 caracteres)</span></label>
-              <div style="position:relative;">
-                <input type="password" id="cad-senha" class="form-input" placeholder="••••••••" required minlength="6" style="padding-right:44px;">
-                <button type="button" onclick="VM.toggleSenha('cad-senha','eye1')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:1rem;" id="eye1"><i class="fas fa-eye"></i></button>
+
+          <!-- Headline -->
+          <h1 style="font-size:2.4rem;font-weight:800;color:#F8FAFC;line-height:1.2;margin-bottom:20px;letter-spacing:-1px;">
+            Domine suas finanças<br><span style="color:#10B981;">com inteligência</span>
+          </h1>
+          <p style="color:#94A3B8;font-size:1rem;line-height:1.7;margin-bottom:48px;max-width:380px;">
+            Análise automática de gastos, metas inteligentes e um dashboard que você realmente entende.
+          </p>
+
+          <!-- Benefícios -->
+          <div style="display:flex;flex-direction:column;gap:20px;margin-bottom:56px;">
+            ${[
+              ['🤖','IA analisa seus gastos automaticamente','Padrões e insights personalizados todo mês'],
+              ['🎯','Metas baseadas no seu perfil','Objetivos realistas com plano de ação'],
+              ['📊','Dashboard intuitivo','Visualize seu dinheiro de forma clara'],
+              ['🛡️','Segurança dos seus dados','Criptografia de ponta a ponta']
+            ].map(([icon,title,desc]) => `
+              <div style="display:flex;align-items:flex-start;gap:14px;">
+                <div style="width:40px;height:40px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">${icon}</div>
+                <div>
+                  <div style="font-weight:600;color:#F8FAFC;font-size:0.9rem;">${title}</div>
+                  <div style="color:#64748B;font-size:0.8rem;margin-top:2px;">${desc}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          <!-- Depoimento -->
+          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;backdrop-filter:blur(12px);">
+            <div style="display:flex;gap:4px;margin-bottom:10px;">⭐⭐⭐⭐⭐</div>
+            <p style="color:#CBD5E1;font-size:0.85rem;line-height:1.6;margin-bottom:12px;font-style:italic;">"Em 3 meses, quitei R$ 8.000 em dívidas e ainda montei minha reserva de emergência. O VerdeMais mudou minha relação com dinheiro."</p>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:32px;height:32px;background:linear-gradient(135deg,#10B981,#059669);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.9rem;font-weight:700;color:#fff;">M</div>
+              <div>
+                <div style="font-weight:600;color:#F8FAFC;font-size:0.82rem;">Marcos A.</div>
+                <div style="color:#64748B;font-size:0.72rem;">Usuário Premium — Belo Horizonte</div>
               </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Confirmar senha</label>
-              <div style="position:relative;">
-                <input type="password" id="cad-senha2" class="form-input" placeholder="••••••••" required minlength="6" style="padding-right:44px;">
-                <button type="button" onclick="VM.toggleSenha('cad-senha2','eye2')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:1rem;" id="eye2"><i class="fas fa-eye"></i></button>
+          </div>
+        </div>
+
+        <!-- ── LADO DIREITO — formulário ── -->
+        <div style="flex:1;max-width:560px;min-width:320px;display:flex;align-items:center;justify-content:center;padding:40px 32px;overflow-y:auto;">
+          <div style="width:100%;max-width:440px;">
+
+            <!-- Logo mobile (só aparece em telas pequenas) -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;" class="auth-logo-mobile">
+              <div style="width:36px;height:36px;background:linear-gradient(135deg,#10B981,#059669);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🌱</div>
+              <span style="font-size:1.2rem;font-weight:800;color:#F8FAFC;">VerdeMais</span>
+            </div>
+
+            <h2 style="font-size:1.6rem;font-weight:800;color:#F8FAFC;margin-bottom:6px;letter-spacing:-0.5px;">Criar conta gratuita</h2>
+            <p style="color:#64748B;font-size:0.88rem;margin-bottom:28px;">Comece em menos de 2 minutos. Sem cartão de crédito.</p>
+
+            <!-- Alert de erro -->
+            <div id="auth-error" style="display:none;background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.3);border-radius:12px;padding:12px 16px;margin-bottom:18px;color:#F43F5E;font-size:0.85rem;"></div>
+
+            <form id="cadastro-form">
+
+              <!-- Nome -->
+              <div class="form-group">
+                <label style="font-size:0.82rem;font-weight:600;color:#94A3B8;margin-bottom:8px;display:block;">Nome completo</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.9rem;">👤</span>
+                  <input type="text" id="cad-nome" placeholder="Seu nome completo"
+                    style="width:100%;background:#0F172A;border:1px solid #1E293B;border-radius:12px;padding:13px 14px 13px 40px;color:#F8FAFC;font-size:0.9rem;outline:none;transition:all 0.2s;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='#10B981';this.style.boxShadow='0 0 0 2px rgba(16,185,129,0.15)'"
+                    onblur="this.style.boxShadow='none';VM.validateNomeCad(this)"
+                    required>
+                </div>
+                <div id="nome-feedback" style="font-size:0.75rem;margin-top:5px;min-height:16px;"></div>
+              </div>
+
+              <!-- E-mail com validação tempo real -->
+              <div class="form-group">
+                <label style="font-size:0.82rem;font-weight:600;color:#94A3B8;margin-bottom:8px;display:block;">E-mail</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.9rem;">✉️</span>
+                  <input type="email" id="cad-email" placeholder="seu@email.com"
+                    style="width:100%;background:#0F172A;border:1px solid #1E293B;border-radius:12px;padding:13px 44px 13px 40px;color:#F8FAFC;font-size:0.9rem;outline:none;transition:all 0.2s;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='#10B981';this.style.boxShadow='0 0 0 2px rgba(16,185,129,0.15)'"
+                    required>
+                  <div id="email-icon" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:0.9rem;pointer-events:none;"></div>
+                </div>
+                <div id="email-feedback" style="font-size:0.75rem;margin-top:5px;min-height:16px;"></div>
+              </div>
+
+              <!-- Senha -->
+              <div class="form-group">
+                <label style="font-size:0.82rem;font-weight:600;color:#94A3B8;margin-bottom:8px;display:block;">Senha</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.9rem;">🔒</span>
+                  <input type="password" id="cad-senha" placeholder="Mínimo 8 caracteres"
+                    style="width:100%;background:#0F172A;border:1px solid #1E293B;border-radius:12px;padding:13px 44px 13px 40px;color:#F8FAFC;font-size:0.9rem;outline:none;transition:all 0.2s;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='#10B981';this.style.boxShadow='0 0 0 2px rgba(16,185,129,0.15)'"
+                    required>
+                  <button type="button" onclick="VM.toggleSenha('cad-senha','eye1')"
+                    style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#475569;cursor:pointer;font-size:0.9rem;padding:4px;" id="eye1">👁️</button>
+                </div>
+
+                <!-- Medidor de força -->
+                <div id="senha-strength" style="margin-top:10px;display:none;">
+                  <div style="display:flex;gap:4px;margin-bottom:6px;" id="strength-bars"></div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span id="strength-label" style="font-size:0.75rem;"></span>
+                    <div id="strength-criteria" style="display:flex;gap:8px;font-size:0.68rem;color:#475569;flex-wrap:wrap;justify-content:flex-end;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Termos -->
+              <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:24px;margin-top:4px;">
+                <input type="checkbox" id="cad-termos"
+                  style="width:16px;height:16px;margin-top:2px;accent-color:#10B981;flex-shrink:0;cursor:pointer;" required>
+                <label for="cad-termos" style="font-size:0.78rem;color:#64748B;line-height:1.5;cursor:pointer;">
+                  Concordo com os <a href="#" style="color:#10B981;text-decoration:none;" onclick="return false;">Termos de Uso</a> e a 
+                  <a href="#" style="color:#10B981;text-decoration:none;" onclick="return false;">Política de Privacidade</a>
+                </label>
+              </div>
+
+              <!-- CTA -->
+              <button type="submit" class="btn-primary" id="cad-btn" disabled
+                style="width:100%;justify-content:center;font-size:0.95rem;padding:14px;background:#10B981;border:none;border-radius:12px;color:#fff;font-weight:700;cursor:pointer;transition:all 0.2s;opacity:0.5;">
+                Criar Conta Gratuita →
+              </button>
+
+            </form>
+
+            <div style="text-align:center;margin-top:20px;color:#64748B;font-size:0.82rem;">
+              Já tem conta? <a href="/login" style="color:#10B981;text-decoration:none;font-weight:600;">Entrar agora</a>
+            </div>
+
+            <!-- Social proof -->
+            <div style="text-align:center;margin-top:28px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.06);">
+              <div style="font-size:0.72rem;color:#334155;margin-bottom:8px;">Junte-se a pessoas que já transformaram suas finanças</div>
+              <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                <div style="display:flex;">${['#10B981','#059669','#34D399','#6EE7B7','#A7F3D0'].map(c => `<div style="width:24px;height:24px;border-radius:50%;background:${c};border:2px solid #0F172A;margin-left:-6px;"></div>`).join('')}</div>
+                <span style="font-size:0.75rem;color:#475569;">+2.400 usuários ativos</span>
               </div>
             </div>
-            <div id="senha-strength" style="margin-bottom:12px;display:none;">
-              <div style="display:flex;gap:4px;margin-bottom:4px;" id="strength-bars"></div>
-              <div style="font-size:0.75rem;" id="strength-label"></div>
-            </div>
-            <button type="submit" class="btn-primary" id="cad-btn">
-              <i class="fas fa-user-plus"></i> Criar conta grátis
-            </button>
-          </form>
-          
-          <div style="text-align:center;margin-top:20px;color:#666;font-size:0.78rem;line-height:1.6;">
-            Ao criar conta você concorda com os <a href="#" style="color:#2FBF71;">Termos de Uso</a> e 
-            <a href="#" style="color:#2FBF71;">Política de Privacidade</a> (LGPD)
-          </div>
-          <div style="text-align:center;margin-top:16px;color:#666;font-size:0.88rem;">
-            Já tem conta? <a href="/login" style="color:#2FBF71;text-decoration:none;font-weight:600;">Entrar</a>
+
           </div>
         </div>
       </div>
+
+      <style>
+        @media(max-width:768px){
+          .auth-left-panel{display:none!important;}
+          .auth-logo-mobile{display:flex!important;}
+        }
+        @media(min-width:769px){
+          .auth-logo-mobile{display:none!important;}
+        }
+      </style>
     `
 
-    // Verificação de força da senha
+    // ── Validação de nome ────────────────────────────────────────────────────
+    this.validateNomeCad = (input) => {
+      const fb = document.getElementById('nome-feedback')
+      if (input.value.trim().length < 3) {
+        input.style.borderColor = '#F43F5E'
+        fb.innerHTML = '<span style="color:#F43F5E;">⚠ Mínimo 3 caracteres</span>'
+      } else {
+        input.style.borderColor = '#10B981'
+        fb.innerHTML = '<span style="color:#10B981;">✓ Nome válido</span>'
+      }
+      this._checkCadBtn()
+    }
+
+    // ── Validação de e-mail com debounce ────────────────────────────────────
+    let emailTimer = null
+    const emailInput = document.getElementById('cad-email')
+    const emailFb    = document.getElementById('email-feedback')
+    const emailIcon  = document.getElementById('email-icon')
+
+    emailInput.addEventListener('input', () => {
+      clearTimeout(emailTimer)
+      const val = emailInput.value.trim()
+      if (!val) { emailIcon.textContent = ''; emailFb.innerHTML = ''; this._checkCadBtn(); return }
+
+      emailIcon.innerHTML = '⏳'
+      emailInput.style.borderColor = '#334155'
+      emailFb.innerHTML = '<span style="color:#64748B;">Verificando...</span>'
+
+      emailTimer = setTimeout(async () => {
+        try {
+          const r = await axios.get(`/api/auth/check-email?email=${encodeURIComponent(val)}`)
+          if (r.data.valid) {
+            emailInput.style.borderColor = '#10B981'
+            emailInput.style.boxShadow = '0 0 0 2px rgba(16,185,129,0.15)'
+            emailIcon.textContent = '✅'
+            emailFb.innerHTML = `<span style="color:#10B981;">${r.data.message}</span>`
+            emailInput.dataset.valid = '1'
+          } else {
+            emailInput.style.borderColor = '#F43F5E'
+            emailInput.style.boxShadow = '0 0 0 2px rgba(244,63,94,0.15)'
+            emailIcon.textContent = '❌'
+            emailFb.innerHTML = `<span style="color:#F43F5E;">${r.data.error}</span>`
+            emailInput.dataset.valid = '0'
+          }
+        } catch {
+          emailInput.dataset.valid = '0'
+        }
+        this._checkCadBtn()
+      }, 500)
+    })
+
+    // ── Medidor de força da senha ────────────────────────────────────────────
     document.getElementById('cad-senha').addEventListener('input', (e) => {
       const senha = e.target.value
       const strengthEl = document.getElementById('senha-strength')
-      const barsEl = document.getElementById('strength-bars')
-      const labelEl = document.getElementById('strength-label')
-      if (senha.length === 0) { strengthEl.style.display = 'none'; return }
+      const barsEl     = document.getElementById('strength-bars')
+      const labelEl    = document.getElementById('strength-label')
+      const critEl     = document.getElementById('strength-criteria')
+
+      if (!senha) { strengthEl.style.display = 'none'; this._checkCadBtn(); return }
       strengthEl.style.display = 'block'
-      let score = 0
-      if (senha.length >= 8) score++
-      if (/[A-Z]/.test(senha)) score++
-      if (/[0-9]/.test(senha)) score++
-      if (/[^A-Za-z0-9]/.test(senha)) score++
-      const levels = [
-        { label: 'Muito fraca', color: '#ff4444' },
-        { label: 'Fraca', color: '#ff8800' },
-        { label: 'Média', color: '#ffc400' },
-        { label: 'Forte', color: '#2FBF71' },
-        { label: 'Muito forte', color: '#00a854' }
+
+      const checks = [
+        { ok: senha.length >= 8,           label: '8+ chars' },
+        { ok: /[A-Z]/.test(senha),         label: 'Maiúscula' },
+        { ok: /[0-9]/.test(senha),         label: 'Número' },
+        { ok: /[^A-Za-z0-9]/.test(senha),  label: 'Especial' }
       ]
-      const lvl = levels[score] || levels[0]
-      barsEl.innerHTML = Array(4).fill(0).map((_, i) => `<div style="flex:1;height:4px;border-radius:2px;background:${i < score ? lvl.color : 'rgba(255,255,255,0.1)'}"></div>`).join('')
-      labelEl.innerHTML = `<span style="color:${lvl.color};">${lvl.label}</span>`
+      const score = checks.filter(c => c.ok).length
+
+      const levels = [
+        { label: 'Muito fraca', color: '#F43F5E' },
+        { label: 'Fraca',       color: '#F59E0B' },
+        { label: 'Média',       color: '#F59E0B' },
+        { label: 'Forte',       color: '#10B981' },
+        { label: 'Muito forte', color: '#34D399' }
+      ]
+      const lvl = levels[score]
+
+      barsEl.innerHTML = Array(4).fill(0).map((_, i) => `
+        <div style="flex:1;height:4px;border-radius:2px;background:${i < score ? lvl.color : 'rgba(255,255,255,0.08)'};transition:all 0.3s;"></div>
+      `).join('')
+      labelEl.innerHTML = `<span style="color:${lvl.color};font-weight:600;">${lvl.label}</span>`
+      critEl.innerHTML = checks.map(c => `
+        <span style="color:${c.ok ? '#10B981' : '#334155'};transition:color 0.2s;">${c.ok ? '✓' : '·'} ${c.label}</span>
+      `).join('')
+
+      e.target.dataset.score = score
+      e.target.style.borderColor = score >= 3 ? '#10B981' : '#F43F5E'
+      this._checkCadBtn()
     })
 
+    // ── Habilitar botão ──────────────────────────────────────────────────────
+    this._checkCadBtn = () => {
+      const nome   = document.getElementById('cad-nome')?.value.trim().length >= 3
+      const email  = document.getElementById('cad-email')?.dataset.valid === '1'
+      const senha  = parseInt(document.getElementById('cad-senha')?.dataset.score || '0') >= 2
+      const termos = document.getElementById('cad-termos')?.checked
+      const btn    = document.getElementById('cad-btn')
+      if (btn) {
+        const ok = nome && email && senha && termos
+        btn.disabled = !ok
+        btn.style.opacity = ok ? '1' : '0.5'
+        btn.style.cursor  = ok ? 'pointer' : 'not-allowed'
+        btn.style.background = ok ? '#10B981' : '#1E293B'
+      }
+    }
+
+    document.getElementById('cad-termos').addEventListener('change', () => this._checkCadBtn())
+
+    // ── Submit ───────────────────────────────────────────────────────────────
     document.getElementById('cadastro-form').addEventListener('submit', async (e) => {
       e.preventDefault()
-      const btn = document.getElementById('cad-btn')
-      const errEl = document.getElementById('auth-error')
-      
-      const email = document.getElementById('cad-email').value
-      const email2 = document.getElementById('cad-email2').value
-      const senha = document.getElementById('cad-senha').value
-      const senha2 = document.getElementById('cad-senha2').value
+      const btn    = document.getElementById('cad-btn')
+      const errEl  = document.getElementById('auth-error')
+      const email  = document.getElementById('cad-email').value.trim()
+      const senha  = document.getElementById('cad-senha').value
+      const nome   = document.getElementById('cad-nome').value.trim()
 
       errEl.style.display = 'none'
-      
-      if (email !== email2) {
-        errEl.textContent = 'Os e-mails não coincidem. Verifique e tente novamente.'
-        errEl.style.display = 'block'; return
-      }
-      if (senha !== senha2) {
-        errEl.textContent = 'As senhas não coincidem. Verifique e tente novamente.'
-        errEl.style.display = 'block'; return
-      }
-      if (senha.length < 6) {
-        errEl.textContent = 'A senha deve ter pelo menos 6 caracteres.'
-        errEl.style.display = 'block'; return
-      }
-
       btn.disabled = true
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Criando conta...'
+      btn.innerHTML = '⏳ Criando conta...'
 
       try {
-        const res = await axios.post('/api/auth/register', {
-          nome: document.getElementById('cad-nome').value,
-          email, senha
-        })
+        const res = await axios.post('/api/auth/register', { nome, email, senha })
         localStorage.setItem('vm_token', res.data.token)
         localStorage.setItem('vm_user', JSON.stringify(res.data.user))
-        // Redirecionar para onboarding
-        window.location.href = '/onboarding'
+        // Guardar e-mail + OTP dev para a tela de verificação
+        localStorage.setItem('vm_pending_email', email)
+        if (res.data._dev_otp) localStorage.setItem('vm_dev_otp', res.data._dev_otp)
+        window.location.href = '/verificar-email'
       } catch (e) {
         errEl.textContent = e.response?.data?.error || 'Erro ao criar conta'
         errEl.style.display = 'block'
         btn.disabled = false
-        btn.innerHTML = '<i class="fas fa-user-plus"></i> Criar conta grátis'
+        btn.innerHTML = 'Criar Conta Gratuita →'
+        btn.style.opacity = '1'
       }
     })
   },
@@ -469,6 +649,283 @@ const VM = {
     } else {
       input.type = 'password'
       btn.innerHTML = '<i class="fas fa-eye"></i>'
+    }
+  },
+
+  // ======= OTP VERIFICATION =======
+  renderOTP() {
+    const email = localStorage.getItem('vm_pending_email') || ''
+    const devOTP = localStorage.getItem('vm_dev_otp') || ''
+    if (!email) { window.location.href = '/cadastro'; return }
+
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;background:#0F172A;display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Inter',sans-serif;">
+
+        <!-- Card central -->
+        <div style="width:100%;max-width:440px;background:rgba(30,41,59,0.8);border:1px solid rgba(16,185,129,0.2);border-radius:24px;padding:40px 36px;backdrop-filter:blur(20px);box-shadow:0 25px 60px rgba(0,0,0,0.5);">
+
+          <!-- Ícone animado -->
+          <div style="text-align:center;margin-bottom:28px;">
+            <div id="otp-icon-wrap" style="width:72px;height:72px;background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:2px solid rgba(16,185,129,0.3);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:2rem;transition:all 0.4s;">
+              ✉️
+            </div>
+            <h2 style="font-size:1.5rem;font-weight:800;color:#F8FAFC;margin-bottom:8px;letter-spacing:-0.5px;">Verifique seu e-mail</h2>
+            <p style="color:#64748B;font-size:0.87rem;line-height:1.6;">
+              Enviamos um código de 6 dígitos para<br>
+              <strong style="color:#10B981;">${email}</strong>
+            </p>
+          </div>
+
+          <!-- Dev hint -->
+          ${devOTP ? `<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 14px;margin-bottom:20px;text-align:center;font-size:0.82rem;color:#34D399;font-family:'JetBrains Mono',monospace;">🔧 Dev mode — Código: <strong style="letter-spacing:4px;">${devOTP}</strong></div>` : ''}
+
+          <!-- Alert erro/sucesso -->
+          <div id="otp-alert" style="display:none;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:0.83rem;"></div>
+
+          <!-- 6 inputs OTP -->
+          <div style="display:flex;gap:10px;justify-content:center;margin-bottom:24px;" id="otp-inputs">
+            ${[0,1,2,3,4,5].map(i => `
+              <input
+                type="text"
+                inputmode="numeric"
+                maxlength="1"
+                id="otp-${i}"
+                autocomplete="one-time-code"
+                style="width:48px;height:58px;text-align:center;font-size:1.5rem;font-weight:700;font-family:'JetBrains Mono',monospace;background:#0F172A;border:2px solid #1E293B;border-radius:14px;color:#F8FAFC;outline:none;transition:all 0.2s;caret-color:#10B981;"
+                onfocus="this.style.borderColor='#10B981';this.style.boxShadow='0 0 0 3px rgba(16,185,129,0.2)';this.style.background='#0d1a2a'"
+                onblur="this.style.boxShadow='none';this.style.background='#0F172A'"
+              >
+            `).join('')}
+          </div>
+
+          <!-- Botão verificar -->
+          <button id="otp-btn" onclick="VM.submitOTP()"
+            style="width:100%;padding:14px;background:linear-gradient(135deg,#10B981,#059669);border:none;border-radius:14px;color:#fff;font-size:0.95rem;font-weight:700;cursor:pointer;transition:all 0.2s;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;"
+            onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 8px 20px rgba(16,185,129,0.35)'"
+            onmouseout="this.style.transform='none';this.style.boxShadow='none'">
+            <span id="otp-btn-text">Verificar código ✓</span>
+          </button>
+
+          <!-- Reenviar -->
+          <div style="text-align:center;">
+            <span style="color:#64748B;font-size:0.83rem;">Não recebeu? </span>
+            <button id="resend-btn" onclick="VM.resendOTP()"
+              style="background:none;border:none;color:#10B981;font-size:0.83rem;font-weight:600;cursor:pointer;padding:0;"
+              disabled>
+              Reenviar em <span id="resend-countdown">60</span>s
+            </button>
+          </div>
+
+          <!-- Trocar e-mail -->
+          <div style="text-align:center;margin-top:16px;">
+            <a href="/cadastro" style="color:#475569;font-size:0.78rem;text-decoration:none;"
+              onmouseover="this.style.color='#94A3B8'" onmouseout="this.style.color='#475569'">
+              ← Voltar e usar outro e-mail
+            </a>
+          </div>
+
+          <!-- Expiração -->
+          <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.05);">
+            <span style="color:#334155;font-size:0.75rem;">⏱ Código expira em </span>
+            <span id="otp-expiry" style="color:#F59E0B;font-size:0.75rem;font-weight:600;font-family:'JetBrains Mono',monospace;">10:00</span>
+          </div>
+        </div>
+      </div>
+    `
+
+    // ── Setup inputs OTP ─────────────────────────────────────────────────────
+    const inputs = Array.from({length:6}, (_,i) => document.getElementById(`otp-${i}`))
+
+    // Auto-paste: detecta quando user cola o código
+    inputs[0].addEventListener('paste', (e) => {
+      e.preventDefault()
+      const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6)
+      if (text.length === 6) {
+        text.split('').forEach((ch, i) => {
+          inputs[i].value = ch
+          inputs[i].style.borderColor = '#10B981'
+        })
+        inputs[5].focus()
+        this._checkOTPComplete()
+      }
+    })
+
+    inputs.forEach((inp, idx) => {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace') {
+          if (!inp.value && idx > 0) {
+            inputs[idx-1].value = ''
+            inputs[idx-1].focus()
+            inputs[idx-1].style.borderColor = '#1E293B'
+          } else {
+            inp.value = ''
+            inp.style.borderColor = '#1E293B'
+          }
+          this._checkOTPComplete()
+          return
+        }
+        if (e.key === 'ArrowLeft' && idx > 0) { inputs[idx-1].focus(); return }
+        if (e.key === 'ArrowRight' && idx < 5) { inputs[idx+1].focus(); return }
+        if (e.key === 'Enter') { this.submitOTP(); return }
+      })
+
+      inp.addEventListener('input', (e) => {
+        const val = e.target.value.replace(/\D/g,'')
+        e.target.value = val.slice(-1)
+        if (val) {
+          inp.style.borderColor = '#10B981'
+          if (idx < 5) inputs[idx+1].focus()
+        }
+        this._checkOTPComplete()
+      })
+    })
+
+    inputs[0].focus()
+
+    // ── Countdown reenvio (60s) ──────────────────────────────────────────────
+    let resendSec = 60
+    const resendBtn = document.getElementById('resend-btn')
+    const resendCD  = document.getElementById('resend-countdown')
+    const resendTimer = setInterval(() => {
+      resendSec--
+      if (resendCD) resendCD.textContent = resendSec
+      if (resendSec <= 0) {
+        clearInterval(resendTimer)
+        if (resendBtn) {
+          resendBtn.disabled = false
+          resendBtn.innerHTML = 'Reenviar código'
+          resendBtn.style.textDecoration = 'underline'
+        }
+      }
+    }, 1000)
+    this._otpResendTimer = resendTimer
+
+    // ── Countdown expiração (10min) ──────────────────────────────────────────
+    let expirySec = 600
+    const expiryEl = document.getElementById('otp-expiry')
+    const expiryTimer = setInterval(() => {
+      expirySec--
+      if (expiryEl) {
+        const m = Math.floor(expirySec/60).toString().padStart(2,'0')
+        const s = (expirySec%60).toString().padStart(2,'0')
+        expiryEl.textContent = `${m}:${s}`
+        if (expirySec <= 60) expiryEl.style.color = '#F43F5E'
+      }
+      if (expirySec <= 0) {
+        clearInterval(expiryTimer)
+        if (expiryEl) expiryEl.textContent = 'EXPIRADO'
+        this._showOTPAlert('Código expirado. Solicite um novo.', 'error')
+      }
+    }, 1000)
+    this._otpExpiryTimer = expiryTimer
+  },
+
+  _checkOTPComplete() {
+    const inputs = Array.from({length:6}, (_,i) => document.getElementById(`otp-${i}`))
+    const code = inputs.map(i => i?.value || '').join('')
+    const btn = document.getElementById('otp-btn')
+    if (btn) {
+      const ok = code.length === 6
+      btn.style.opacity = ok ? '1' : '0.6'
+    }
+  },
+
+  _showOTPAlert(msg, type) {
+    const el = document.getElementById('otp-alert')
+    if (!el) return
+    const styles = {
+      error:   'background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;',
+      success: 'background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);color:#10B981;',
+      warning: 'background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#F59E0B;'
+    }
+    el.style.cssText = (styles[type] || styles.error) + 'display:block;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:0.83rem;'
+    el.textContent = msg
+  },
+
+  async submitOTP() {
+    const inputs = Array.from({length:6}, (_,i) => document.getElementById(`otp-${i}`))
+    const code = inputs.map(i => i?.value || '').join('')
+    if (code.length < 6) { this._showOTPAlert('Preencha todos os 6 dígitos.', 'warning'); return }
+
+    const email = localStorage.getItem('vm_pending_email') || ''
+    const btn = document.getElementById('otp-btn')
+    const btnTxt = document.getElementById('otp-btn-text')
+
+    btn.disabled = true
+    if (btnTxt) btnTxt.innerHTML = '⏳ Verificando...'
+
+    try {
+      const res = await axios.post('/api/auth/verify-otp', { email, code })
+      // Atualizar token e user
+      if (res.data.token) {
+        localStorage.setItem('vm_token', res.data.token)
+        this.token = res.data.token
+      }
+      if (res.data.user) {
+        localStorage.setItem('vm_user', JSON.stringify(res.data.user))
+        this.user = res.data.user
+      }
+      localStorage.removeItem('vm_pending_email')
+      localStorage.removeItem('vm_dev_otp')
+
+      // Sucesso visual
+      const iconWrap = document.getElementById('otp-icon-wrap')
+      if (iconWrap) {
+        iconWrap.textContent = '✅'
+        iconWrap.style.borderColor = '#10B981'
+        iconWrap.style.background = 'rgba(16,185,129,0.2)'
+      }
+      inputs.forEach(i => { if (i) { i.style.borderColor = '#10B981'; i.style.background = 'rgba(16,185,129,0.05)' } })
+      this._showOTPAlert('E-mail verificado com sucesso! Redirecionando...', 'success')
+      clearInterval(this._otpResendTimer)
+      clearInterval(this._otpExpiryTimer)
+
+      setTimeout(() => { window.location.href = '/onboarding' }, 1200)
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Código inválido. Tente novamente.'
+      this._showOTPAlert(msg, 'error')
+      // Shake visual nos inputs
+      inputs.forEach(i => {
+        if (i) { i.style.borderColor = '#F43F5E'; i.style.animation = 'shake 0.3s ease' }
+      })
+      setTimeout(() => inputs.forEach(i => { if (i) { i.style.animation = '' } }), 400)
+      btn.disabled = false
+      if (btnTxt) btnTxt.innerHTML = 'Verificar código ✓'
+    }
+  },
+
+  async resendOTP() {
+    const email = localStorage.getItem('vm_pending_email') || ''
+    const resendBtn = document.getElementById('resend-btn')
+    const resendCD  = document.getElementById('resend-countdown')
+    if (!email) return
+
+    if (resendBtn) { resendBtn.disabled = true; resendBtn.innerHTML = '⏳ Enviando...' }
+
+    try {
+      const res = await axios.post('/api/auth/resend-otp', { email })
+      if (res.data._dev_otp) localStorage.setItem('vm_dev_otp', res.data._dev_otp)
+      this._showOTPAlert('Novo código enviado! Verifique sua caixa de entrada.', 'success')
+
+      // Reiniciar countdown
+      let resendSec = 60
+      if (resendCD) resendCD.textContent = resendSec
+      if (resendBtn) resendBtn.innerHTML = `Reenviar em <span id="resend-countdown">60</span>s`
+
+      const timer = setInterval(() => {
+        resendSec--
+        const cd = document.getElementById('resend-countdown')
+        if (cd) cd.textContent = resendSec
+        if (resendSec <= 0) {
+          clearInterval(timer)
+          const rb = document.getElementById('resend-btn')
+          if (rb) { rb.disabled = false; rb.innerHTML = 'Reenviar código'; rb.style.textDecoration = 'underline' }
+        }
+      }, 1000)
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Erro ao reenviar. Tente novamente.'
+      this._showOTPAlert(msg, 'error')
+      if (resendBtn) { resendBtn.disabled = false; resendBtn.innerHTML = 'Reenviar código' }
     }
   },
 
@@ -538,6 +995,9 @@ const VM = {
               <span class="nav-icon"><i class="fas fa-chart-area"></i></span> Projeção Financeira
               <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
             </a>
+            <a class="nav-item" id="nav-comparativo" onclick="VM.navigate('comparativo')">
+              <span class="nav-icon"><i class="fas fa-exchange-alt"></i></span> Comparativo Mensal
+            </a>
             <a class="nav-item" id="nav-relatorios" onclick="VM.navigate('relatorios')">
               <span class="nav-icon"><i class="fas fa-file-alt"></i></span> Relatórios
             </a>
@@ -546,6 +1006,13 @@ const VM = {
             </a>
             <a class="nav-item" id="nav-ia" onclick="VM.navigate('ia')">
               <span class="nav-icon"><i class="fas fa-brain"></i></span> Diagnóstico 360° ✨
+            </a>
+            <a class="nav-item" id="nav-tags" onclick="VM.navigate('tags')">
+              <span class="nav-icon"><i class="fas fa-tags"></i></span> Tags & Filtros
+            </a>
+            <a class="nav-item" id="nav-alertas-cartao" onclick="VM.navigate('alertas-cartao')">
+              <span class="nav-icon"><i class="fas fa-exclamation-triangle"></i></span> Alertas de Cartão
+              <span id="badge-alertas-cartao" style="display:none;margin-left:auto;background:#F43F5E;color:#fff;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
             </a>
             <a class="nav-item" id="nav-conquistas" onclick="VM.navigate('conquistas')">
               <span class="nav-icon"><i class="fas fa-trophy"></i></span> Conquistas
@@ -580,6 +1047,15 @@ const VM = {
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
               <div style="font-size:0.8rem;color:#555;" id="topbar-date"></div>
+              <!-- Bell de alertas de cartão -->
+              <button onclick="VM.navigate('alertas-cartao')" id="btn-bell-alertas"
+                title="Alertas de Cartão"
+                style="position:relative;background:none;border:none;color:#666;font-size:1rem;cursor:pointer;padding:6px;border-radius:8px;transition:all 0.2s;"
+                onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='#F59E0B'"
+                onmouseout="this.style.background='none';this.style.color='#666'">
+                <i class="fas fa-bell"></i>
+                <span id="topbar-badge-alertas" style="display:none;position:absolute;top:2px;right:2px;background:#F43F5E;color:#fff;font-size:0.55rem;padding:1px 4px;border-radius:50px;font-weight:700;min-width:14px;text-align:center;"></span>
+              </button>
               <button onclick="VM.logout()" class="btn-secondary" style="font-size:0.8rem;padding:8px 14px;">
                 <i class="fas fa-sign-out-alt"></i>
               </button>
@@ -712,11 +1188,14 @@ const VM = {
       financiamentos: ['Financiamentos', 'Imóveis e financiamentos'],
       emprestimos: ['Empréstimos', 'Controle de dívidas'],
       relatorios: ['Relatórios', 'Análise detalhada'],
+      comparativo: ['Comparativo Mensal 📊', 'Evolução mês a mês por categoria'],
       projecao: ['Projeção Financeira 🔮', 'Veja seu futuro financeiro'],
       simulacao: ['Simulações', 'Projeções de investimento'],
       ia: ['Diagnóstico Financeiro 360° ✨', 'Análise completa em 5 módulos • Hierarquia CFP®'],
       conquistas: ['Conquistas', 'Sua evolução financeira'],
-      perfil: ['Meu Perfil', 'Configurações da conta']
+      perfil: ['Meu Perfil', 'Configurações da conta'],
+      tags: ['Tags & Filtros 🏷️', 'Organize suas despesas com etiquetas'],
+      'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada']
     }
 
     const [title, sub] = titles[page] || ['', '']
@@ -738,12 +1217,15 @@ const VM = {
       financiamentos: () => this.pageFinanciamentos(),
       emprestimos: () => this.pageEmprestimos(),
       relatorios: () => this.pageRelatorios(),
+      comparativo: () => this.pageComparativo(),
       simulacao: () => this.pageSimulacao(),
       ia: () => this.pageIA(),
       projecao: () => this.pageProjecao(),
       conquistas: () => this.pageConquistas(),
       perfil: () => this.pagePerfil(),
-      reserva: () => this.pageReserva()
+      reserva: () => this.pageReserva(),
+      tags: () => this.pageTags(),
+      'alertas-cartao': () => this.pageAlertasCartao()
     }
 
     if (pages[page]) pages[page]()
@@ -964,6 +1446,27 @@ const VM = {
 
       // Carregar cartões no dashboard de forma assíncrona
       this.carregarCartoesNoDashboard()
+
+      // Buscar CDI real e exibir widget
+      this.api('GET', 'cdi/atual').then(cdiData => {
+        const bloco = document.getElementById('dash-orcamentos-block')
+        if (!bloco || !cdiData?.cdi_anual) return
+        const cdiWidget = document.createElement('div')
+        cdiWidget.style.cssText = 'margin-bottom:20px;'
+        cdiWidget.innerHTML = `
+          <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <div style="font-size:1.4rem;">📡</div>
+            <div style="flex:1;min-width:160px;">
+              <div style="font-size:0.72rem;color:#10B981;text-transform:uppercase;letter-spacing:1px;font-weight:700;">CDI Atual (BCB)</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F8FAFC;">${cdiData.cdi_anual}% <span style="font-size:0.78rem;color:#64748B;font-weight:400;">a.a.</span></div>
+            </div>
+            <div style="font-size:0.75rem;color:#475569;">Taxa diária: ${(cdiData.taxa_diaria || 0).toFixed(4)}% · ${cdiData.data || ''}</div>
+            <button onclick="VM.navigate('investimentos')" style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10B981;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:0.78rem;font-weight:600;">
+              Ver Investimentos →
+            </button>
+          </div>`
+        bloco.prepend(cdiWidget)
+      }).catch(() => {})
 
       // Carregar widget de orçamentos (F1) e projeção (F4)
       const planoUser = this.user?.plano || 'free'
@@ -2169,10 +2672,39 @@ const VM = {
           <i class="fas fa-plus"></i> Novo Investimento
         </button>
       </div>
+      <div id="cdi-banner-invest" style="margin-bottom:16px;"></div>
       <div id="invest-container">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
       </div>
     `
+    // Buscar CDI real e exibir banner
+    this.api('GET', 'cdi/atual').then(cdi => {
+      const b = document.getElementById('cdi-banner-invest')
+      if (!b || !cdi?.cdi_anual) return
+      b.innerHTML = `
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(5,150,105,0.04));border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="font-size:1.6rem;">📡</div>
+          <div>
+            <div style="font-size:0.72rem;color:#10B981;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Taxa CDI — Banco Central</div>
+            <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
+              <span style="font-size:1.4rem;font-weight:800;color:#F8FAFC;">${cdi.cdi_anual}%</span>
+              <span style="color:#64748B;font-size:0.82rem;">a.a. · atualizado ${cdi.data || 'hoje'}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:14px;margin-left:auto;flex-wrap:wrap;">
+            ${[
+              { p: 100, l: '100% CDI', v: cdi.cdi_anual },
+              { p: 110, l: '110% CDI', v: (cdi.cdi_anual * 1.10).toFixed(2) },
+              { p: 120, l: '120% CDI', v: (cdi.cdi_anual * 1.20).toFixed(2) },
+              { p: 140, l: '140% CDI', v: (cdi.cdi_anual * 1.40).toFixed(2) }
+            ].map(r => `
+              <div style="text-align:center;">
+                <div style="font-size:0.65rem;color:#64748B;">${r.l}</div>
+                <div style="font-size:0.88rem;font-weight:700;color:#10B981;">${r.v}%</div>
+              </div>`).join('')}
+          </div>
+        </div>`
+    }).catch(() => {})
     this.carregarInvestimentos()
   },
 
@@ -2342,6 +2874,17 @@ const VM = {
     // Inicializar visibilidade conforme tipo
     VM.onChangeTipoInvestimento(inv?.tipo || 'tesouro_direto')
 
+    // Buscar CDI real e preencher campo automaticamente
+    this.api('GET', 'cdi/atual').then(cdiData => {
+      const cdiInput = document.getElementById('i-cdi-atual')
+      const preview  = document.getElementById('i-caixinha-preview')
+      if (cdiInput && cdiData?.cdi_anual && !inv?.cdi_atual) {
+        cdiInput.value = cdiData.cdi_anual
+        cdiInput.title = `Fonte: ${cdiData.fonte} (${cdiData.data})`
+        if (preview) preview.innerHTML = `📡 CDI atual: <strong>${cdiData.cdi_anual}% a.a.</strong> (fonte: BCB)`
+      }
+    }).catch(() => {})
+
     document.getElementById('inv-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('i-submit')
@@ -2393,6 +2936,535 @@ const VM = {
   },
 
   // ============== RELATÓRIOS ==============
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMPARATIVO MENSAL
+  // ═══════════════════════════════════════════════════════════════════════════
+  async pageComparativo() {
+    const hoje = new Date()
+    let mesAtual = hoje.getMonth() + 1
+    let anoAtual = hoje.getFullYear()
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">📊 Comparativo Mensal</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Evolução mês a mês por categoria</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <select id="comp-mes" class="form-select" style="width:auto;padding:8px 12px;">
+            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+              const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+              return `<option value="${m}" ${m === mesAtual ? 'selected' : ''}>${nomes[m-1]}</option>`
+            }).join('')}
+          </select>
+          <select id="comp-ano" class="form-select" style="width:auto;padding:8px 12px;">
+            ${[anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${a === anoAtual ? 'selected' : ''}>${a}</option>`).join('')}
+          </select>
+          <button onclick="VM.carregarComparativo()" class="btn-primary" style="width:auto;padding:9px 18px;">
+            <i class="fas fa-sync-alt"></i> Atualizar
+          </button>
+        </div>
+      </div>
+      <div id="comparativo-container">
+        <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
+      </div>
+    `
+    await this.carregarComparativo()
+  },
+
+  async carregarComparativo() {
+    const mes = document.getElementById('comp-mes')?.value || new Date().getMonth() + 1
+    const ano = document.getElementById('comp-ano')?.value || new Date().getFullYear()
+    const cont = document.getElementById('comparativo-container')
+    if (!cont) return
+
+    try {
+      const [r, hist] = await Promise.all([
+        this.api('GET', `comparativo?mes=${mes}&ano=${ano}`),
+        this.api('GET', `comparativo/historico?meses=6`)
+      ])
+
+      const { resumo, categorias, alertas, periodo } = r
+      const { historico } = hist
+
+      // KPIs de comparação
+      const kpiCard = (label, atual, anterior, prefixo = 'R$ ') => {
+        const diff    = atual - anterior
+        const varPct  = anterior > 0 ? (diff / anterior * 100).toFixed(1) : (atual > 0 ? '100' : '0')
+        const positivo = diff >= 0
+        const cor     = label.includes('Despesa') ? (positivo ? '#F43F5E' : '#10B981') : (positivo ? '#10B981' : '#F43F5E')
+        const icon    = positivo ? '▲' : '▼'
+        return `
+          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:18px 20px;">
+            <div style="font-size:0.78rem;color:#64748B;margin-bottom:8px;">${label}</div>
+            <div style="font-size:1.35rem;font-weight:800;color:#F8FAFC;">${prefixo}${this.formatMoney(atual)}</div>
+            <div style="font-size:0.8rem;color:${cor};margin-top:5px;">
+              ${icon} ${Math.abs(parseFloat(varPct))}% vs ${periodo.label_ant}
+            </div>
+          </div>`
+      }
+
+      // Gráfico de barras histórico (canvas SVG manual)
+      const maxVal = Math.max(...historico.map((m) => Math.max(m.receitas, m.despesas)), 1)
+      const barChart = `
+        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+          <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;margin-bottom:16px;">Histórico 6 meses</div>
+          <div style="display:flex;align-items:flex-end;gap:8px;height:140px;padding-bottom:24px;position:relative;">
+            ${historico.map(m => {
+              const hR = Math.round((m.receitas / maxVal) * 120)
+              const hD = Math.round((m.despesas / maxVal) * 120)
+              return `
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative;">
+                  <div style="width:100%;display:flex;gap:2px;align-items:flex-end;height:120px;">
+                    <div title="Receitas: R$ ${this.formatMoney(m.receitas)}" style="flex:1;background:linear-gradient(180deg,#10B981,#059669);border-radius:4px 4px 0 0;height:${hR}px;min-height:2px;cursor:default;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'"></div>
+                    <div title="Despesas: R$ ${this.formatMoney(m.despesas)}" style="flex:1;background:linear-gradient(180deg,#F43F5E,#E11D48);border-radius:4px 4px 0 0;height:${hD}px;min-height:2px;cursor:default;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'"></div>
+                  </div>
+                  <div style="font-size:0.62rem;color:#475569;white-space:nowrap;">${m.label}</div>
+                </div>`
+            }).join('')}
+          </div>
+          <div style="display:flex;gap:16px;justify-content:center;margin-top:4px;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#94A3B8;">
+              <div style="width:10px;height:10px;background:#10B981;border-radius:2px;"></div> Receitas
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#94A3B8;">
+              <div style="width:10px;height:10px;background:#F43F5E;border-radius:2px;"></div> Despesas
+            </div>
+          </div>
+        </div>`
+
+      // Alertas de variação
+      const alertasHtml = alertas.length > 0 ? `
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:16px 18px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#F59E0B;margin-bottom:10px;">⚠️ Atenção — Variações Significativas</div>
+          ${alertas.map(a => `<div style="font-size:0.82rem;color:#CBD5E1;padding:4px 0;border-top:1px solid rgba(255,255,255,0.04);">${a}</div>`).join('')}
+        </div>` : `
+        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:14px;padding:14px 18px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;color:#34D399;">✅ Nenhuma variação expressiva detectada neste mês</div>
+        </div>`
+
+      // Tabela de categorias
+      const tabelaCats = categorias.length === 0
+        ? `<div style="text-align:center;padding:40px;color:#475569;">Nenhuma despesa registrada neste período</div>`
+        : `
+          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">Detalhamento por Categoria</div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:rgba(0,0,0,0.2);">
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:left;">Categoria</th>
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">${periodo.label_ant}</th>
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">${periodo.label}</th>
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">Variação</th>
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">Barra</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${categorias.map((cat, i) => {
+                  const cor = cat.variacao > 10 ? '#F43F5E' : cat.variacao < -10 ? '#10B981' : '#F59E0B'
+                  const icon = cat.variacao > 10 ? '▲' : cat.variacao < -10 ? '▼' : '→'
+                  const maxCat = Math.max(...categorias.map(c => Math.max(c.atual, c.anterior)))
+                  const pct = maxCat > 0 ? Math.round((cat.atual / maxCat) * 100) : 0
+                  return `
+                    <tr style="border-top:1px solid rgba(255,255,255,0.04);${i % 2 === 0 ? '' : 'background:rgba(255,255,255,0.01);'}">
+                      <td style="padding:11px 16px;font-size:0.85rem;color:#F8FAFC;font-weight:500;">${cat.categoria}</td>
+                      <td style="padding:11px 16px;font-size:0.83rem;color:#64748B;text-align:right;">R$ ${this.formatMoney(cat.anterior)}</td>
+                      <td style="padding:11px 16px;font-size:0.83rem;color:#F8FAFC;text-align:right;font-weight:600;">R$ ${this.formatMoney(cat.atual)}</td>
+                      <td style="padding:11px 16px;font-size:0.83rem;color:${cor};text-align:right;font-weight:700;">${icon} ${Math.abs(cat.variacao).toFixed(1)}%</td>
+                      <td style="padding:11px 16px;text-align:right;min-width:80px;">
+                        <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+                          <div style="height:100%;width:${pct}%;background:${cor};border-radius:3px;transition:width 0.4s;"></div>
+                        </div>
+                      </td>
+                    </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>`
+
+      cont.innerHTML = `
+        <!-- KPIs -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;">
+          ${kpiCard('Receitas', resumo.receitas_atual, resumo.receitas_ant)}
+          ${kpiCard('Despesas', resumo.despesas_atual, resumo.despesas_ant)}
+          ${kpiCard('Saldo Líquido', resumo.saldo_atual, resumo.saldo_ant)}
+        </div>
+        ${barChart}
+        ${alertasHtml}
+        ${tabelaCats}
+      `
+
+      // Conquista
+      this.api('GET', 'comparativo?mes=1&ano=2024').catch(() => {}) // disparo silencioso
+      await this.api('POST', 'conquistas/verificar', { tipo: 'comparador' }).catch(() => {})
+
+    } catch (err) {
+      if (cont) cont.innerHTML = `<div class="empty-state"><div style="font-size:2rem;">📊</div><p>Erro ao carregar comparativo</p></div>`
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TAGS & FILTROS
+  // ═══════════════════════════════════════════════════════════════════════════
+  async pageTags() {
+    document.getElementById('page-content').innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">🏷️ Tags & Filtros</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Organize suas despesas com etiquetas personalizadas</div>
+        </div>
+        <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Nova Tag
+        </button>
+      </div>
+      <div id="tags-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    await this.carregarTags()
+  },
+
+  async carregarTags() {
+    const cont = document.getElementById('tags-container')
+    if (!cont) return
+    try {
+      const tags = await this.api('GET', 'tags')
+      if (!tags || tags.length === 0) {
+        cont.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:3rem;margin-bottom:16px;">🏷️</div>
+            <h3>Nenhuma tag criada</h3>
+            <p>Tags ajudam a organizar e filtrar despesas por projeto, viagem, pessoa ou qualquer critério.</p>
+            <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:12px 24px;margin-top:16px;">
+              <i class="fas fa-plus"></i> Criar primeira tag
+            </button>
+          </div>`
+        return
+      }
+
+      cont.innerHTML = `
+        <!-- Grid de tags -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:24px;">
+          ${tags.map(tag => `
+            <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 18px;transition:all 0.2s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="width:14px;height:14px;border-radius:4px;background:${tag.cor};flex-shrink:0;"></div>
+                  <span style="font-weight:600;color:#F8FAFC;font-size:0.9rem;">${tag.nome}</span>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button onclick="VM.buscarPorTag(${tag.id},'${tag.nome}')" title="Ver despesas" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10B981;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
+                    <i class="fas fa-search"></i>
+                  </button>
+                  <button onclick="VM.modalEditarTag(${tag.id},'${tag.nome}','${tag.cor}')" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
+                    <i class="fas fa-pen"></i>
+                  </button>
+                  <button onclick="VM.excluirTag(${tag.id},'${tag.nome}')" title="Excluir" style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+              <div style="font-size:0.77rem;color:#64748B;">${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} vinculada${tag.usos !== 1 ? 's' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div id="tag-busca-resultado"></div>
+      `
+    } catch (err) {
+      cont.innerHTML = `<div class="empty-state"><p>Erro ao carregar tags</p></div>`
+    }
+  },
+
+  modalNovaTag() {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:380px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">🏷️ Nova Tag</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;">✕</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nome da tag *</label>
+            <input type="text" id="tag-nome" class="form-input" placeholder="Ex: Viagem, Trabalho, Lazer..." maxlength="30" autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cor</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="tag-cores">
+              ${['#10B981','#3B82F6','#8B5CF6','#F59E0B','#F43F5E','#06B6D4','#84CC16','#EC4899','#F97316','#64748B'].map(cor =>
+                `<div onclick="VM.selecionarCorTag('${cor}',this)" data-cor="${cor}"
+                  style="width:26px;height:26px;border-radius:6px;background:${cor};cursor:pointer;border:2px solid transparent;transition:all 0.15s;"
+                  onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'"></div>`
+              ).join('')}
+            </div>
+            <input type="hidden" id="tag-cor" value="#10B981">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:20px;">
+            <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+            <button onclick="VM.salvarTag()" class="btn-primary" style="flex:1;justify-content:center;" id="tag-btn">
+              <i class="fas fa-check"></i> Criar Tag
+            </button>
+          </div>
+        </div>
+      </div>
+    `
+    // Pré-selecionar primeira cor
+    setTimeout(() => {
+      const first = document.querySelector('#tag-cores [data-cor]')
+      if (first) first.style.borderColor = '#fff'
+    }, 50)
+  },
+
+  selecionarCorTag(cor, el) {
+    document.querySelectorAll('#tag-cores [data-cor]').forEach(e => e.style.borderColor = 'transparent')
+    el.style.borderColor = '#fff'
+    document.getElementById('tag-cor').value = cor
+  },
+
+  async salvarTag() {
+    const nome = document.getElementById('tag-nome')?.value.trim()
+    const cor  = document.getElementById('tag-cor')?.value
+    if (!nome) { this.toast('Informe o nome da tag', 'warning'); return }
+
+    const btn = document.getElementById('tag-btn')
+    btn.disabled = true
+    try {
+      await this.api('POST', 'tags', { nome, cor })
+      this.toast(`Tag "${nome}" criada! 🏷️`)
+      this.closeModal()
+      this.carregarTags()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao criar tag', 'error')
+      btn.disabled = false
+    }
+  },
+
+  modalEditarTag(id, nome, cor) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:380px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">✏️ Editar Tag</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;">✕</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nome</label>
+            <input type="text" id="edit-tag-nome" class="form-input" value="${nome}" maxlength="30">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:20px;">
+            <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+            <button onclick="VM.atualizarTag(${id})" class="btn-primary" style="flex:1;justify-content:center;">Salvar</button>
+          </div>
+        </div>
+      </div>
+    `
+  },
+
+  async atualizarTag(id) {
+    const nome = document.getElementById('edit-tag-nome')?.value.trim()
+    if (!nome) { this.toast('Nome é obrigatório', 'warning'); return }
+    try {
+      await this.api('PATCH', `tags/${id}`, { nome })
+      this.toast('Tag atualizada!')
+      this.closeModal()
+      this.carregarTags()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao atualizar', 'error')
+    }
+  },
+
+  async excluirTag(id, nome) {
+    if (!confirm(`Excluir tag "${nome}"? As despesas vinculadas não serão apagadas.`)) return
+    try {
+      await this.api('DELETE', `tags/${id}`)
+      this.toast(`Tag "${nome}" removida`)
+      this.carregarTags()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao excluir', 'error')
+    }
+  },
+
+  async buscarPorTag(tagId, tagNome) {
+    const cont = document.getElementById('tag-busca-resultado')
+    if (!cont) return
+    cont.innerHTML = `<div style="text-align:center;padding:20px;color:#64748B;">Carregando...</div>`
+    try {
+      const rows = await this.api('GET', `tags/buscar?tag_id=${tagId}`)
+      if (!rows || rows.length === 0) {
+        cont.innerHTML = `
+          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:20px;text-align:center;">
+            <div style="color:#64748B;font-size:0.9rem;">Nenhuma despesa com a tag <strong style="color:#10B981;">${tagNome}</strong></div>
+          </div>`
+        return
+      }
+      cont.innerHTML = `
+        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;">
+          <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">
+              🏷️ Despesas com tag <span style="color:#10B981;">${tagNome}</span> (${rows.length})
+            </div>
+            <div style="font-size:0.85rem;font-weight:700;color:#F8FAFC;">
+              Total: R$ ${this.formatMoney(rows.reduce((s, r) => s + r.valor, 0))}
+            </div>
+          </div>
+          ${rows.slice(0, 20).map(r => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-top:1px solid rgba(255,255,255,0.04);">
+              <div>
+                <div style="font-size:0.87rem;color:#F8FAFC;">${r.descricao}</div>
+                <div style="font-size:0.73rem;color:#64748B;">${r.data} · ${r.categoria}</div>
+              </div>
+              <div style="font-size:0.88rem;font-weight:600;color:#F43F5E;">R$ ${this.formatMoney(r.valor)}</div>
+            </div>
+          `).join('')}
+          ${rows.length > 20 ? `<div style="padding:10px 18px;font-size:0.75rem;color:#475569;text-align:center;">+ ${rows.length - 20} mais...</div>` : ''}
+        </div>`
+    } catch (e) {
+      cont.innerHTML = `<div style="color:#F43F5E;padding:16px;">Erro ao buscar despesas</div>`
+    }
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // ALERTAS INTELIGENTES DE CARTÃO
+  // ════════════════════════════════════════════════════════════════════════════
+
+  async pageAlertasCartao() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">⚠️ Alertas de Cartão</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Fatura próxima, limite alto, cobranças duplicadas e anomalias</div>
+        </div>
+        <button onclick="VM.carregarAlertasCartao()" class="btn-secondary" style="width:auto;padding:9px 16px;">
+          <i class="fas fa-sync-alt"></i> Atualizar
+        </button>
+      </div>
+      <div id="alertas-cartao-container">
+        <div class="empty-state"><div class="skeleton" style="height:250px;border-radius:16px;"></div></div>
+      </div>
+    `
+    await this.carregarAlertasCartao()
+  },
+
+  async carregarAlertasCartao() {
+    const cont = document.getElementById('alertas-cartao-container')
+    if (!cont) return
+    try {
+      const r = await this.api('GET', 'alertas-cartao')
+      const { alertas, total_nao_lidos } = r
+
+      // Atualizar badge no nav
+      const badge = document.getElementById('badge-alertas-cartao')
+      if (badge) {
+        if (total_nao_lidos > 0) {
+          badge.style.display = 'inline-block'
+          badge.textContent = total_nao_lidos
+        } else {
+          badge.style.display = 'none'
+        }
+      }
+
+      if (!alertas || alertas.length === 0) {
+        cont.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:3.5rem;margin-bottom:16px;">✅</div>
+            <h3 style="color:#10B981;">Tudo em dia!</h3>
+            <p style="color:#64748B;max-width:320px;">Nenhum alerta ativo para seus cartões. Continue monitorando regularmente.</p>
+          </div>`
+        return
+      }
+
+      const tipoConfig = {
+        fatura_proxima:       { icon: '📅', cor: '#F59E0B', label: 'Fatura Próxima' },
+        limite_alto:          { icon: '🔴', cor: '#F43F5E', label: 'Limite Alto' },
+        cobranca_duplicada:   { icon: '⚠️', cor: '#EF4444', label: 'Cobrança Duplicada' },
+        gasto_incomum:        { icon: '📊', cor: '#8B5CF6', label: 'Gasto Incomum' },
+        fatura_acima_media:   { icon: '📈', cor: '#F97316', label: 'Fatura Acima da Média' },
+        sem_movimentacao:     { icon: '😴', cor: '#64748B', label: 'Sem Movimentação' }
+      }
+
+      // Agrupar por cartão
+      const porCartao = {}
+      alertas.forEach(a => {
+        if (!porCartao[a.cartao_nome]) porCartao[a.cartao_nome] = []
+        porCartao[a.cartao_nome].push(a)
+      })
+
+      cont.innerHTML = `
+        <div style="display:grid;gap:16px;">
+          ${Object.entries(porCartao).map(([cartaoNome, items]) => `
+            <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:16px;overflow:hidden;">
+              <!-- Header do cartão -->
+              <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px;">
+                <div style="width:10px;height:10px;border-radius:50%;background:${items[0].cartao_cor || '#10B981'};"></div>
+                <span style="font-weight:700;color:#F8FAFC;font-size:0.92rem;">${cartaoNome}</span>
+                <span style="margin-left:auto;background:rgba(244,63,94,0.15);color:#F43F5E;font-size:0.72rem;padding:2px 8px;border-radius:20px;font-weight:700;">${items.length} alerta${items.length > 1 ? 's' : ''}</span>
+              </div>
+              <!-- Alertas do cartão -->
+              <div style="padding:4px 0;">
+                ${items.map(a => {
+                  const cfg = tipoConfig[a.tipo] || { icon: '🔔', cor: '#F59E0B', label: a.tipo }
+                  return `
+                    <div style="display:flex;align-items:flex-start;gap:14px;padding:14px 18px;border-top:1px solid rgba(255,255,255,0.03);">
+                      <div style="font-size:1.4rem;flex-shrink:0;margin-top:2px;">${cfg.icon}</div>
+                      <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                          <span style="font-size:0.82rem;font-weight:700;color:${cfg.cor};background:${cfg.cor}18;border:1px solid ${cfg.cor}30;border-radius:6px;padding:2px 8px;">${cfg.label}</span>
+                          <span style="font-size:0.7rem;color:#475569;">${new Date(a.created_at).toLocaleDateString('pt-BR')}</span>
+                        </div>
+                        <div style="font-size:0.87rem;font-weight:600;color:#F8FAFC;margin-bottom:3px;">${a.titulo}</div>
+                        <div style="font-size:0.8rem;color:#94A3B8;line-height:1.4;">${a.mensagem}</div>
+                      </div>
+                      <button onclick="VM.marcarAlertaLido(${a.id})" title="Marcar como lido"
+                        style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10B981;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:0.72rem;flex-shrink:0;white-space:nowrap;">
+                        <i class="fas fa-check"></i>
+                      </button>
+                    </div>`
+                }).join('')}
+              </div>
+            </div>
+          `).join('')}
+
+          <!-- Botão marcar todos como lidos -->
+          <div style="text-align:center;padding:8px 0;">
+            <button onclick="VM.marcarTodosAlertasLidos()" class="btn-secondary" style="width:auto;padding:9px 20px;font-size:0.82rem;">
+              <i class="fas fa-check-double"></i> Marcar todos como lidos
+            </button>
+          </div>
+        </div>`
+    } catch (e) {
+      if (cont) cont.innerHTML = `
+        <div class="empty-state">
+          <div style="font-size:2rem;">⚠️</div>
+          <p style="color:#F43F5E;">Erro ao carregar alertas de cartão</p>
+          <button onclick="VM.carregarAlertasCartao()" class="btn-secondary" style="width:auto;padding:8px 16px;margin-top:12px;">Tentar novamente</button>
+        </div>`
+    }
+  },
+
+  async marcarAlertaLido(id) {
+    try {
+      await this.api('PATCH', `alertas-cartao/${id}/lido`, {})
+      this.toast('Alerta marcado como lido', 'success')
+      await this.carregarAlertasCartao()
+    } catch (e) {
+      this.toast('Erro ao atualizar alerta', 'error')
+    }
+  },
+
+  async marcarTodosAlertasLidos() {
+    try {
+      await this.api('PATCH', 'alertas-cartao/todos-lidos', {})
+      this.toast('Todos os alertas marcados como lidos ✅', 'success')
+      const badge = document.getElementById('badge-alertas-cartao')
+      if (badge) badge.style.display = 'none'
+      await this.carregarAlertasCartao()
+    } catch (e) {
+      this.toast('Erro ao atualizar alertas', 'error')
+    }
+  },
+
   async pageRelatorios() {
     // Verifica se o plano tem acesso a relatórios anuais
     if (this.limites !== null && !this.limites.relatorio_anual) {
@@ -2409,6 +3481,9 @@ const VM = {
             ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano)].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
           </select>
           <button onclick="VM.carregarRelatorio()" class="btn-secondary"><i class="fas fa-sync"></i> Atualizar</button>
+          <button onclick="VM.exportarRelatorioPDF()" class="btn-primary" style="width:auto;padding:9px 16px;background:linear-gradient(135deg,#7C3AED,#6D28D9);">
+            <i class="fas fa-file-pdf"></i> Exportar PDF
+          </button>
         </div>
       </div>
       <div id="rel-container">
@@ -2486,6 +3561,172 @@ const VM = {
       }
     } catch (e) {
       this.toast('Erro ao carregar relatório', 'error')
+    }
+  },
+
+  // ─── Exportação PDF via jsPDF (carregado sob demanda) ────────────────────
+  async exportarRelatorioPDF() {
+    const ano = document.getElementById('rel-ano')?.value || new Date().getFullYear()
+    const btn = document.querySelector('[onclick="VM.exportarRelatorioPDF()"]')
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando...' }
+
+    try {
+      // Carregar jsPDF via CDN se não estiver disponível
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+          s.onload = resolve; s.onerror = reject
+          document.head.appendChild(s)
+        })
+      }
+
+      // Buscar dados do relatório
+      let data
+      try {
+        data = await this.api('GET', `relatorio/dados?ano=${ano}`)
+      } catch (apiErr) {
+        // Se falhar (ex: free plan), gerar com dados do dashboard
+        const dashData = await this.api('GET', `dashboard/relatorio?ano=${ano}`)
+        data = {
+          usuario: { nome: this.user?.nome || 'Usuário', email: this.user?.email || '' },
+          periodo: { ano },
+          resumo: dashData.totais || {},
+          relatorio_mensal: dashData.relatorio || [],
+          despesas_por_categoria: [],
+          metas: []
+        }
+      }
+
+      const { jsPDF } = window.jspdf
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+
+      const nomeUsuario = data.usuario?.nome || this.user?.nome || 'Usuário'
+      const verde = [16, 185, 129]
+      const escuro = [15, 23, 42]
+      const cinza  = [100, 116, 139]
+
+      // ── Cabeçalho ─────────────────────────────────────────────────────────
+      doc.setFillColor(...escuro)
+      doc.rect(0, 0, 210, 40, 'F')
+      doc.setFillColor(...verde)
+      doc.rect(0, 38, 210, 2, 'F')
+
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(20)
+      doc.setFont('helvetica', 'bold')
+      doc.text('VerdeMais', 14, 18)
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...verde)
+      doc.text('Finanças Pessoais Inteligentes', 14, 25)
+      doc.setTextColor(200, 200, 200)
+      doc.setFontSize(9)
+      doc.text(`Relatório Anual ${ano} · ${nomeUsuario}`, 14, 32)
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 140, 32)
+
+      // ── Resumo Anual ───────────────────────────────────────────────────────
+      let y = 52
+      doc.setTextColor(...escuro)
+      doc.setFontSize(13)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Resumo Anual — ${ano}`, 14, y)
+
+      y += 8
+      const resumo = data.resumo || data.totais || {}
+      const totReceitas = resumo.total_receitas ?? resumo.receitas ?? 0
+      const totDespesas = resumo.total_despesas ?? resumo.despesas ?? 0
+      const totSaldo    = resumo.saldo_liquido  ?? resumo.saldo    ?? (totReceitas - totDespesas)
+
+      const kpiBoxes = [
+        { label: 'Total Receitas', valor: `R$ ${this.formatMoney(totReceitas)}`, cor: [16, 185, 129] },
+        { label: 'Total Despesas', valor: `R$ ${this.formatMoney(totDespesas)}`, cor: [244, 63, 94] },
+        { label: 'Saldo Líquido',  valor: `R$ ${this.formatMoney(totSaldo)}`,   cor: totSaldo >= 0 ? [16, 185, 129] : [244, 63, 94] }
+      ]
+      const boxW = 56; const boxH = 22; const boxGap = 5; let bx = 14
+      kpiBoxes.forEach(b => {
+        doc.setFillColor(245, 247, 250)
+        doc.roundedRect(bx, y, boxW, boxH, 3, 3, 'F')
+        doc.setFontSize(7.5)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(...cinza)
+        doc.text(b.label, bx + 4, y + 7)
+        doc.setFontSize(11)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(...b.cor)
+        doc.text(b.valor, bx + 4, y + 17)
+        bx += boxW + boxGap
+      })
+
+      // ── Tabela Mensal ──────────────────────────────────────────────────────
+      y += boxH + 12
+      doc.setTextColor(...escuro)
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Detalhamento Mensal', 14, y)
+      y += 6
+
+      const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const linhas = data.relatorio_mensal || data.relatorio || []
+
+      // Cabeçalho da tabela
+      doc.setFillColor(15, 23, 42)
+      doc.rect(14, y, 182, 7, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'bold')
+      const cols = [14, 50, 100, 150, 170]
+      const headers = ['Mês', 'Receitas (R$)', 'Despesas (R$)', 'Saldo (R$)', 'Status']
+      headers.forEach((h, i) => doc.text(h, cols[i] + 2, y + 5))
+      y += 7
+
+      linhas.forEach((m, idx) => {
+        const bg = idx % 2 === 0 ? [250, 251, 252] : [255, 255, 255]
+        doc.setFillColor(...bg)
+        doc.rect(14, y, 182, 6.5, 'F')
+
+        const mesLabel = typeof m.mes === 'number' ? meses[m.mes - 1] : (m.mes || String(idx + 1))
+        const saldo = (m.saldo ?? (m.receitas - m.despesas))
+
+        doc.setTextColor(...cinza)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.text(String(mesLabel), cols[0] + 2, y + 4.5)
+        doc.setTextColor(16, 185, 129)
+        doc.text(`${this.formatMoney(m.receitas || 0)}`, cols[1] + 2, y + 4.5)
+        doc.setTextColor(244, 63, 94)
+        doc.text(`${this.formatMoney(m.despesas || 0)}`, cols[2] + 2, y + 4.5)
+        doc.setTextColor(saldo >= 0 ? 16 : 244, saldo >= 0 ? 185 : 63, saldo >= 0 ? 129 : 94)
+        doc.text(`${this.formatMoney(saldo)}`, cols[3] + 2, y + 4.5)
+        doc.setTextColor(...(saldo >= 0 ? verde : [244, 63, 94]))
+        doc.text(saldo >= 0 ? '✓ Positivo' : '✗ Negativo', cols[4] + 2, y + 4.5)
+        y += 6.5
+
+        if (y > 270) {
+          doc.addPage()
+          y = 20
+        }
+      })
+
+      // ── Rodapé ─────────────────────────────────────────────────────────────
+      const pageCount = doc.getNumberOfPages()
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i)
+        doc.setFillColor(...escuro)
+        doc.rect(0, 285, 210, 12, 'F')
+        doc.setTextColor(...cinza)
+        doc.setFontSize(7)
+        doc.text('VerdeMais — Finanças Pessoais Inteligentes', 14, 292)
+        doc.text(`Página ${i} de ${pageCount}`, 170, 292)
+      }
+
+      doc.save(`VerdeMais_Relatorio_${ano}.pdf`)
+      this.toast(`✅ PDF gerado: VerdeMais_Relatorio_${ano}.pdf`, 'success')
+    } catch (err) {
+      console.error(err)
+      this.toast('Erro ao gerar PDF. Tente novamente.', 'error')
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-pdf"></i> Exportar PDF' }
     }
   },
 
@@ -2733,6 +3974,25 @@ const VM = {
           </div>
         </div>
 
+        <!-- NOTIFICAÇÕES PUSH -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:16px;">🔔 Notificações</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
+              <div>
+                <div style="font-size:0.88rem;font-weight:600;">📱 Notificações Push</div>
+                <div style="font-size:0.8rem;color:#888;" id="push-status-txt">Verificando...</div>
+              </div>
+              <button onclick="VM.ativarNotificacoesPush()" class="btn-primary" style="width:auto;padding:6px 14px;font-size:0.8rem;display:none;" id="btn-push-ativar">
+                Ativar
+              </button>
+            </div>
+            <div style="font-size:0.78rem;color:#475569;padding:0 4px;">
+              Receba alertas sobre vencimentos, conquistas e cartões diretamente no dispositivo.
+            </div>
+          </div>
+        </div>
+
         <!-- MEU PLANO -->
         <div class="card" style="margin-bottom:20px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
@@ -2886,6 +4146,53 @@ const VM = {
         btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar'
       }
     })
+    // Verificar status de notificações push após renderizar
+    setTimeout(() => {
+      const statusEl = document.getElementById('push-status-txt')
+      const btnEl    = document.getElementById('btn-push-ativar')
+      if (!statusEl) return
+      if (!('Notification' in window)) {
+        statusEl.textContent = '⚠️ Não suportado neste navegador'
+      } else if (Notification.permission === 'granted') {
+        statusEl.textContent = '✅ Ativadas'
+        if (btnEl) btnEl.style.display = 'none'
+      } else if (Notification.permission === 'denied') {
+        statusEl.textContent = '🚫 Bloqueadas — libere nas configurações do navegador'
+        if (btnEl) btnEl.style.display = 'none'
+      } else {
+        statusEl.textContent = '⚪ Não configuradas'
+        if (btnEl) btnEl.style.display = 'inline-block'
+      }
+    }, 100)
+  },
+
+  async ativarNotificacoesPush() {
+    if (!('Notification' in window)) {
+      this.toast('Notificações não suportadas neste navegador', 'warning')
+      return
+    }
+    try {
+      const permission = await Notification.requestPermission()
+      const statusEl = document.getElementById('push-status-txt')
+      const btnEl    = document.getElementById('btn-push-ativar')
+      if (permission === 'granted') {
+        if (statusEl) statusEl.textContent = '✅ Ativadas'
+        if (btnEl) btnEl.style.display = 'none'
+        this.toast('✅ Notificações push ativadas!', 'success')
+        // Testar notificação
+        setTimeout(() => {
+          new Notification('VerdeMais 🌱', {
+            body: 'Notificações ativas! Você receberá alertas de vencimentos e conquistas.',
+            icon: '/favicon.svg'
+          })
+        }, 500)
+      } else {
+        if (statusEl) statusEl.textContent = '🚫 Permissão negada'
+        this.toast('Permissão de notificação negada', 'warning')
+      }
+    } catch(e) {
+      this.toast('Erro ao solicitar permissão', 'error')
+    }
   },
 
   modalAlterarSenha() {
@@ -2982,24 +4289,48 @@ const VM = {
   renderOnboarding() {
     this.onboardingStep = 1
     this.onboardingData = {}
+
+    const steps = [
+      { icon:'💼', label:'Situação' },
+      { icon:'💰', label:'Renda' },
+      { icon:'📊', label:'Hábitos' },
+      { icon:'🎯', label:'Objetivos' },
+      { icon:'👤', label:'Perfil' }
+    ]
+
     document.getElementById('app').innerHTML = `
-      <div style="min-height:100vh;background:linear-gradient(135deg,#0f0f1a 0%,#0d2818 100%);display:flex;align-items:center;justify-content:center;padding:20px;">
-        <div style="width:100%;max-width:600px;">
+      <div style="min-height:100vh;background:#0F172A;display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Inter',sans-serif;">
+        <div style="width:100%;max-width:620px;">
+
+          <!-- Header -->
           <div style="text-align:center;margin-bottom:32px;">
-            <div style="font-size:2.5rem;margin-bottom:8px;">💚</div>
-            <div style="font-size:1.4rem;font-weight:800;" class="gradient-text">VerdeMais</div>
-            <div style="color:#666;font-size:0.9rem;margin-top:4px;">Vamos personalizar sua experiência</div>
+            <div style="display:inline-flex;align-items:center;gap:10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:50px;padding:8px 20px;margin-bottom:20px;">
+              <span style="font-size:1.1rem;">🌱</span>
+              <span style="font-size:0.85rem;font-weight:700;color:#10B981;letter-spacing:0.5px;">VerdeMais</span>
+            </div>
+            <h1 style="font-size:1.6rem;font-weight:800;color:#F8FAFC;margin-bottom:8px;letter-spacing:-0.5px;">Personalize sua experiência</h1>
+            <p style="color:#64748B;font-size:0.87rem;">Leva menos de 2 minutos. Suas informações ficam seguras.</p>
           </div>
-          
-          <!-- Progress Bar -->
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:32px;" id="ob-progress">
-            ${[1,2,3,4,5].map(i => `
-              <div style="flex:1;height:4px;border-radius:2px;background:${i===1 ? 'linear-gradient(90deg,#2FBF71,#208040)' : 'rgba(255,255,255,0.1)'};transition:all 0.3s;" id="ob-bar-${i}"></div>
+
+          <!-- Progress steps -->
+          <div style="display:flex;align-items:center;margin-bottom:28px;gap:0;" id="ob-steps-bar">
+            ${steps.map((s,i) => `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;">
+                ${i > 0 ? `<div style="position:absolute;left:-50%;top:16px;width:100%;height:2px;background:${i < 1 ? 'rgba(16,185,129,0.8)' : 'rgba(255,255,255,0.08)'};z-index:0;transition:all 0.4s;" id="ob-line-${i}"></div>` : ''}
+                <div id="ob-step-dot-${i+1}" style="width:32px;height:32px;border-radius:50%;background:${i===0 ? 'linear-gradient(135deg,#10B981,#059669)' : 'rgba(255,255,255,0.06)'};border:2px solid ${i===0 ? '#10B981' : 'rgba(255,255,255,0.1)'};display:flex;align-items:center;justify-content:center;font-size:0.9rem;z-index:1;position:relative;transition:all 0.4s;">${s.icon}</div>
+                <span id="ob-step-label-${i+1}" style="font-size:0.65rem;color:${i===0 ? '#10B981' : '#334155'};font-weight:${i===0 ? '700' : '400'};transition:all 0.4s;">${s.label}</span>
+              </div>
             `).join('')}
           </div>
-          
-          <div id="ob-card" style="background:rgba(255,255,255,0.04);border:1px solid rgba(47,191,113,0.15);border-radius:24px;padding:40px;">
+
+          <!-- Card principal -->
+          <div id="ob-card" style="background:rgba(30,41,59,0.7);border:1px solid rgba(16,185,129,0.12);border-radius:24px;padding:36px 40px;backdrop-filter:blur(12px);box-shadow:0 20px 50px rgba(0,0,0,0.4);transition:all 0.3s;">
             <!-- Conteúdo será injetado por JS -->
+          </div>
+
+          <!-- Indicador -->
+          <div style="text-align:center;margin-top:16px;">
+            <span id="ob-step-indicator" style="font-size:0.75rem;color:#334155;">Passo 1 de 5</span>
           </div>
         </div>
       </div>
@@ -3010,12 +4341,36 @@ const VM = {
   renderOnboardingStep(step) {
     this.onboardingStep = step
     const card = document.getElementById('ob-card')
-    
-    // Atualizar barra de progresso
+    const indicator = document.getElementById('ob-step-indicator')
+    if (indicator) indicator.textContent = `Passo ${step} de 5`
+
+    // Atualizar dots e linhas da barra de progresso
     for (let i = 1; i <= 5; i++) {
-      const bar = document.getElementById(`ob-bar-${i}`)
-      if (bar) {
-        bar.style.background = i <= step ? 'linear-gradient(90deg,#2FBF71,#208040)' : 'rgba(255,255,255,0.1)'
+      const dot   = document.getElementById(`ob-step-dot-${i}`)
+      const label = document.getElementById(`ob-step-label-${i}`)
+      const line  = document.getElementById(`ob-line-${i}`)
+      if (dot) {
+        if (i < step) {
+          dot.style.background = 'linear-gradient(135deg,#10B981,#059669)'
+          dot.style.borderColor = '#10B981'
+          dot.innerHTML = '✓'
+          dot.style.fontSize = '0.75rem'
+        } else if (i === step) {
+          dot.style.background = 'linear-gradient(135deg,#10B981,#059669)'
+          dot.style.borderColor = '#10B981'
+          dot.style.boxShadow = '0 0 0 4px rgba(16,185,129,0.2)'
+        } else {
+          dot.style.background = 'rgba(255,255,255,0.06)'
+          dot.style.borderColor = 'rgba(255,255,255,0.1)'
+          dot.style.boxShadow = 'none'
+        }
+      }
+      if (label) {
+        label.style.color = i <= step ? '#10B981' : '#334155'
+        label.style.fontWeight = i === step ? '700' : '400'
+      }
+      if (line) {
+        line.style.background = i <= step ? 'rgba(16,185,129,0.6)' : 'rgba(255,255,255,0.08)'
       }
     }
 
@@ -3242,34 +4597,54 @@ const VM = {
     }
 
     const s = steps[step]
+    // Slide-in animation
+    card.style.opacity = '0'
+    card.style.transform = 'translateX(20px)'
     card.innerHTML = `
-      <div style="text-align:center;margin-bottom:28px;">
-        <div style="font-size:2.5rem;margin-bottom:12px;">${s.icon}</div>
-        <h2 style="font-size:1.3rem;font-weight:700;margin-bottom:8px;">${s.titulo}</h2>
-        <p style="color:#666;font-size:0.9rem;line-height:1.6;">${s.subtitulo}</p>
+      <!-- Step header -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:28px;">
+        <div style="width:52px;height:52px;background:linear-gradient(135deg,rgba(16,185,129,0.2),rgba(16,185,129,0.05));border:1.5px solid rgba(16,185,129,0.3);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">${s.icon}</div>
+        <div>
+          <h2 style="font-size:1.2rem;font-weight:800;color:#F8FAFC;margin-bottom:5px;letter-spacing:-0.3px;">${s.titulo}</h2>
+          <p style="color:#64748B;font-size:0.84rem;line-height:1.5;margin:0;">${s.subtitulo}</p>
+        </div>
       </div>
-      
-      <div style="font-size:0.75rem;color:#444;text-align:center;margin-bottom:20px;">Etapa ${step} de 5</div>
-      
+
       ${s.html}
-      
-      <div style="display:flex;gap:12px;margin-top:28px;">
+
+      <!-- Navegação -->
+      <div style="display:flex;gap:10px;margin-top:28px;">
         ${step > 1 ? `
-          <button onclick="VM.renderOnboardingStep(${step-1})" class="btn-secondary" style="flex:0 0 auto;padding:12px 20px;">
+          <button onclick="VM.renderOnboardingStep(${step-1})"
+            style="flex:0 0 auto;padding:12px 20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#94A3B8;font-size:0.88rem;font-weight:600;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:6px;"
+            onmouseover="this.style.borderColor='rgba(255,255,255,0.2)';this.style.color='#F8FAFC'"
+            onmouseout="this.style.borderColor='rgba(255,255,255,0.1)';this.style.color='#94A3B8'">
             <i class="fas fa-arrow-left"></i> Voltar
           </button>
         ` : `
-          <button onclick="window.location.href='/app'" class="btn-secondary" style="flex:0 0 auto;padding:12px 20px;">
+          <button onclick="window.location.href='/app'"
+            style="flex:0 0 auto;padding:12px 20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#64748B;font-size:0.88rem;cursor:pointer;transition:all 0.2s;"
+            onmouseover="this.style.color='#94A3B8'" onmouseout="this.style.color='#64748B'">
             Pular
           </button>
         `}
-        <button onclick="VM.nextOnboardingStep(${step})" class="btn-primary" style="flex:1;justify-content:center;" id="ob-next">
-          ${step === 5 ? '<i class="fas fa-rocket"></i> Começar VerdeMais' : 'Próximo <i class="fas fa-arrow-right"></i>'}
+        <button onclick="VM.nextOnboardingStep(${step})" id="ob-next"
+          style="flex:1;padding:13px;background:linear-gradient(135deg,#10B981,#059669);border:none;border-radius:12px;color:#fff;font-size:0.92rem;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px;"
+          onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 18px rgba(16,185,129,0.35)'"
+          onmouseout="this.style.transform='none';this.style.boxShadow='none'">
+          ${step === 5 ? '<i class="fas fa-rocket"></i> Começar VerdeMais 🚀' : 'Continuar <i class="fas fa-arrow-right"></i>'}
         </button>
       </div>
-      
-      ${step < 5 ? `<div style="text-align:center;margin-top:16px;"><button onclick="window.location.href='/app'" style="background:none;border:none;color:#444;cursor:pointer;font-size:0.8rem;">Pular configuração</button></div>` : ''}
+
+      ${step < 5 ? `<div style="text-align:center;margin-top:14px;"><button onclick="window.location.href='/app'" style="background:none;border:none;color:#334155;cursor:pointer;font-size:0.77rem;transition:color 0.2s;" onmouseover="this.style.color='#64748B'" onmouseout="this.style.color='#334155'">Configurar depois →</button></div>` : ''}
     `
+
+    // Animate in
+    requestAnimationFrame(() => {
+      card.style.transition = 'opacity 0.3s ease, transform 0.3s ease'
+      card.style.opacity = '1'
+      card.style.transform = 'translateX(0)'
+    })
 
     // Restaurar valores já preenchidos
     if (this.onboardingData) {
@@ -3420,41 +4795,63 @@ const VM = {
 
   renderOnboardingFinal() {
     const nome = this.user?.nome?.split(' ')[0] || 'você'
+    const proximo = this.onboardingData?.emprego === 'desempregado'
+      ? 'Registre suas despesas mensais para entender para onde vai seu dinheiro'
+      : 'Adicione sua renda mensal no módulo Receitas'
+
     document.getElementById('app').innerHTML = `
-      <div style="min-height:100vh;background:linear-gradient(135deg,#0f0f1a 0%,#0d2818 100%);display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="min-height:100vh;background:#0F172A;display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Inter',sans-serif;">
         <div style="width:100%;max-width:520px;text-align:center;">
-          <div style="font-size:4rem;margin-bottom:24px;animation:bounceIn 0.6s ease;">🏆</div>
-          <h1 style="font-size:2rem;font-weight:800;margin-bottom:16px;">
-            Perfil configurado,<br><span class="gradient-text">${nome}!</span>
+
+          <!-- Trofeu animado -->
+          <div style="position:relative;display:inline-block;margin-bottom:24px;">
+            <div style="width:90px;height:90px;background:linear-gradient(135deg,rgba(16,185,129,0.2),rgba(16,185,129,0.05));border:2px solid rgba(16,185,129,0.4);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:2.8rem;margin:0 auto;animation:popIn 0.6s cubic-bezier(0.175,0.885,0.32,1.275) both;">
+              🏆
+            </div>
+            <div style="position:absolute;top:-5px;right:-5px;width:24px;height:24px;background:#10B981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;animation:pulse 2s infinite;">✓</div>
+          </div>
+
+          <h1 style="font-size:1.8rem;font-weight:800;color:#F8FAFC;margin-bottom:12px;letter-spacing:-0.5px;">
+            Tudo pronto, <span style="background:linear-gradient(135deg,#10B981,#34D399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${nome}!</span>
           </h1>
-          <p style="color:#888;font-size:1rem;line-height:1.7;margin-bottom:32px;">
-            Seu VerdeMais está personalizado. Agora vamos organizar suas finanças e construir seu futuro juntos. 💚
+          <p style="color:#64748B;font-size:0.92rem;line-height:1.7;margin-bottom:32px;max-width:380px;margin-left:auto;margin-right:auto;">
+            Seu perfil foi configurado. O VerdeMais agora pode te dar insights personalizados e um plano financeiro real.
           </p>
-          
-          <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:20px;padding:24px;margin-bottom:32px;">
-            <div style="font-weight:700;margin-bottom:16px;color:#2FBF71;">🚀 Próximos passos recomendados</div>
-            <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
-                <div style="width:28px;height:28px;background:#2FBF71;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">1</div>
-                Adicione sua renda mensal no módulo <strong style="color:#fff;">Receitas</strong>
-              </div>
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
-                <div style="width:28px;height:28px;background:#208040;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">2</div>
-                Registre suas principais despesas mensais
-              </div>
-              <div style="display:flex;align-items:center;gap:12px;font-size:0.9rem;color:#aaa;">
-                <div style="width:28px;height:28px;background:rgba(47,191,113,0.4);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;">3</div>
-                Crie sua primeira meta financeira
-              </div>
+
+          <!-- Próximos passos -->
+          <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.15);border-radius:20px;padding:24px;margin-bottom:28px;text-align:left;">
+            <div style="font-weight:700;margin-bottom:16px;color:#10B981;font-size:0.88rem;letter-spacing:0.5px;">🚀 PRÓXIMOS PASSOS</div>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              ${[
+                { n:'1', icon:'💰', t:'Adicionar renda', d: proximo, c:'#10B981' },
+                { n:'2', icon:'💸', t:'Registrar despesas', d:'Cadastre suas contas fixas e variáveis para análise precisa', c:'#059669' },
+                { n:'3', icon:'🎯', t:'Criar uma meta', d:'Defina seu primeiro objetivo financeiro com prazo', c:'#34D399' }
+              ].map(p => `
+                <div style="display:flex;align-items:flex-start;gap:12px;">
+                  <div style="width:32px;height:32px;background:linear-gradient(135deg,${p.c},${p.c}88);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;flex-shrink:0;font-weight:700;color:#fff;">${p.n}</div>
+                  <div>
+                    <div style="font-size:0.88rem;font-weight:600;color:#F8FAFC;margin-bottom:2px;">${p.icon} ${p.t}</div>
+                    <div style="font-size:0.77rem;color:#64748B;line-height:1.5;">${p.d}</div>
+                  </div>
+                </div>
+              `).join('')}
             </div>
           </div>
-          
-          <button onclick="window.location.href='/app/dashboard'" class="btn-primary" style="font-size:1.1rem;padding:16px 48px;width:100%;justify-content:center;">
+
+          <!-- CTA -->
+          <button onclick="window.location.href='/app/dashboard'"
+            style="width:100%;padding:15px;background:linear-gradient(135deg,#10B981,#059669);border:none;border-radius:14px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;"
+            onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 10px 30px rgba(16,185,129,0.4)'"
+            onmouseout="this.style.transform='none';this.style.boxShadow='none'">
             <i class="fas fa-rocket"></i> Abrir meu Dashboard
           </button>
+          <div style="color:#334155;font-size:0.75rem;">Você pode completar seu perfil depois nas configurações</div>
         </div>
       </div>
-      <style>@keyframes bounceIn { 0%{transform:scale(0.3);opacity:0} 60%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }</style>
+      <style>
+        @keyframes popIn { 0%{transform:scale(0.3);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+        @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+      </style>
     `
   },
 
@@ -6273,6 +7670,21 @@ const VM = {
   startConqPoll() {
     if (this._conqPollTimer) return
     this._conqPollTimer = setInterval(() => this.checkNovasConquistas(), 30000)
+    // Verificar alertas de cartão na inicialização (sem polling agressivo)
+    setTimeout(() => this.atualizarBadgeAlertasCartao(), 5000)
+  },
+
+  async atualizarBadgeAlertasCartao() {
+    try {
+      const r = await this.api('GET', 'alertas-cartao')
+      const n = r.total_nao_lidos || 0
+      // Badge no sidebar
+      const badge = document.getElementById('badge-alertas-cartao')
+      if (badge) { badge.style.display = n > 0 ? 'inline-block' : 'none'; badge.textContent = n }
+      // Badge no topbar (sino)
+      const topBadge = document.getElementById('topbar-badge-alertas')
+      if (topBadge) { topBadge.style.display = n > 0 ? 'inline-block' : 'none'; topBadge.textContent = n > 9 ? '9+' : n }
+    } catch(e) {}
   },
 
   async checkNovasConquistas() {
