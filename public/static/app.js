@@ -1018,6 +1018,28 @@ const VM = {
               <span class="nav-icon"><i class="fas fa-trophy"></i></span> Conquistas
               <span id="badge-conquistas" style="display:none;margin-left:auto;background:#2FBF71;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
             </a>
+            
+            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">⚡ Novidades v3.0</div>
+            <a class="nav-item" id="nav-reservas-esp" onclick="VM.navigate('reservas-esp')">
+              <span class="nav-icon">🛡️</span> Minhas Reservas
+              <span style="margin-left:auto;background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
+            <a class="nav-item" id="nav-assinaturas-fantasma" onclick="VM.navigate('assinaturas-fantasma')">
+              <span class="nav-icon">👻</span> Assinaturas Fantasma
+              <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
+            <a class="nav-item" id="nav-regra-503020" onclick="VM.navigate('regra-503020')">
+              <span class="nav-icon">⚖️</span> Regra 50/30/20
+              <span style="margin-left:auto;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
+            <a class="nav-item" id="nav-amortizacao" onclick="VM.navigate('amortizacao')">
+              <span class="nav-icon">🏦</span> Simulador Amortização
+              <span style="margin-left:auto;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
+            <a class="nav-item" id="nav-desafio-52" onclick="VM.navigate('desafio-52')">
+              <span class="nav-icon">🎯</span> Desafio 52 Semanas
+              <span style="margin-left:auto;background:linear-gradient(135deg,#EC4899,#DB2777);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
           </nav>
           
           <div class="sidebar-user" onclick="VM.navigate('perfil')">
@@ -1195,7 +1217,12 @@ const VM = {
       conquistas: ['Conquistas', 'Sua evolução financeira'],
       perfil: ['Meu Perfil', 'Configurações da conta'],
       tags: ['Tags & Filtros 🏷️', 'Organize suas despesas com etiquetas'],
-      'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada']
+      'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada'],
+      'reservas-esp': ['🛡️ Minhas Reservas', 'Múltiplas reservas por objetivos específicos'],
+      'assinaturas-fantasma': ['👻 Assinaturas Fantasma', 'Detecte gastos recorrentes esquecidos'],
+      'regra-503020': ['⚖️ Regra 50/30/20', 'Equilíbrio das suas finanças pessoais'],
+      'desafio-52': ['🎯 Desafio 52 Semanas', 'Poupe R$ 1.378 ao longo do ano'],
+      'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros']
     }
 
     const [title, sub] = titles[page] || ['', '']
@@ -1225,7 +1252,12 @@ const VM = {
       perfil: () => this.pagePerfil(),
       reserva: () => this.pageReserva(),
       tags: () => this.pageTags(),
-      'alertas-cartao': () => this.pageAlertasCartao()
+      'alertas-cartao': () => this.pageAlertasCartao(),
+      'reservas-esp': () => this.pageReservasEsp(),
+      'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
+      'regra-503020': () => this.pageRegra503020(),
+      'desafio-52': () => this.pageDesafio52(),
+      'amortizacao': () => this.pageAmortizacao()
     }
 
     if (pages[page]) pages[page]()
@@ -8694,6 +8726,1074 @@ const VM = {
   closeModal(event) {
     if (event && event.target !== event.currentTarget) return
     document.getElementById('modal-container').innerHTML = ''
+  },
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // v3.0 — MÚLTIPLAS RESERVAS ESPECIALIZADAS
+  // ═══════════════════════════════════════════════════════════════
+  async pageReservasEsp() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:200px;margin-bottom:16px;border-radius:16px;"></div><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>`
+    
+    try {
+      const data = await this.api('GET', 'reservas-esp')
+      const { reserves = [], summary = {} } = data
+      const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+      
+      const RESERVE_INFO = {
+        emergency:    { icon:'🚨', color:'#EF4444', label:'Emergência Geral',     desc:'Proteção contra imprevistos gerais' },
+        health:       { icon:'🏥', color:'#3B82F6', label:'Fundo Saúde',          desc:'Consultas, exames e medicamentos' },
+        unemployment: { icon:'💼', color:'#F59E0B', label:'Proteção Desemprego',  desc:'Até 12 meses de gastos essenciais' },
+        travel:       { icon:'✈️', color:'#8B5CF6', label:'Viagem dos Sonhos',    desc:'Realize aquela viagem especial' },
+        education:    { icon:'🎓', color:'#06B6D4', label:'Educação / Cursos',    desc:'Invista no seu crescimento' },
+        vehicle:      { icon:'🚗', color:'#84CC16', label:'IPVA & Manutenção',    desc:'Evite surpresas com o carro' },
+        family:       { icon:'🏠', color:'#F97316', label:'Imprevistos Familiares',desc:'Proteção para a família' },
+        event:        { icon:'💍', color:'#EC4899', label:'Eventos Especiais',    desc:'Casamento, festa, formatura' },
+        custom:       { icon:'🎯', color:'#6366F1', label:'Reserva Personalizada',desc:'Seu objetivo específico' },
+      }
+      
+      const urgColor = pct => pct >= 80 ? '#10B981' : pct >= 50 ? '#F59E0B' : '#EF4444'
+      const urgLabel = pct => pct >= 80 ? '✅ Quase lá' : pct >= 50 ? '⚡ Em progresso' : '⚠️ Atenção'
+      
+      const planLimit = this.user?.plano === 'free' ? 1 : this.user?.plano === 'premium' ? 3 : 99
+      const canCreate = reserves.filter(r => r.status === 'active' || r.status === 'paused').length < planLimit
+      
+      content.innerHTML = `
+        <div style="max-width:1100px;">
+          <!-- Header -->
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">🛡️ Minhas Reservas</h1>
+              <p style="color:#64748B;margin:0;">Organize suas economias por objetivos — cada "caixinha" tem seu propósito.</p>
+            </div>
+            <button onclick="VM.modalNovaReserva()" 
+              style="background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;"
+              ${!canCreate ? 'disabled style="background:#1f2937;color:#555;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:not-allowed;font-size:0.9rem;"' : ''}>
+              ＋ Nova Reserva
+            </button>
+          </div>
+          
+          ${!canCreate ? `
+          <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+            <span style="font-size:1.4rem;">⭐</span>
+            <div>
+              <p style="color:#A78BFA;font-weight:700;margin:0 0 2px;">Limite de plano atingido</p>
+              <p style="color:#94A3B8;font-size:0.82rem;margin:0;">
+                ${this.user?.plano === 'free' ? 'Plano Free: 1 reserva. <b>Premium</b>: 3 reservas. <b>Pro</b>: ilimitado.' : 'Plano Premium: 3 reservas. <b>Pro</b>: ilimitado.'}
+                <a href="#" onclick="VM.upsellModal('multi_reserva');return false;" style="color:#A78BFA;font-weight:700;"> Fazer upgrade →</a>
+              </p>
+            </div>
+          </div>` : ''}
+          
+          <!-- Summary Cards -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:28px;">
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:18px;">
+              <div style="color:#6EE7B7;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">💰 Total Guardado</div>
+              <div style="font-size:1.8rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(summary.total_saved)}</div>
+              <div style="color:#64748B;font-size:0.78rem;margin-top:4px;">${summary.active_count || 0} reserva${summary.active_count !== 1 ? 's' : ''} ativa${summary.active_count !== 1 ? 's' : ''}</div>
+            </div>
+            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:18px;">
+              <div style="color:#93C5FD;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🎯 Meta Total</div>
+              <div style="font-size:1.8rem;font-weight:800;color:#60A5FA;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(summary.total_target)}</div>
+              <div style="color:#64748B;font-size:0.78rem;margin-top:4px;">${summary.completed_count || 0} completada${summary.completed_count !== 1 ? 's' : ''}</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:14px;padding:18px;">
+              <div style="color:#C4B5FD;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📊 Progresso Geral</div>
+              <div style="font-size:1.8rem;font-weight:800;color:#A78BFA;">${summary.overall_progress || 0}%</div>
+              <div style="background:#1e293b;border-radius:50px;height:6px;margin-top:8px;overflow:hidden;">
+                <div style="height:100%;width:${summary.overall_progress || 0}%;background:linear-gradient(90deg,#8B5CF6,#A78BFA);border-radius:50px;transition:width 1s ease;"></div>
+              </div>
+            </div>
+            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);border-radius:14px;padding:18px;">
+              <div style="color:#FDA4AF;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📉 Ainda Falta</div>
+              <div style="font-size:1.8rem;font-weight:800;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(summary.total_remaining)}</div>
+            </div>
+          </div>
+          
+          <!-- Grid de Reservas -->
+          ${reserves.length === 0 ? `
+          <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+            <div style="font-size:4rem;margin-bottom:16px;">🛡️</div>
+            <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Crie sua primeira reserva</h2>
+            <p style="color:#64748B;margin:0 0 20px;max-width:400px;margin-left:auto;margin-right:auto;">
+              Objectivos específicos têm 3× mais chances de sucesso. Cada "caixinha" mantém o dinheiro protegido para sua finalidade.
+            </p>
+            <button onclick="VM.modalNovaReserva()" style="background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;padding:12px 28px;border-radius:12px;font-weight:700;cursor:pointer;">
+              ＋ Criar Primeira Reserva
+            </button>
+          </div>
+          ` : `
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px;">
+            ${reserves.map(r => {
+              const info = RESERVE_INFO[r.type] || RESERVE_INFO.custom
+              const pct = r.percent_complete || 0
+              const barColor = pct >= 80 ? '#10B981' : pct >= 50 ? '#F59E0B' : '#EF4444'
+              const months = r.monthly_target && r.remaining > 0
+                ? Math.ceil(r.remaining / r.monthly_target)
+                : null
+              return `
+              <div style="background:rgba(15,23,42,0.85);border:2px solid rgba(255,255,255,0.06);border-radius:18px;padding:22px;transition:all 0.2s;cursor:default;"
+                onmouseover="this.style.borderColor='${info.color}44';this.style.transform='translateY(-2px)'"
+                onmouseout="this.style.borderColor='rgba(255,255,255,0.06)';this.style.transform='translateY(0)'">
+                <!-- Header -->
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">
+                  <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:46px;height:46px;background:${info.color}20;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">${info.icon}</div>
+                    <div>
+                      <div style="font-weight:700;color:#f1f5f9;font-size:1rem;">${r.name}</div>
+                      <div style="font-size:0.72rem;color:#64748B;margin-top:2px;">${info.desc}</div>
+                    </div>
+                  </div>
+                  <span style="background:${barColor}22;color:${barColor};font-size:0.65rem;padding:3px 8px;border-radius:50px;font-weight:700;white-space:nowrap;">${urgLabel(pct)}</span>
+                </div>
+                
+                <!-- Progress -->
+                <div style="margin-bottom:14px;">
+                  <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:6px;">
+                    <span style="color:#94A3B8;">Progresso</span>
+                    <span style="color:#f1f5f9;font-weight:700;">${pct}%</span>
+                  </div>
+                  <div style="background:#1e293b;border-radius:50px;height:8px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}cc);border-radius:50px;transition:width 1s ease;"></div>
+                  </div>
+                </div>
+                
+                <!-- Values -->
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;margin-bottom:4px;">💰 Guardado</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.current_amount)}</div>
+                  </div>
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;margin-bottom:4px;">🎯 Meta</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#94A3B8;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.target_amount)}</div>
+                  </div>
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;margin-bottom:4px;">📉 Falta</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.remaining)}</div>
+                  </div>
+                </div>
+                
+                ${months ? `
+                <div style="background:#0f172a;border-radius:10px;padding:10px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                  <span style="color:#10B981;font-size:1rem;">⚡</span>
+                  <div>
+                    <div style="font-size:0.7rem;color:#64748B;">Contribuição Sugerida</div>
+                    <div style="font-size:0.9rem;font-weight:700;color:#10B981;">R$ ${fmtBRL(r.monthly_target)}/mês → completa em ${months} meses</div>
+                  </div>
+                </div>` : ''}
+                
+                <!-- Actions -->
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;">
+                  <button onclick="VM.modalDepositoReservaEsp(${r.id}, '${r.name.replace(/'/g,"\'")}', ${r.target_amount - r.current_amount})"
+                    style="background:linear-gradient(135deg,${info.color},${info.color}cc);color:#fff;border:none;padding:10px;border-radius:10px;font-weight:700;cursor:pointer;font-size:0.8rem;">
+                    ＋ Depositar
+                  </button>
+                  <button onclick="VM.modalEditarReservaEsp(${r.id})"
+                    title="Editar"
+                    style="background:#1e293b;color:#94A3B8;border:none;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:0.85rem;">✏️</button>
+                  <button onclick="VM.deletarReservaEsp(${r.id}, '${r.name.replace(/'/g,"\'")}', ${r.current_amount})"
+                    title="Excluir"
+                    style="background:#1e293b;color:#94A3B8;border:none;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:0.85rem;">🗑️</button>
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+          `}
+          
+          <!-- Educação -->
+          <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(59,130,246,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:24px;margin-top:28px;">
+            <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:8px;">📚 Por que ter múltiplas reservas?</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;">
+              <div>
+                <h4 style="color:#6EE7B7;font-size:0.85rem;font-weight:700;margin:0 0 6px;">🧠 Psicologia Comportamental</h4>
+                <p style="color:#94A3B8;font-size:0.82rem;line-height:1.5;margin:0;">Objetivos específicos (ex: "Viagem Disney") são 3× mais motivadores que genéricos ("Emergência"). Seu cérebro visualiza melhor o resultado.</p>
+              </div>
+              <div>
+                <h4 style="color:#93C5FD;font-size:0.85rem;font-weight:700;margin:0 0 6px;">💰 Proteção do Objetivo</h4>
+                <p style="color:#94A3B8;font-size:0.82rem;line-height:1.5;margin:0;">Separar por finalidade evita usar dinheiro da emergência para viagem. Cada "caixinha" tem seu propósito protegido.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    } catch (e) {
+      document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar: ${e.message}</p></div>`
+    }
+  },
+  
+  async modalNovaReserva() {
+    const tipos = [
+      { v:'emergency',    l:'🚨 Emergência Geral',      d:'3-6 meses de gastos' },
+      { v:'health',       l:'🏥 Fundo Saúde',           d:'Consultas e medicamentos' },
+      { v:'unemployment', l:'💼 Proteção Desemprego',   d:'Até 12 meses de gastos' },
+      { v:'travel',       l:'✈️ Viagem dos Sonhos',     d:'Sua próxima aventura' },
+      { v:'education',    l:'🎓 Educação / Cursos',     d:'Invista em você mesmo' },
+      { v:'vehicle',      l:'🚗 IPVA & Manutenção',     d:'Custos previsíveis do carro' },
+      { v:'family',       l:'🏠 Imprevistos Familiares',d:'Proteção da família' },
+      { v:'event',        l:'💍 Eventos Especiais',     d:'Casamento, formatura, festa' },
+      { v:'custom',       l:'🎯 Personalizada',         d:'Seu objetivo específico' },
+    ]
+    
+    this.showModal(`
+      <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:18px;color:#f1f5f9;">🛡️ Nova Reserva Especializada</h3>
+      <form onsubmit="VM.salvarNovaReservaEsp(event)">
+        <div class="form-group">
+          <label class="form-label">Tipo de Reserva</label>
+          <select id="res-type" class="form-input" onchange="VM.atualizarNomeReserva()" required>
+            ${tipos.map(t => `<option value="${t.v}">${t.l} — ${t.d}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input type="text" id="res-name" class="form-input" placeholder="Ex: Viagem para Europa 2025" value="" required>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Valor Meta (R$)</label>
+            <input type="number" id="res-target" class="form-input" placeholder="10000" step="0.01" min="1" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Já tenho (R$)</label>
+            <input type="number" id="res-current" class="form-input" placeholder="0" step="0.01" min="0" value="0">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Contribuição Mensal (R$)</label>
+            <input type="number" id="res-monthly" class="form-input" placeholder="500" step="0.01" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Prazo (opcional)</label>
+            <input type="date" id="res-deadline" class="form-input">
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;margin-top:8px;">Criar Reserva</button>
+      </form>
+    `)
+    
+    // Preencher nome padrão
+    this.atualizarNomeReserva()
+  },
+  
+  atualizarNomeReserva() {
+    const el = document.getElementById('res-type')
+    const names = {
+      emergency:'Reserva de Emergência', health:'Fundo Saúde', unemployment:'Proteção Desemprego',
+      travel:'Minha Viagem dos Sonhos', education:'Fundo Educação', vehicle:'IPVA & Manutenção',
+      family:'Imprevistos Familiares', event:'Evento Especial', custom:'Minha Reserva'
+    }
+    const nameEl = document.getElementById('res-name')
+    if (nameEl && !nameEl.dataset.touched) {
+      nameEl.value = names[el?.value] || 'Minha Reserva'
+    }
+  },
+  
+  async salvarNovaReservaEsp(e) {
+    e.preventDefault()
+    const btn = e.target.querySelector('button[type=submit]')
+    btn.disabled = true; btn.textContent = 'Criando...'
+    
+    try {
+      const payload = {
+        type: document.getElementById('res-type').value,
+        name: document.getElementById('res-name').value,
+        target_amount: parseFloat(document.getElementById('res-target').value),
+        current_amount: parseFloat(document.getElementById('res-current').value) || 0,
+        monthly_target: parseFloat(document.getElementById('res-monthly').value) || null,
+        deadline: document.getElementById('res-deadline').value || null,
+      }
+      await this.api('POST', 'reservas-esp', payload)
+      this.closeModal()
+      this.toast('🛡️ Reserva criada com sucesso!', 'success')
+      this.pageReservasEsp()
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'Criar Reserva'
+      this.toast(err.message || 'Erro ao criar reserva', 'error')
+    }
+  },
+  
+  async modalDepositoReservaEsp(id, name, maxAmount) {
+    const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+    this.showModal(`
+      <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:6px;color:#f1f5f9;">💰 Depositar em "${name}"</h3>
+      <p style="color:#64748B;font-size:0.82rem;margin-bottom:18px;">Ainda faltam R$ ${fmtBRL(maxAmount)} para completar esta reserva.</p>
+      <form onsubmit="VM.confirmarDepositoReservaEsp(event, ${id})">
+        <div class="form-group">
+          <label class="form-label">Valor do Depósito (R$)</label>
+          <input type="number" id="dep-amount" class="form-input" placeholder="500.00" step="0.01" min="0.01" max="${maxAmount}" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Descrição (opcional)</label>
+          <input type="text" id="dep-desc" class="form-input" placeholder="Ex: Salário março">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+          <button type="button" onclick="VM.closeModal()" class="btn-secondary">Cancelar</button>
+          <button type="submit" class="btn-primary">💰 Depositar</button>
+        </div>
+      </form>
+    `)
+  },
+  
+  async confirmarDepositoReservaEsp(e, id) {
+    e.preventDefault()
+    const btn = e.target.querySelector('button[type=submit]')
+    btn.disabled = true; btn.textContent = 'Depositando...'
+    try {
+      const resp = await this.api('POST', `reservas-esp/${id}/depositar`, {
+        amount: parseFloat(document.getElementById('dep-amount').value),
+        description: document.getElementById('dep-desc').value || 'Depósito'
+      })
+      this.closeModal()
+      this.toast(resp.message || '✅ Depósito realizado!', resp.completed ? 'success' : 'success')
+      this.pageReservasEsp()
+    } catch (err) {
+      btn.disabled = false; btn.textContent = '💰 Depositar'
+      this.toast(err.message, 'error')
+    }
+  },
+  
+  async modalEditarReservaEsp(id) {
+    // Buscar dados atuais
+    const data = await this.api('GET', 'reservas-esp')
+    const r = (data.reserves || []).find(x => x.id === id)
+    if (!r) return this.toast('Reserva não encontrada', 'error')
+    
+    this.showModal(`
+      <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:18px;color:#f1f5f9;">✏️ Editar Reserva</h3>
+      <form onsubmit="VM.confirmarEdicaoReservaEsp(event, ${id})">
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input type="text" id="edit-res-name" class="form-input" value="${r.name}" required>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Meta (R$)</label>
+            <input type="number" id="edit-res-target" class="form-input" value="${r.target_amount}" step="0.01" min="1" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contribuição Mensal</label>
+            <input type="number" id="edit-res-monthly" class="form-input" value="${r.monthly_target || ''}" step="0.01" min="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prazo</label>
+          <input type="date" id="edit-res-deadline" class="form-input" value="${r.deadline || ''}">
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;margin-top:8px;">💾 Salvar Alterações</button>
+      </form>
+    `)
+  },
+  
+  async confirmarEdicaoReservaEsp(e, id) {
+    e.preventDefault()
+    const btn = e.target.querySelector('button[type=submit]')
+    btn.disabled = true
+    try {
+      await this.api('PUT', `reservas-esp/${id}`, {
+        name: document.getElementById('edit-res-name').value,
+        target_amount: parseFloat(document.getElementById('edit-res-target').value),
+        monthly_target: parseFloat(document.getElementById('edit-res-monthly').value) || null,
+        deadline: document.getElementById('edit-res-deadline').value || null,
+      })
+      this.closeModal()
+      this.toast('✅ Reserva atualizada!', 'success')
+      this.pageReservasEsp()
+    } catch (err) {
+      btn.disabled = false
+      this.toast(err.message, 'error')
+    }
+  },
+  
+  async deletarReservaEsp(id, name, currentAmount) {
+    const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+    if (!confirm(`Excluir a reserva "${name}"?${currentAmount > 0 ? `\n\n⚠️ Você possui R$ ${fmtBRL(currentAmount)} nesta reserva. Certifique-se de transferir esse valor antes de excluir.` : ''}`)) return
+    try {
+      await this.api('DELETE', `reservas-esp/${id}`)
+      this.toast('🗑️ Reserva removida', 'success')
+      this.pageReservasEsp()
+    } catch (err) {
+      this.toast(err.message, 'error')
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // v3.0 — DETECTOR DE ASSINATURAS FANTASMA
+  // ═══════════════════════════════════════════════════════════════
+  async pageAssinaturasFantasma() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
+    
+    try {
+      const data = await this.api('GET', 'assinaturas-fantasma')
+      const { detected = [], totalMensal = 0, totalAnual = 0 } = data
+      const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+      const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'
+      
+      const serviceIcons = {
+        streaming:'🎬', cloud:'☁️', software:'💻', fitness:'💪',
+        transport:'🚗', food:'🍔', gaming:'🎮', professional:'💼',
+        education:'🎓', unknown:'📱'
+      }
+      
+      content.innerHTML = `
+        <div style="max-width:1000px;">
+          <!-- Header -->
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">👻 Assinaturas Fantasma</h1>
+              <p style="color:#64748B;margin:0;">O brasileiro médio desperdiça R$ 150-250/mês em serviços esquecidos. Vamos encontrar os seus.</p>
+            </div>
+            <button onclick="VM.scanAssinaturas()" id="btn-scan-assin"
+              style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">
+              🔍 Escanear Gastos
+            </button>
+          </div>
+          
+          ${detected.length > 0 ? `
+          <!-- Summary Impacto -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+            <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#C4B5FD;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🔍 Detectadas</div>
+              <div style="font-size:2.2rem;font-weight:800;color:#A78BFA;">${detected.filter(d=>d.status==='detected').length}</div>
+              <div style="color:#64748B;font-size:0.75rem;">possíveis assinaturas</div>
+            </div>
+            <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#FDA4AF;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Custo Mensal</div>
+              <div style="font-size:2.2rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalMensal)}</div>
+              <div style="color:#64748B;font-size:0.75rem;">em possíveis desperdícios</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Anual</div>
+              <div style="font-size:2.2rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(totalAnual)}</div>
+              <div style="color:#64748B;font-size:0.75rem;">se cancelar tudo</div>
+            </div>
+          </div>` : ''}
+          
+          <!-- Lista -->
+          ${detected.length === 0 ? `
+          <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+            <div style="font-size:4rem;margin-bottom:16px;">🕵️</div>
+            <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma assinatura detectada</h2>
+            <p style="color:#64748B;margin:0 0 20px;">Clique em "Escanear Gastos" para analisar seus últimos 8 meses de despesas pagas e encontrar padrões recorrentes.</p>
+            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;max-width:480px;margin:0 auto;text-align:left;">
+              <p style="color:#93C5FD;font-weight:700;margin:0 0 8px;">ℹ️ Como funciona?</p>
+              <p style="color:#94A3B8;font-size:0.82rem;margin:0;line-height:1.6;">O algoritmo analisa cobranças com o mesmo nome e valor que aparecem mensalmente. Uma confiança ≥ 60% é necessária para a detecção.</p>
+            </div>
+          </div>
+          ` : `
+          <div style="space-y:12px;">
+            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🔍 Assinaturas Encontradas</h2>
+            ${detected.map(sub => `
+            <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:12px;transition:all 0.2s;"
+              onmouseover="this.style.borderColor='rgba(139,92,246,0.3)'"
+              onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:14px;flex:1;">
+                  <div style="width:48px;height:48px;background:rgba(139,92,246,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">
+                    ${serviceIcons[sub.service_type] || '📱'}
+                  </div>
+                  <div style="flex:1;">
+                    <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:4px;">${sub.original_description}</div>
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                      <span style="color:#64748B;font-size:0.75rem;">📊 ${sub.frequency}× nos últimos meses</span>
+                      <span style="color:#64748B;font-size:0.75rem;">🎯 ${sub.confidence?.toFixed(0)}% certeza</span>
+                      <span style="background:rgba(139,92,246,0.15);color:#A78BFA;font-size:0.68rem;padding:2px 8px;border-radius:50px;font-weight:600;">${sub.service_type}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Valores -->
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;min-width:220px;">
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;">Mensal</div>
+                    <div style="font-size:1rem;font-weight:700;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.amount)}</div>
+                  </div>
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;">Anual</div>
+                    <div style="font-size:1rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.yearly_cost)}</div>
+                  </div>
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;">1ª cobrança</div>
+                    <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.first_occurrence)}</div>
+                  </div>
+                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#64748B;">Última</div>
+                    <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.last_occurrence)}</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Pergunta + Ações -->
+              <div style="margin-top:16px;padding:14px;background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.08));border:1px solid rgba(139,92,246,0.2);border-radius:12px;">
+                <p style="color:#f1f5f9;font-weight:600;text-align:center;margin:0 0 12px;font-size:0.9rem;">🤔 Você ainda usa este serviço regularmente?</p>
+                <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'use_regularly')"
+                    style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">
+                    ✅ Uso Sempre
+                  </button>
+                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'want_cancel')"
+                    style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">
+                    ❌ Quero Cancelar
+                  </button>
+                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'ignore')"
+                    style="background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.82rem;">
+                    🤐 Ignorar
+                  </button>
+                </div>
+              </div>
+            </div>
+            `).join('')}
+          </div>
+          `}
+          
+          <!-- Dicas -->
+          <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(139,92,246,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;margin-top:24px;">
+            <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;display:flex;align-items:center;gap:8px;">💡 Dicas para Controlar Assinaturas</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+              <div>
+                <h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📅 Auditoria Mensal</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Reserve o último domingo do mês para revisar todas as assinaturas. Cancele o que não usou nos últimos 30 dias.</p>
+              </div>
+              <div>
+                <h4 style="color:#C4B5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">👨‍👩‍👧 Planos Familiares</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Netflix, Spotify, YouTube Premium têm planos familiares. Compartilhe custos e economize até 60%.</p>
+              </div>
+              <div>
+                <h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">🔄 Alternância Estratégica</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para streaming: assine um, assista o que precisa, cancele e assine outro. Economize sem abrir mão do conteúdo.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    } catch (e) {
+      document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro: ${e.message}</p></div>`
+    }
+  },
+  
+  async scanAssinaturas() {
+    const btn = document.getElementById('btn-scan-assin')
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Analisando...' }
+    try {
+      const resp = await this.api('POST', 'assinaturas-fantasma/scan')
+      this.toast(resp.message || '✅ Escaneamento concluído!', 'success')
+      this.pageAssinaturasFantasma()
+    } catch (err) {
+      this.toast(err.message || 'Erro ao escanear', 'error')
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Escanear Gastos' }
+    }
+  },
+  
+  async feedbackAssinatura(id, feedback) {
+    try {
+      const resp = await this.api('PATCH', `assinaturas-fantasma/${id}/feedback`, { feedback })
+      this.toast(resp.message, 'success')
+      this.pageAssinaturasFantasma()
+    } catch (err) {
+      this.toast(err.message, 'error')
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // v3.0 — REGRA 50/30/20
+  // ═══════════════════════════════════════════════════════════════
+  async pageRegra503020() {
+    const now = new Date()
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:280px;border-radius:16px;"></div></div>`
+    
+    const mes = now.getMonth() + 1
+    const ano = now.getFullYear()
+    
+    try {
+      const data = await this.api('GET', `regra-503020?mes=${mes}&ano=${ano}`)
+      this.renderRegra503020(data, mes, ano)
+    } catch (e) {
+      document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro: ${e.message}</p></div>`
+    }
+  },
+  
+  renderRegra503020(data, mes, ano) {
+    const content = document.getElementById('page-content')
+    const { current, ideal, gaps, score, recommendations, income, breakdown } = data
+    const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+    const MONTHS = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    
+    const scoreColor = score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444'
+    const scoreLabel = score >= 80 ? 'Excelente ✅' : score >= 60 ? 'Bom ⚡' : score >= 40 ? 'Atenção ⚠️' : 'Crítico 🚨'
+    
+    const barSegment = (label, amount, pct, idealPct, color, icon) => {
+      const diff = pct - idealPct
+      const diffColor = Math.abs(diff) < 5 ? '#10B981' : diff > 0 ? '#EF4444' : '#F59E0B'
+      const diffSign = diff > 0 ? '+' : ''
+      return `
+      <div style="background:rgba(15,23,42,0.85);border:2px solid ${Math.abs(diff) < 5 ? '#10B981' : diff > 0 ? '#EF4444' : '#F59E0B'}33;border-radius:16px;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:40px;height:40px;background:${color}18;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;">${icon}</div>
+            <div>
+              <div style="font-weight:700;color:#f1f5f9;font-size:0.95rem;">${label}</div>
+              <div style="font-size:0.72rem;color:#64748B;">Ideal: ${idealPct}% da renda</div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:1.4rem;font-weight:800;color:${color};font-family:'JetBrains Mono',monospace;">${pct.toFixed(1)}%</div>
+            <div style="font-size:0.72rem;color:${diffColor};font-weight:600;">${diffSign}${diff.toFixed(1)}% vs ideal</div>
+          </div>
+        </div>
+        <div style="background:#0f172a;border-radius:50px;height:10px;overflow:hidden;margin-bottom:10px;position:relative;">
+          <div style="height:100%;width:${Math.min(100, pct)}%;background:${color};border-radius:50px;transition:width 1.2s ease;"></div>
+          <!-- Linha do ideal -->
+          <div style="position:absolute;top:0;left:${idealPct}%;height:100%;width:2px;background:#fff;opacity:0.4;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.78rem;">
+          <span style="color:#94A3B8;">Atual: <b style="color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(amount)}</b></span>
+          <span style="color:#64748B;">Meta: R$ ${fmtBRL(data.ideal[label.toLowerCase() === 'necessidades' ? 'needs' : label.toLowerCase() === 'desejos' ? 'wants' : 'savings'])}</span>
+        </div>
+      </div>`
+    }
+    
+    content.innerHTML = `
+      <div style="max-width:1000px;">
+        <!-- Header + Filtros -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">⚖️ Regra 50/30/20</h1>
+            <p style="color:#64748B;margin:0;">Análise do equilíbrio das suas finanças em ${MONTHS[mes]}/${ano}</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="sel-mes-503020" class="form-input" style="padding:8px 12px;font-size:0.82rem;width:auto;"
+              onchange="VM.recarregar503020()">
+              ${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===mes?'selected':''}>${MONTHS[i+1]}</option>`).join('')}
+            </select>
+            <select id="sel-ano-503020" class="form-input" style="padding:8px 12px;font-size:0.82rem;width:auto;"
+              onchange="VM.recarregar503020()">
+              ${[ano-1,ano,ano+1].map(y=>`<option value="${y}" ${y===ano?'selected':''}>${y}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        
+        ${income === 0 ? `
+        <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);border-radius:14px;padding:20px;margin-bottom:20px;">
+          <p style="color:#FDA4AF;font-weight:700;margin:0 0 4px;">⚠️ Nenhuma receita registrada neste período</p>
+          <p style="color:#94A3B8;font-size:0.82rem;margin:0;">Cadastre suas receitas do mês para ver a análise 50/30/20.</p>
+        </div>` : ''}
+        
+        <!-- Score Hero -->
+        <div style="background:linear-gradient(135deg,rgba(${scoreColor==='#10B981'?'16,185,129':scoreColor==='#F59E0B'?'245,158,11':'239,68,68'},0.12),rgba(15,23,42,0.9));border:2px solid ${scoreColor}33;border-radius:20px;padding:28px;margin-bottom:24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+          <!-- Ring do Score -->
+          <div style="position:relative;width:110px;height:110px;flex-shrink:0;">
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="46" fill="none" stroke="#1e293b" stroke-width="10"/>
+              <circle cx="55" cy="55" r="46" fill="none" stroke="${scoreColor}" stroke-width="10"
+                stroke-dasharray="${2 * Math.PI * 46}" stroke-dashoffset="${2 * Math.PI * 46 * (1 - score / 100)}"
+                stroke-linecap="round" transform="rotate(-90 55 55)" style="transition:stroke-dashoffset 1.5s ease;"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <div style="font-size:1.6rem;font-weight:800;color:${scoreColor};">${score}</div>
+              <div style="font-size:0.65rem;color:#64748B;font-weight:600;">/ 100</div>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:4px;">Score: <span style="color:${scoreColor};">${scoreLabel}</span></div>
+            <div style="font-size:0.85rem;color:#64748B;margin-bottom:12px;">Renda do período: <b style="color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(income)}</b></div>
+            ${recommendations.map(r => `<div style="color:#94A3B8;font-size:0.82rem;margin-bottom:4px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:8px;border-left:3px solid ${scoreColor};">${r}</div>`).join('')}
+          </div>
+        </div>
+        
+        <!-- 3 Cards de Categoria -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px;">
+          ${barSegment('Necessidades', current.needs.amount, current.needs.percentage, 50, '#3B82F6', '🏠')}
+          ${barSegment('Desejos',      current.wants.amount, current.wants.percentage, 30, '#8B5CF6', '🎮')}
+          ${barSegment('Poupança',     current.savings.amount, current.savings.percentage, 20, '#10B981', '💰')}
+        </div>
+        
+        <!-- Breakdown de categorias -->
+        ${(breakdown?.top_needs?.length > 0 || breakdown?.top_wants?.length > 0) ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+          ${breakdown.top_needs?.length > 0 ? `
+          <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:14px;padding:18px;">
+            <h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 12px;text-transform:uppercase;letter-spacing:1px;">🏠 Top Necessidades</h4>
+            ${breakdown.top_needs.map(n => `
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+              <span style="color:#94A3B8;font-size:0.82rem;">${n.cat}</span>
+              <span style="color:#60A5FA;font-weight:700;font-size:0.82rem;font-family:'JetBrains Mono',monospace;">R$ ${(n.val||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+            </div>`).join('')}
+          </div>` : ''}
+          ${breakdown.top_wants?.length > 0 ? `
+          <div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);border-radius:14px;padding:18px;">
+            <h4 style="color:#C4B5FD;font-size:0.82rem;font-weight:700;margin:0 0 12px;text-transform:uppercase;letter-spacing:1px;">🎮 Top Desejos</h4>
+            ${breakdown.top_wants.map(n => `
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+              <span style="color:#94A3B8;font-size:0.82rem;">${n.cat}</span>
+              <span style="color:#A78BFA;font-weight:700;font-size:0.82rem;font-family:'JetBrains Mono',monospace;">R$ ${(n.val||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+            </div>`).join('')}
+          </div>` : ''}
+        </div>` : ''}
+        
+        <!-- Como funciona -->
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.06),rgba(59,130,246,0.06));border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:22px;">
+          <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">📚 Entendendo a Regra 50/30/20</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;">
+            <div style="display:flex;gap:10px;">
+              <div style="width:32px;height:32px;background:rgba(59,130,246,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🏠</div>
+              <div>
+                <div style="color:#93C5FD;font-weight:700;font-size:0.82rem;margin-bottom:2px;">50% — Necessidades</div>
+                <div style="color:#94A3B8;font-size:0.78rem;line-height:1.4;">Moradia, alimentação, transporte, saúde, contas básicas. Tudo o que é essencial para viver.</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;">
+              <div style="width:32px;height:32px;background:rgba(139,92,246,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🎮</div>
+              <div>
+                <div style="color:#C4B5FD;font-weight:700;font-size:0.82rem;margin-bottom:2px;">30% — Desejos</div>
+                <div style="color:#94A3B8;font-size:0.78rem;line-height:1.4;">Lazer, viagens, assinaturas, delivery, compras não essenciais. O que traz prazer de viver.</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;">
+              <div style="width:32px;height:32px;background:rgba(16,185,129,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">💰</div>
+              <div>
+                <div style="color:#6EE7B7;font-weight:700;font-size:0.82rem;margin-bottom:2px;">20% — Poupança</div>
+                <div style="color:#94A3B8;font-size:0.78rem;line-height:1.4;">Investimentos, reservas de emergência e fundos específicos. Seu futuro financeiro.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  },
+  
+  async recarregar503020() {
+    const mes = parseInt(document.getElementById('sel-mes-503020')?.value || new Date().getMonth()+1)
+    const ano = parseInt(document.getElementById('sel-ano-503020')?.value || new Date().getFullYear())
+    try {
+      const data = await this.api('GET', `regra-503020?mes=${mes}&ano=${ano}`)
+      this.renderRegra503020(data, mes, ano)
+    } catch (e) {
+      this.toast('Erro ao recarregar', 'error')
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // v3.0 — SIMULADOR DE AMORTIZAÇÃO INTELIGENTE
+  // ═══════════════════════════════════════════════════════════════
+  async pageAmortizacao() {
+    const content = document.getElementById('page-content')
+    
+    // Buscar financiamentos cadastrados
+    let financiamentos = []
+    try {
+      const finData = await this.api('GET', 'financiamentos')
+      financiamentos = (finData.financiamentos || []).filter(f => f.status === 'ativo' && f.saldo_devedor > 0)
+    } catch(e) {}
+    
+    const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+    
+    content.innerHTML = `
+      <div style="max-width:900px;">
+        <div style="margin-bottom:28px;">
+          <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">🏦 Simulador de Amortização</h1>
+          <p style="color:#64748B;margin:0;">Compare os 2 cenários e tome a melhor decisão financeira para seu financiamento.</p>
+        </div>
+        
+        <!-- Formulário -->
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:18px;padding:28px;margin-bottom:24px;">
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 20px;">📋 Dados do Financiamento</h2>
+          
+          ${financiamentos.length > 0 ? `
+          <div class="form-group">
+            <label class="form-label">Carregar Financiamento Cadastrado</label>
+            <select id="amort-fin-select" class="form-input" onchange="VM.preencherDadosFinanciamento()">
+              <option value="">— Preencher manualmente —</option>
+              ${financiamentos.map(f => `<option value="${f.id}" data-balance="${f.saldo_devedor}" data-installment="${f.valor_parcela}" data-months="${f.parcelas_restantes}" data-rate="${f.taxa_juros_anual}" data-system="${(f.sistema_amortizacao||'price').toUpperCase()}">${f.descricao} — R$ ${fmtBRL(f.saldo_devedor)}</option>`).join('')}
+            </select>
+          </div>` : `
+          <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+            <p style="color:#93C5FD;font-size:0.82rem;margin:0;">💡 Cadastre um financiamento na seção "Financiamentos" para carregar automaticamente, ou preencha os dados abaixo.</p>
+          </div>`}
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;">
+            <div class="form-group">
+              <label class="form-label">Saldo Devedor (R$)</label>
+              <input type="number" id="amort-balance" class="form-input" placeholder="200000.00" step="0.01" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Parcela Atual (R$)</label>
+              <input type="number" id="amort-installment" class="form-input" placeholder="1800.00" step="0.01" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Prazo Restante (meses)</label>
+              <input type="number" id="amort-months" class="form-input" placeholder="300" min="2" step="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Taxa de Juros Anual (%)</label>
+              <input type="number" id="amort-rate" class="form-input" placeholder="10.5" step="0.01" min="0.1">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div class="form-group">
+              <label class="form-label">Sistema de Amortização</label>
+              <select id="amort-system" class="form-input">
+                <option value="PRICE">PRICE (Parcela Fixa — mais comum)</option>
+                <option value="SAC">SAC (Amortização Constante — Caixa)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="color:#10B981;">💰 Valor da Amortização (R$)</label>
+              <input type="number" id="amort-extra" class="form-input" placeholder="20000.00" step="0.01" min="1"
+                style="border-color:rgba(16,185,129,0.4);">
+            </div>
+          </div>
+          
+          <div style="text-align:right;margin-top:8px;">
+            <button onclick="VM.calcularAmortizacao()"
+              style="background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;padding:12px 32px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:inline-flex;align-items:center;gap:8px;">
+              ⚡ Simular Cenários
+            </button>
+          </div>
+        </div>
+        
+        <!-- Resultado (inicialmente vazio) -->
+        <div id="amort-resultado"></div>
+      </div>
+    `
+  },
+  
+  preencherDadosFinanciamento() {
+    const sel = document.getElementById('amort-fin-select')
+    if (!sel || !sel.value) return
+    const opt = sel.selectedOptions[0]
+    document.getElementById('amort-balance').value = opt.dataset.balance || ''
+    document.getElementById('amort-installment').value = opt.dataset.installment || ''
+    document.getElementById('amort-months').value = opt.dataset.months || ''
+    document.getElementById('amort-rate').value = opt.dataset.rate || ''
+    const sysEl = document.getElementById('amort-system')
+    if (sysEl && opt.dataset.system) sysEl.value = opt.dataset.system
+  },
+  
+  async calcularAmortizacao() {
+    const balance = parseFloat(document.getElementById('amort-balance').value)
+    const installment = parseFloat(document.getElementById('amort-installment').value)
+    const months = parseInt(document.getElementById('amort-months').value)
+    const rate = parseFloat(document.getElementById('amort-rate').value)
+    const system = document.getElementById('amort-system').value
+    const extra = parseFloat(document.getElementById('amort-extra').value)
+    const finId = document.getElementById('amort-fin-select')?.value || null
+    
+    if (!balance || !installment || !months || !rate || !extra)
+      return this.toast('Preencha todos os campos obrigatórios', 'error')
+    if (extra >= balance)
+      return this.toast('Amortização não pode ser maior que o saldo devedor', 'error')
+    
+    const resultado = document.getElementById('amort-resultado')
+    resultado.innerHTML = `<div class="skeleton" style="height:300px;border-radius:16px;"></div>`
+    
+    try {
+      const payload = finId
+        ? { financing_id: parseInt(finId), amortization_amount: extra }
+        : { manual_balance: balance, manual_installment: installment, manual_remaining_months: months, manual_annual_rate: rate, manual_system: system, amortization_amount: extra }
+      
+      const sim = await this.api('POST', 'amortizacao/simular', payload)
+      this.renderResultadoAmortizacao(sim)
+    } catch (err) {
+      resultado.innerHTML = `<div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);border-radius:14px;padding:20px;"><p style="color:#FDA4AF;margin:0;">❌ ${err.message}</p></div>`
+    }
+  },
+  
+  renderResultadoAmortizacao(sim) {
+    const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+    const resultado = document.getElementById('amort-resultado')
+    const isReducePay = sim.recommendation === 'reduce_payment'
+    
+    resultado.innerHTML = `
+      <!-- Comparação dos Cenários -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+        <!-- Cenário A: Reduzir Parcela -->
+        <div style="background:rgba(15,23,42,0.85);border:2px solid ${isReducePay ? '#10B981' : 'rgba(255,255,255,0.06)'};border-radius:18px;padding:24px;position:relative;transition:border-color 0.3s;">
+          ${isReducePay ? '<div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.68rem;padding:4px 12px;border-radius:50px;font-weight:700;white-space:nowrap;">✨ RECOMENDADO</div>' : ''}
+          <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:8px;"><span style="font-size:1.3rem;">💰</span> Reduzir Parcela</h3>
+          <div style="background:#0f172a;border-radius:12px;padding:14px;margin-bottom:12px;text-align:center;">
+            <div style="color:#64748B;font-size:0.72rem;margin-bottom:4px;">Nova Parcela Mensal</div>
+            <div style="font-size:2rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sim.reduce_payment.new_installment)}</div>
+            <div style="color:#6EE7B7;font-size:0.8rem;margin-top:4px;font-weight:600;">📉 -R$ ${fmtBRL(sim.reduce_payment.monthly_savings)}/mês</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;">Prazo</div>
+              <div style="font-size:0.95rem;font-weight:700;color:#94A3B8;">${sim.reduce_payment.remaining_months} meses</div>
+              <div style="font-size:0.65rem;color:#64748B;">mantido</div>
+            </div>
+            <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;">Juros Economizados</div>
+              <div style="font-size:0.95rem;font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sim.reduce_payment.interest_saved)}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Cenário B: Reduzir Prazo -->
+        <div style="background:rgba(15,23,42,0.85);border:2px solid ${!isReducePay ? '#10B981' : 'rgba(255,255,255,0.06)'};border-radius:18px;padding:24px;position:relative;transition:border-color 0.3s;">
+          ${!isReducePay ? '<div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.68rem;padding:4px 12px;border-radius:50px;font-weight:700;white-space:nowrap;">✨ RECOMENDADO</div>' : ''}
+          <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:8px;"><span style="font-size:1.3rem;">⏱️</span> Reduzir Prazo</h3>
+          <div style="background:#0f172a;border-radius:12px;padding:14px;margin-bottom:12px;text-align:center;">
+            <div style="color:#64748B;font-size:0.72rem;margin-bottom:4px;">Novo Prazo</div>
+            <div style="font-size:2rem;font-weight:800;color:#3B82F6;">${sim.reduce_term.remaining_months} <span style="font-size:1rem;">meses</span></div>
+            <div style="color:#60A5FA;font-size:0.8rem;margin-top:4px;font-weight:600;">⏩ ${sim.reduce_term.months_saved} meses a menos!</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;">Parcela</div>
+              <div style="font-size:0.95rem;font-weight:700;color:#94A3B8;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sim.reduce_term.new_installment)}</div>
+              <div style="font-size:0.65rem;color:#64748B;">mantida</div>
+            </div>
+            <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;">Juros Economizados</div>
+              <div style="font-size:0.95rem;font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sim.reduce_term.interest_saved)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Recomendação da IA -->
+      <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(59,130,246,0.08));border:1px solid rgba(16,185,129,0.25);border-radius:18px;padding:24px;margin-bottom:20px;">
+        <div style="display:flex;align-items:flex-start;gap:16px;">
+          <div style="width:44px;height:44px;background:rgba(16,185,129,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;">✨</div>
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0;">Recomendação Inteligente</h3>
+              <span style="background:rgba(139,92,246,0.2);color:#A78BFA;font-size:0.65rem;padding:2px 8px;border-radius:50px;font-weight:700;">IA</span>
+            </div>
+            <p style="color:#94A3B8;font-size:0.9rem;line-height:1.6;margin:0 0 16px;">${sim.reason}</p>
+            
+            <!-- Comparativo direto -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;background:rgba(0,0,0,0.2);border-radius:12px;padding:14px;">
+              <div>
+                <div style="color:#64748B;font-size:0.72rem;margin-bottom:4px;">💰 Reduzir Parcela</div>
+                <div style="color:#10B981;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">Economia: R$ ${fmtBRL(sim.reduce_payment.interest_saved)}</div>
+                <div style="color:#64748B;font-size:0.72rem;">+R$ ${fmtBRL(sim.reduce_payment.monthly_savings)}/mês livres</div>
+              </div>
+              <div>
+                <div style="color:#64748B;font-size:0.72rem;margin-bottom:4px;">⏰ Reduzir Prazo</div>
+                <div style="color:#10B981;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">Economia: R$ ${fmtBRL(sim.reduce_term.interest_saved)}</div>
+                <div style="color:#64748B;font-size:0.72rem;">${sim.reduce_term.months_saved} meses antes livre</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Outra simulação -->
+      <div style="text-align:center;">
+        <button onclick="VM.pageAmortizacao()" style="background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);padding:10px 24px;border-radius:10px;cursor:pointer;font-size:0.85rem;">
+          🔄 Nova Simulação
+        </button>
+      </div>
+    `
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // v3.0 — DESAFIO 52 SEMANAS
+  // ═══════════════════════════════════════════════════════════════
+  async pageDesafio52() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:280px;border-radius:16px;"></div></div>`
+    
+    const ano = new Date().getFullYear()
+    
+    try {
+      const data = await this.api('GET', `desafio-52?ano=${ano}`)
+      const { weeks = [], summary = {}, current_week } = data
+      const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+      
+      // Grid 13x4 semanas
+      const weekGrid = weeks.map(w => {
+        const isCurrent = w.week_number === current_week
+        const bgColor = w.status === 'completed' ? 'rgba(16,185,129,0.15)' : w.status === 'skipped' ? 'rgba(100,116,139,0.1)' : isCurrent ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.02)'
+        const borderColor = w.status === 'completed' ? '#10B981' : w.status === 'skipped' ? '#475569' : isCurrent ? '#F59E0B' : 'rgba(255,255,255,0.06)'
+        const textColor = w.status === 'completed' ? '#10B981' : w.status === 'skipped' ? '#475569' : isCurrent ? '#F59E0B' : '#64748B'
+        const icon = w.status === 'completed' ? '✅' : w.status === 'skipped' ? '↩️' : isCurrent ? '⭐' : `${w.week_number}`
+        return `
+        <div onclick="VM.toggleDesafio52(${w.week_number}, '${w.status}', ${ano})"
+          title="Semana ${w.week_number}: R$ ${(w.target_amount||0).toFixed(2)} — ${w.status}"
+          style="background:${bgColor};border:1px solid ${borderColor};border-radius:8px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s;user-select:none;"
+          onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="font-size:${w.status === 'completed' || w.status === 'skipped' ? '0.9' : '0.65'}rem;color:${textColor};font-weight:${isCurrent ? '700' : '600'};">${icon}</div>
+          ${w.status === 'completed' ? '' : `<div style="font-size:0.55rem;color:#64748B;margin-top:1px;">R$${w.target_amount}</div>`}
+        </div>`
+      }).join('')
+      
+      content.innerHTML = `
+        <div style="max-width:960px;">
+          <div style="margin-bottom:24px;">
+            <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">🎯 Desafio 52 Semanas</h1>
+            <p style="color:#64748B;margin:0;">Guarde R$ 1 na semana 1, R$ 2 na semana 2... até R$ 52 na semana 52. Total: <b style="color:#10B981;">R$ 1.378,00</b> ao final do ano.</p>
+          </div>
+          
+          <!-- Summary -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px;">
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;text-align:center;">
+              <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✅ Concluídas</div>
+              <div style="font-size:2rem;font-weight:800;color:#10B981;">${summary.completed || 0}<span style="font-size:0.9rem;color:#64748B;">/52</span></div>
+            </div>
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;text-align:center;">
+              <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Guardado</div>
+              <div style="font-size:1.6rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(summary.total_saved)}</div>
+            </div>
+            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:16px;text-align:center;">
+              <div style="color:#93C5FD;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⭐ Semana Atual</div>
+              <div style="font-size:2rem;font-weight:800;color:#60A5FA;">${current_week}</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:14px;padding:16px;text-align:center;">
+              <div style="color:#C4B5FD;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📊 Progresso</div>
+              <div style="font-size:2rem;font-weight:800;color:#A78BFA;">${summary.progress_pct || 0}%</div>
+              <div style="background:#0f172a;border-radius:50px;height:4px;margin-top:4px;overflow:hidden;">
+                <div style="height:100%;width:${summary.progress_pct || 0}%;background:#8B5CF6;border-radius:50px;"></div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Grid de Semanas -->
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:18px;padding:24px;margin-bottom:20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+              <h2 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0;">Grade do Desafio ${ano}</h2>
+              <div style="display:flex;gap:12px;font-size:0.72rem;color:#64748B;">
+                <span>✅ Concluída</span><span style="color:#F59E0B;">⭐ Atual</span><span>↩️ Pulada</span><span>número Pendente</span>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(13,1fr);gap:6px;">
+              ${weekGrid}
+            </div>
+          </div>
+          
+          <!-- Dica motivacional -->
+          <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(245,158,11,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:20px;">
+            <h3 style="color:#f1f5f9;font-size:0.9rem;font-weight:700;margin:0 0 10px;">💡 Como Funciona</h3>
+            <p style="color:#94A3B8;font-size:0.82rem;line-height:1.6;margin:0;">
+              Na semana 1, guarde R$ 1,00. Na semana 2, R$ 2,00. Assim por diante até R$ 52,00 na semana 52.
+              Clique em qualquer semana para marcá-la como concluída ou pular. Ao final do ano você terá acumulado <b style="color:#10B981;">R$ 1.378,00</b>!
+              Dica: invista em uma conta remunerada e o rendimento será ainda maior.
+            </p>
+          </div>
+        </div>
+      `
+    } catch (e) {
+      document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro: ${e.message}</p></div>`
+    }
+  },
+  
+  async toggleDesafio52(week, currentStatus, ano) {
+    // Ciclo: pending → completed → skipped → pending
+    const nextStatus = currentStatus === 'pending' ? 'completed'
+      : currentStatus === 'completed' ? 'skipped'
+      : 'pending'
+    
+    try {
+      const resp = await this.api('PATCH', `desafio-52/${week}?ano=${ano}`, { status: nextStatus })
+      this.toast(resp.message, nextStatus === 'completed' ? 'success' : 'info')
+      this.pageDesafio52()
+    } catch (err) {
+      this.toast(err.message, 'error')
+    }
   },
 
   showModal(html) {

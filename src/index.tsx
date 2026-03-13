@@ -24,6 +24,11 @@ import cdiRoutes from './routes/cdi'
 import tagsRoutes from './routes/tags'
 import relatorioRoutes from './routes/relatorio'
 import alertasCartaoRoutes from './routes/alertas-cartao'
+import reservasEspRoutes from './routes/reservas-especializadas'
+import assinaturasFantasmaRoutes from './routes/assinaturas-fantasma'
+import regra503020Routes from './routes/regra-503020'
+import desafio52Routes from './routes/desafio-52'
+import amortizacaoRoutes from './routes/amortizacao'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -60,6 +65,12 @@ app.route('/api/cdi', cdiRoutes)
 app.route('/api/tags', tagsRoutes)
 app.route('/api/relatorio', relatorioRoutes)
 app.route('/api/alertas-cartao', alertasCartaoRoutes)
+// ── v3.0 — Novas Funcionalidades ──
+app.route('/api/reservas-esp', reservasEspRoutes)
+app.route('/api/assinaturas-fantasma', assinaturasFantasmaRoutes)
+app.route('/api/regra-503020', regra503020Routes)
+app.route('/api/desafio-52', desafio52Routes)
+app.route('/api/amortizacao', amortizacaoRoutes)
 
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)
