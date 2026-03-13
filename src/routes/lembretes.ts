@@ -130,6 +130,65 @@ lembretes.get('/historico/:id', requireAuth, async (c) => {
   return c.json({ historico: result.results })
 })
 
+// POST /api/lembretes/:id/converter-despesa — converte lembrete em despesa real
+lembretes.post('/:id/converter-despesa', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const lembrete = await c.env.DB.prepare(
+    'SELECT * FROM lembretes WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!lembrete) return c.json({ error: 'Lembrete não encontrado' }, 404)
+
+  const body = await c.req.json()
+  const {
+    descricao = lembrete.titulo,
+    valor = lembrete.valor_estimado,
+    data,
+    categoria = 'Outros',
+    subcategoria = null,
+    status = 'pendente',
+    cartao_id = null,
+    meio_pagamento = 'dinheiro',
+    vencimento = null,
+    observacoes = null,
+    billing_month = null,
+    billing_year = null,
+  } = body
+
+  if (!data) return c.json({ error: 'Data é obrigatória' }, 400)
+  if (!valor || Number(valor) <= 0) return c.json({ error: 'Valor deve ser maior que zero' }, 400)
+
+  const result = await c.env.DB.prepare(
+    `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor,
+     parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente,
+     vencimento, observacoes, cartao_id, meio_pagamento, billing_month, billing_year)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, ?, 'variavel', 0, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    user.id, descricao, data, categoria, subcategoria,
+    parseFloat(valor), status, vencimento, observacoes,
+    cartao_id ? parseInt(cartao_id) : null, meio_pagamento,
+    billing_month, billing_year
+  ).run()
+
+  // Registrar no histórico do lembrete
+  await c.env.DB.prepare(
+    'INSERT INTO lembretes_historico (lembrete_id, user_id, data_referencia, status, valor_real, observacoes) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, user.id, data, 'pago', parseFloat(valor), `Convertido em despesa #${result.meta.last_row_id}`).run()
+
+  // Atualizar próximo vencimento do lembrete
+  const proximo = calcProximoVencimento(lembrete.dia_vencimento || 1, lembrete.frequencia)
+  await c.env.DB.prepare(
+    'UPDATE lembretes SET status_mes=?, ultimo_recebimento=?, proximo_vencimento=? WHERE id=? AND user_id=?'
+  ).bind('pago', data, proximo, id, user.id).run()
+
+  return c.json({
+    success: true,
+    despesa_id: result.meta.last_row_id,
+    message: 'Lembrete convertido em despesa com sucesso!'
+  }, 201)
+})
+
 function calcProximoVencimento(dia: number, frequencia: string): string {
   const hoje = new Date()
   const proximo = new Date(hoje.getFullYear(), hoje.getMonth(), dia)

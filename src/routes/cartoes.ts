@@ -795,4 +795,93 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
   } catch { /* ignora */ }
 }
 
+// ─── POST /api/cartoes/sincronizar-despesas ── sincroniza despesas existentes ─
+// Garante que despesas de cartão criadas antes da v2 tenham card_charges
+cartoes.post('/sincronizar-despesas', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  // Buscar despesas de cartão que NÃO têm card_charge associado
+  const orfas = await c.env.DB.prepare(`
+    SELECT d.* FROM despesas d
+    LEFT JOIN card_charges cc ON cc.expense_id = d.id
+    WHERE d.user_id = ? 
+      AND d.cartao_id IS NOT NULL
+      AND d.meio_pagamento IN ('cartao_credito','parcelado_cartao')
+      AND cc.id IS NULL
+      AND d.status != 'cancelado'
+    LIMIT 200
+  `).bind(user.id).all()
+
+  let sincronizadas = 0
+  for (const d of (orfas.results as any[])) {
+    try {
+      // Buscar cartão para calcular billing
+      const cartao = await c.env.DB.prepare(
+        'SELECT * FROM cartoes WHERE id = ?'
+      ).bind(d.cartao_id).first() as any
+      if (!cartao) continue
+
+      // Calcular billing se não tiver
+      let bMonth = d.billing_month
+      let bYear  = d.billing_year
+      if (!bMonth || !bYear) {
+        const { month, year } = calcBillingPeriod(d.data, cartao.dia_fechamento)
+        bMonth = month; bYear = year
+        // Atualizar despesa com billing_month/year
+        await c.env.DB.prepare(
+          'UPDATE despesas SET billing_month=?, billing_year=? WHERE id=?'
+        ).bind(bMonth, bYear, d.id).run()
+      }
+
+      const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+      const groupId  = d.purchase_group_id || null
+
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO card_charges
+          (card_id, expense_id, descricao, valor, data_compra, data_vencimento,
+           billing_month, billing_year, parcela_atual, total_parcelas,
+           purchase_group_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        d.cartao_id, d.id, d.descricao, d.valor,
+        d.data, dataVenc, bMonth, bYear,
+        d.parcela_atual || null, d.numero_parcelas > 1 ? d.numero_parcelas : null,
+        groupId,
+        d.status === 'pago' ? 'pago' : 'pendente'
+      ).run()
+
+      sincronizadas++
+    } catch(err) { /* continua */ }
+  }
+
+  return c.json({ success: true, sincronizadas, total_orfas: orfas.results.length })
+})
+
+// ─── GET /api/cartoes/:id/info ── info rápida do cartão (billing period) ──────
+cartoes.get('/:id/info', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartaoId = c.req.param('id')
+  const dataCompra = c.req.query('data') || new Date().toISOString().split('T')[0]
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+  ).bind(parseInt(cartaoId), user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const { month: bMonth, year: bYear } = calcBillingPeriod(dataCompra, cartao.dia_fechamento)
+  const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+
+  return c.json({
+    cartao_id: cartao.id,
+    nome: cartao.nome,
+    dia_fechamento: cartao.dia_fechamento,
+    dia_vencimento: cartao.dia_vencimento,
+    billing_month: bMonth,
+    billing_year: bYear,
+    data_vencimento: dataVenc,
+    limite_disponivel: cartao.limite_disponivel,
+    limite_total: cartao.limite_total,
+  })
+})
+
 export default cartoes

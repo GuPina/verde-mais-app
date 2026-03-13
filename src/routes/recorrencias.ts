@@ -136,36 +136,53 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
 // Chamada diária (pode ser via cron ou manualmente)
 recorrencias.post('/processar', requireAuth, async (c) => {
   const user = c.get('user')
-  const hoje = new Date()
-  const dia  = hoje.getDate()
-  const mes  = hoje.getMonth() + 1
-  const ano  = hoje.getFullYear()
-  const dataHoje = hoje.toISOString().split('T')[0]
-  const mesStr   = String(mes).padStart(2, '0')
+  const body = await c.req.json().catch(() => ({})) as any
 
-  // Busca recorrências ativas do dia que ainda não foram geradas hoje
+  // Suporta processar mês específico (ex: {mes: 3, ano: 2026}) ou mês atual
+  const hoje = new Date()
+  const mes  = body.mes  ? parseInt(body.mes)  : (hoje.getMonth() + 1)
+  const ano  = body.ano  ? parseInt(body.ano)  : hoje.getFullYear()
+  const mesStr   = String(mes).padStart(2, '0')
+  const mesRef   = `${ano}-${mesStr}-01`
+  const dataHoje = hoje.toISOString().split('T')[0]
+
+  // Busca TODAS as recorrências ativas que ainda não foram geradas este mês
   const pendentes = await c.env.DB.prepare(
     `SELECT * FROM recorrencias
      WHERE user_id = ? AND ativa = 1
-       AND dia_vencimento = ?
-       AND (data_fim IS NULL OR date(data_fim) >= date('now'))
+       AND (data_fim IS NULL OR date(data_fim) >= ?)
        AND (ultimo_gerado IS NULL OR ultimo_gerado < ?)`
-  ).bind(user.id, dia, `${ano}-${mesStr}-01`).all()
+  ).bind(user.id, mesRef, mesRef).all()
 
   let geradas = 0
+  const geradasItems: any[] = []
   for (const rec of (pendentes.results as any[])) {
+    const lastDay = new Date(ano, mes, 0).getDate()
+    const dia = Math.min(rec.dia_vencimento || 1, lastDay)
     const dataVenc = `${ano}-${mesStr}-${String(dia).padStart(2,'0')}`
 
     if (rec.tipo === 'despesa') {
+      const existe = await c.env.DB.prepare(
+        `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+      if (existe) continue
+
       await c.env.DB.prepare(
-        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual)
-         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento).run()
+        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+      geradasItems.push({ tipo: 'despesa', descricao: rec.descricao, valor: rec.valor })
     } else {
+      const existe = await c.env.DB.prepare(
+        `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+      if (existe) continue
+
       await c.env.DB.prepare(
         `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
          VALUES (?, ?, ?, ?, ?, 1)`
       ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc).run()
+      geradasItems.push({ tipo: 'receita', descricao: rec.descricao, valor: rec.valor })
     }
 
     await c.env.DB.prepare(
@@ -174,7 +191,56 @@ recorrencias.post('/processar', requireAuth, async (c) => {
     geradas++
   }
 
-  return c.json({ success: true, geradas, dia, mes, ano })
+  return c.json({ success: true, geradas, mes, ano, items: geradasItems })
+})
+
+// ─── POST /api/recorrencias/processar-mes ── gera transações para mês futuro ──
+recorrencias.post('/processar-mes', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { mes, ano } = await c.req.json()
+  if (!mes || !ano) return c.json({ error: 'mes e ano são obrigatórios' }, 400)
+
+  const mesInt  = parseInt(mes)
+  const anoInt  = parseInt(ano)
+  const mesStr  = String(mesInt).padStart(2, '0')
+  const mesRef  = `${anoInt}-${mesStr}-01`
+  const dataHoje = new Date().toISOString().split('T')[0]
+
+  const pendentes = await c.env.DB.prepare(
+    `SELECT * FROM recorrencias
+     WHERE user_id = ? AND ativa = 1
+       AND (data_fim IS NULL OR date(data_fim) >= ?)`
+  ).bind(user.id, mesRef).all()
+
+  let geradas = 0
+  for (const rec of (pendentes.results as any[])) {
+    const lastDay = new Date(anoInt, mesInt, 0).getDate()
+    const dia = Math.min(rec.dia_vencimento || 1, lastDay)
+    const dataVenc = `${anoInt}-${mesStr}-${String(dia).padStart(2,'0')}`
+
+    if (rec.tipo === 'despesa') {
+      const existe = await c.env.DB.prepare(
+        `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
+      if (existe) continue
+      await c.env.DB.prepare(
+        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+    } else {
+      const existe = await c.env.DB.prepare(
+        `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
+      if (existe) continue
+      await c.env.DB.prepare(
+        `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
+         VALUES (?, ?, ?, ?, ?, 1)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc).run()
+    }
+    geradas++
+  }
+
+  return c.json({ success: true, geradas, mes: mesInt, ano: anoInt })
 })
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {

@@ -133,6 +133,41 @@ const VM = {
       const retroEl = document.getElementById('d-retroativa-wrapper')
       if (retroEl) retroEl.style.display = 'none'
     }
+    // Inferir mês de faturamento ao selecionar cartão
+    if (meio === 'cartao_credito' || meio === 'parcelado_cartao') {
+      const cartaoId = document.getElementById('d-cartao-id')?.value
+      if (cartaoId) this.inferirMesFaturamento(cartaoId)
+    } else {
+      const infoEl = document.getElementById('d-billing-info')
+      if (infoEl) infoEl.style.display = 'none'
+    }
+  },
+
+  // Calcula e exibe o mês de faturamento com base no cartão e data selecionada
+  async inferirMesFaturamento(cartaoId) {
+    if (!cartaoId) return
+    try {
+      const dataInput = document.getElementById('d-data')?.value || document.getElementById('cv-data')?.value
+      if (!dataInput) return
+      // Usar endpoint dedicado para billing info
+      const info = await this.api('GET', `cartoes/${cartaoId}/info?data=${dataInput}`)
+      const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+      const mesF = info.billing_month, anoF = info.billing_year
+      const diaCompra = new Date(dataInput + 'T12:00:00').getDate()
+      const infoEl = document.getElementById('d-billing-info')
+      if (infoEl) {
+        infoEl.style.display = 'block'
+        infoEl.innerHTML = `
+          <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.3);border-radius:8px;padding:10px 14px;font-size:0.8rem;">
+            📅 <strong>Fatura de ${mesesNomes[mesF-1]}/${anoF}</strong>
+            <span style="color:#888;margin-left:8px;">Fechamento dia ${info.dia_fechamento} · Vencimento dia ${info.dia_vencimento} · ${this.formatDate(info.data_vencimento)}</span>
+            ${diaCompra >= info.dia_fechamento
+              ? `<div style="color:#ffc400;margin-top:3px;">⚠️ Compra no fechamento ou após (dia ${info.dia_fechamento}) → próxima fatura</div>`
+              : `<div style="color:#2FBF71;margin-top:3px;">✅ Compra antes do fechamento → fatura de ${mesesNomes[mesF-1]}</div>`}
+            <div style="color:#888;margin-top:3px;">Limite disponível: <strong style="color:#fff;">${this.formatMoney(info.limite_disponivel)}</strong></div>
+          </div>`
+      }
+    } catch(e) { /* silencioso */ }
   },
 
   // Atualiza preview bidirecional: valor total ↔ valor parcela
@@ -1454,8 +1489,13 @@ const VM = {
   async toggleDespesaStatus(id, status) {
     const novoStatus = status === 'pago' ? 'pendente' : 'pago'
     try {
-      await this.api('PATCH', `despesas/${id}/status`, { status: novoStatus })
-      this.toast(`Status: ${novoStatus}!`)
+      const r = await this.api('PATCH', `despesas/${id}/status`, { status: novoStatus })
+      // Mostrar feedback de sincronização com cartão se aplicável
+      if (novoStatus === 'pago') {
+        this.toast(`✅ Despesa paga! Limite do cartão restaurado automaticamente.`)
+      } else {
+        this.toast(`⏳ Despesa reaberta`)
+      }
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao atualizar', 'error')
@@ -1533,12 +1573,14 @@ const VM = {
             <div id="d-cartao-wrapper" style="display:${(despesa?.meio_pagamento==='cartao_credito'||despesa?.parcelado)?'block':'none'};">
               <div class="form-group">
                 <label class="form-label">Selecionar Cartão</label>
-                <select id="d-cartao-id" class="form-select">
+                <select id="d-cartao-id" class="form-select" onchange="VM.inferirMesFaturamento(this.value)">
                   <option value="">— Sem cartão específico —</option>
                   ${cartaoOptions}
                 </select>
                 ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:#888;margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
               </div>
+              <!-- Info de mês de faturamento inferido -->
+              <div id="d-billing-info" style="display:none;margin-bottom:12px;"></div>
             </div>
 
             <!-- Parcelas (aparece somente para parcelado) -->
@@ -1607,6 +1649,19 @@ const VM = {
 
     // Inicializar estado do form
     VM.onChangeMeioPagamento(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
+
+    // Quando alterar a data, recalcular billing se cartão estiver selecionado
+    const dataInput = document.getElementById('d-data')
+    if (dataInput) {
+      dataInput.addEventListener('change', () => {
+        const cartaoId = document.getElementById('d-cartao-id')?.value
+        if (cartaoId) VM.inferirMesFaturamento(cartaoId)
+      })
+    }
+    // Se há cartão pré-selecionado (edição), mostrar billing
+    if (despesa?.cartao_id) {
+      setTimeout(() => VM.inferirMesFaturamento(String(despesa.cartao_id)), 100)
+    }
 
     document.getElementById('despesa-form').addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -1832,12 +1887,24 @@ const VM = {
     }
   },
 
-  modalMeta(meta = null) {
+  async modalMeta(meta = null) {
     const isEdit = !!meta
     const today = new Date()
     const future = new Date(today); future.setFullYear(future.getFullYear() + 1)
     const defaultDate = future.toISOString().split('T')[0]
     const cores = ['#2FBF71', '#208040', '#74b9ff', '#a29bfe', '#fd79a8', '#ffc400', '#ff8c42', '#00cec9']
+
+    // Pré-carregar dívidas para o bloco debt_payoff
+    let financiamentos = [], emprestimos = []
+    try {
+      const [fd, ed] = await Promise.all([
+        this.api('GET', 'financiamentos'),
+        this.api('GET', 'emprestimos')
+      ])
+      financiamentos = (fd.financiamentos || []).filter(f => f.status === 'ativo')
+      emprestimos = (ed.emprestimos || []).filter(e => e.status === 'ativo')
+    } catch(e) {}
+
     const categoriasMeta = [
       { v:'economia', l:'💰 Economia / Reserva' },
       { v:'imovel', l:'🏠 Imóvel (Casa/Apto)' },
@@ -1874,13 +1941,27 @@ const VM = {
             <div id="debt-payoff-block" style="display:${(meta?.categoria==='debt_payoff')?'block':'none'};">
               <div class="form-group">
                 <label class="form-label">Tipo de Dívida</label>
-                <select id="m-debt-type" class="form-select">
+                <select id="m-debt-type" class="form-select" onchange="VM._onDebtTypeChange()">
                   <option value="all" ${meta?.linked_debt_type==='all'?'selected':''}>🏦 Todas as dívidas (financiamentos + empréstimos)</option>
                   <option value="financiamento" ${meta?.linked_debt_type==='financiamento'?'selected':''}>🏠 Somente Financiamentos</option>
                   <option value="emprestimo" ${meta?.linked_debt_type==='emprestimo'?'selected':''}>💰 Somente Empréstimos</option>
+                  <option value="specific" ${meta?.linked_debt_type==='specific'?'selected':''}>🎯 Dívida Específica</option>
                 </select>
-                <div style="font-size:0.72rem;color:#4ade80;margin-top:4px;">✨ O valor objetivo será calculado automaticamente com base nas suas dívidas ativas</div>
               </div>
+              <!-- Seletor de dívida específica -->
+              <div id="m-specific-debt-wrapper" style="display:${meta?.linked_debt_type==='specific'?'block':'none'};">
+                <div class="form-group">
+                  <label class="form-label">Selecionar Dívida Específica</label>
+                  <select id="m-specific-debt-id" class="form-select" onchange="VM._onSpecificDebtChange()">
+                    <option value="">— Selecione —</option>
+                    ${financiamentos.map(f => `<option value="fin_${f.id}" ${meta?.linked_debt_id===f.id&&meta?.linked_debt_type==='specific'?'selected':''}>🏠 ${f.descricao} (${this.formatMoney(f.saldo_devedor)})</option>`).join('')}
+                    ${emprestimos.map(e => `<option value="emp_${e.id}" ${meta?.linked_debt_id===e.id&&meta?.linked_debt_type==='specific'?'selected':''}>💰 ${e.descricao} (${this.formatMoney(e.saldo_devedor)})</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <!-- Resumo do saldo das dívidas -->
+              <div id="m-debt-summary" style="margin-bottom:12px;"></div>
+              <div style="font-size:0.72rem;color:#4ade80;margin-top:4px;">✨ O valor objetivo será preenchido automaticamente com o saldo devedor</div>
             </div>
             <div class="form-group">
               <label class="form-label">Descrição</label>
@@ -1928,10 +2009,25 @@ const VM = {
       try {
         const categoria = document.getElementById('m-categoria').value
         const isDebtPayoff = categoria === 'debt_payoff'
+        const debtType = isDebtPayoff ? document.getElementById('m-debt-type')?.value : null
+        const isSpecific = debtType === 'specific'
+
+        // Para debt_payoff, extrair linked_debt_id se tipo=specific
+        let linkedDebtId = null, linkedDebtType = debtType
+        if (isSpecific) {
+          const specificVal = document.getElementById('m-specific-debt-id')?.value
+          if (specificVal) {
+            const [t, idStr] = specificVal.split('_')
+            linkedDebtId = parseInt(idStr)
+            linkedDebtType = t === 'fin' ? 'specific_financiamento' : 'specific_emprestimo'
+          }
+        }
+
+        const valorObj = parseFloat(document.getElementById('m-obj').value) || 0
         const payload = {
           nome: document.getElementById('m-nome').value,
           descricao: document.getElementById('m-desc').value,
-          valor_objetivo: isDebtPayoff ? undefined : parseFloat(document.getElementById('m-obj').value),
+          valor_objetivo: valorObj || undefined,
           valor_atual: parseFloat(document.getElementById('m-atual').value) || 0,
           data_meta: document.getElementById('m-data').value,
           cor: document.getElementById('m-cor').value,
@@ -1939,7 +2035,8 @@ const VM = {
           icone: meta?.icone || 'piggy-bank',
           status: meta?.status || 'ativa',
           ...(isDebtPayoff ? {
-            linked_debt_type: document.getElementById('m-debt-type').value
+            linked_debt_type: linkedDebtType || debtType,
+            linked_debt_id: linkedDebtId,
           } : {})
         }
         if (!isDebtPayoff && (!payload.valor_objetivo || isNaN(payload.valor_objetivo))) {
@@ -1961,8 +2058,83 @@ const VM = {
   _toggleDebtPayoff() {
     const cat = document.getElementById('m-categoria')?.value
     const block = document.getElementById('debt-payoff-block')
-    const objField = document.getElementById('m-obj')?.closest('.form-group')?.parentElement
     if (block) block.style.display = cat === 'debt_payoff' ? 'block' : 'none'
+    if (cat === 'debt_payoff') this._onDebtTypeChange()
+  },
+
+  async _onDebtTypeChange() {
+    const tipo = document.getElementById('m-debt-type')?.value
+    const specificWrapper = document.getElementById('m-specific-debt-wrapper')
+    const summaryEl = document.getElementById('m-debt-summary')
+    if (specificWrapper) specificWrapper.style.display = tipo === 'specific' ? 'block' : 'none'
+
+    if (!summaryEl) return
+    if (tipo === 'specific') { summaryEl.innerHTML = ''; return }
+
+    try {
+      const [fd, ed] = await Promise.all([
+        this.api('GET', 'financiamentos'),
+        this.api('GET', 'emprestimos')
+      ])
+      const fins = (fd.financiamentos || []).filter(f => f.status === 'ativo')
+      const emps = (ed.emprestimos || []).filter(e => e.status === 'ativo')
+
+      let totalSaldo = 0, items = []
+      if (tipo === 'all' || tipo === 'financiamento') {
+        fins.forEach(f => { totalSaldo += Number(f.saldo_devedor || 0); items.push(`🏠 ${f.descricao}: ${this.formatMoney(f.saldo_devedor)}`) })
+      }
+      if (tipo === 'all' || tipo === 'emprestimo') {
+        emps.forEach(e => { totalSaldo += Number(e.saldo_devedor || 0); items.push(`💰 ${e.descricao}: ${this.formatMoney(e.saldo_devedor)}`) })
+      }
+
+      if (items.length === 0) {
+        summaryEl.innerHTML = `<div style="background:rgba(255,100,100,0.08);border:1px solid rgba(255,100,100,0.2);border-radius:8px;padding:10px;font-size:0.78rem;color:#f87171;">
+          ⚠️ Nenhuma dívida ativa encontrada para este tipo</div>`
+        return
+      }
+
+      // Auto-preencher valor objetivo com o saldo total
+      const objEl = document.getElementById('m-obj')
+      if (objEl && (!objEl.value || objEl.value === '0')) objEl.value = totalSaldo.toFixed(2)
+
+      summaryEl.innerHTML = `
+        <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;font-size:0.78rem;">
+          <div style="font-weight:600;color:#2FBF71;margin-bottom:6px;">💰 Saldo devedor total: ${this.formatMoney(totalSaldo)}</div>
+          ${items.map(i => `<div style="color:#888;margin-top:2px;">${i}</div>`).join('')}
+          <div style="color:#4ade80;margin-top:6px;font-size:0.72rem;">✅ Valor objetivo preenchido automaticamente</div>
+        </div>`
+    } catch(e) {
+      summaryEl.innerHTML = ''
+    }
+  },
+
+  async _onSpecificDebtChange() {
+    const val = document.getElementById('m-specific-debt-id')?.value
+    const summaryEl = document.getElementById('m-debt-summary')
+    const objEl = document.getElementById('m-obj')
+    if (!val || !summaryEl) return
+
+    try {
+      const [tipo, id] = val.split('_')
+      let item = null
+      if (tipo === 'fin') {
+        const d = await this.api('GET', 'financiamentos')
+        item = (d.financiamentos || []).find(f => String(f.id) === id)
+      } else {
+        const d = await this.api('GET', 'emprestimos')
+        item = (d.emprestimos || []).find(e => String(e.id) === id)
+      }
+      if (!item) return
+      const saldo = Number(item.saldo_devedor || 0)
+      if (objEl) objEl.value = saldo.toFixed(2)
+      summaryEl.innerHTML = `
+        <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;font-size:0.78rem;">
+          <div style="font-weight:600;color:#2FBF71;">${tipo === 'fin' ? '🏠' : '💰'} ${item.descricao}</div>
+          <div style="color:#888;margin-top:4px;">Saldo devedor: <strong style="color:#fff;">${this.formatMoney(saldo)}</strong></div>
+          ${item.valor_parcela ? `<div style="color:#888;">Parcela mensal: ${this.formatMoney(item.valor_parcela)}</div>` : ''}
+          <div style="color:#4ade80;margin-top:6px;font-size:0.72rem;">✅ Valor objetivo preenchido automaticamente</div>
+        </div>`
+    } catch(e) {}
   },
 
   async deleteMeta(id) {
@@ -3285,7 +3457,10 @@ const VM = {
           <div class="section-title">💳 Cartões de Crédito</div>
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Faturas, compras e controle de limite</div>
         </div>
-        <div style="display:flex;gap:10px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button onclick="VM.sincronizarDespesasCartao()" title="Sincroniza despesas antigas com o sistema de faturas" style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
+            <i class="fas fa-sync-alt"></i> Sincronizar
+          </button>
           <button onclick="VM.modalLancarCompraAnterior()" class="btn-secondary" style="width:auto;padding:10px 16px;font-size:0.85rem;">
             <i class="fas fa-history"></i> Compra Anterior
           </button>
@@ -3299,6 +3474,21 @@ const VM = {
       </div>
     `
     this.carregarCartoes()
+  },
+
+  // Sincroniza despesas de cartão que não têm card_charge
+  async sincronizarDespesasCartao() {
+    try {
+      const r = await this.api('POST', 'cartoes/sincronizar-despesas', {})
+      if (r.sincronizadas > 0) {
+        this.toast(`✅ ${r.sincronizadas} despesa(s) sincronizada(s) com o sistema de faturas!`)
+        this.carregarCartoes()
+      } else {
+        this.toast('ℹ️ Tudo sincronizado! Nenhuma despesa órfã encontrada.')
+      }
+    } catch(e) {
+      this.toast('Erro ao sincronizar', 'error')
+    }
   },
 
   async carregarCartoes() {
@@ -4050,6 +4240,7 @@ const VM = {
                   </div>
                 </div>
                 <div style="display:flex;gap:6px;flex-shrink:0;">
+                  <button onclick="VM.modalConverterLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" title="Converter em Despesa" style="background:rgba(47,191,113,0.12);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:0.75rem;"><i class="fas fa-exchange-alt"></i></button>
                   <button onclick="VM.modalLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
                   <button onclick="VM.deleteLembrete(${l.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                 </div>
@@ -4166,7 +4357,146 @@ const VM = {
     }
   },
 
-  // ============== FINANCIAMENTOS ==============
+  // Modal para converter lembrete em despesa real
+  async modalConverterLembrete(lembrete) {
+    const today = new Date().toISOString().split('T')[0]
+    const categorias = ['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Outros']
+
+    // Buscar cartões para selecionar
+    let cartoes = []
+    try { const d = await this.api('GET', 'cartoes'); cartoes = d.cartoes || [] } catch(e) {}
+
+    const cartaoOptions = cartoes.map(c =>
+      `<option value="${c.id}">${c.nome} (fechamento dia ${c.dia_fechamento})</option>`
+    ).join('')
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1rem;font-weight:700;">💸 Converter Lembrete em Despesa</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:0.82rem;">
+            <strong>${lembrete.titulo}</strong> · ${this.formatMoney(lembrete.valor_estimado)}
+          </div>
+          <form id="converter-form">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Descrição *</label>
+                <input type="text" id="cv-desc" class="form-input" value="${lembrete.titulo}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Valor (R$) *</label>
+                <input type="number" id="cv-valor" class="form-input" step="0.01" min="0.01" value="${lembrete.valor_estimado || ''}" required>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Data *</label>
+                <input type="date" id="cv-data" class="form-input" value="${today}" required onchange="VM._recalcBillingConverter()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Categoria</label>
+                <select id="cv-cat" class="form-select">
+                  ${categorias.map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Forma de Pagamento</label>
+              <select id="cv-meio" class="form-select" onchange="VM._toggleCartaoConverter(this.value)">
+                <option value="dinheiro">💵 Dinheiro / À vista</option>
+                <option value="pix">⚡ PIX</option>
+                <option value="cartao_debito">💳 Cartão de Débito</option>
+                <option value="cartao_credito">💳 Cartão de Crédito</option>
+                <option value="boleto">📄 Boleto</option>
+                <option value="transferencia">🏦 Transferência</option>
+              </select>
+            </div>
+            <div id="cv-cartao-wrapper" style="display:none;">
+              <div class="form-group">
+                <label class="form-label">Cartão</label>
+                <select id="cv-cartao-id" class="form-select" onchange="VM._recalcBillingConverter()">
+                  <option value="">— Selecione —</option>
+                  ${cartaoOptions}
+                </select>
+              </div>
+              <div id="cv-billing-info" style="display:none;margin-bottom:12px;"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select id="cv-status" class="form-select">
+                <option value="pendente">⏳ Pendente</option>
+                <option value="pago">✅ Pago</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="cv-submit">
+                <i class="fas fa-exchange-alt"></i> Converter em Despesa
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    // Funções locais
+    this._toggleCartaoConverter = (meio) => {
+      const w = document.getElementById('cv-cartao-wrapper')
+      if (w) w.style.display = meio === 'cartao_credito' ? 'block' : 'none'
+      this._recalcBillingConverter()
+    }
+
+    this._recalcBillingConverter = async () => {
+      const cartaoId = document.getElementById('cv-cartao-id')?.value
+      const dataVal = document.getElementById('cv-data')?.value
+      const infoEl = document.getElementById('cv-billing-info')
+      if (!cartaoId || !dataVal || !infoEl) return
+      try {
+        const cartoesData = await this.api('GET', 'cartoes')
+        const cartao = (cartoesData.cartoes || []).find(c => String(c.id) === String(cartaoId))
+        if (!cartao) return
+        const d = new Date(dataVal + 'T12:00:00')
+        const diaC = d.getDate(), diaF = cartao.dia_fechamento
+        let mesF = d.getMonth() + 1, anoF = d.getFullYear()
+        if (diaC >= diaF) { mesF++; if (mesF > 12) { mesF = 1; anoF++ } }
+        const mN = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+        infoEl.style.display = 'block'
+        infoEl.innerHTML = `<div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.3);border-radius:8px;padding:8px 12px;font-size:0.78rem;">
+          📅 <strong>Fatura: ${mN[mesF-1]}/${anoF}</strong> · Fechamento dia ${diaF}</div>`
+      } catch(e) {}
+    }
+
+    document.getElementById('converter-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('cv-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Convertendo...'
+      try {
+        const meio = document.getElementById('cv-meio').value
+        const cartaoId = document.getElementById('cv-cartao-id')?.value || null
+        const payload = {
+          descricao: document.getElementById('cv-desc').value,
+          valor: parseFloat(document.getElementById('cv-valor').value),
+          data: document.getElementById('cv-data').value,
+          categoria: document.getElementById('cv-cat').value,
+          status: document.getElementById('cv-status').value,
+          meio_pagamento: meio,
+          cartao_id: meio === 'cartao_credito' ? (cartaoId || null) : null,
+        }
+        const r = await this.api('POST', `lembretes/${lembrete.id}/converter-despesa`, payload)
+        this.toast(`✅ Despesa criada! (ID #${r.despesa_id})`)
+        this.closeModal()
+        this.carregarLembretes()
+      } catch(err) {
+        this.toast(err?.response?.data?.error || 'Erro ao converter', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Converter em Despesa'
+      }
+    })
+  },
+
+
   async pageFinanciamentos() {
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
@@ -6035,8 +6365,9 @@ const VM = {
             <div style="font-size:1.1rem;font-weight:700;">🔄 Recorrências Automáticas</div>
             <div style="color:#666;font-size:0.82rem;">Transações fixas geradas automaticamente todo mês</div>
           </div>
-          <div style="display:flex;gap:8px;">
-            <button onclick="VM._processarRecorrencias()" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#74b9ff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-play"></i> Processar Hoje</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="VM._processarRecorrencias()" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#74b9ff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-play"></i> Processar Mês Atual</button>
+            <button onclick="VM._abrirGerarMesFuturo()" style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-calendar-plus"></i> Gerar Mês Futuro</button>
             <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:8px 16px;font-size:0.82rem;"><i class="fas fa-plus"></i> Nova Recorrência</button>
           </div>
         </div>
@@ -6174,9 +6505,63 @@ const VM = {
     }
 
     this._processarRecorrencias = async () => {
-      const r = await this.api('POST', 'recorrencias/processar', {})
-      this.toast(`✅ ${r.geradas || 0} transação(ões) gerada(s) para hoje`)
+      const hoje = new Date()
+      const r = await this.api('POST', 'recorrencias/processar', { mes: hoje.getMonth()+1, ano: hoje.getFullYear() })
+      if (r.geradas > 0) {
+        this.toast(`✅ ${r.geradas} transação(ões) gerada(s) para ${r.mes}/${r.ano}`)
+      } else {
+        this.toast(`ℹ️ Todas as recorrências já foram geradas para este mês`)
+      }
       renderRec()
+    }
+
+    this._abrirGerarMesFuturo = () => {
+      const hoje = new Date()
+      const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+      // Montar opções de meses futuros (próximos 12 meses)
+      let options = ''
+      for (let i = 1; i <= 12; i++) {
+        let m = hoje.getMonth() + 1 + i, y = hoje.getFullYear()
+        if (m > 12) { m -= 12; y++ }
+        options += `<option value="${m}_${y}">${mesesNomes[m-1]}/${y}</option>`
+      }
+      this.showModal(`
+        <div style="font-size:1.05rem;font-weight:700;margin-bottom:16px;">📅 Gerar Recorrências para Mês Futuro</div>
+        <div style="color:#888;font-size:0.82rem;margin-bottom:16px;">
+          Cria despesas e receitas recorrentes em meses futuros antecipadamente.
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:6px;">Mês de destino</label>
+          <select id="rec-mes-futuro" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;width:100%;font-size:0.85rem;">
+            ${options}
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="VM._gerarMesFuturo()" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">
+            <i class="fas fa-calendar-plus"></i> Gerar
+          </button>
+          <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
+        </div>
+      `)
+    }
+
+    this._gerarMesFuturo = async () => {
+      const val = document.getElementById('rec-mes-futuro')?.value
+      if (!val) return
+      const [mes, ano] = val.split('_')
+      try {
+        const r = await this.api('POST', 'recorrencias/processar-mes', { mes: parseInt(mes), ano: parseInt(ano) })
+        const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+        if (r.geradas > 0) {
+          this.toast(`✅ ${r.geradas} transação(ões) gerada(s) para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
+        } else {
+          this.toast(`ℹ️ Todas as recorrências já foram geradas para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
+        }
+        this.closeModal()
+        renderRec()
+      } catch(e) {
+        this.toast('Erro ao gerar recorrências', 'error')
+      }
     }
 
     renderRec()
