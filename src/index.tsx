@@ -29,6 +29,8 @@ import assinaturasFantasmaRoutes from './routes/assinaturas-fantasma'
 import regra503020Routes from './routes/regra-503020'
 import desafio52Routes from './routes/desafio-52'
 import amortizacaoRoutes from './routes/amortizacao'
+import despesasCompartilhadasRoutes from './routes/despesas-compartilhadas'
+import assistenteRoutes from './routes/assistente'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -71,12 +73,14 @@ app.route('/api/assinaturas-fantasma', assinaturasFantasmaRoutes)
 app.route('/api/regra-503020', regra503020Routes)
 app.route('/api/desafio-52', desafio52Routes)
 app.route('/api/amortizacao', amortizacaoRoutes)
+app.route('/api/despesas-compartilhadas', despesasCompartilhadasRoutes)
+app.route('/api/assistente', assistenteRoutes)
 
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)
 
 // Health check
-app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '2.0.0' }))
+app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '3.0.0', fase: '3B+3C', timestamp: new Date().toISOString() }))
 
 // Service Worker — servido inline para evitar problemas de CORS/path no wrangler
 app.get('/sw.js', (c) => {

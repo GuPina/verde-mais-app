@@ -113,8 +113,50 @@ comparativo.get('/', requireAuth, async (c) => {
   const dA  = Number(despAtual?.total || 0)
   const dAn = Number(despAnt?.total   || 0)
 
+  const saldoA  = rA  - dA
+  const saldoAn = rAn - dAn
+
+  const varReceitas = rAn > 0 ? ((rA - rAn) / rAn) * 100 : (rA > 0 ? 100 : 0)
+  const varDespesas = dAn > 0 ? ((dA - dAn) / dAn) * 100 : (dA > 0 ? 100 : 0)
+  const varSaldo    = saldoAn !== 0 ? ((saldoA - saldoAn) / Math.abs(saldoAn)) * 100 : (saldoA !== 0 ? 100 : 0)
+
   const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                       'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
+  // ── Melhoria 2.4: Insights automáticos do comparativo ──────────────────────
+  const insights: string[] = []
+
+  if (varDespesas > 15) {
+    insights.push(`📈 Gastos subiram ${varDespesas.toFixed(1)}% em relação a ${mesesNomes[mesAnt-1]}. Revise categorias em alta.`)
+  } else if (varDespesas < -10) {
+    insights.push(`📉 Ótimo! Você reduziu gastos em ${Math.abs(varDespesas).toFixed(1)}% comparado a ${mesesNomes[mesAnt-1]}.`)
+  }
+
+  if (varReceitas > 10) {
+    insights.push(`💰 Receitas cresceram ${varReceitas.toFixed(1)}% — ótimo mês! Considere investir o excedente.`)
+  } else if (varReceitas < -15) {
+    insights.push(`⚠️ Receitas caíram ${Math.abs(varReceitas).toFixed(1)}%. Fique atento ao orçamento este mês.`)
+  }
+
+  if (saldoA > 0 && saldoAn <= 0) {
+    insights.push(`🎉 Você saiu do vermelho! Saldo passou de ${saldoAn >= 0 ? '+' : ''}R$ ${saldoAn.toFixed(2)} para +R$ ${saldoA.toFixed(2)}.`)
+  } else if (saldoA < 0 && saldoAn >= 0) {
+    insights.push(`🚨 Atenção: saldo ficou negativo este mês (-R$ ${Math.abs(saldoA).toFixed(2)}). Revise gastos urgente.`)
+  } else if (varSaldo > 20) {
+    insights.push(`✅ Saldo melhorou ${varSaldo.toFixed(0)}% — continue nessa direção!`)
+  }
+
+  // Categoria com maior aumento absoluto
+  const maiorAumento = categorias.filter(c => c.diferenca > 0).sort((a, b) => b.diferenca - a.diferenca)[0]
+  if (maiorAumento && maiorAumento.diferenca > 50) {
+    insights.push(`🔍 Maior aumento: "${maiorAumento.categoria}" +R$ ${maiorAumento.diferenca.toFixed(2)} (${maiorAumento.variacao.toFixed(0)}%). Vale a pena investigar.`)
+  }
+
+  // Categoria com maior redução
+  const maiorQueda = categorias.filter(c => c.diferenca < 0).sort((a, b) => a.diferenca - b.diferenca)[0]
+  if (maiorQueda && Math.abs(maiorQueda.diferenca) > 50) {
+    insights.push(`💡 Maior economia: "${maiorQueda.categoria}" -R$ ${Math.abs(maiorQueda.diferenca).toFixed(2)}. Continue assim!`)
+  }
 
   return c.json({
     periodo: {
@@ -126,17 +168,22 @@ comparativo.get('/', requireAuth, async (c) => {
       label_ant:   `${mesesNomes[mesAnt-1]}/${anoAnt}`
     },
     resumo: {
-      receitas_atual:   Math.round(rA  * 100) / 100,
-      receitas_ant:     Math.round(rAn * 100) / 100,
-      despesas_atual:   Math.round(dA  * 100) / 100,
-      despesas_ant:     Math.round(dAn * 100) / 100,
-      saldo_atual:      Math.round((rA  - dA)  * 100) / 100,
-      saldo_ant:        Math.round((rAn - dAn)  * 100) / 100,
-      var_receitas:     rAn > 0 ? Math.round(((rA - rAn) / rAn) * 1000) / 10 : 0,
-      var_despesas:     dAn > 0 ? Math.round(((dA - dAn) / dAn) * 1000) / 10 : 0,
+      receitas_atual:   Math.round(rA   * 100) / 100,
+      receitas_ant:     Math.round(rAn  * 100) / 100,
+      despesas_atual:   Math.round(dA   * 100) / 100,
+      despesas_ant:     Math.round(dAn  * 100) / 100,
+      saldo_atual:      Math.round(saldoA  * 100) / 100,
+      saldo_ant:        Math.round(saldoAn * 100) / 100,
+      var_receitas:     Math.round(varReceitas * 10) / 10,
+      var_despesas:     Math.round(varDespesas * 10) / 10,
+      var_saldo:        Math.round(varSaldo    * 10) / 10,
+      tendencia_receitas: varReceitas > 5 ? 'alta' : varReceitas < -5 ? 'queda' : 'estavel',
+      tendencia_despesas: varDespesas > 5 ? 'alta' : varDespesas < -5 ? 'queda' : 'estavel',
+      tendencia_saldo:    varSaldo    > 5 ? 'alta' : varSaldo    < -5 ? 'queda' : 'estavel',
     },
     categorias,
-    alertas
+    alertas,
+    insights  // Melhoria 2.4
   })
 })
 

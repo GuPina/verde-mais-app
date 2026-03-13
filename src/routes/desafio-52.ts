@@ -125,4 +125,74 @@ desafio52.post('/reset', requireAuth, async (c) => {
   return c.json({ success: true, message: 'Desafio reiniciado!' })
 })
 
+// ── GET /api/desafio-52/config — Melhoria 3.1 ─────────────────────────────
+desafio52.get('/config', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const config = await c.env.DB.prepare(
+    `SELECT * FROM desafio_config WHERE user_id = ? ORDER BY id DESC LIMIT 1`
+  ).bind(user.id).first() as any
+
+  // Config padrão se não houver customização
+  if (!config) {
+    return c.json({
+      valor_base: 1,
+      multiplicador: 1,
+      modo_invertido: false,
+      descricao: 'Padrão: semana N = R$ N (total: R$ 1.378,00/ano)',
+      total_anual: 1378
+    })
+  }
+
+  const total = calcularTotalAnual(config.valor_base, config.multiplicador, config.modo_invertido)
+  return c.json({ ...config, total_anual: total })
+})
+
+// ── POST /api/desafio-52/config — Melhoria 3.1 ────────────────────────────
+desafio52.post('/config', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { valor_base = 1, multiplicador = 1, modo_invertido = false } = await c.req.json()
+
+  const vBase = Math.max(0.5, Math.min(100, parseFloat(valor_base)))
+  const mult = Math.max(0.5, Math.min(10, parseFloat(multiplicador)))
+  const invertido = Boolean(modo_invertido)
+
+  // Salvar ou atualizar config
+  await c.env.DB.prepare(`
+    INSERT INTO desafio_config (user_id, valor_base, multiplicador, modo_invertido)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      valor_base = excluded.valor_base,
+      multiplicador = excluded.multiplicador,
+      modo_invertido = excluded.modo_invertido,
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(user.id, vBase, mult, invertido ? 1 : 0).run().catch(async () => {
+    // Se ON CONFLICT não funcionar, faz upsert manual
+    const existing = await c.env.DB.prepare(`SELECT id FROM desafio_config WHERE user_id = ?`).bind(user.id).first()
+    if (existing) {
+      await c.env.DB.prepare(`UPDATE desafio_config SET valor_base=?, multiplicador=?, modo_invertido=? WHERE user_id=?`).bind(vBase, mult, invertido ? 1 : 0, user.id).run()
+    } else {
+      await c.env.DB.prepare(`INSERT INTO desafio_config (user_id, valor_base, multiplicador, modo_invertido) VALUES (?,?,?,?)`).bind(user.id, vBase, mult, invertido ? 1 : 0).run()
+    }
+  })
+
+  const total = calcularTotalAnual(vBase, mult, invertido)
+
+  return c.json({
+    success: true,
+    message: 'Configuração do desafio salva!',
+    total_anual: total,
+    preview: `Semana 1: R$ ${(vBase * mult).toFixed(2)} | Semana 52: R$ ${(invertido ? vBase * mult : 52 * vBase * mult).toFixed(2)}`
+  })
+})
+
+function calcularTotalAnual(valorBase: number, multiplicador: number, invertido: boolean): number {
+  let total = 0
+  for (let w = 1; w <= 52; w++) {
+    const semana = invertido ? (53 - w) : w
+    total += semana * valorBase * multiplicador
+  }
+  return Math.round(total * 100) / 100
+}
+
 export default desafio52

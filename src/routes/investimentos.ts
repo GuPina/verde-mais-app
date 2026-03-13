@@ -80,7 +80,9 @@ investimentos.post('/', requireAuth, async (c) => {
   const { 
     nome, tipo, valor_investido, rentabilidade_percentual = 0, risco = 'baixo', 
     data_inicio, data_vencimento, instituicao, observacoes,
-    percentual_cdi = null, cdi_atual = CDI_PADRAO_AA
+    percentual_cdi = null, cdi_atual = CDI_PADRAO_AA,
+    // BUG 1.1: aporte — se true, registra saída do saldo bancário como despesa tipo='aporte'
+    registrar_aporte = false
   } = body
 
   if (!nome || !tipo || !valor_investido || !data_inicio) {
@@ -112,6 +114,20 @@ investimentos.post('/', requireAuth, async (c) => {
     tipo === 'caixinha' ? (parseFloat(cdi_atual) || CDI_PADRAO_AA) : null,
     tipo === 'caixinha' ? new Date().toISOString().split('T')[0] : null
   ).run()
+
+  // BUG 1.1: Registrar aporte como despesa tipo='aporte' (NÃO aparece em relatórios de despesas)
+  if (registrar_aporte && parseFloat(valor_investido) > 0) {
+    await c.env.DB.prepare(
+      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, observacoes)
+       VALUES (?, ?, ?, 'Investimento', 'Aporte', ?, 'pago', 'transferencia', 'aporte', ?)`
+    ).bind(
+      user.id,
+      `Aporte: ${nome}`,
+      data_inicio,
+      parseFloat(valor_investido),
+      `Aporte em ${tipo.toUpperCase()} — ${nome}`
+    ).run()
+  }
 
   // Conquistas por tipo de investimento
   if (tipo === 'caixinha') await verificarConquista(c.env.DB, user.id, 'investidor_cdi')

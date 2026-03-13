@@ -23,9 +23,11 @@ dashboard.get('/', requireAuth, async (c) => {
   // Despesas do mês — critério temporal consistente:
   //   pago   → usa data (data em que foi paga)
   //   pendente/outro → usa COALESCE(vencimento, data) (vencimento se existir, senão data)
+  // BUG 1.1 FIX: excluir aportes (tipo='aporte') do total de despesas
   const despesasMes = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
      WHERE user_id = ?
+       AND COALESCE(tipo,'normal') != 'aporte'
        AND CASE WHEN status = 'pago'
                 THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
                 ELSE strftime('%m', COALESCE(vencimento, data)) = ?
@@ -33,10 +35,11 @@ dashboard.get('/', requireAuth, async (c) => {
            END`
   ).bind(user.id, mes, ano, mes, ano).first() as any
 
-  // Despesas pagas vs pendentes (mesmo critério temporal)
+  // Despesas pagas vs pendentes (mesmo critério temporal) — sem aportes
   const despesasStatus = await c.env.DB.prepare(
     `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
      WHERE user_id = ?
+       AND COALESCE(tipo,'normal') != 'aporte'
        AND CASE WHEN status = 'pago'
                 THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
                 ELSE strftime('%m', COALESCE(vencimento, data)) = ?
@@ -76,6 +79,30 @@ dashboard.get('/', requireAuth, async (c) => {
      FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
   ).bind(user.id).first() as any
 
+  // === 2.1: Patrimônio Bruto / Líquido ===
+  // Patrimônio Bruto = investimentos + reservas especializadas + saldo bancário estimado (saldo acumulado)
+  // Patrimônio Líquido = Bruto - total dívidas (empréstimos + financiamentos)
+  const reservasEspTotal = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(current_amount), 0) as total FROM specialized_reserves WHERE user_id = ? AND is_active = 1`
+  ).bind(user.id).first() as any
+
+  const reservaLegadoTotal = await c.env.DB.prepare(
+    `SELECT COALESCE(valor_atual, 0) as total FROM reserva_emergencia WHERE user_id = ? ORDER BY id DESC LIMIT 1`
+  ).bind(user.id).first() as any
+
+  // Assinaturas fantasma detectadas (alertas ativos)
+  const assinaturasAlerta = await c.env.DB.prepare(
+    `SELECT COUNT(*) as cnt, COALESCE(SUM(estimated_monthly_cost),0) as total_mensal
+     FROM detected_subscriptions WHERE user_id = ? AND user_action IS NULL`
+  ).bind(user.id).first() as any
+
+  // Desafio 52 semanas — progresso do ano atual
+  const desafioProgresso = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as concluidas,
+     SUM(CASE WHEN status='completed' THEN week_number ELSE 0 END) as valor_acumulado
+     FROM weekly_challenges WHERE user_id = ? AND strftime('%Y', week_date) = ?`
+  ).bind(user.id, ano).first() as any
+
   // === NOVO: Fatura de cartão do mês corrente (pendentes) ===
   // Soma card_charges com billing_month/billing_year igual ao mês atual e status pendente
   const faturaCartoesMes = await c.env.DB.prepare(
@@ -87,6 +114,30 @@ dashboard.get('/', requireAuth, async (c) => {
        AND cc.billing_year = ?
        AND cc.status = 'pendente'`
   ).bind(user.id, parseInt(mes), parseInt(ano)).first() as any
+
+  // === MELHORIA 2.1: Patrimônio Bruto/Líquido ===
+  // Patrimônio bruto = investimentos atuais + reservas especializadas + saldo acumulado estimado
+  const reservasEsp = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(current_amount), 0) as total, COALESCE(SUM(target_amount), 0) as meta,
+     COUNT(*) as count, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as concluidas
+     FROM specialized_reserves WHERE user_id = ? AND is_active = 1`
+  ).bind(user.id).first() as any
+
+  // Assinaturas fantasma detectadas (alerta)
+  const assinaturasAlerta = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total, COALESCE(SUM(estimated_monthly_cost), 0) as custo_mensal
+     FROM detected_subscriptions WHERE user_id = ? AND status = 'detected'`
+  ).bind(user.id).first() as any
+
+  // Desafio 52 semanas — progresso do ano atual
+  const desafio52 = await c.env.DB.prepare(
+    `SELECT 
+       COUNT(*) as total_semanas,
+       SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as concluidas,
+       SUM(CASE WHEN status='skipped' THEN 1 ELSE 0 END) as puladas,
+       SUM(CASE WHEN status='completed' THEN week_number ELSE 0 END) as valor_guardado
+     FROM weekly_challenges WHERE user_id = ? AND strftime('%Y', week_date) = ?`
+  ).bind(user.id, ano).first() as any
 
   // Evolução dos últimos 6 meses
   const evolucao = []
@@ -161,9 +212,27 @@ dashboard.get('/', requireAuth, async (c) => {
   const totalInvestido = totalInvestimentos?.investido || 0
 
   // Totais de dívidas
-  const totalSaldoEmprestimos = emprestimosAtivos?.total_saldo_devedor || 0
-  const totalSaldoFinanciamentos = financiamentosAtivos?.total_saldo_devedor || 0
+  const totalSaldoEmprestimos = parseFloat(emprestimosAtivos?.total_saldo_devedor || 0)
+  const totalSaldoFinanciamentos = parseFloat(financiamentosAtivos?.total_saldo_devedor || 0)
   const totalDevedor = totalSaldoEmprestimos + totalSaldoFinanciamentos
+
+  // === 2.1: Cálculo de Patrimônio Bruto e Líquido ===
+  const totalReservasEsp = parseFloat(reservasEspTotal?.total || 0)
+  const totalReservaLegado = parseFloat(reservaLegadoTotal?.total || 0)
+  const totalReservas = totalReservasEsp + totalReservaLegado
+  // Patrimônio Bruto = investimentos (a valor de mercado) + reservas
+  const patrimonioBruto = parseFloat(totalInvest as any) + totalReservas
+  // Patrimônio Líquido = Bruto - total dívidas (saldo devedor)
+  const patrimonioLiquido = patrimonioBruto - totalDevedor
+
+  // === MELHORIA 2.1: Cálculo de Patrimônio ===
+  const totalReservasEsp = parseFloat(reservasEsp?.total || 0)
+  const metaReservasEsp = parseFloat(reservasEsp?.meta || 0)
+  // Patrimônio bruto = investimentos (valor atual de mercado) + reservas especializadas
+  const patrimonioBruto = totalInvest + totalReservasEsp
+  // Patrimônio líquido = patrimônio bruto - todas as dívidas
+  const patrimonioLiquido = patrimonioBruto - totalDevedor
+  const progressoReservas = metaReservasEsp > 0 ? Math.round((totalReservasEsp / metaReservasEsp) * 100) : 0
   // Comprometimento real = parcelas de empréstimos + parcelas de financiamentos + fatura de cartão do mês
   const parcelasEmpFin = (emprestimosAtivos?.total_parcela_mensal || 0) + (financiamentosAtivos?.total_parcela_mensal || 0)
   const faturaCartaoMes = faturaCartoesMes?.total || 0
@@ -253,7 +322,13 @@ dashboard.get('/', requireAuth, async (c) => {
       fatura_cartao_mes: faturaCartaoMes,
       comprometimento_dividas_pct: totalReceitas > 0 ? Math.round((totalParcelaMensal / totalReceitas) * 100) : 0,
       count_emprestimos_ativos: emprestimosAtivos?.count || 0,
-      count_financiamentos_ativos: financiamentosAtivos?.count || 0
+      count_financiamentos_ativos: financiamentosAtivos?.count || 0,
+      // === MELHORIA 2.1: Patrimônio ===
+      patrimonio_bruto: Math.round(patrimonioBruto * 100) / 100,
+      patrimonio_liquido: Math.round(patrimonioLiquido * 100) / 100,
+      total_reservas_esp: Math.round(totalReservasEsp * 100) / 100,
+      meta_reservas_esp: Math.round(metaReservasEsp * 100) / 100,
+      progresso_reservas_pct: progressoReservas
     },
     // Score e fatores: disponível apenas para Premium/Pro
     score_saude: lim.score_saude ? score : null,
@@ -293,6 +368,26 @@ dashboard.get('/', requireAuth, async (c) => {
       total_saldo_devedor: totalSaldoFinanciamentos,
       total_parcela_mensal: financiamentosAtivos?.total_parcela_mensal || 0,
       total_valor_financiado: financiamentosAtivos?.total_valor_financiado || 0
+    },
+    // === MELHORIA 2.1: Novos Cards ===
+    reservas_esp: {
+      count: reservasEsp?.count || 0,
+      concluidas: reservasEsp?.concluidas || 0,
+      total_guardado: Math.round(totalReservasEsp * 100) / 100,
+      meta_total: Math.round(metaReservasEsp * 100) / 100,
+      progresso_pct: progressoReservas
+    },
+    alerta_assinaturas: {
+      total_detectadas: assinaturasAlerta?.total || 0,
+      custo_mensal_estimado: Math.round(parseFloat(assinaturasAlerta?.custo_mensal || 0) * 100) / 100,
+      tem_alerta: (assinaturasAlerta?.total || 0) > 0
+    },
+    desafio_52: {
+      concluidas: desafio52?.concluidas || 0,
+      total_semanas: desafio52?.total_semanas || 0,
+      puladas: desafio52?.puladas || 0,
+      valor_guardado: desafio52?.valor_guardado || 0,
+      progresso_pct: desafio52?.total_semanas > 0 ? Math.round((desafio52.concluidas / 52) * 100) : 0
     },
     evolucao,
     categorias_despesas: categoriasDespesas.results,

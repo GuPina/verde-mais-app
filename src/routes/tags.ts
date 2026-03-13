@@ -209,4 +209,89 @@ tags.get('/buscar', requireAuth, async (c) => {
   return c.json(rows.results || [])
 })
 
+// ─── MELHORIA 3.3: Tags para Receitas ────────────────────────────────────────
+
+// POST /api/tags/receita/:receitaId — vincular tag a receita
+tags.post('/receita/:receitaId', requireAuth, async (c) => {
+  const user     = c.get('user')
+  const receitaId = parseInt(c.req.param('receitaId'))
+  const { tag_ids } = await c.req.json() as { tag_ids: number[] }
+
+  const receita = await c.env.DB.prepare(
+    `SELECT id FROM receitas WHERE id=? AND user_id=?`
+  ).bind(receitaId, user.id).first()
+  if (!receita) return c.json({ error: 'Receita não encontrada' }, 404)
+
+  // Verificar tags do usuário
+  if (tag_ids && tag_ids.length > 0) {
+    const tagRows = await c.env.DB.prepare(
+      `SELECT id FROM tags WHERE id IN (${tag_ids.map(() => '?').join(',')}) AND user_id=?`
+    ).bind(...tag_ids, user.id).all<{id:number}>()
+    if ((tagRows.results?.length || 0) !== tag_ids.length) {
+      return c.json({ error: 'Uma ou mais tags inválidas' }, 400)
+    }
+  }
+
+  // Limpar e reinserir
+  await c.env.DB.prepare(`DELETE FROM receita_tags WHERE receita_id=?`).bind(receitaId).run()
+  if (tag_ids && tag_ids.length > 0) {
+    for (const tid of tag_ids) {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO receita_tags (receita_id, tag_id) VALUES (?, ?)`
+      ).bind(receitaId, tid).run()
+    }
+  }
+
+  return c.json({ success: true, vinculadas: tag_ids?.length || 0 })
+})
+
+// GET /api/tags/receita/:receitaId — buscar tags de uma receita
+tags.get('/receita/:receitaId', requireAuth, async (c) => {
+  const user     = c.get('user')
+  const receitaId = parseInt(c.req.param('receitaId'))
+
+  const receita = await c.env.DB.prepare(
+    `SELECT id FROM receitas WHERE id=? AND user_id=?`
+  ).bind(receitaId, user.id).first()
+  if (!receita) return c.json({ error: 'Receita não encontrada' }, 404)
+
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.nome, t.cor FROM tags t
+     JOIN receita_tags rt ON rt.tag_id = t.id
+     WHERE rt.receita_id=?`
+  ).bind(receitaId).all<{id:number;nome:string;cor:string}>()
+
+  return c.json(rows.results || [])
+})
+
+// GET /api/tags/analise — Top gastos por tag (Melhoria 3.3 Dashboard)
+tags.get('/analise', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { mes, ano, limit = '10' } = c.req.query()
+  const mesStr = mes ? String(mes).padStart(2, '0') : null
+  const anoStr = ano || null
+
+  let sql = `
+    SELECT t.id, t.nome, t.cor,
+           COUNT(DISTINCT dt.despesa_id) as qtd_despesas,
+           COALESCE(SUM(d.valor), 0) as total_gasto
+    FROM tags t
+    JOIN despesa_tags dt ON dt.tag_id = t.id
+    JOIN despesas d ON d.id = dt.despesa_id
+    WHERE t.user_id = ? AND d.user_id = ?
+  `
+  const params: any[] = [user.id, user.id]
+
+  if (mesStr && anoStr) {
+    sql += ` AND strftime('%m', COALESCE(d.vencimento, d.data)) = ? AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?`
+    params.push(mesStr, anoStr)
+  }
+
+  sql += ` GROUP BY t.id ORDER BY total_gasto DESC LIMIT ?`
+  params.push(parseInt(limit))
+
+  const rows = await c.env.DB.prepare(sql).bind(...params).all()
+  return c.json({ tags_analise: rows.results || [] })
+})
+
 export default tags

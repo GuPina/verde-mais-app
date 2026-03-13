@@ -49,6 +49,45 @@ projecao.get('/', requireAuth, async (c) => {
     meses.push({ mes: m, ano: a, label: `${mesesNames[m-1]}/${a}`, receitas: r, despesas: d, saldo: r - d })
   }
 
+  // ── Melhoria 2.3: Dados determinísticos do futuro ─────────────────────────
+  // 1. Despesas parceladas com status 'pendente' nos próximos meses
+  const parcelasFuturas = await c.env.DB.prepare(`
+    SELECT 
+      strftime('%m', vencimento) as mes_venc,
+      strftime('%Y', vencimento) as ano_venc,
+      COALESCE(SUM(valor), 0) as total
+    FROM despesas
+    WHERE user_id = ? AND status = 'pendente' 
+      AND vencimento > date('now')
+      AND vencimento <= date('now', '+12 months')
+    GROUP BY mes_venc, ano_venc
+  `).bind(user.id).all()
+
+  // 2. Recorrências ativas (geram despesa todo mês)
+  const recorrenciasAtivas = await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(valor), 0) as total_mensal
+    FROM recorrencias
+    WHERE user_id = ? AND ativo = 1 AND tipo IN ('despesa', 'fixa')
+      AND (data_fim IS NULL OR data_fim > date('now'))
+  `).bind(user.id).first() as any
+
+  // 3. Lembretes com valor estimado (aguardando pagamento)
+  const lembretesValor = await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(valor_estimado), 0) as total
+    FROM lembretes
+    WHERE user_id = ? AND status = 'pendente' AND valor_estimado IS NOT NULL AND valor_estimado > 0
+  `).bind(user.id).first() as any
+
+  // Construir mapa de despesas determinísticas por mês
+  const parcelasMap: Record<string, number> = {}
+  for (const row of (parcelasFuturas.results as any[])) {
+    const key = `${row.ano_venc}-${row.mes_venc}`
+    parcelasMap[key] = parseFloat(row.total)
+  }
+
+  const recorrenciaMensal = parseFloat(recorrenciasAtivas?.total_mensal || 0)
+  const lembretesTotal = parseFloat(lembretesValor?.total || 0)
+
   // ── Cálculo de tendência (regressão linear simples) ─────────────────────────
   const saldos = meses.map(m => m.saldo)
   const n = saldos.length
@@ -76,14 +115,10 @@ projecao.get('/', requireAuth, async (c) => {
   // Saldo atual estimado (soma dos últimos 6 meses)
   const saldoAtual = saldos.reduce((a, b) => a + b, 0)
 
-  // ── Projeções ──────────────────────────────────────────────────────────────
-  // Regras:
-  //  • Renda estável: média ponderada dos últimos 6 meses (sem crescimento automático de 6%/ano)
-  //  • Inflação mensal de 0,3% sobre despesas (custo de vida sobe levemente)
-  //  • saldoAcum parte de saldoAtual (soma dos saldos históricos)
+  // ── Projeções com dados determinísticos ───────────────────────────────────
   const INFLACAO_MENSAL = 0.003
   const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-  const projecoes: Array<{ mes: number; ano: number; label: string; valor: number; receitas: number; despesas: number }> = []
+  const projecoes: Array<{ mes: number; ano: number; label: string; valor: number; receitas: number; despesas: number; deterministica: number; tem_dados_reais: boolean }> = []
   const avgReceitas = meses.reduce((a, m) => a + m.receitas, 0) / n
   const avgDespesas = meses.reduce((a, m) => a + m.despesas, 0) / n
 
@@ -94,15 +129,28 @@ projecao.get('/', requireAuth, async (c) => {
     while (m > 12) { m -= 12; a += 1 }
     // Receita estável (sem crescimento automático)
     const recProj = avgReceitas
-    // Despesa com inflação acumulada de 0,3%/mês
-    const despProj = avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i)
+    // Despesa base com inflação acumulada
+    let despProj = avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i)
+    // Melhoria 2.3: adicionar recorrências mensais determinísticas
+    despProj += recorrenciaMensal
+
+    // Adicionar parcelas parceladas determinísticas deste mês
+    const keyMes = `${String(a)}-${String(m).padStart(2, '0')}`
+    const deterministica = parcelasMap[keyMes] || 0
+    despProj += deterministica
+
+    // Adicionar 1/12 dos lembretes (distribuídos uniformemente)
+    if (i <= 3) despProj += lembretesTotal / 3
+
     saldoAcum += (recProj - despProj)
     projecoes.push({
       mes: m, ano: a,
       label: `${mesesNomes[m-1]}/${a}`,
       valor: Math.round(saldoAcum * 100) / 100,
       receitas: Math.round(recProj * 100) / 100,
-      despesas: Math.round(despProj * 100) / 100
+      despesas: Math.round(despProj * 100) / 100,
+      deterministica: Math.round(deterministica * 100) / 100,
+      tem_dados_reais: deterministica > 0 || recorrenciaMensal > 0
     })
   }
 
@@ -125,12 +173,21 @@ projecao.get('/', requireAuth, async (c) => {
     insights.push(`💰 Taxa de poupança atual: ${txPoupanca}% das receitas. ${parseFloat(txPoupanca) >= 20 ? 'Excelente!' : 'Tente chegar em 20%.'}`)
   }
 
+  // Melhoria 2.3: alertas de despesas determinísticas
+  if (recorrenciaMensal > 0) {
+    insights.push(`🔄 ${recorrenciaMensal > 0 ? `R$ ${recorrenciaMensal.toFixed(0)}/mês em recorrências ativas foram incluídos nas projeções.` : ''}`)
+  }
+  if (Object.keys(parcelasMap).length > 0) {
+    const totalParc = Object.values(parcelasMap).reduce((a, b) => a + b, 0)
+    insights.push(`📋 R$ ${totalParc.toFixed(0)} em parcelas futuras identificadas foram incluídas na projeção dos próximos 12 meses.`)
+  }
+
   const proj6 = projecoes[5]?.valor || 0
   const proj12 = projecoes[11]?.valor || 0
   if (proj12 > saldoAtual) {
-    insights.push(`🔮 Em 12 meses, seu patrimônio acumulado pode chegar a R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (projeção com renda estável e inflação de 0,3%/mês sobre despesas).`)
+    insights.push(`🔮 Em 12 meses, seu patrimônio acumulado pode chegar a R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`)
   } else if (proj12 < saldoAtual) {
-    insights.push(`⚠️ Em 12 meses, a inflação sobre suas despesas pode reduzir seu patrimônio para R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. Considere aumentar receitas ou reduzir custos.`)
+    insights.push(`⚠️ Em 12 meses, despesas recorrentes e inflação podem reduzir seu saldo acumulado para R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`)
   }
 
   // Conquista: consultou projeção
@@ -149,6 +206,13 @@ projecao.get('/', requireAuth, async (c) => {
     saldo_atual: Math.round(saldoAtual * 100) / 100,
     confianca,
     insights,
+    // Melhoria 2.3: dados determinísticos
+    dados_certos: {
+      recorrencias_mensais: Math.round(recorrenciaMensal * 100) / 100,
+      lembretes_estimados: Math.round(lembretesTotal * 100) / 100,
+      meses_com_parcelas: Object.keys(parcelasMap).length,
+      total_parcelas_futuras: Math.round(Object.values(parcelasMap).reduce((a, b) => a + b, 0) * 100) / 100
+    },
     resumo: {
       projecao_6m: Math.round((projecoes[5]?.valor || 0) * 100) / 100,
       projecao_12m: Math.round((projecoes[11]?.valor || 0) * 100) / 100,

@@ -21,7 +21,8 @@ function priceTotalInterest(principal: number, monthlyRate: number, months: numb
 function priceRemainingMonths(balance: number, installment: number, monthlyRate: number): number {
   if (monthlyRate === 0) return Math.ceil(balance / installment)
   const ratio = (balance * monthlyRate) / installment
-  if (ratio >= 1) return 999 // Parcela não cobre juros
+  // BUG 1.2.B: retornar erro se amortização insuficiente para cobrir juros
+  if (ratio >= 1) return -1  // sinaliza erro ao chamador
   return Math.ceil(-Math.log(1 - ratio) / Math.log(1 + monthlyRate))
 }
 
@@ -50,7 +51,9 @@ amortizacao.post('/simular', requireAuth, async (c) => {
     manual_installment,
     manual_remaining_months,
     manual_annual_rate,
-    manual_system = 'PRICE'
+    manual_system = 'PRICE',
+    // BUG 1.2.C: dias pro-rata desde última parcela
+    dias_desde_ultima_parcela = 0
   } = body
 
   if (!amortization_amount || amortization_amount <= 0)
@@ -87,7 +90,14 @@ amortizacao.post('/simular', requireAuth, async (c) => {
   if (remainingMonths <= 1) return c.json({ error: 'Prazo restante insuficiente para simulação' }, 400)
 
   const monthlyRate = Math.pow(1 + annualRate / 100, 1 / 12) - 1
-  const newBalance = balance - extra
+
+  // BUG 1.2.C: Ajuste pro-rata se houver dias desde a última parcela
+  const diasProrata = Math.max(0, Math.min(31, parseInt(String(dias_desde_ultima_parcela)) || 0))
+  const dailyRate = Math.pow(1 + monthlyRate, 1 / 30) - 1
+  const jurosProrata = diasProrata > 0 ? balance * dailyRate * diasProrata : 0
+  const balanceComProrata = balance + jurosProrata
+
+  const newBalance = balanceComProrata - extra
 
   // ── Totais originais ──────────────────────────────────────────────────────
   const originalTotalInterest = system === 'SAC'
@@ -112,11 +122,26 @@ amortizacao.post('/simular', requireAuth, async (c) => {
   let newMonthsB: number, totalInterestB: number, monthsSavedB: number
 
   if (system === 'SAC') {
-    const constAmort = balance / remainingMonths
-    newMonthsB = Math.ceil(newBalance / constAmort)
+    // BUG 1.2.A FIX: usar amortização constante ORIGINAL (balance / remainingMonths)
+    const constAmortOriginal = balance / remainingMonths
+    newMonthsB = Math.ceil(newBalance / constAmortOriginal)
     totalInterestB = sacTotalInterest(newBalance, monthlyRate, Math.min(newMonthsB, remainingMonths))
   } else {
+    // BUG 1.2.B FIX: validar se parcela cobre juros
+    const checkRatio = (newBalance * monthlyRate) / installment
+    if (checkRatio >= 1) {
+      return c.json({
+        error: 'O valor de amortização é insuficiente para cobrir os juros mensais. Aumente o valor do aporte.',
+        code: 'INSUFICIENT_AMORTIZATION'
+      }, 400)
+    }
     newMonthsB = priceRemainingMonths(newBalance, installment, monthlyRate)
+    if (newMonthsB === -1) {
+      return c.json({
+        error: 'O valor de amortização é insuficiente para cobrir os juros mensais. Aumente o valor do aporte.',
+        code: 'INSUFICIENT_AMORTIZATION'
+      }, 400)
+    }
     totalInterestB = priceTotalInterest(newBalance, monthlyRate, newMonthsB)
   }
   monthsSavedB = remainingMonths - newMonthsB
@@ -175,7 +200,7 @@ amortizacao.post('/simular', requireAuth, async (c) => {
 
   return c.json({
     simulation_id: simResult.meta.last_row_id,
-    input: { balance, installment, remaining_months: remainingMonths, annual_rate: annualRate, system, extra },
+    input: { balance, installment, remaining_months: remainingMonths, annual_rate: annualRate, system, extra, dias_prorata: diasProrata, juros_prorata: Math.round(jurosProrata * 100) / 100, balance_com_prorata: Math.round(balanceComProrata * 100) / 100 },
     original: {
       installment: Math.round(installment * 100) / 100,
       remaining_months: remainingMonths,
