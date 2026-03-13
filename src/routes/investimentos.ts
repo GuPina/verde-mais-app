@@ -179,6 +179,18 @@ investimentos.put('/:id', requireAuth, async (c) => {
     id, user.id
   ).run()
 
+  // Verificar conquistas após atualização
+  const totalInvAtualizado = await c.env.DB.prepare(
+    'SELECT COALESCE(SUM(valor_atual), 0) as total FROM investimentos WHERE user_id = ?'
+  ).bind(user.id).first() as any
+  if ((totalInvAtualizado?.total || 0) >= 10000) await verificarConquista(c.env.DB, user.id, 'poupador_dedicado')
+  if ((totalInvAtualizado?.total || 0) >= 100000) await verificarConquista(c.env.DB, user.id, 'milionario')
+
+  const tiposDistintosAtualizados = await c.env.DB.prepare(
+    'SELECT COUNT(DISTINCT tipo) as cnt FROM investimentos WHERE user_id = ?'
+  ).bind(user.id).first() as any
+  if ((tiposDistintosAtualizados?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'investidor_diversificado')
+
   return c.json({ success: true, message: 'Investimento atualizado!' })
 })
 

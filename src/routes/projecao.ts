@@ -77,6 +77,11 @@ projecao.get('/', requireAuth, async (c) => {
   const saldoAtual = saldos.reduce((a, b) => a + b, 0)
 
   // ── Projeções ──────────────────────────────────────────────────────────────
+  // Regras:
+  //  • Renda estável: média ponderada dos últimos 6 meses (sem crescimento automático de 6%/ano)
+  //  • Inflação mensal de 0,3% sobre despesas (custo de vida sobe levemente)
+  //  • saldoAcum parte de saldoAtual (soma dos saldos históricos)
+  const INFLACAO_MENSAL = 0.003
   const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
   const projecoes: Array<{ mes: number; ano: number; label: string; valor: number; receitas: number; despesas: number }> = []
   const avgReceitas = meses.reduce((a, m) => a + m.receitas, 0) / n
@@ -87,8 +92,10 @@ projecao.get('/', requireAuth, async (c) => {
     let m = mesAtual + i
     let a = anoAtual
     while (m > 12) { m -= 12; a += 1 }
-    const recProj = avgReceitas * (1 + (slope > 0 ? 0.005 : 0) * i)
-    const despProj = avgDespesas * (1 + (slope < 0 ? 0.005 : 0) * i)
+    // Receita estável (sem crescimento automático)
+    const recProj = avgReceitas
+    // Despesa com inflação acumulada de 0,3%/mês
+    const despProj = avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i)
     saldoAcum += (recProj - despProj)
     projecoes.push({
       mes: m, ano: a,
@@ -121,7 +128,9 @@ projecao.get('/', requireAuth, async (c) => {
   const proj6 = projecoes[5]?.valor || 0
   const proj12 = projecoes[11]?.valor || 0
   if (proj12 > saldoAtual) {
-    insights.push(`🔮 Em 12 meses, seu patrimônio acumulado pode chegar a R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`)
+    insights.push(`🔮 Em 12 meses, seu patrimônio acumulado pode chegar a R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (projeção com renda estável e inflação de 0,3%/mês sobre despesas).`)
+  } else if (proj12 < saldoAtual) {
+    insights.push(`⚠️ Em 12 meses, a inflação sobre suas despesas pode reduzir seu patrimônio para R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. Considere aumentar receitas ou reduzir custos.`)
   }
 
   // Conquista: consultou projeção

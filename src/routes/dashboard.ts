@@ -14,24 +14,36 @@ dashboard.get('/', requireAuth, async (c) => {
   const mes = String(now.getMonth() + 1).padStart(2, '0')
   const ano = String(now.getFullYear())
 
-  // Receitas do mês
+  // Receitas do mês — usa data de recebimento
   const receitasMes = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM receitas 
      WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
   ).bind(user.id, mes, ano).first() as any
 
-  // Despesas do mês
+  // Despesas do mês — critério temporal consistente:
+  //   pago   → usa data (data em que foi paga)
+  //   pendente/outro → usa COALESCE(vencimento, data) (vencimento se existir, senão data)
   const despesasMes = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-  ).bind(user.id, mes, ano).first() as any
+     WHERE user_id = ?
+       AND CASE WHEN status = 'pago'
+                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
+           END`
+  ).bind(user.id, mes, ano, mes, ano).first() as any
 
-  // Despesas pagas vs pendentes
+  // Despesas pagas vs pendentes (mesmo critério temporal)
   const despesasStatus = await c.env.DB.prepare(
     `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
+     WHERE user_id = ?
+       AND CASE WHEN status = 'pago'
+                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
+           END
      GROUP BY status`
-  ).bind(user.id, mes, ano).all()
+  ).bind(user.id, mes, ano, mes, ano).all()
 
   // Total investimentos
   const totalInvestimentos = await c.env.DB.prepare(
@@ -64,6 +76,18 @@ dashboard.get('/', requireAuth, async (c) => {
      FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
   ).bind(user.id).first() as any
 
+  // === NOVO: Fatura de cartão do mês corrente (pendentes) ===
+  // Soma card_charges com billing_month/billing_year igual ao mês atual e status pendente
+  const faturaCartoesMes = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(cc.valor), 0) as total
+     FROM card_charges cc
+     JOIN cartoes c ON cc.card_id = c.id
+     WHERE c.user_id = ?
+       AND cc.billing_month = ?
+       AND cc.billing_year = ?
+       AND cc.status = 'pendente'`
+  ).bind(user.id, parseInt(mes), parseInt(ano)).first() as any
+
   // Evolução dos últimos 6 meses
   const evolucao = []
   for (let i = 5; i >= 0; i--) {
@@ -77,8 +101,14 @@ dashboard.get('/', requireAuth, async (c) => {
     ).bind(user.id, m, a).first() as any
 
     const desp = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, m, a).first() as any
+      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ?
+         AND CASE WHEN status = 'pago'
+                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             END`
+    ).bind(user.id, m, a, m, a).first() as any
 
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
     evolucao.push({
@@ -90,12 +120,17 @@ dashboard.get('/', requireAuth, async (c) => {
     })
   }
 
-  // Despesas por categoria (mês atual)
+  // Despesas por categoria (mês atual) — mesmo critério temporal
   const categoriasDespesas = await c.env.DB.prepare(
     `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
+     WHERE user_id = ?
+       AND CASE WHEN status = 'pago'
+                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
+           END
      GROUP BY categoria ORDER BY total DESC LIMIT 8`
-  ).bind(user.id, mes, ano).all()
+  ).bind(user.id, mes, ano, mes, ano).all()
 
   // Receitas por categoria (mês atual)
   const categoriasReceitas = await c.env.DB.prepare(
@@ -129,7 +164,10 @@ dashboard.get('/', requireAuth, async (c) => {
   const totalSaldoEmprestimos = emprestimosAtivos?.total_saldo_devedor || 0
   const totalSaldoFinanciamentos = financiamentosAtivos?.total_saldo_devedor || 0
   const totalDevedor = totalSaldoEmprestimos + totalSaldoFinanciamentos
-  const totalParcelaMensal = (emprestimosAtivos?.total_parcela_mensal || 0) + (financiamentosAtivos?.total_parcela_mensal || 0)
+  // Comprometimento real = parcelas de empréstimos + parcelas de financiamentos + fatura de cartão do mês
+  const parcelasEmpFin = (emprestimosAtivos?.total_parcela_mensal || 0) + (financiamentosAtivos?.total_parcela_mensal || 0)
+  const faturaCartaoMes = faturaCartoesMes?.total || 0
+  const totalParcelaMensal = parcelasEmpFin + faturaCartaoMes
 
   // ===== SCORE DE SAÚDE FINANCEIRA com fatores detalhados =====
   let score = 50
@@ -175,8 +213,11 @@ dashboard.get('/', requireAuth, async (c) => {
       fatoresScore.push({ tipo: 'neutro', descricao: 'Nenhuma meta financeira cadastrada', pontos: 0 })
     }
 
-    // Fator: comprometimento de dívidas
-    if (comprometimento > 30) {
+    // Fator: comprometimento de dívidas (empréstimos + financiamentos + fatura de cartão)
+    if (comprometimento > 50) {
+      score -= 25
+      fatoresScore.push({ tipo: 'negativo', descricao: `Comprometimento crítico: dívidas consomem ${comprometimento.toFixed(0)}% da renda (limite saudável: 30%)`, pontos: -25 })
+    } else if (comprometimento > 30) {
       score -= 15
       fatoresScore.push({ tipo: 'negativo', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda (limite saudável: 30%)`, pontos: -15 })
     } else if (comprometimento > 20) {
@@ -208,6 +249,8 @@ dashboard.get('/', requireAuth, async (c) => {
       total_saldo_emprestimos: totalSaldoEmprestimos,
       total_saldo_financiamentos: totalSaldoFinanciamentos,
       total_parcela_mensal_dividas: totalParcelaMensal,
+      parcelas_emp_fin: parcelasEmpFin,
+      fatura_cartao_mes: faturaCartaoMes,
       comprometimento_dividas_pct: totalReceitas > 0 ? Math.round((totalParcelaMensal / totalReceitas) * 100) : 0,
       count_emprestimos_ativos: emprestimosAtivos?.count || 0,
       count_financiamentos_ativos: financiamentosAtivos?.count || 0
@@ -288,8 +331,14 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
     ).bind(user.id, m, ano).first() as any
 
     const desp = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, m, ano).first() as any
+      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ?
+         AND CASE WHEN status = 'pago'
+                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             END`
+    ).bind(user.id, m, ano, m, ano).first() as any
 
     relatorio.push({
       mes: mesesNomes[i],

@@ -71,37 +71,95 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     } catch { }
   }
 
-  // Verificar: primeira receita
+  // ── Básicas ──────────────────────────────────────────────────────────────
   const receitas = await c.env.DB.prepare('SELECT COUNT(*) as total FROM receitas WHERE user_id = ?').bind(user.id).first() as any
   if ((receitas?.total || 0) >= 1) await ganhar('primeira_receita')
 
-  // Verificar: primeiro organizador (despesa)
   const despesas = await c.env.DB.prepare('SELECT COUNT(*) as total FROM despesas WHERE user_id = ?').bind(user.id).first() as any
   if ((despesas?.total || 0) >= 1) await ganhar('organizador')
 
-  // Verificar: sonhador (meta)
   const metas = await c.env.DB.prepare('SELECT COUNT(*) as total FROM metas WHERE user_id = ?').bind(user.id).first() as any
   if ((metas?.total || 0) >= 1) await ganhar('sonhador')
 
-  // Verificar: investidor
   const investimentos = await c.env.DB.prepare('SELECT COUNT(*) as total FROM investimentos WHERE user_id = ?').bind(user.id).first() as any
   if ((investimentos?.total || 0) >= 1) await ganhar('investidor')
 
-  // Verificar: carteirinha
   const cartoes = await c.env.DB.prepare('SELECT COUNT(*) as total FROM cartoes WHERE user_id = ?').bind(user.id).first() as any
   if ((cartoes?.total || 0) >= 1) await ganhar('carteirinha')
 
-  // Verificar: planejador (perfil completo)
   const userPerfil = await c.env.DB.prepare('SELECT perfil_completo FROM users WHERE id = ?').bind(user.id).first() as any
   if (userPerfil?.perfil_completo) await ganhar('planejador')
 
-  // Verificar: meta concluída
   const metaConcluida = await c.env.DB.prepare('SELECT COUNT(*) as total FROM metas WHERE user_id = ? AND status = ?').bind(user.id, 'concluida').first() as any
   if ((metaConcluida?.total || 0) >= 1) await ganhar('meta_concluida')
 
-  // Verificar: lembrete mestre
   const lembretesCount = await c.env.DB.prepare('SELECT COUNT(*) as total FROM lembretes WHERE user_id = ?').bind(user.id).first() as any
   if ((lembretesCount?.total || 0) >= 5) await ganhar('lembrete_mestre')
+
+  // ── Sem dívidas ───────────────────────────────────────────────────────────
+  const dividas = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM (
+      SELECT id FROM emprestimos WHERE user_id=? AND status='ativo'
+      UNION ALL
+      SELECT id FROM financiamentos WHERE user_id=? AND status='ativo'
+    )`
+  ).bind(user.id, user.id).first() as any
+  if ((dividas?.total || 0) === 0) {
+    // Só ganha se já teve alguma dívida antes (para não dar a conquista para quem nunca teve)
+    const jaTeveDividas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM (
+        SELECT id FROM emprestimos WHERE user_id=?
+        UNION ALL
+        SELECT id FROM financiamentos WHERE user_id=?
+      )`
+    ).bind(user.id, user.id).first() as any
+    if ((jaTeveDividas?.total || 0) > 0) {
+      await ganhar('sem_dividas')
+      await ganhar('sem_dividas_total')
+    }
+  }
+
+  // ── Imóvel quitado ────────────────────────────────────────────────────────
+  const imovelQuitado = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM financiamentos 
+     WHERE user_id=? AND status='quitado' AND tipo_bem IN ('imovel','imovel_comercial')`
+  ).bind(user.id).first() as any
+  if ((imovelQuitado?.total || 0) >= 1) await ganhar('imovel_quitado')
+
+  // ── Investimentos ─────────────────────────────────────────────────────────
+  const totalInv = await c.env.DB.prepare(
+    'SELECT COALESCE(SUM(valor_atual), 0) as total FROM investimentos WHERE user_id = ?'
+  ).bind(user.id).first() as any
+  const valorInvestido = totalInv?.total || 0
+  if (valorInvestido >= 10000) await ganhar('poupador_dedicado')
+  if (valorInvestido >= 100000) await ganhar('milionario')
+
+  const tiposDistintos = await c.env.DB.prepare(
+    'SELECT COUNT(DISTINCT tipo) as cnt FROM investimentos WHERE user_id = ?'
+  ).bind(user.id).first() as any
+  if ((tiposDistintos?.cnt || 0) >= 3) await ganhar('investidor_diversificado')
+
+  // ── Reserva de emergência ─────────────────────────────────────────────────
+  const reservaRow = await c.env.DB.prepare(
+    'SELECT valor_atual FROM reserva_emergencia WHERE user_id = ? LIMIT 1'
+  ).bind(user.id).first() as any
+  if (reservaRow) {
+    const mediaDesp = await c.env.DB.prepare(`
+      SELECT COALESCE(AVG(total_mes), 0) as media FROM (
+        SELECT SUM(valor) as total_mes FROM despesas
+        WHERE user_id = ? AND status IN ('pago','pendente')
+        AND data >= date('now', '-3 months')
+        GROUP BY strftime('%Y-%m', data)
+      )
+    `).bind(user.id).first() as any
+    const media = mediaDesp?.media || 0
+    if (media > 0) {
+      const mesesCobertos = reservaRow.valor_atual / media
+      if (mesesCobertos >= 1) await ganhar('reserva_1_mes')
+      if (mesesCobertos >= 3) await ganhar('reserva_3_meses')
+      if (mesesCobertos >= 6) await ganhar('reserva_6_meses')
+    }
+  }
 
   return c.json({ novas_conquistas: novas, total_novas: novas.length })
 })

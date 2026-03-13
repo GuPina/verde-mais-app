@@ -271,18 +271,27 @@ despesas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  const existing = await c.env.DB.prepare('SELECT * FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
-  // Se era despesa no cartão, devolver limite (apenas se for a primeira parcela de um grupo — evita devolver múltiplas vezes)
-  if (existing.cartao_id && (existing.meio_pagamento === 'cartao_credito') && existing.parcela_atual === 1) {
-    const valorTotal = existing.valor * existing.numero_parcelas
-    const cartao = await c.env.DB.prepare('SELECT limite_total FROM cartoes WHERE id = ?').bind(existing.cartao_id).first() as any
-    if (cartao) {
+  // ── Devolver limite ao cartão quando a despesa está pendente ──
+  // Só devolve o valor desta parcela individual (cada parcela ocupa seu próprio espaço no limite)
+  if (existing.cartao_id && existing.status === 'pendente') {
+    const meioPagCartao = ['cartao_credito', 'parcelado_cartao']
+    if (meioPagCartao.includes(existing.meio_pagamento)) {
       await c.env.DB.prepare(
         'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-      ).bind(valorTotal, existing.cartao_id, user.id).run()
+      ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
     }
+  }
+
+  // ── Remover card_charge vinculado ──
+  if (existing.cartao_id) {
+    await c.env.DB.prepare(
+      'DELETE FROM card_charges WHERE expense_id = ?'
+    ).bind(id).run()
   }
 
   await c.env.DB.prepare('DELETE FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
