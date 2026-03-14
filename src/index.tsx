@@ -31,6 +31,7 @@ import desafio52Routes from './routes/desafio-52'
 import amortizacaoRoutes from './routes/amortizacao'
 import despesasCompartilhadasRoutes from './routes/despesas-compartilhadas'
 import assistenteRoutes from './routes/assistente'
+import chatRoutes from './routes/chat'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -75,6 +76,7 @@ app.route('/api/desafio-52', desafio52Routes)
 app.route('/api/amortizacao', amortizacaoRoutes)
 app.route('/api/despesas-compartilhadas', despesasCompartilhadasRoutes)
 app.route('/api/assistente', assistenteRoutes)
+app.route('/api/chat', chatRoutes)
 
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)

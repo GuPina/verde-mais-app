@@ -50,7 +50,7 @@ async function buscarContexto(db: D1Database, userId: number) {
   const mesStr = String(mes).padStart(2, '0')
   const anoStr = String(ano)
 
-  const [receitas, despesas, metas, investimentos, emprestimos, financiamentos, reservas, conquistas, desafio] = await Promise.all([
+  const [receitas, despesas, metas, investimentos, emprestimos, financiamentos, reservas, conquistas, desafio, topTags] = await Promise.all([
     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesStr, anoStr).first() as any,
     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',COALESCE(vencimento,data))=? AND strftime('%Y',COALESCE(vencimento,data))=?`).bind(userId, mesStr, anoStr).first() as any,
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as total_obj, COALESCE(SUM(valor_atual),0) as total_atual FROM metas WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
@@ -59,7 +59,16 @@ async function buscarContexto(db: D1Database, userId: number) {
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM financiamentos WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
     db.prepare(`SELECT COALESCE(SUM(current_amount),0) as total, COALESCE(SUM(target_amount),0) as meta FROM specialized_reserves WHERE user_id=? AND status IN ('active','completed')`).bind(userId).first() as any,
     db.prepare(`SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=?`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year = ?`).bind(userId, anoStr).first() as any
+    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year = ?`).bind(userId, anoStr).first() as any,
+    // Bloco 4.3: top tags do mês para análise de padrões
+    db.prepare(`
+      SELECT t.nome, COALESCE(SUM(d.valor), 0) as total
+      FROM despesa_tags dt
+      JOIN tags t ON t.id = dt.tag_id
+      JOIN despesas d ON d.id = dt.despesa_id
+      WHERE d.user_id = ? AND strftime('%m', COALESCE(d.vencimento, d.data)) = ? AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
+      GROUP BY t.id, t.nome ORDER BY total DESC LIMIT 3
+    `).bind(userId, mesStr, anoStr).all() as any
   ])
 
   const totalReceitas = parseFloat((receitas as any)?.total || 0)
@@ -78,6 +87,7 @@ async function buscarContexto(db: D1Database, userId: number) {
     reservas: reservas as any,
     conquistas: conquistas as any,
     desafio: desafio as any,
+    topTags: (topTags as any)?.results || [],  // Bloco 4.3
     mes, ano
   }
 }
@@ -104,7 +114,11 @@ function gerarResposta(intencao: Intencao, ctx: Awaited<ReturnType<typeof buscar
     case 'gastos': {
       const porc = ctx.totalReceitas > 0 ? (ctx.totalDespesas / ctx.totalReceitas * 100).toFixed(0) : '0'
       const alerta = parseFloat(porc) > 90 ? '⚠️ Você está gastando quase tudo que ganha!' : parseFloat(porc) > 70 ? '⚡ Gastos elevados — tente reduzir.' : '✅ Bom controle de gastos!'
-      return `💸 **Seus gastos em ${mesNome}:**\n\nTotal: ${fmt(ctx.totalDespesas)} (${porc}% da renda)\n\n${alerta}\n\n💡 Dica: acesse **Despesas** para ver o detalhamento por categoria e use **Orçamentos** para definir limites por categoria.`
+      // Bloco 4.3: incluir análise de tags se disponível
+      const tagsInfo = ctx.topTags && ctx.topTags.length > 0
+        ? `\n\n🏷️ **Maiores gastos por tag:**\n${ctx.topTags.map((t: any) => `• #${t.nome}: ${fmt(t.total)}`).join('\n')}`
+        : ''
+      return `💸 **Seus gastos em ${mesNome}:**\n\nTotal: ${fmt(ctx.totalDespesas)} (${porc}% da renda)\n\n${alerta}${tagsInfo}\n\n💡 Dica: acesse **Despesas** para ver o detalhamento por categoria e use **Orçamentos** para definir limites por categoria.`
     }
 
     case 'metas': {
@@ -217,6 +231,19 @@ assistente.post('/chat', requireAuth, async (c) => {
     INSERT INTO assistente_conversas (user_id, mensagem, resposta, intencao, created_at)
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).bind(user.id, mensagem.trim(), resposta, intencao).run()
+
+  // Bloco 5: conquista ia_power_user — 20+ perguntas ao assistente
+  try {
+    const totalMsgs = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM assistente_conversas WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((totalMsgs?.cnt || 0) >= 20) {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+         VALUES (?, 'ia_power_user', datetime('now'), 0)`
+      ).bind(user.id).run().catch(() => {})
+    }
+  } catch(_) {}
 
   return c.json({
     resposta,

@@ -1160,6 +1160,49 @@ const VM = {
 
       <div id="toast-container" class="toast-container"></div>
       <div id="modal-container"></div>
+
+      <!-- BLOCO 6.5: Widget de Chat Flutuante -->
+      <div id="chat-widget" style="display:none;position:fixed;bottom:90px;right:20px;z-index:1000;width:340px;max-height:480px;background:var(--bg-card,#fff);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);display:flex;flex-direction:column;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#10B981,#059669);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;">
+              <i class="fas fa-robot" style="color:#fff;font-size:1rem;"></i>
+            </div>
+            <div>
+              <div style="color:#fff;font-weight:700;font-size:0.9rem;">Assistente VerdeMais</div>
+              <div style="color:rgba(255,255,255,0.8);font-size:0.72rem;">IA Financeira Pessoal</div>
+            </div>
+          </div>
+          <button onclick="VM.toggleChat()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+            <i class="fas fa-times" style="font-size:0.8rem;"></i>
+          </button>
+        </div>
+        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:300px;min-height:200px;background:var(--bg-main,#f8fafc);">
+          <div id="chat-welcome" style="text-align:center;padding:16px 8px;">
+            <div style="font-size:2rem;margin-bottom:8px;">🤖</div>
+            <div style="font-weight:600;font-size:0.88rem;color:var(--text-main,#1e293b);margin-bottom:4px;">Olá! Sou seu assistente financeiro.</div>
+            <div style="font-size:0.78rem;color:var(--text-muted,#64748b);">Pergunte sobre saldo, metas, gastos ou investimentos.</div>
+          </div>
+        </div>
+        <div id="chat-sugestoes" style="padding:6px 12px;display:flex;gap:6px;flex-wrap:wrap;background:var(--bg-card,#fff);border-top:1px solid var(--border-color,#e2e8f0);">
+          <button onclick="VM.chatEnviar('Qual meu saldo?')" class="chat-sugestao-btn">💰 Saldo</button>
+          <button onclick="VM.chatEnviar('Resumo do mês')" class="chat-sugestao-btn">📊 Resumo</button>
+          <button onclick="VM.chatEnviar('Como estão minhas metas?')" class="chat-sugestao-btn">🎯 Metas</button>
+        </div>
+        <div style="padding:10px 12px;border-top:1px solid var(--border-color,#e2e8f0);display:flex;gap:8px;background:var(--bg-card,#fff);flex-shrink:0;">
+          <input id="chat-input" type="text" placeholder="Digite sua pergunta..." maxlength="500"
+            style="flex:1;border:1px solid var(--border-color,#e2e8f0);border-radius:20px;padding:8px 14px;font-size:0.83rem;outline:none;background:var(--bg-main,#f8fafc);color:var(--text-main,#1e293b);"
+            onkeydown="if(event.key==='Enter')VM.chatEnviarInput()" />
+          <button onclick="VM.chatEnviarInput()" style="width:36px;height:36px;border-radius:50%;background:#10B981;border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i class="fas fa-paper-plane" style="font-size:0.8rem;"></i>
+          </button>
+        </div>
+      </div>
+      <!-- BLOCO 6.5: Botão flutuante para abrir o chat -->
+      <button id="chat-fab" onclick="VM.toggleChat()" title="Assistente IA" style="position:fixed;bottom:90px;right:20px;z-index:999;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#10B981,#059669);border:none;color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(16,185,129,0.4);display:flex;align-items:center;justify-content:center;transition:transform 0.2s;">
+        <i class="fas fa-robot" style="font-size:1.3rem;"></i>
+        <span id="chat-badge" style="display:none;position:absolute;top:-2px;right:-2px;width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid #fff;"></span>
+      </button>
     `
 
     // Date
@@ -1202,6 +1245,103 @@ const VM = {
     if (sidebar) sidebar.classList.remove('open')
     if (overlay) overlay.classList.remove('visible')
     document.body.style.overflow = ''
+  },
+
+  // ── BLOCO 6.5: Widget de Chat Flutuante ──────────────────────────────────
+  _chatAberto: false,
+
+  toggleChat() {
+    const widget = document.getElementById('chat-widget')
+    const fab = document.getElementById('chat-fab')
+    this._chatAberto = !this._chatAberto
+    if (widget) widget.style.display = this._chatAberto ? 'flex' : 'none'
+    if (fab) fab.style.display = this._chatAberto ? 'none' : 'flex'
+    if (this._chatAberto) {
+      this.chatCarregarHistorico()
+      setTimeout(() => {
+        const input = document.getElementById('chat-input')
+        if (input) input.focus()
+      }, 200)
+    }
+  },
+
+  async chatCarregarHistorico() {
+    try {
+      const data = await this.api('GET', 'chat/historico')
+      const msgs = data.historico || []
+      if (msgs.length === 0) return
+      const container = document.getElementById('chat-messages')
+      if (!container) return
+      const welcome = document.getElementById('chat-welcome')
+      if (welcome) welcome.style.display = 'none'
+      const existentes = container.querySelectorAll('.chat-msg')
+      existentes.forEach(el => el.remove())
+      msgs.forEach(m => this._chatAdicionarMsg(m.sender, m.message))
+      container.scrollTop = container.scrollHeight
+    } catch (e) { /* silencioso */ }
+  },
+
+  _chatAdicionarMsg(sender, text) {
+    const container = document.getElementById('chat-messages')
+    if (!container) return
+    const welcome = document.getElementById('chat-welcome')
+    if (welcome) welcome.style.display = 'none'
+    const isUser = sender === 'user'
+    const div = document.createElement('div')
+    div.className = 'chat-msg'
+    div.style.cssText = `display:flex;justify-content:${isUser ? 'flex-end' : 'flex-start'};`
+    const bubble = document.createElement('div')
+    bubble.style.cssText = `max-width:85%;padding:8px 12px;border-radius:${isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};font-size:0.82rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;${isUser ? 'background:#10B981;color:#fff;' : 'background:var(--bg-card,#fff);color:var(--text-main,#1e293b);border:1px solid var(--border-color,#e2e8f0);box-shadow:0 1px 4px rgba(0,0,0,0.06);'}`
+    // Converter markdown bold (**texto**) para <strong>
+    bubble.innerHTML = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>')
+    div.appendChild(bubble)
+    container.appendChild(div)
+    container.scrollTop = container.scrollHeight
+  },
+
+  _chatAtualizarSugestoes(sugestoes) {
+    const el = document.getElementById('chat-sugestoes')
+    if (!el || !sugestoes?.length) return
+    el.innerHTML = sugestoes.map(s =>
+      `<button onclick="VM.chatEnviar('${s.replace(/'/g, "\\'")}')" class="chat-sugestao-btn">${s}</button>`
+    ).join('')
+  },
+
+  async chatEnviar(mensagem) {
+    const msg = mensagem?.trim()
+    if (!msg) return
+    this._chatAdicionarMsg('user', msg)
+    // Mostrar loading
+    const container = document.getElementById('chat-messages')
+    const loadDiv = document.createElement('div')
+    loadDiv.id = 'chat-loading'
+    loadDiv.className = 'chat-msg'
+    loadDiv.style.cssText = 'display:flex;justify-content:flex-start;'
+    loadDiv.innerHTML = '<div style="padding:8px 12px;border-radius:14px;background:var(--bg-card,#fff);border:1px solid var(--border-color,#e2e8f0);font-size:0.82rem;color:var(--text-muted,#64748b);"><i class="fas fa-circle-notch fa-spin"></i> Pensando...</div>'
+    if (container) container.appendChild(loadDiv)
+    if (container) container.scrollTop = container.scrollHeight
+    try {
+      const data = await this.api('POST', 'chat/send', { message: msg })
+      const load = document.getElementById('chat-loading')
+      if (load) load.remove()
+      if (data.response) {
+        this._chatAdicionarMsg('bot', data.response)
+        if (data.sugestoes?.length) this._chatAtualizarSugestoes(data.sugestoes)
+      }
+    } catch (e) {
+      const load = document.getElementById('chat-loading')
+      if (load) load.remove()
+      this._chatAdicionarMsg('bot', '❌ Erro ao processar sua mensagem. Tente novamente.')
+    }
+  },
+
+  chatEnviarInput() {
+    const input = document.getElementById('chat-input')
+    if (!input) return
+    const msg = input.value?.trim()
+    if (!msg) return
+    input.value = ''
+    this.chatEnviar(msg)
   },
 
   async carregarBadges() {

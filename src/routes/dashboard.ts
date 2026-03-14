@@ -280,6 +280,42 @@ dashboard.get('/', requireAuth, async (c) => {
 
   const lim = getLimites(user.plano)
 
+  // Bloco 4.2: Top 5 Tags por gastos do mês (widget "Gastos por Tag")
+  const topTagsResult = await c.env.DB.prepare(`
+    SELECT t.nome, t.cor, COALESCE(SUM(d.valor), 0) as total, COUNT(DISTINCT d.id) as qtd
+    FROM despesa_tags dt
+    JOIN tags t ON t.id = dt.tag_id
+    JOIN despesas d ON d.id = dt.despesa_id
+    WHERE d.user_id = ?
+      AND COALESCE(d.tipo,'normal') != 'aporte'
+      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
+      AND CASE WHEN d.status = 'pago'
+               THEN strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?
+               ELSE strftime('%m', COALESCE(d.vencimento, d.data)) = ?
+                AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
+           END
+    GROUP BY t.id, t.nome, t.cor
+    ORDER BY total DESC
+    LIMIT 5
+  `).bind(user.id, mes, ano, mes, ano).all()
+  const topTags = topTagsResult.results || []
+
+  // Bloco 5: conquistas saude_ferro, score_50/70/80
+  try {
+    if (score >= 90) {
+      await c.env.DB.prepare(`INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado) VALUES (?, 'saude_ferro', datetime('now'), 0)`).bind(user.id).run().catch(() => {})
+    }
+    if (score >= 80) {
+      await c.env.DB.prepare(`INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado) VALUES (?, 'score_80', datetime('now'), 0)`).bind(user.id).run().catch(() => {})
+    }
+    if (score >= 70) {
+      await c.env.DB.prepare(`INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado) VALUES (?, 'score_70', datetime('now'), 0)`).bind(user.id).run().catch(() => {})
+    }
+    if (score >= 50) {
+      await c.env.DB.prepare(`INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado) VALUES (?, 'score_50', datetime('now'), 0)`).bind(user.id).run().catch(() => {})
+    }
+  } catch(_) {}
+
   return c.json({
     resumo: {
       total_receitas: totalReceitas,
@@ -373,6 +409,7 @@ dashboard.get('/', requireAuth, async (c) => {
     ultimas_transacoes: ultimasTransacoes.results,
     proximos_vencimentos: proximosVencimentos.results,
     despesas_status: despesasStatus.results,
+    top_tags: topTags,  // Bloco 4.2: widget Gastos por Tag
     periodo: { mes, ano }
   })
 })

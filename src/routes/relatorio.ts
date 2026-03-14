@@ -5,6 +5,13 @@ import { getLimites as getPlanLimits } from './planos'
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
+async function verificarConquista(db: D1Database, userId: number, codigo: string) {
+  await db.prepare(
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
+  ).bind(userId, codigo).run().catch(() => {})
+}
+
 const relatorio = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ─── GET /api/relatorio/dados?mes=3&ano=2025 ─────────────────────────────────
@@ -104,6 +111,20 @@ relatorio.get('/dados', requireAuth, async (c) => {
      VALUES (?, 'exportador', datetime('now'), 0)`
   ).bind(user.id).run().catch(() => {})
 
+  // ── Bloco 4.4: Tags nos Relatórios ───────────────────────────────────────
+  const gastosPorTag = await c.env.DB.prepare(`
+    SELECT t.nome as tag, t.cor, SUM(d.valor) as total, COUNT(d.id) as qtd
+    FROM tags t
+    JOIN despesa_tags dt ON dt.tag_id = t.id
+    JOIN despesas d ON d.id = dt.despesa_id
+    WHERE t.user_id = ?
+      AND strftime('%Y-%m', d.data) = printf('%04d-%02d', ?, ?)
+      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
+    GROUP BY t.id, t.nome, t.cor
+    ORDER BY total DESC
+    LIMIT 10
+  `).bind(user.id, ano, mes).all<any>()
+
   return c.json({
     meta: {
       usuario:    user.nome,
@@ -130,6 +151,7 @@ relatorio.get('/dados', requireAuth, async (c) => {
       emprestimos:    emprestimos.results    || [],
     },
     metas: metas.results || [],
+    gastos_por_tag: gastosPorTag.results || [],
   })
 })
 
@@ -195,6 +217,22 @@ relatorio.get('/anual', requireAuth, async (c) => {
       pior_mes:   piorMes.label,
     }
   })
+
+  // Bloco 5: conquistas de análise — analista (sempre) e curioso (3ª+ vez)
+  try {
+    await verificarConquista(c.env.DB, user.id, 'analista')
+    const vizCount = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=? AND conquista_codigo='curioso'`
+    ).bind(user.id).first() as any
+    // Incrementar contador de visualizações de relatório no ia_insights
+    await c.env.DB.prepare(
+      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', datetime('now'))`
+    ).bind(user.id).run().catch(() => {})
+    const totalViz = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='relatorio_anual_visto'`
+    ).bind(user.id).first() as any
+    if ((totalViz?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'curioso')
+  } catch(_) {}
 })
 
 export default relatorio

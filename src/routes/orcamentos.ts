@@ -112,6 +112,7 @@ orcamentos.post('/', requireAuth, async (c) => {
 
   // Conquista
   await verificarConquista(c.env.DB, user.id, 'orcamentista')
+  await verificarConquista(c.env.DB, user.id, 'primeiro_orcamento') // Bloco 5
 
   return c.json({ success: true, orcamento: orc })
 })

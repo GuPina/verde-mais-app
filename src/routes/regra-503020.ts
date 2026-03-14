@@ -280,4 +280,48 @@ regra503020.get('/', requireAuth, async (c) => {
   })
 })
 
+// ── POST /api/regra-503020/aplicar-orcamentos — Bloco 7.2 ───────────────────
+// Aplica os orçamentos sugeridos pela Regra 50/30/20 diretamente nos orçamentos
+regra503020.post('/aplicar-orcamentos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const hoje = new Date()
+  const mes = String(hoje.getMonth() + 1).padStart(2, '0')
+  const ano = String(hoje.getFullYear())
+
+  // Buscar sugestões do mês atual
+  const sugestoes = await c.req.json().catch(() => null) as Array<{ categoria: string; limite_sugerido: number }> | null
+
+  if (!sugestoes || !Array.isArray(sugestoes) || sugestoes.length === 0) {
+    return c.json({ error: 'Envie um array de sugestões { categoria, limite_sugerido }' }, 400)
+  }
+
+  let aplicados = 0
+  for (const s of sugestoes) {
+    if (!s.categoria || !s.limite_sugerido || s.limite_sugerido <= 0) continue
+    try {
+      // Upsert do orçamento
+      const existe = await c.env.DB.prepare(
+        `SELECT id FROM orcamentos WHERE user_id=? AND categoria=? AND mes=? AND ano=?`
+      ).bind(user.id, s.categoria, mes, ano).first()
+
+      if (existe) {
+        await c.env.DB.prepare(
+          `UPDATE orcamentos SET limite=? WHERE user_id=? AND categoria=? AND mes=? AND ano=?`
+        ).bind(Math.round(s.limite_sugerido * 100) / 100, user.id, s.categoria, mes, ano).run()
+      } else {
+        await c.env.DB.prepare(
+          `INSERT INTO orcamentos (user_id, categoria, limite, mes, ano) VALUES (?, ?, ?, ?, ?)`
+        ).bind(user.id, s.categoria, Math.round(s.limite_sugerido * 100) / 100, mes, ano).run()
+      }
+      aplicados++
+    } catch(_) {}
+  }
+
+  return c.json({
+    success: true,
+    aplicados,
+    message: `${aplicados} orçamento(s) aplicado(s) com base na Regra 50/30/20 para ${mes}/${ano}.`
+  })
+})
+
 export default regra503020

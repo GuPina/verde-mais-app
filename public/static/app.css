@@ -1064,3 +1064,64 @@ a[onclick] {
     padding-bottom: calc(72px + env(safe-area-inset-bottom));
   }
 }
+
+/* ── BLOCO 6.5: Widget de Chat Flutuante ──────────────────── */
+#chat-widget {
+  display: none;
+  flex-direction: column;
+}
+
+#chat-widget.open {
+  display: flex !important;
+}
+
+.chat-sugestao-btn {
+  background: var(--bg-main, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--text-main, #1e293b);
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.chat-sugestao-btn:hover {
+  background: #d1fae5;
+  border-color: #10B981;
+  color: #065f46;
+}
+
+#chat-fab {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#chat-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5) !important;
+}
+
+#chat-messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+#chat-messages::-webkit-scrollbar-thumb {
+  background: var(--border-color, #e2e8f0);
+  border-radius: 4px;
+}
+
+/* Mobile: chat ocupa mais espaço */
+@media (max-width: 768px) {
+  #chat-widget {
+    width: calc(100vw - 32px) !important;
+    bottom: 80px !important;
+    right: 16px !important;
+    left: 16px !important;
+    max-height: 70vh !important;
+  }
+  #chat-fab {
+    bottom: 80px !important;
+    right: 16px !important;
+  }
+}

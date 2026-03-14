@@ -4,6 +4,13 @@ import { requireAuth } from './auth'
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
+async function verificarConquista(db: D1Database, userId: number, codigo: string) {
+  await db.prepare(
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
+  ).bind(userId, codigo).run().catch(() => {})
+}
+
 const comparativo = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ─── GET /api/comparativo?mes=3&ano=2025 ────────────────────────────────────
@@ -185,6 +192,17 @@ comparativo.get('/', requireAuth, async (c) => {
     alertas,
     insights  // Melhoria 2.4
   })
+
+  // Bloco 5: conquista 'analitico' — usou comparativo 5+ vezes
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', datetime('now'))`
+    ).bind(user.id).run().catch(() => {})
+    const cnt = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='comparativo_visto'`
+    ).bind(user.id).first() as any
+    if ((cnt?.cnt || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'analitico')
+  } catch(_) {}
 })
 
 // ─── GET /api/comparativo/historico?meses=6 ─────────────────────────────────

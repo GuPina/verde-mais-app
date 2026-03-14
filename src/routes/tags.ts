@@ -4,6 +4,13 @@ import { requireAuth } from './auth'
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
+async function verificarConquista(db: D1Database, userId: number, codigo: string) {
+  await db.prepare(
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
+  ).bind(userId, codigo).run().catch(() => {})
+}
+
 const tags = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ─── GET /api/tags ───────────────────────────────────────────────────────────
@@ -45,6 +52,12 @@ tags.post('/', requireAuth, async (c) => {
     const created = await c.env.DB.prepare(
       `SELECT id, nome, cor FROM tags WHERE user_id=? AND nome=? ORDER BY id DESC LIMIT 1`
     ).bind(user.id, nome.trim()).first<{id:number;nome:string;cor:string}>()
+
+    // Bloco 5: conquista primeira_tag
+    const totalTags = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM tags WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((totalTags?.cnt || 0) >= 1) await verificarConquista(c.env.DB, user.id, 'primeira_tag')
 
     return c.json(created, 201)
   } catch (e: any) {
@@ -148,6 +161,11 @@ tags.post('/despesa/:despesaId', requireAuth, async (c) => {
         `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
          VALUES (?, 'tagger', datetime('now'), 0)`
       ).bind(user.id).run().catch(() => {})
+    }
+
+    // Bloco 5: mestre_tags — classificou 50+ despesas com tags
+    if ((totalTagged?.cnt || 0) >= 50) {
+      await verificarConquista(c.env.DB, user.id, 'mestre_tags')
     }
   }
 

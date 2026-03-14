@@ -196,11 +196,15 @@ projecao.get('/', requireAuth, async (c) => {
     insights.push(`⚠️ Em 12 meses, despesas recorrentes e inflação podem reduzir seu saldo acumulado para R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`)
   }
 
-  // Conquista: consultou projeção
+  // Conquista: consultou projeção (projetor + projecao_vista do Bloco 5)
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
      VALUES (?, ?, datetime('now'), 0)`
   ).bind(user.id, 'projetor').run().catch(() => {})
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
+  ).bind(user.id, 'projecao_vista').run().catch(() => {})
 
   // ── BLOCO 6.3: Integração Projeção → Metas ─────────────────────────────────
   // Verificar se metas ativas serão atingíveis com a projeção atual
