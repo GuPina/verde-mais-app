@@ -74,6 +74,27 @@ const VM = {
       this.renderApp()
       // Iniciar polling de conquistas (F2)
       setTimeout(() => this.startConqPoll(), 5000)
+
+      // ── MutationObserver: corrigir scroll ao abrir qualquer modal ──────────
+      const modalCont = document.getElementById('modal-container')
+      if (modalCont) {
+        new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            if (m.addedNodes.length > 0) {
+              // Modal foi inserido: rolar para o topo e bloquear body scroll
+              requestAnimationFrame(() => {
+                const modal = modalCont.querySelector('.modal, .modal-card')
+                if (modal) modal.scrollTop = 0
+                if (window.innerWidth <= 768) document.body.style.overflow = 'hidden'
+              })
+            }
+            if (m.type === 'childList' && modalCont.innerHTML === '') {
+              // Modal foi removido: restaurar body scroll
+              document.body.style.overflow = ''
+            }
+          }
+        }).observe(modalCont, { childList: true })
+      }
     }
   },
 
@@ -9032,6 +9053,8 @@ const VM = {
   closeModal(event) {
     if (event && event.target !== event.currentTarget) return
     document.getElementById('modal-container').innerHTML = ''
+    // Restaurar scroll do body ao fechar modal
+    document.body.style.overflow = ''
   },
 
 
@@ -10309,6 +10332,17 @@ const VM = {
         </div>
       </div>
     `
+    this._fixModalScroll()
+  },
+
+  _fixModalScroll() {
+    requestAnimationFrame(() => {
+      const container = document.getElementById('modal-container')
+      if (!container) return
+      const modal = container.querySelector('.modal-card, .modal')
+      if (modal) modal.scrollTop = 0
+      if (window.innerWidth <= 768) document.body.style.overflow = 'hidden'
+    })
   }
 }
 
