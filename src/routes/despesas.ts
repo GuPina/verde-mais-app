@@ -243,14 +243,30 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
     }
   }
 
-  // Conquistas: disciplinado (10 despesas pagas no mesmo mês) e poupador
+  // Conquistas: disciplinado (7 dias consecutivos com despesas pagas) e poupador
   if (status === 'pago') {
     try {
       const mes = new Date().toISOString().slice(0, 7) // YYYY-MM
-      const pagasMes = await c.env.DB.prepare(
-        `SELECT COUNT(*) as total FROM despesas WHERE user_id = ? AND status = 'pago' AND strftime('%Y-%m', data) = ?`
-      ).bind(user.id, mes).first() as any
-      if ((pagasMes?.total || 0) >= 10) await verificarConquistaDespesa(c.env.DB, user.id, 'disciplinado')
+
+      // BUG 1.5 FIX: disciplinado = 7 dias consecutivos com pelo menos 1 despesa paga
+      // Usar JULIANDAY para verificar consecutividade
+      const diasConsec = await c.env.DB.prepare(`
+        WITH dias AS (
+          SELECT DISTINCT date(data) as dia
+          FROM despesas
+          WHERE user_id = ? AND status = 'pago'
+            AND strftime('%Y-%m', data) = ?
+          ORDER BY dia DESC
+        ),
+        ranked AS (
+          SELECT dia, julianday(dia) - ROW_NUMBER() OVER (ORDER BY dia DESC) as grp
+          FROM dias
+        )
+        SELECT COUNT(*) as total FROM ranked
+        GROUP BY grp
+        ORDER BY total DESC LIMIT 1
+      `).bind(user.id, mes).first() as any
+      if ((diasConsec?.total || 0) >= 7) await verificarConquistaDespesa(c.env.DB, user.id, 'disciplinado')
 
       // Poupador: se receitas do mês > despesas pagas em 20% ou mais
       const [receitasMes, despesasMes] = await Promise.all([

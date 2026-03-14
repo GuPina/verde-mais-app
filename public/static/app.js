@@ -217,6 +217,40 @@ const VM = {
     this.atualizarPreviewParcela()
   },
 
+  // Bloco 2.3: Alerta de orçamento em tempo real no modal de despesa
+  async verificarOrcamentoModal() {
+    const alertaEl = document.getElementById('alertaOrcamento')
+    if (!alertaEl) return
+    const cat = document.getElementById('d-cat')?.value
+    const valor = parseFloat(document.getElementById('d-valor')?.value) || 0
+    if (!cat || valor <= 0) { alertaEl.style.display = 'none'; return }
+    try {
+      const hoje = new Date()
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0')
+      const ano = String(hoje.getFullYear())
+      const data = await this.api('GET', `orcamentos?mes=${mes}&ano=${ano}`).catch(() => null)
+      if (!data) return
+      const orc = (data.orcamentos || []).find(o => o.categoria === cat)
+      if (!orc || !orc.limite) { alertaEl.style.display = 'none'; return }
+      const gastoAtual = orc.gasto_atual || 0
+      const novoGasto = gastoAtual + valor
+      const perc = Math.round(novoGasto / orc.limite * 100)
+      if (perc >= 100) {
+        alertaEl.innerHTML = `⛔ <strong>Limite estourado!</strong> Você terá R$ ${this.formatMoney(novoGasto)} em <em>${cat}</em> (limite: R$ ${this.formatMoney(orc.limite)} — <strong>${perc}%</strong>).`
+        alertaEl.style.background = 'rgba(255,107,107,0.12)'
+        alertaEl.style.borderColor = 'rgba(255,107,107,0.5)'
+        alertaEl.style.display = 'block'
+      } else if (perc >= 80) {
+        alertaEl.innerHTML = `⚠️ <strong>Atenção:</strong> com esta despesa você usará <strong>${perc}%</strong> do orçamento de <em>${cat}</em> (R$ ${this.formatMoney(novoGasto)} / R$ ${this.formatMoney(orc.limite)}).`
+        alertaEl.style.background = 'rgba(255,196,0,0.10)'
+        alertaEl.style.borderColor = 'rgba(255,196,0,0.4)'
+        alertaEl.style.display = 'block'
+      } else {
+        alertaEl.style.display = 'none'
+      }
+    } catch(_) { alertaEl.style.display = 'none' }
+  },
+
   // Recalcular saldo devedor do empréstimo com base em juros compostos
   recalcularSaldoEmprestimo() {
     const valorOriginal = parseFloat(document.getElementById('e-valor')?.value) || 0
@@ -1097,6 +1131,33 @@ const VM = {
         </div>
       </div>
       
+      <!-- BLOCO 9: Sidebar Overlay (toque para fechar no mobile) -->
+      <div class="sidebar-overlay" id="sidebar-overlay" onclick="VM.closeSidebar()"></div>
+
+      <!-- BLOCO 9: Bottom Navigation Bar (mobile) -->
+      <nav class="bottom-nav" id="bottom-nav">
+        <button class="bottom-nav-item" id="bnav-dashboard" onclick="VM.navigate('dashboard')">
+          <i class="fas fa-home"></i>
+          <span>Início</span>
+        </button>
+        <button class="bottom-nav-item" id="bnav-despesas" onclick="VM.navigate('despesas')">
+          <i class="fas fa-minus-circle"></i>
+          <span>Despesas</span>
+        </button>
+        <button class="bottom-nav-item" id="bnav-receitas" onclick="VM.navigate('receitas')">
+          <i class="fas fa-plus-circle"></i>
+          <span>Receitas</span>
+        </button>
+        <button class="bottom-nav-item" id="bnav-metas" onclick="VM.navigate('metas')">
+          <i class="fas fa-bullseye"></i>
+          <span>Metas</span>
+        </button>
+        <button class="bottom-nav-item" id="bnav-assistente" onclick="VM.navigate('assistente')">
+          <i class="fas fa-robot"></i>
+          <span>IA</span>
+        </button>
+      </nav>
+
       <div id="toast-container" class="toast-container"></div>
       <div id="modal-container"></div>
     `
@@ -1112,6 +1173,35 @@ const VM = {
 
     // Carregar badges
     this.carregarBadges()
+
+    // BLOCO 9: Hamburger toggle com overlay
+    const menuBtn = document.getElementById('menu-btn')
+    if (menuBtn) {
+      menuBtn.onclick = () => VM.toggleSidebar()
+    }
+  },
+
+  // BLOCO 9: Controle da sidebar mobile
+  toggleSidebar() {
+    const sidebar = document.getElementById('sidebar')
+    const overlay = document.getElementById('sidebar-overlay')
+    if (!sidebar) return
+    const isOpen = sidebar.classList.contains('open')
+    if (isOpen) {
+      this.closeSidebar()
+    } else {
+      sidebar.classList.add('open')
+      if (overlay) overlay.classList.add('visible')
+      document.body.style.overflow = 'hidden'
+    }
+  },
+
+  closeSidebar() {
+    const sidebar = document.getElementById('sidebar')
+    const overlay = document.getElementById('sidebar-overlay')
+    if (sidebar) sidebar.classList.remove('open')
+    if (overlay) overlay.classList.remove('visible')
+    document.body.style.overflow = ''
   },
 
   async carregarBadges() {
@@ -1199,6 +1289,13 @@ const VM = {
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
+
+    // Bloco 9.10: atualizar item ativo da bottom navigation bar
+    const bnavMap = { dashboard: 'bnav-dashboard', despesas: 'bnav-despesas', receitas: 'bnav-receitas', metas: 'bnav-metas', assistente: 'bnav-assistente' }
+    document.querySelectorAll('.bottom-nav-item').forEach(el => el.classList.remove('active'))
+    const bnavKey = Object.keys(bnavMap).find(k => page === k || page.startsWith(k))
+    const bnavId = bnavMap[bnavKey || page] || bnavMap[page]
+    if (bnavId) { const bEl = document.getElementById(bnavId); if (bEl) bEl.classList.add('active') }
 
     const titles = {
       dashboard: ['Dashboard', 'Visão geral das suas finanças'],
@@ -2138,7 +2235,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Categoria *</label>
-                <select id="d-cat" class="form-select">
+                <select id="d-cat" class="form-select" onchange="VM.verificarOrcamentoModal()">
                   ${categorias.map(c => `<option value="${c}" ${despesa?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
                 </select>
               </div>
@@ -2150,7 +2247,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label" id="d-valor-label">Valor Total (R$) *</label>
-                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${despesa?.valor || ''}" oninput="document.getElementById('d-ultimo-editado').value='total';VM.atualizarPreviewParcela()" required>
+                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${despesa?.valor || ''}" oninput="document.getElementById('d-ultimo-editado').value='total';VM.atualizarPreviewParcela();VM.verificarOrcamentoModal()" required>
               </div>
               <div class="form-group">
                 <label class="form-label">Tipo</label>
@@ -2161,6 +2258,9 @@ const VM = {
               </div>
             </div>
             <input type="hidden" id="d-ultimo-editado" value="total">
+
+            <!-- Bloco 2.3: Alerta de Orçamento em Tempo Real -->
+            <div id="alertaOrcamento" style="display:none;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.35);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;line-height:1.5;"></div>
 
             <!-- Forma de pagamento -->
             <div class="form-group">
@@ -2243,6 +2343,17 @@ const VM = {
                 <input type="date" id="d-venc" class="form-input" value="${despesa?.vencimento || ''}">
               </div>
             </div>
+            <!-- BUG 1.2 FIX: Aporte / Transferência Patrimonial -->
+            <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
+                <input type="checkbox" id="d-eh-aporte" style="width:18px;height:18px;accent-color:#818cf8;cursor:pointer;" ${(despesa?.tipo==='aporte')?'checked':''}>
+                💼 É Aporte / Transferência Patrimonial
+              </label>
+              <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+                Marque se este lançamento é um investimento ou transferência entre contas. Não será contabilizado nas despesas do mês nem na regra 50/30/20.
+              </div>
+            </div>
+
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
               <button type="submit" class="btn-primary" style="flex:1;" id="d-submit">
@@ -2309,7 +2420,9 @@ const VM = {
           cartao_id: (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? (cartaoId || null) : null,
           parcelado,
           numero_parcelas: numParcelasRestantes,
-          parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes
+          parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes,
+          // BUG 1.2 FIX: se marcado como aporte, tipo='aporte' → não entra nas despesas do mês
+          tipo: document.getElementById('d-eh-aporte')?.checked ? 'aporte' : 'normal'
         }
 
         // Validação: cartão obrigatório se meio for cartão de crédito

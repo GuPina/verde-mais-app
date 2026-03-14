@@ -27,15 +27,27 @@ function priceRemainingMonths(balance: number, installment: number, monthlyRate:
 }
 
 // ── Matemática bancária SAC ────────────────────────────────────────────────
-function sacTotalInterest(balance: number, monthlyRate: number, months: number): number {
-  const constAmort = balance / months
+// BUG 1.1 FIX: constAmort deve ser FIXO = originalBalance / originalMonths
+// O parâmetro originalMonths permite calcular corretamente após amortização extraordinária
+function sacTotalInterest(balance: number, monthlyRate: number, months: number, originalBalance?: number, originalMonths?: number): number {
+  // Se fornecidos, usa a amortização constante original; senão calcula do saldo atual
+  const constAmort = (originalBalance && originalMonths)
+    ? originalBalance / originalMonths
+    : balance / months
   let interest = 0
   let bal = balance
   for (let i = 0; i < months; i++) {
     interest += bal * monthlyRate
-    bal -= constAmort
+    bal = Math.max(0, bal - constAmort)
   }
   return Math.max(0, interest)
+}
+
+// Calcula novos meses SAC após amortização extraordinária mantendo constAmort original
+function sacRemainingMonths(newBalance: number, originalBalance: number, originalMonths: number): number {
+  const constAmort = originalBalance / originalMonths
+  if (constAmort <= 0) return originalMonths
+  return Math.max(1, Math.ceil(newBalance / constAmort))
 }
 
 // ── POST /api/amortizacao/simular ─────────────────────────────────────────
@@ -100,17 +112,19 @@ amortizacao.post('/simular', requireAuth, async (c) => {
   const newBalance = balanceComProrata - extra
 
   // ── Totais originais ──────────────────────────────────────────────────────
+  // BUG 1.1 FIX: SAC usa balance como originalBalance (é o saldo atual = base para constAmort)
   const originalTotalInterest = system === 'SAC'
-    ? sacTotalInterest(balance, monthlyRate, remainingMonths)
+    ? sacTotalInterest(balance, monthlyRate, remainingMonths, balance, remainingMonths)
     : priceTotalInterest(balance, monthlyRate, remainingMonths)
 
   // ── Cenário A: Reduzir Parcela (manter prazo) ─────────────────────────────
   let newInstallmentA: number, totalInterestA: number, savedMonthlyA: number
 
   if (system === 'SAC') {
-    const newConstAmort = newBalance / remainingMonths
-    newInstallmentA = newConstAmort + (newBalance * monthlyRate)
-    totalInterestA = sacTotalInterest(newBalance, monthlyRate, remainingMonths)
+    // BUG 1.1 FIX: constAmort = balance/remainingMonths (original), não newBalance/remainingMonths
+    const constAmortOriginal = balance / remainingMonths
+    newInstallmentA = constAmortOriginal + (newBalance * monthlyRate)
+    totalInterestA = sacTotalInterest(newBalance, monthlyRate, remainingMonths, balance, remainingMonths)
   } else {
     newInstallmentA = priceInstallment(newBalance, monthlyRate, remainingMonths)
     totalInterestA = priceTotalInterest(newBalance, monthlyRate, remainingMonths)
@@ -122,10 +136,9 @@ amortizacao.post('/simular', requireAuth, async (c) => {
   let newMonthsB: number, totalInterestB: number, monthsSavedB: number
 
   if (system === 'SAC') {
-    // BUG 1.2.A FIX: usar amortização constante ORIGINAL (balance / remainingMonths)
-    const constAmortOriginal = balance / remainingMonths
-    newMonthsB = Math.ceil(newBalance / constAmortOriginal)
-    totalInterestB = sacTotalInterest(newBalance, monthlyRate, Math.min(newMonthsB, remainingMonths))
+    // BUG 1.1 FIX: usar sacRemainingMonths com originalBalance/originalMonths
+    newMonthsB = sacRemainingMonths(newBalance, balance, remainingMonths)
+    totalInterestB = sacTotalInterest(newBalance, monthlyRate, Math.min(newMonthsB, remainingMonths), balance, remainingMonths)
   } else {
     // BUG 1.2.B FIX: validar se parcela cobre juros
     const checkRatio = (newBalance * monthlyRate) / installment

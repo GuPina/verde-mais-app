@@ -28,6 +28,7 @@ dashboard.get('/', requireAuth, async (c) => {
     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
      WHERE user_id = ?
        AND COALESCE(tipo,'normal') != 'aporte'
+       AND COALESCE(eh_aporte_patrimonial, 0) = 0
        AND CASE WHEN status = 'pago'
                 THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
                 ELSE strftime('%m', COALESCE(vencimento, data)) = ?
@@ -40,6 +41,7 @@ dashboard.get('/', requireAuth, async (c) => {
     `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
      WHERE user_id = ?
        AND COALESCE(tipo,'normal') != 'aporte'
+       AND COALESCE(eh_aporte_patrimonial, 0) = 0
        AND CASE WHEN status = 'pago'
                 THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
                 ELSE strftime('%m', COALESCE(vencimento, data)) = ?

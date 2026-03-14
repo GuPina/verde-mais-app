@@ -812,3 +812,255 @@ select:focus-visible {
   .button-premium { padding: 12px 18px; font-size: 0.88rem; }
   .metric-kpi-value { font-size: 1.6rem; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   BLOCO 9 — RESPONSIVIDADE MOBILE COMPLETA
+   Breakpoint principal: 768px
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Touch Targets (mínimo 44px conforme Apple HIG) ─────── */
+.nav-item,
+button,
+.btn-primary,
+.btn-secondary,
+a[onclick] {
+  min-height: 44px;
+  min-width: 44px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+}
+
+/* ── Sidebar overlay (fundo escuro ao abrir no mobile) ──── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 998;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* ── Bottom Navigation Bar ───────────────────────────────── */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 64px;
+  background: rgba(15,23,42,0.98);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 900;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 8px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+}
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 1;
+  min-height: 56px;
+  cursor: pointer;
+  padding: 6px 4px;
+  border-radius: 12px;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: color 0.2s, background 0.2s;
+  text-transform: uppercase;
+}
+.bottom-nav-item i {
+  font-size: 1.2rem;
+  transition: transform 0.2s;
+}
+.bottom-nav-item.active {
+  color: #2FBF71;
+}
+.bottom-nav-item.active i {
+  transform: scale(1.15);
+}
+.bottom-nav-item:hover { color: #2FBF71; }
+
+/* ── Bottom Sheet Modals ─────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Modais sobem de baixo no mobile */
+  #modal-container .modal {
+    position: fixed !important;
+    bottom: 0 !important;
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92vh !important;
+    border-radius: 20px 20px 0 0 !important;
+    transform: translateY(0) !important;
+    animation: slideUpSheet 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+  /* Handle visual (alça do bottom sheet) */
+  #modal-container .modal::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    margin: 8px auto 4px;
+    flex-shrink: 0;
+  }
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); opacity: 0.8; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Layout principal mobile ─────────────────────────────── */
+@media (max-width: 768px) {
+  /* Esconder sidebar por padrão e mostrar com .open */
+  .sidebar {
+    position: fixed !important;
+    top: 0; left: 0; bottom: 0;
+    z-index: 999;
+    width: 260px !important;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-overlay.visible {
+    display: block;
+  }
+
+  /* Main content ocupa tela cheia */
+  .main-content {
+    margin-left: 0 !important;
+    padding-bottom: 72px; /* espaço para bottom nav */
+  }
+
+  /* Topbar ajustada */
+  .topbar {
+    padding: 12px 16px !important;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(15,23,42,0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* Botão hamburguer: garantir visibilidade */
+  #menu-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 44px !important;
+    height: 44px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
+    background: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: #ccc !important;
+    font-size: 1.1rem !important;
+  }
+
+  /* Page content */
+  .page-content {
+    padding: 16px 12px !important;
+  }
+
+  /* Bottom nav visível */
+  .bottom-nav {
+    display: flex !important;
+  }
+
+  /* Grids: tudo em coluna única */
+  .grid-2, .grid-3, .grid-4 {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Cards menores */
+  .stat-card {
+    padding: 14px 16px !important;
+  }
+
+  /* Tabelas com scroll horizontal */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Formulários full-width */
+  .form-group { width: 100%; }
+  .form-input, .form-select { font-size: 16px !important; } /* previne zoom no iOS */
+
+  /* Botões de ação lado a lado */
+  .action-buttons {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Section header empilhado em telas muito pequenas */
+  .section-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .section-header .section-title {
+    font-size: 1.1rem;
+  }
+
+  /* Ocultar textos secundários */
+  .hide-mobile { display: none !important; }
+  .show-mobile { display: flex !important; }
+
+  /* Dashboard stats 2 colunas */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Charts menores */
+  canvas { max-height: 200px; }
+}
+
+/* ── Ajustes para telas muito pequenas (< 390px) ─────────── */
+@media (max-width: 390px) {
+  .page-content { padding: 12px 8px !important; }
+  .bottom-nav-item { font-size: 0.58rem; }
+  .bottom-nav-item i { font-size: 1.1rem; }
+  .stat-card { padding: 12px !important; }
+}
+
+/* ── Landscape mobile ────────────────────────────────────── */
+@media (max-width: 768px) and (orientation: landscape) {
+  .sidebar { width: 220px !important; }
+  .page-content { padding: 10px 12px !important; }
+}
+
+/* ── iOS safe area (notch) ───────────────────────────────── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    height: calc(64px + env(safe-area-inset-bottom));
+  }
+  .main-content {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}

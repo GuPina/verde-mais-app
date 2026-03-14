@@ -81,8 +81,9 @@ investimentos.post('/', requireAuth, async (c) => {
     nome, tipo, valor_investido, rentabilidade_percentual = 0, risco = 'baixo', 
     data_inicio, data_vencimento, instituicao, observacoes,
     percentual_cdi = null, cdi_atual = CDI_PADRAO_AA,
-    // BUG 1.1: aporte — se true, registra saída do saldo bancário como despesa tipo='aporte'
-    registrar_aporte = false
+    // Bloco 1.2: registra_saida_saldo — se true, registra saída do saldo bancário como despesa tipo='aporte'
+    registrar_aporte = false,
+    registra_saida_saldo = true
   } = body
 
   if (!nome || !tipo || !valor_investido || !data_inicio) {
@@ -104,22 +105,26 @@ investimentos.post('/', requireAuth, async (c) => {
     valor_atual = parseFloat(valor_investido) * (1 + parseFloat(rentabilidade_percentual) / 100)
   }
 
+  const registraSaidaFinal = registra_saida_saldo !== undefined ? !!registra_saida_saldo : !!registrar_aporte
+
   const result = await c.env.DB.prepare(
-    'INSERT INTO investimentos (user_id, nome, tipo, valor_investido, rentabilidade_percentual, valor_atual, risco, data_inicio, data_vencimento, instituicao, observacoes, percentual_cdi, cdi_atual, data_ultimo_calculo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO investimentos (user_id, nome, tipo, valor_investido, rentabilidade_percentual, valor_atual, risco, data_inicio, data_vencimento, instituicao, observacoes, percentual_cdi, cdi_atual, data_ultimo_calculo, registra_saida_saldo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(
     user.id, nome, tipo, parseFloat(valor_investido), Math.round(rentab * 100) / 100, 
     Math.round(valor_atual * 100) / 100, risco, data_inicio, 
     data_vencimento || null, instituicao || null, observacoes || null,
     percentual_cdi ? parseFloat(percentual_cdi) : null,
     tipo === 'caixinha' ? (parseFloat(cdi_atual) || CDI_PADRAO_AA) : null,
-    tipo === 'caixinha' ? new Date().toISOString().split('T')[0] : null
+    tipo === 'caixinha' ? new Date().toISOString().split('T')[0] : null,
+    registraSaidaFinal ? 1 : 0
   ).run()
 
-  // BUG 1.1: Registrar aporte como despesa tipo='aporte' (NÃO aparece em relatórios de despesas)
-  if (registrar_aporte && parseFloat(valor_investido) > 0) {
+  // Bloco 1.2: Registrar aporte como despesa com eh_aporte_patrimonial=1 e tipo='aporte'
+  // NÃO aparece em relatórios de despesas nem no total de gastos
+  if (registraSaidaFinal && parseFloat(valor_investido) > 0) {
     await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, observacoes)
-       VALUES (?, ?, ?, 'Investimento', 'Aporte', ?, 'pago', 'transferencia', 'aporte', ?)`
+      `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, eh_aporte_patrimonial, observacoes)
+       VALUES (?, ?, ?, 'Aporte Patrimonial', 'Investimento', ?, 'pago', 'transferencia', 'aporte', 1, ?)`
     ).bind(
       user.id,
       `Aporte: ${nome}`,
