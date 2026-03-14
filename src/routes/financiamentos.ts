@@ -171,7 +171,10 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
   if (percQuitado >= 20) await verificarConquista(c.env.DB, user.id, 'quitou_20pct')
   if (percQuitado >= 30) await verificarConquista(c.env.DB, user.id, 'quitou_30pct')
   if (percQuitado >= 50) await verificarConquista(c.env.DB, user.id, 'quitou_50pct')
-  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'imovel_quitado')
+  if (status === 'quitado') {
+    await verificarConquista(c.env.DB, user.id, 'imovel_quitado')
+    await verificarConquista(c.env.DB, user.id, 'quitou_imovel') // BUG 1.4: conquista lendária 500pts
+  }
 
   return c.json({ 
     success: true, 
@@ -222,6 +225,7 @@ financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
   if (status === 'quitado') {
     await verificarConquista(c.env.DB, user.id, 'sem_dividas')
     await verificarConquista(c.env.DB, user.id, 'imovel_quitado')
+    await verificarConquista(c.env.DB, user.id, 'quitou_imovel') // BUG 1.4: conquista lendária 500pts
   }
   await verificarConquista(c.env.DB, user.id, 'amortizou')
   const percQuitado = fin.numero_parcelas > 0 ? Math.round((novasParcelas / fin.numero_parcelas) * 100) : 0

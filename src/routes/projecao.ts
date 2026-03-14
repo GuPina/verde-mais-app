@@ -64,18 +64,24 @@ projecao.get('/', requireAuth, async (c) => {
   `).bind(user.id).all()
 
   // 2. Recorrências ativas (geram despesa todo mês)
+  // NOTA: coluna correta é 'ativa' (não 'ativo')
   const recorrenciasAtivas = await c.env.DB.prepare(`
     SELECT COALESCE(SUM(valor), 0) as total_mensal
     FROM recorrencias
-    WHERE user_id = ? AND ativo = 1 AND tipo IN ('despesa', 'fixa')
+    WHERE user_id = ? AND ativa = 1 AND tipo IN ('despesa', 'fixa')
       AND (data_fim IS NULL OR data_fim > date('now'))
   `).bind(user.id).first() as any
 
-  // 3. Lembretes com valor estimado (aguardando pagamento)
+  // 3. Lembretes ativos com valor estimado e vencimento próximo (até 3 meses)
+  // Colunas reais: valor_estimado, ativo, proximo_vencimento
   const lembretesValor = await c.env.DB.prepare(`
     SELECT COALESCE(SUM(valor_estimado), 0) as total
     FROM lembretes
-    WHERE user_id = ? AND status = 'pendente' AND valor_estimado IS NOT NULL AND valor_estimado > 0
+    WHERE user_id = ? AND ativo = 1
+      AND valor_estimado IS NOT NULL AND valor_estimado > 0
+      AND proximo_vencimento IS NOT NULL
+      AND proximo_vencimento > date('now')
+      AND proximo_vencimento <= date('now', '+3 months')
   `).bind(user.id).first() as any
 
   // Construir mapa de despesas determinísticas por mês

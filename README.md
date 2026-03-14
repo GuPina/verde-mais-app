@@ -1,191 +1,250 @@
-# 💚 VerdeMais — Mentor Financeiro Digital
+# VerdeMais — SaaS de Finanças Pessoais
 
-> **Organize hoje. Conquiste amanhã.**
+## Visão Geral
+Plataforma completa de gestão financeira pessoal com gamificação, IA conversacional e análise preditiva.
 
-VerdeMais é uma plataforma SaaS completa de gestão financeira pessoal. Mais do que um app de controle, é um **Mentor Financeiro Digital** que organiza, analisa, orienta e ajuda a construir patrimônio.
-
----
-
-## 🌐 URLs
-
-| Ambiente | URL |
-|---|---|
-| **App (Produção)** | Em breve após deploy |
-| **API Health** | `/api/health` |
-| **Landing Page** | `/` |
-| **Login** | `/login` |
-| **Cadastro** | `/cadastro` |
-| **Dashboard** | `/app/dashboard` |
+- **Stack**: Hono + TypeScript + Cloudflare D1 (SQLite) + Wrangler Pages
+- **Frontend**: SPA em JavaScript puro (public/static/app.js — ~9.8k linhas)
+- **Backend**: 33 rotas em `src/routes/*.ts`
+- **Banco**: 38 tabelas no Cloudflare D1 (16 migrations aplicadas)
+- **Versão**: 3.0.0 — Fase 3B+3C+4
 
 ---
 
-## ✅ Funcionalidades Implementadas (v1.0)
+## Planos
 
-### 🏠 Landing Page Pública
-- Hero com mockup do dashboard
-- Seção de funcionalidades
-- Comparação de planos (Free / Premium / Pro)
-- FAQ
-- Seção de segurança
-- Rodapé institucional
-
-### 🔐 Autenticação
-- Cadastro com criptografia de senha (PBKDF2 + SHA-256)
-- Login com token de sessão (7 dias)
-- Logout seguro
-- Proteção de rotas via middleware
-
-### 📊 Dashboard
-- Saldo do mês
-- Total de receitas e despesas
-- Score de saúde financeira (0-100)
-- Gráfico de evolução 6 meses (Chart.js)
-- Gráfico de categorias (Doughnut)
-- Últimas transações
-- Alertas de vencimento próximo
-
-### 💰 Receitas
-- Adicionar / Editar / Excluir
-- Categorias: Salário, Freelance, Investimentos, Aluguel, Vendas, Bônus, Outros
-- Filtros por mês/ano
-- Receitas recorrentes
-
-### 💸 Despesas
-- Adicionar / Editar / Excluir
-- **Parcelamento automático** (gera N parcelas em meses consecutivos)
-- Despesas fixas e variáveis
-- Status: Pago / Pendente (toggle rápido)
-- Alertas de vencimento
-- Filtros por mês, ano e status
-
-### 🎯 Metas Financeiras
-- Criar metas com valor, prazo e cor
-- Barra de progresso visual
-- Cálculo automático de mensalidade necessária
-- Depósitos com atualização de progresso
-- Marcação automática como "Concluída"
-
-### 📈 Investimentos
-- Tipos: Tesouro Direto, CDB, LCI, LCA, Ações, FII, Cripto, Poupança
-- Resumo de patrimônio total
-- Rentabilidade e lucro/prejuízo
-- Níveis de risco (baixo, médio, alto)
-
-### 🧮 Simulações
-- Simulador de investimentos educacional
-- Taxas: Poupança, CDB, LCI/LCA, Tesouro Direto, FII, Ações, Cripto
-- Prazos: 6 meses até 10 anos
-- Gráfico de projeção de crescimento
-- Detalhamento por trimestre
-
-### 📋 Relatórios
-- Evolução anual mês a mês
-- Gráfico de linha comparativo
-- Tabela com status (positivo/negativo)
-- Totais anuais
+| Plano   | Preço      | Funcionalidades principais                              |
+|---------|------------|---------------------------------------------------------|
+| FREE    | Gratuito   | Receitas, Despesas, Metas (3), Cartões (1), Lembretes  |
+| PREMIUM | R$ 19/mês  | + Score Saúde, Projeção, Relatório Anual, Simulações   |
+| PRO     | R$ 49/mês  | + Sem limites, IA Insights, Export PDF, Amortização    |
 
 ---
 
-## 🔒 Pendente / Próximos Passos
+## URLs
 
-- [ ] Exportação de relatórios em PDF
-- [ ] Integração com Stripe para assinaturas
-- [ ] IA financeira personalizada (Plano Pro)
-- [ ] Open Banking / integração bancária
-- [ ] Regra 50/30/20 personalizada
-- [ ] Projeção patrimonial 5 anos
-- [ ] App mobile nativo
-- [ ] Dark/Light mode toggle
-- [ ] Notificações por email
+- **Produção local**: http://localhost:3000
+- **Health check**: http://localhost:3000/api/health
+- **Admin**: http://localhost:3000/admin (Basic Auth)
 
 ---
 
-## 🏗️ Arquitetura
+## Funcionalidades Implementadas (v3.0 Fase 3B+3C+4)
+
+### BLOCO 1 — Correções Críticas ✅
+- **BUG 1.1** — Investimentos tipo "Aporte": campo `tipo='aporte'` na tabela `despesas`, excluído dos cálculos 50/30/20 e somado à poupança
+- **BUG 1.2** — Amortização SAC/PRICE: fórmulas corrigidas (SAC reduzir prazo, PRICE com proteção contra divisão por zero)
+- **BUG 1.3** — Tabelas órfãs: migration 0012 remove `cartao_lancamentos`, `despesas_new`, `investimentos_new`
+- **BUG 1.4** — Conquistas: `quitou_imovel` (500pts, lendário) acionada no fluxo de financiamentos quitados
+- **BUG 1.5** — API despesas compartilhadas: CRUD completo em `src/routes/despesas-compartilhadas.ts`
+- **BUG 1.6** — Health check: versão `3.0.0`, fase `3B+3C+4`
+
+### BLOCO 2 — Melhorias Alta Prioridade ✅
+- **2.1** — Dashboard: `patrimonio_bruto`, `patrimonio_liquido`, `alerta_assinaturas`, `desafio_52`, `reservas_esp`
+- **2.2** — Modal Nova Despesa: campos de alerta, tags, detector de recorrência (via `tipo='aporte'` e campos extras)
+- **2.3** — Projeção determinística: parcelas futuras pendentes + recorrências ativas + lembretes com valor
+- **2.4** — Comparativo mensal: receitas, despesas, saldo e insights por categoria
+
+### BLOCO 3 — Melhorias Média Prioridade ✅
+- **3.1** — Desafio 52 configurável: `desafio_config` (valor_base, multiplicador, modo_invertido)
+- **3.2** — Regra 50/30/20 editável: `regra_config` com percentuais customizáveis
+- **3.3** — Tags ampliadas para receitas (`receita_tags`) e card "Top Gastos por Tag"
+
+### BLOCO 4 — Novas Conquistas ✅
+22 novas conquistas via migrations 0014/0016 incluindo:
+`saldo_verde`, `zero_cartao`, `barreira_10k`, `barreira_50k`, `barreira_100k`, `livre_banco`, `quitou_imovel`, `realizador`, etc.
+
+### BLOCO 5 — Assistente IA Conversacional ✅
+- **Backend**: POST `/api/assistente/chat` com 11 intenções detectadas
+- **Intenções**: saldo, metas, investimentos, dívidas, planejamento, conquistas, desafio, assinaturas, reservas, regra503020, ajuda
+- **Frontend**: página estilo chat com sugestões rápidas e histórico em `assistente_conversas`
+
+### BLOCO 6 — Integrações entre Módulos ✅
+- Detector → Recorrências (despesas com tipo detectado criam recorrência)
+- Regra 50/30/20 → Orçamentos (recomendações automáticas)
+- Projeção → Metas (alerta de viabilidade)
+- Desafio 52 → Metas (progresso vinculado)
+- Reservas → Metas (linked_meta_id)
+
+---
+
+## Endpoints API
+
+### Autenticação
+| Método | Endpoint                  | Descrição                         |
+|--------|---------------------------|-----------------------------------|
+| POST   | /api/auth/register        | Criar conta                       |
+| POST   | /api/auth/login           | Login                             |
+| POST   | /api/auth/verify-otp      | Verificar OTP (email, code)       |
+| POST   | /api/auth/logout          | Logout                            |
+| GET    | /api/auth/me              | Dados do usuário logado           |
+
+### Dashboard & Análise
+| Método | Endpoint                     | Plano     | Descrição                              |
+|--------|------------------------------|-----------|----------------------------------------|
+| GET    | /api/dashboard               | FREE+     | Resumo financeiro completo             |
+| GET    | /api/dashboard/relatorio     | PREMIUM+  | Relatório anual mensal                 |
+| GET    | /api/comparativo             | FREE+     | Comparativo mês atual vs anterior      |
+| GET    | /api/projecao                | PREMIUM+  | Projeção 12 meses determinística       |
+| GET    | /api/regra-503020            | FREE+     | Análise e score da regra 50/30/20      |
+| GET    | /api/regra-503020/config     | FREE+     | Configuração personalizada             |
+| POST   | /api/regra-503020/config     | FREE+     | Salvar configuração                    |
+
+### Receitas & Despesas
+| Método | Endpoint                     | Descrição                         |
+|--------|------------------------------|-----------------------------------|
+| GET    | /api/receitas                | Listar receitas do mês            |
+| POST   | /api/receitas                | Criar receita                     |
+| PUT    | /api/receitas/:id            | Editar receita                    |
+| DELETE | /api/receitas/:id            | Remover receita                   |
+| GET    | /api/despesas                | Listar despesas do mês            |
+| POST   | /api/despesas                | Criar despesa (tipo: aporte/normal)|
+| PUT    | /api/despesas/:id            | Editar despesa                    |
+| DELETE | /api/despesas/:id            | Remover despesa                   |
+
+### Módulos Financeiros
+| Método | Endpoint                           | Descrição                         |
+|--------|------------------------------------|-----------------------------------|
+| GET    | /api/investimentos                 | Listar investimentos              |
+| POST   | /api/investimentos                 | Criar investimento (aporte)       |
+| GET    | /api/metas                         | Listar metas                      |
+| GET    | /api/emprestimos                   | Listar empréstimos                |
+| GET    | /api/financiamentos                | Listar financiamentos             |
+| GET    | /api/cartoes                       | Listar cartões                    |
+| GET    | /api/lembretes                     | Listar lembretes                  |
+| GET    | /api/orcamentos                    | Listar orçamentos                 |
+| GET    | /api/reservas-esp                  | Reservas especializadas           |
+| GET    | /api/assinaturas-fantasma          | Assinaturas detectadas            |
+| GET    | /api/despesas-compartilhadas       | Despesas compartilhadas           |
+
+### Ferramentas & IA
+| Método | Endpoint                     | Plano     | Descrição                              |
+|--------|------------------------------|-----------|----------------------------------------|
+| POST   | /api/assistente/chat         | FREE+     | Assistente IA conversacional           |
+| GET    | /api/conquistas              | FREE+     | Conquistas e pontuação                 |
+| GET    | /api/tags                    | FREE+     | Tags de categorias                     |
+| POST   | /api/amortizacao/simular     | PRO       | Simulação SAC/PRICE                    |
+| GET    | /api/amortizacao/historico   | PRO       | Histórico de simulações                |
+| GET    | /api/desafio-52              | FREE+     | Status do desafio 52 semanas           |
+| GET    | /api/desafio-52/config       | FREE+     | Configuração do desafio                |
+| POST   | /api/desafio-52/config       | FREE+     | Salvar configuração                    |
+| GET    | /api/cdi                     | FREE+     | Taxa CDI atual (BCB)                   |
+| GET    | /api/relatorio               | PRO       | Relatório detalhado                    |
+| GET    | /api/alertas-cartao          | FREE+     | Alertas de fatura do cartão            |
+| GET    | /api/ia                      | PREMIUM+  | Insights gerados por IA                |
+| GET    | /api/health                  | —         | Health check (versão, fase)            |
+
+---
+
+## Estrutura de Dados
+
+### Tabelas Principais (38 total)
+```
+users, sessions, email_verifications
+receitas, despesas, despesa_tags
+investimentos
+metas
+emprestimos, financiamentos, pagamentos
+cartoes, card_charges, alertas_cartao
+lembretes, lembretes_historico
+orcamentos
+recorrencias
+reserva_emergencia, specialized_reserves, reserve_transactions
+detected_subscriptions
+weekly_challenges, desafio_config
+regra_config
+tags, receita_tags
+conquistas_definicoes, conquistas_usuario
+ia_insights
+assistente_conversas
+shared_expenses
+cdi_historico
+amortization_simulations
+assinaturas
+```
+
+### Campo `tipo` em despesas (BUG 1.1 corrigido)
+- `normal` — despesa comum (contabilizada no 50/30/20)
+- `aporte` — investimento/transferência patrimonial (excluída das despesas, somada à poupança)
+
+---
+
+## Arquitetura
 
 ```
-verdemais/
+webapp/
 ├── src/
-│   ├── index.tsx          # Entry point Hono + Landing + App Shell
-│   ├── lib/
-│   │   └── auth.ts        # Criptografia com Web Crypto API
-│   └── routes/
-│       ├── auth.ts        # /api/auth/*
-│       ├── receitas.ts    # /api/receitas/*
-│       ├── despesas.ts    # /api/despesas/*
-│       ├── metas.ts       # /api/metas/*
-│       ├── investimentos.ts  # /api/investimentos/*
-│       └── dashboard.ts   # /api/dashboard/*
-├── public/static/
-│   ├── app.js             # SPA Frontend (Vanilla JS)
-│   └── app.css            # Estilos customizados
-├── migrations/
-│   └── 0001_initial_schema.sql
-├── wrangler.jsonc
-└── ecosystem.config.cjs   # PM2 config
+│   ├── index.tsx           # App principal + rotas + health check + SW
+│   └── routes/             # 33 arquivos de rota
+├── public/
+│   └── static/
+│       ├── app.js          # SPA frontend (~9.8k linhas)
+│       └── styles.css      # CSS customizado
+├── migrations/             # 16 migrations SQL (0001→0016)
+├── dist/                   # Build de produção
+├── ecosystem.config.cjs    # PM2 config
+└── wrangler.jsonc          # Config Cloudflare
 ```
 
 ---
 
-## 🗄️ Banco de Dados (Cloudflare D1)
+## Migrations Aplicadas
 
-| Tabela | Descrição |
-|---|---|
-| `users` | Usuários com plano e perfil |
-| `sessions` | Tokens de autenticação |
-| `receitas` | Entradas financeiras |
-| `despesas` | Saídas com suporte a parcelamento |
-| `metas` | Objetivos financeiros |
-| `investimentos` | Portfólio de investimentos |
-| `assinaturas` | Planos SaaS (Free/Premium/Pro) |
-
----
-
-## 💰 Planos SaaS
-
-| Plano | Preço | Recursos |
-|---|---|---|
-| **Free** | Grátis | Dashboard, controle básico, 3 metas |
-| **Premium** | R$ 19/mês | Score financeiro, simulações, relatórios avançados |
-| **Pro** | R$ 49/mês | IA financeira, projeção 5 anos, API access |
+| Migration | Descrição                                         |
+|-----------|---------------------------------------------------|
+| 0001      | Schema inicial                                    |
+| 0002–0011 | Funcionalidades v1.0→v2.2                         |
+| 0012      | Limpeza tabelas órfãs + assistente_conversas      |
+| 0013      | Desafio 52 configurável + regra_config            |
+| 0014      | Novas conquistas (22 conquistas)                  |
+| 0015      | Tags para receitas (receita_tags)                 |
+| 0016      | Integrações v3B (shared_expenses, etc.)           |
 
 ---
 
-## 🚀 Stack Tecnológica
-
-- **Backend**: Hono.js + Cloudflare Workers
-- **Banco de Dados**: Cloudflare D1 (SQLite)
-- **Frontend**: Vanilla JS + Tailwind CSS (CDN)
-- **Gráficos**: Chart.js
-- **HTTP Client**: Axios
-- **Build**: Vite + @hono/vite-build
-- **Deploy**: Cloudflare Pages
-
----
-
-## 🔑 Conta de Demonstração
-
-```
-Email: gustavo@verdemais.app
-Senha: 123456
-```
-
----
-
-## 🛠️ Comandos
+## Como Executar (Desenvolvimento)
 
 ```bash
-# Desenvolvimento
-npm run build           # Build do projeto
-pm2 start ecosystem.config.cjs  # Iniciar servidor
+# Instalar dependências
+npm install
 
-# Banco de dados
-npm run db:migrate:local   # Aplicar migrations local
-npm run db:reset           # Resetar banco local
+# Aplicar migrations locais
+npm run db:migrate:local
 
-# Deploy
-npm run deploy:prod        # Deploy para Cloudflare Pages
+# Build
+npm run build
+
+# Iniciar com PM2
+pm2 start ecosystem.config.cjs
+
+# Verificar
+curl http://localhost:3000/api/health
 ```
 
 ---
 
-*VerdeMais © 2026 — Feito com 💚 no Brasil*
+## Deploy Cloudflare Pages
+
+```bash
+# Configurar API key
+# (use setup_cloudflare_api_key via Genspark)
+
+# Build + deploy
+npm run deploy:prod
+# ou: wrangler pages deploy dist --project-name verdemais
+```
+
+---
+
+## Status do Projeto
+
+| Fase      | Status  | Descrição                                          |
+|-----------|---------|----------------------------------------------------|
+| 3A        | ✅ Done  | Reservas esp., Assinaturas fantasma, Desafio 52    |
+| 3B        | ✅ Done  | BUGs 1.1–1.6, Melhorias 2.1–2.4                   |
+| 3C        | ✅ Done  | Desafio configurável, Regra editável, Tags receitas|
+| 4         | ✅ Done  | Assistente IA, Integrações entre módulos           |
+| **Atual** | **3B+3C+4** | Todas as fases concluídas                      |
+
+**Última atualização**: 2026-03-14  
+**Próximos passos sugeridos**: Deploy em Cloudflare Pages, testes de integração com dados reais, configuração do plano PREMIUM/PRO via Asaas
