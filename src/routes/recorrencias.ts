@@ -26,17 +26,22 @@ recorrencias.get('/', requireAuth, async (c) => {
   // Para cada recorrência, verifica se já foi gerada este mês
   const enriched = rows.map(r => ({
     ...r,
-    valor: Number(r.valor),
+    valor:          Number(r.valor),
+    ultimo_valor:   r.ultimo_valor ? Number(r.ultimo_valor) : null,
+    valor_variavel: r.valor_variavel === 1 || r.valor_variavel === true,
     gerada_mes_atual: r.ultimo_gerado
       ? r.ultimo_gerado >= `${ano}-${String(mes).padStart(2,'0')}-01`
       : false
   }))
 
   const resumo = {
-    total: rows.length,
-    ativas: rows.filter(r => r.ativa).length,
-    total_despesas: rows.filter(r => r.tipo === 'despesa' && r.ativa).reduce((s, r) => s + Number(r.valor), 0),
-    total_receitas: rows.filter(r => r.tipo === 'receita' && r.ativa).reduce((s, r) => s + Number(r.valor), 0),
+    total:           rows.length,
+    ativas:          rows.filter(r => r.ativa).length,
+    // Variáveis entram com 0 no resumo (valor incerto)
+    total_despesas:  rows.filter(r => r.tipo === 'despesa' && r.ativa && !r.valor_variavel)
+                         .reduce((s, r) => s + Number(r.valor), 0),
+    total_receitas:  rows.filter(r => r.tipo === 'receita' && r.ativa && !r.valor_variavel)
+                         .reduce((s, r) => s + Number(r.valor), 0),
   }
 
   return c.json({ recorrencias: enriched, resumo })
@@ -55,27 +60,32 @@ recorrencias.post('/', requireAuth, async (c) => {
 
   const body = await c.req.json()
   const { tipo, descricao, valor, categoria, dia_vencimento,
-          meio_pagamento = 'outros', data_fim = null } = body
+          meio_pagamento = 'outros', data_fim = null,
+          valor_variavel = false } = body
 
-  if (!tipo || !descricao || !valor || !categoria || !dia_vencimento) {
-    return c.json({ error: 'Campos obrigatórios: tipo, descricao, valor, categoria, dia_vencimento' }, 400)
+  if (!tipo || !descricao || !categoria || !dia_vencimento) {
+    return c.json({ error: 'Campos obrigatórios: tipo, descricao, categoria, dia_vencimento' }, 400)
   }
   if (!['despesa', 'receita'].includes(tipo)) {
     return c.json({ error: 'tipo deve ser: despesa ou receita' }, 400)
   }
-  if (Number(valor) <= 0) {
-    return c.json({ error: 'Valor deve ser maior que zero' }, 400)
+  // Valor obrigatório só para fixo
+  if (!valor_variavel && (!valor || Number(valor) <= 0)) {
+    return c.json({ error: 'Informe um valor maior que zero para recorrências fixas' }, 400)
   }
 
-  const res = await c.env.DB.prepare(
-    `INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento, data_fim)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento, data_fim).run()
+  // Valor padrão para variável: 0 (placeholder, nunca é usado no lançamento)
+  const valorSalvo = valor_variavel ? (Number(valor) || 0) : Number(valor)
 
-  // Conquista
+  const res = await c.env.DB.prepare(
+    `INSERT INTO recorrencias
+       (user_id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento, data_fim, valor_variavel)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, tipo, descricao, valorSalvo, categoria, dia_vencimento,
+         meio_pagamento, data_fim, valor_variavel ? 1 : 0).run()
+
   await verificarConquista(c.env.DB, user.id, 'automatico')
 
-  // Conquista 5+ recorrências
   const count = await c.env.DB.prepare(
     `SELECT COUNT(*) as n FROM recorrencias WHERE user_id = ? AND ativa = 1`
   ).bind(user.id).first() as any
@@ -94,12 +104,18 @@ recorrencias.put('/:id', requireAuth, async (c) => {
   ).bind(id, user.id).first()
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
-  const { descricao, valor, categoria, dia_vencimento, meio_pagamento, data_fim } = await c.req.json()
+  const { descricao, valor, categoria, dia_vencimento, meio_pagamento,
+          data_fim, valor_variavel } = await c.req.json()
+
+  const valorSalvo = (valor_variavel) ? (Number(valor) || 0) : Number(valor)
 
   await c.env.DB.prepare(
-    `UPDATE recorrencias SET descricao=?, valor=?, categoria=?, dia_vencimento=?, meio_pagamento=?, data_fim=?
+    `UPDATE recorrencias
+     SET descricao=?, valor=?, categoria=?, dia_vencimento=?,
+         meio_pagamento=?, data_fim=?, valor_variavel=?
      WHERE id = ? AND user_id = ?`
-  ).bind(descricao, valor, categoria, dia_vencimento, meio_pagamento, data_fim, id, user.id).run()
+  ).bind(descricao, valorSalvo, categoria, dia_vencimento,
+         meio_pagamento, data_fim, valor_variavel ? 1 : 0, id, user.id).run()
 
   return c.json({ success: true })
 })
@@ -132,13 +148,133 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   return c.json({ success: true })
 })
 
+// ─── GET /api/recorrencias/:id/historico ─────────────────────────────────────
+// Retorna os últimos N lançamentos daquela recorrência (para mostrar no modal)
+recorrencias.get('/:id/historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+  const limit = parseInt(c.req.query('limit') || '6')
+
+  // Verificar posse
+  const rec = await c.env.DB.prepare(
+    `SELECT id, descricao, tipo, valor_variavel FROM recorrencias WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+  if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
+
+  const hist = await c.env.DB.prepare(
+    `SELECT mes, ano, valor, observacao, lancado_em
+     FROM recorrencias_historico
+     WHERE recorrencia_id = ? AND user_id = ?
+     ORDER BY ano DESC, mes DESC
+     LIMIT ?`
+  ).bind(id, user.id, limit).all()
+
+  return c.json({
+    recorrencia_id: rec.id,
+    descricao:      rec.descricao,
+    tipo:           rec.tipo,
+    valor_variavel: rec.valor_variavel === 1,
+    historico:      hist.results
+  })
+})
+
+// ─── POST /api/recorrencias/:id/lancar ───────────────────────────────────────
+// Lança manualmente uma recorrência (fixa ou variável) para um mês específico.
+// Para variáveis, o campo `valor` é obrigatório.
+recorrencias.post('/:id/lancar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+
+  const rec = await c.env.DB.prepare(
+    `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+  if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  if (!rec.ativa) return c.json({ error: 'Recorrência está pausada' }, 400)
+
+  const body   = await c.req.json()
+  const hoje   = new Date()
+  const mes    = body.mes  ? parseInt(body.mes)  : (hoje.getMonth() + 1)
+  const ano    = body.ano  ? parseInt(body.ano)  : hoje.getFullYear()
+  const observacao = body.observacao || null
+
+  // Para variável: valor obrigatório no body; para fixa: usa valor cadastrado
+  const ehVariavel = rec.valor_variavel === 1 || rec.valor_variavel === true
+  let valorLancar: number
+
+  if (ehVariavel) {
+    if (body.valor === undefined || body.valor === null || body.valor === '') {
+      return c.json({ error: 'Informe o valor para esta recorrência variável' }, 400)
+    }
+    valorLancar = parseFloat(body.valor)
+    if (isNaN(valorLancar) || valorLancar <= 0) {
+      return c.json({ error: 'Valor inválido — deve ser maior que zero' }, 400)
+    }
+  } else {
+    valorLancar = Number(rec.valor)
+  }
+
+  const mesStr = String(mes).padStart(2, '0')
+  const lastDay = new Date(ano, mes, 0).getDate()
+  const dia     = Math.min(rec.dia_vencimento || 1, lastDay)
+  const dataVenc = `${ano}-${mesStr}-${String(dia).padStart(2,'0')}`
+
+  // Evitar duplicata: verificar se já existe transação deste mês
+  if (rec.tipo === 'despesa') {
+    const existe = await c.env.DB.prepare(
+      `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+    ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+    if (existe) return c.json({ error: `Já existe um lançamento de "${rec.descricao}" em ${mes}/${ano}` }, 409)
+
+    await c.env.DB.prepare(
+      `INSERT INTO despesas
+         (user_id, descricao, valor, categoria, vencimento, data, status,
+          meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
+       VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
+    ).bind(user.id, rec.descricao, valorLancar, rec.categoria,
+           dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+
+  } else {
+    const existe = await c.env.DB.prepare(
+      `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
+    ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+    if (existe) return c.json({ error: `Já existe um lançamento de "${rec.descricao}" em ${mes}/${ano}` }, 409)
+
+    await c.env.DB.prepare(
+      `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
+       VALUES (?, ?, ?, ?, ?, 1)`
+    ).bind(user.id, rec.descricao, valorLancar, rec.categoria, dataVenc).run()
+  }
+
+  // Registrar no histórico (para variáveis e também fixas — histórico completo)
+  await c.env.DB.prepare(
+    `INSERT OR REPLACE INTO recorrencias_historico
+       (recorrencia_id, user_id, mes, ano, valor, observacao)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(rec.id, user.id, mes, ano, valorLancar, observacao).run()
+
+  // Atualizar ultimo_gerado e ultimo_valor na recorrência
+  const dataHoje = hoje.toISOString().split('T')[0]
+  await c.env.DB.prepare(
+    `UPDATE recorrencias
+     SET ultimo_gerado = ?, ultimo_valor = ?, total_gerado = total_gerado + 1
+     WHERE id = ?`
+  ).bind(dataHoje, valorLancar, rec.id).run()
+
+  return c.json({
+    success: true,
+    tipo:   rec.tipo,
+    valor:  valorLancar,
+    mes,
+    ano,
+    data:   dataVenc
+  })
+})
+
 // ─── POST /api/recorrencias/processar ── gera transações do dia ───────────────
-// Chamada diária (pode ser via cron ou manualmente)
 recorrencias.post('/processar', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => ({})) as any
 
-  // Suporta processar mês específico (ex: {mes: 3, ano: 2026}) ou mês atual
   const hoje = new Date()
   const mes  = body.mes  ? parseInt(body.mes)  : (hoje.getMonth() + 1)
   const ano  = body.ano  ? parseInt(body.ano)  : hoje.getFullYear()
@@ -146,10 +282,12 @@ recorrencias.post('/processar', requireAuth, async (c) => {
   const mesRef   = `${ano}-${mesStr}-01`
   const dataHoje = hoje.toISOString().split('T')[0]
 
-  // Busca TODAS as recorrências ativas que ainda não foram geradas este mês
+  // Apenas recorrências FIXAS (valor_variavel=0 ou null) são processadas automaticamente
+  // As variáveis precisam de confirmação manual via /lancar
   const pendentes = await c.env.DB.prepare(
     `SELECT * FROM recorrencias
      WHERE user_id = ? AND ativa = 1
+       AND (valor_variavel = 0 OR valor_variavel IS NULL)
        AND (data_fim IS NULL OR date(data_fim) >= ?)
        AND (ultimo_gerado IS NULL OR ultimo_gerado < ?)`
   ).bind(user.id, mesRef, mesRef).all()
@@ -191,7 +329,22 @@ recorrencias.post('/processar', requireAuth, async (c) => {
     geradas++
   }
 
-  return c.json({ success: true, geradas, mes, ano, items: geradasItems })
+  // Também informa quantas variáveis estão pendentes (aguardando confirmação manual)
+  const varPendentes = await c.env.DB.prepare(
+    `SELECT COUNT(*) as n FROM recorrencias
+     WHERE user_id = ? AND ativa = 1 AND valor_variavel = 1
+       AND (data_fim IS NULL OR date(data_fim) >= ?)
+       AND (ultimo_gerado IS NULL OR ultimo_gerado < ?)`
+  ).bind(user.id, mesRef, mesRef).first() as any
+
+  return c.json({
+    success: true,
+    geradas,
+    variaveis_pendentes: varPendentes?.n || 0,
+    mes,
+    ano,
+    items: geradasItems
+  })
 })
 
 // ─── POST /api/recorrencias/processar-mes ── gera transações para mês futuro ──
@@ -204,11 +357,12 @@ recorrencias.post('/processar-mes', requireAuth, async (c) => {
   const anoInt  = parseInt(ano)
   const mesStr  = String(mesInt).padStart(2, '0')
   const mesRef  = `${anoInt}-${mesStr}-01`
-  const dataHoje = new Date().toISOString().split('T')[0]
 
+  // Só processa fixas automaticamente
   const pendentes = await c.env.DB.prepare(
     `SELECT * FROM recorrencias
      WHERE user_id = ? AND ativa = 1
+       AND (valor_variavel = 0 OR valor_variavel IS NULL)
        AND (data_fim IS NULL OR date(data_fim) >= ?)`
   ).bind(user.id, mesRef).all()
 

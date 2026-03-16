@@ -8310,6 +8310,8 @@ const VM = {
       return
     }
 
+    const MESES_NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
     const renderRec = async () => {
       content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i></div>`
       const data = await this.api('GET', 'recorrencias')
@@ -8325,7 +8327,7 @@ const VM = {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
           <div>
             <div style="font-size:1.1rem;font-weight:700;">🔄 Recorrências Automáticas</div>
-            <div style="color:#666;font-size:0.82rem;">Transações fixas geradas automaticamente todo mês</div>
+            <div style="color:#666;font-size:0.82rem;">Transações fixas ou variáveis geradas todo mês</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button onclick="VM._processarRecorrencias()" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#74b9ff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-play"></i> Processar Mês Atual</button>
@@ -8339,8 +8341,8 @@ const VM = {
           ${[
             { icon:'🔄', val: resumo.total||0, label:'Total', cor:'#74b9ff' },
             { icon:'✅', val: resumo.ativas||0, label:'Ativas', cor:'#10B981' },
-            { icon:'💸', val: this.fmt(resumo.total_despesas||0), label:'Saídas/mês', cor:'#F43F5E' },
-            { icon:'💰', val: this.fmt(resumo.total_receitas||0), label:'Entradas/mês', cor:'#10B981' }
+            { icon:'💸', val: this.fmt(resumo.total_despesas||0), label:'Saídas fixas/mês', cor:'#F43F5E' },
+            { icon:'💰', val: this.fmt(resumo.total_receitas||0), label:'Entradas fixas/mês', cor:'#10B981' }
           ].map(s => `
             <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:14px 16px;">
               <div style="font-size:1.4rem;margin-bottom:6px;">${s.icon}</div>
@@ -8353,7 +8355,7 @@ const VM = {
           <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:40px;text-align:center;">
             <div style="font-size:3rem;margin-bottom:12px;">🔄</div>
             <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px;">Nenhuma recorrência cadastrada</div>
-            <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Cadastre suas contas fixas para gerar automaticamente todo mês.</div>
+            <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Cadastre suas contas fixas ou variáveis para controlar todo mês.</div>
             <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:10px 24px;"><i class="fas fa-plus"></i> Criar Primeira Recorrência</button>
           </div>
         ` : `
@@ -8370,17 +8372,25 @@ const VM = {
               <tbody>
                 ${recs.map(r => {
                   const cfg = tipoConfig[r.tipo] || tipoConfig.despesa
+                  const isVar = r.valor_variavel
+                  const valorLabel = isVar
+                    ? (r.ultimo_valor ? `~${this.fmt(r.ultimo_valor)}` : '— variável')
+                    : this.fmt(r.valor)
+                  const jaGerada = r.gerada_mes_atual
                   return `<tr style="border-bottom:1px solid #1a1a2e;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
                     <td style="padding:12px 16px;">
-                      <div style="font-weight:600;">${r.descricao}</div>
-                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}</div>
+                      <div style="font-weight:600;display:flex;align-items:center;gap:6px;">
+                        ${r.descricao}
+                        ${isVar ? `<span style="background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:1px 7px;font-size:0.65rem;font-weight:700;">↕ Variável</span>` : ''}
+                      </div>
+                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}${r.ultimo_gerado ? ` · Último: ${r.ultimo_gerado.slice(0,7)}` : ''}</div>
                     </td>
                     <td style="padding:12px 16px;">
                       <span style="background:${cfg.bg};color:${cfg.cor};border:1px solid ${cfg.cor}33;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
                         <i class="fas ${cfg.icon}"></i> ${cfg.label}
                       </span>
                     </td>
-                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:${cfg.cor};">${this.fmt(r.valor)}</td>
+                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:${isVar ? '#fbbf24' : cfg.cor};">${valorLabel}</td>
                     <td style="padding:12px 16px;text-align:center;color:#94a3b8;">${r.dia_vencimento}</td>
                     <td style="padding:12px 16px;text-align:center;">
                       <span style="background:${r.ativa?'rgba(16,185,129,0.1)':'rgba(100,116,139,0.1)'};color:${r.ativa?'#10B981':'#64748b'};border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
@@ -8389,8 +8399,13 @@ const VM = {
                     </td>
                     <td style="padding:12px 16px;text-align:center;">
                       <div style="display:flex;gap:4px;justify-content:center;">
+                        <button onclick="VM._abrirLancarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" title="Lançar no mês"
+                          style="background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"
+                          ${jaGerada ? 'opacity:0.5;' : ''}>
+                          <i class="fas fa-paper-plane"></i>${jaGerada ? ' ✓' : ''}
+                        </button>
                         <button onclick="VM._toggleRecorrencia(${r.id},${r.ativa})" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
-                        <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                        <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                       </div>
                     </td>
                   </tr>`
@@ -8405,23 +8420,40 @@ const VM = {
     this._abrirNovaRecorrencia = () => {
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">🔄 Nova Recorrência</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Transação que se repete todo mês automaticamente</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Transação que se repete todo mês — fixa ou com valor variável</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Tipo</label>
             <select id="rec-tipo" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-              <option value="despesa">💸 Despesa Fixa</option>
-              <option value="receita">💰 Receita Fixa</option>
+              <option value="despesa">💸 Despesa</option>
+              <option value="receita">💰 Receita</option>
             </select>
           </div>
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Descrição</label>
-            <input id="rec-desc" type="text" placeholder="Ex: Aluguel, Netflix, Salário..." style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            <input id="rec-desc" type="text" placeholder="Ex: Aluguel, Salário, Obra..." style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
           </div>
+
+          <!-- Toggle valor variável -->
+          <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:10px;padding:12px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
+              <input type="checkbox" id="rec-variavel" onchange="VM._onToggleVariavel(this.checked)"
+                style="width:18px;height:18px;accent-color:#fbbf24;cursor:pointer;">
+              ↕ Valor Variável (define na hora de lançar)
+            </label>
+            <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+              Use para contas cujo valor muda todo mês, ex: conta de água, obra, comissão.
+            </div>
+          </div>
+
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div>
-              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Valor (R$)</label>
-              <input id="rec-valor" type="number" min="0.01" step="0.01" placeholder="0,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              <label id="rec-valor-label" style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Valor (R$)</label>
+              <input id="rec-valor" type="number" min="0" step="0.01" placeholder="0,00"
+                style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              <div id="rec-valor-hint" style="font-size:0.7rem;color:#888;margin-top:3px;display:none;">
+                Valor de referência (será confirmado no lançamento)
+              </div>
             </div>
             <div>
               <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Dia do mês</label>
@@ -8442,16 +8474,177 @@ const VM = {
       `)
     }
 
+    this._onToggleVariavel = (checked) => {
+      const label = document.getElementById('rec-valor-label')
+      const hint  = document.getElementById('rec-valor-hint')
+      const input = document.getElementById('rec-valor')
+      if (checked) {
+        label.textContent = 'Valor de referência (R$) — opcional'
+        label.style.color = '#fbbf24'
+        hint.style.display = 'block'
+        input.placeholder = 'Opcional — será informado ao lançar'
+        input.required = false
+      } else {
+        label.textContent = 'Valor (R$)'
+        label.style.color = '#888'
+        hint.style.display = 'none'
+        input.placeholder = '0,00'
+        input.required = true
+      }
+    }
+
     this._salvarRecorrencia = async () => {
-      const tipo = document.getElementById('rec-tipo').value
-      const desc = document.getElementById('rec-desc').value.trim()
-      const valor = parseFloat(document.getElementById('rec-valor').value)
-      const dia   = parseInt(document.getElementById('rec-dia').value)
-      const cat   = document.getElementById('rec-cat').value
-      if (!desc || !valor || !dia || dia < 1 || dia > 31) { this.toast('Preencha todos os campos corretamente', 'error'); return }
-      const r = await this.api('POST', 'recorrencias', { tipo, descricao: desc, valor, dia_vencimento: dia, categoria: cat })
-      if (r.success) { this.closeModal(); this.toast('✅ Recorrência criada!'); renderRec() }
-      else this.toast(r.error || 'Erro ao criar', 'error')
+      const tipo      = document.getElementById('rec-tipo').value
+      const desc      = document.getElementById('rec-desc').value.trim()
+      const valorRaw  = document.getElementById('rec-valor').value
+      const valor     = valorRaw ? parseFloat(valorRaw) : 0
+      const dia       = parseInt(document.getElementById('rec-dia').value)
+      const cat       = document.getElementById('rec-cat').value
+      const variavel  = document.getElementById('rec-variavel')?.checked || false
+
+      if (!desc || !dia || dia < 1 || dia > 31) {
+        this.toast('Preencha descrição e dia do mês', 'error')
+        return
+      }
+      if (!variavel && (!valor || valor <= 0)) {
+        this.toast('Informe o valor para recorrência fixa', 'error')
+        return
+      }
+      try {
+        const r = await this.api('POST', 'recorrencias', {
+          tipo, descricao: desc, valor: variavel ? (valor || 0) : valor,
+          dia_vencimento: dia, categoria: cat, valor_variavel: variavel
+        })
+        if (r.success) { this.closeModal(); this.toast('✅ Recorrência criada!'); renderRec() }
+        else this.toast(r.error || 'Erro ao criar', 'error')
+      } catch(e) {
+        this.toast('Erro ao criar recorrência', 'error')
+      }
+    }
+
+    // ── Modal Lançar: pede valor + mostra histórico ───────────────────────────
+    this._abrirLancarRecorrencia = async (id, descricao) => {
+      // Buscar dados atuais da recorrência + histórico
+      let recData = null
+      try {
+        const all = await this.api('GET', 'recorrencias')
+        recData = (all.recorrencias || []).find(r => r.id === id)
+      } catch(e) {}
+
+      let hist = []
+      try {
+        const h = await this.api('GET', `recorrencias/${id}/historico?limit=6`)
+        hist = h.historico || []
+      } catch(e) {}
+
+      const hoje      = new Date()
+      const mesAtual  = hoje.getMonth() + 1
+      const anoAtual  = hoje.getFullYear()
+      const isVar     = recData?.valor_variavel || false
+      const ultimoVal = recData?.ultimo_valor || recData?.valor || ''
+      const tipo      = recData?.tipo || 'despesa'
+      const corTipo   = tipo === 'receita' ? '#10B981' : '#F43F5E'
+      const MESES     = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+      // Histórico HTML
+      const histHtml = hist.length > 0 ? `
+        <div style="margin-top:16px;">
+          <div style="font-size:0.72rem;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">📊 Histórico de lançamentos</div>
+          <div style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;">
+            ${hist.map(h => `
+              <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:7px 12px;font-size:0.8rem;">
+                <span style="color:#94a3b8;">${MESES[(h.mes||1)-1]}/${h.ano}</span>
+                <span style="font-weight:700;color:${corTipo};">${this.fmt(h.valor)}</span>
+                ${h.observacao ? `<span style="color:#555;font-size:0.7rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${h.observacao}">${h.observacao}</span>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : `<div style="color:#555;font-size:0.78rem;margin-top:12px;">📭 Nenhum lançamento anterior</div>`
+
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">
+          <i class="fas fa-paper-plane" style="color:${corTipo};"></i> Lançar: ${descricao}
+        </div>
+        <div style="font-size:0.78rem;color:#888;margin-bottom:16px;">
+          ${isVar ? '↕ Recorrência variável — confirme o valor deste mês' : '🔒 Recorrência fixa — confirme o lançamento'}
+        </div>
+
+        <!-- Mês de destino -->
+        <div style="margin-bottom:14px;">
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">📅 Mês de lançamento</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <select id="lancar-mes" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;">
+              ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+                .map((m,i) => `<option value="${i+1}" ${i+1===mesAtual?'selected':''}>${m}</option>`).join('')}
+            </select>
+            <input id="lancar-ano" type="number" value="${anoAtual}" min="2020" max="2035"
+              style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;">
+          </div>
+        </div>
+
+        <!-- Valor: sempre editável, obrigatório para variável -->
+        <div style="margin-bottom:14px;">
+          <label style="font-size:0.75rem;color:${isVar?'#fbbf24':'#888'};display:block;margin-bottom:6px;">
+            ${isVar ? '↕ Valor deste mês (R$) *' : '💰 Valor (R$)'}
+          </label>
+          <input id="lancar-valor" type="number" step="0.01" min="0.01"
+            value="${isVar ? (ultimoVal || '') : ultimoVal}"
+            placeholder="${isVar ? 'Informe o valor deste mês' : ''}"
+            style="background:#0d1117;border:1px solid ${isVar?'rgba(251,191,36,0.4)':'#2a2a3e'};color:#e0e0e0;border-radius:8px;padding:11px 14px;font-size:1rem;font-weight:600;width:100%;">
+          ${isVar && ultimoVal ? `<div style="font-size:0.7rem;color:#888;margin-top:3px;">Último lançado: ${this.fmt(ultimoVal)}</div>` : ''}
+        </div>
+
+        <!-- Observação opcional -->
+        <div style="margin-bottom:14px;">
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Observação (opcional)</label>
+          <input id="lancar-obs" type="text" placeholder="Ex: Obra do 3º andar, Mês cheio..."
+            style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+        </div>
+
+        ${histHtml}
+
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button onclick="VM._confirmarLancamento(${id})" class="btn-primary" style="flex:1;justify-content:center;padding:11px;">
+            <i class="fas fa-check"></i> Confirmar Lançamento
+          </button>
+          <button onclick="VM.closeModal()" class="btn-secondary" style="padding:11px 16px;">Cancelar</button>
+        </div>
+      `)
+
+      // Focar no campo de valor
+      setTimeout(() => document.getElementById('lancar-valor')?.focus(), 100)
+    }
+
+    this._confirmarLancamento = async (id) => {
+      const mes   = parseInt(document.getElementById('lancar-mes')?.value)
+      const ano   = parseInt(document.getElementById('lancar-ano')?.value)
+      const valor = parseFloat(document.getElementById('lancar-valor')?.value)
+      const obs   = document.getElementById('lancar-obs')?.value?.trim() || null
+
+      if (!valor || valor <= 0) {
+        this.toast('Informe um valor maior que zero', 'error')
+        return
+      }
+      if (!mes || !ano || mes < 1 || mes > 12) {
+        this.toast('Mês inválido', 'error')
+        return
+      }
+
+      const btn = document.querySelector('#modal-container .btn-primary')
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Lançando...' }
+
+      try {
+        const r = await this.api('POST', `recorrencias/${id}/lancar`, { valor, mes, ano, observacao: obs })
+        this.closeModal()
+        const MESES_N = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+        this.toast(`✅ Lançado ${this.fmt(r.valor)} em ${MESES_N[r.mes-1]}/${r.ano}`)
+        renderRec()
+      } catch(err) {
+        const msg = err?.response?.data?.error || err?.message || 'Erro ao lançar'
+        this.toast(msg, 'error')
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmar Lançamento' }
+      }
     }
 
     this._toggleRecorrencia = async (id, ativa) => {
@@ -8469,18 +8662,17 @@ const VM = {
     this._processarRecorrencias = async () => {
       const hoje = new Date()
       const r = await this.api('POST', 'recorrencias/processar', { mes: hoje.getMonth()+1, ano: hoje.getFullYear() })
-      if (r.geradas > 0) {
-        this.toast(`✅ ${r.geradas} transação(ões) gerada(s) para ${r.mes}/${r.ano}`)
-      } else {
-        this.toast(`ℹ️ Todas as recorrências já foram geradas para este mês`)
-      }
+      let msg = ''
+      if (r.geradas > 0) msg = `✅ ${r.geradas} fixas geradas para ${r.mes}/${r.ano}`
+      else msg = `ℹ️ Todas as recorrências fixas já foram geradas`
+      if (r.variaveis_pendentes > 0) msg += ` · ${r.variaveis_pendentes} variável(is) aguardam lançamento manual`
+      this.toast(msg, r.variaveis_pendentes > 0 ? 'warning' : 'success')
       renderRec()
     }
 
     this._abrirGerarMesFuturo = () => {
       const hoje = new Date()
       const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
-      // Montar opções de meses futuros (próximos 12 meses)
       let options = ''
       for (let i = 1; i <= 12; i++) {
         let m = hoje.getMonth() + 1 + i, y = hoje.getFullYear()
@@ -8490,7 +8682,7 @@ const VM = {
       this.showModal(`
         <div style="font-size:1.05rem;font-weight:700;margin-bottom:16px;">📅 Gerar Recorrências para Mês Futuro</div>
         <div style="color:#888;font-size:0.82rem;margin-bottom:16px;">
-          Cria despesas e receitas recorrentes em meses futuros antecipadamente.
+          Cria despesas e receitas <b>fixas</b> em meses futuros. Recorrências variáveis devem ser lançadas individualmente.
         </div>
         <div style="margin-bottom:16px;">
           <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:6px;">Mês de destino</label>
@@ -8515,9 +8707,9 @@ const VM = {
         const r = await this.api('POST', 'recorrencias/processar-mes', { mes: parseInt(mes), ano: parseInt(ano) })
         const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
         if (r.geradas > 0) {
-          this.toast(`✅ ${r.geradas} transação(ões) gerada(s) para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
+          this.toast(`✅ ${r.geradas} transação(ões) fixas gerada(s) para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
         } else {
-          this.toast(`ℹ️ Todas as recorrências já foram geradas para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
+          this.toast(`ℹ️ Todas as recorrências fixas já foram geradas para ${mesesNomes[parseInt(mes)-1]}/${ano}`)
         }
         this.closeModal()
         renderRec()
@@ -8534,7 +8726,6 @@ const VM = {
       setTimeout(() => this._renderFluxoCaixaFuturo(), 300)
     }
   },
-
   _renderFluxoCaixaFuturo() {
     const pageContent = document.getElementById('page-content')
     if (!pageContent) return
