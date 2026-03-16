@@ -1,5 +1,5 @@
-// Bloco 5 — src/routes/assistente.ts
-// Assistente IA Conversacional VerdeMais — lógica determinística (sem chamada LLM externa)
+// src/routes/assistente.ts
+// Assistente IA Conversacional VerdeMais — v2.0 — Lógica determinística avançada
 
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
@@ -9,77 +9,158 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const assistente = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// ── Tipos de intenção suportados ──────────────────────────────────────────────
+// ── Tipos de intenção ─────────────────────────────────────────────────────────
 type Intencao =
   | 'saldo'
   | 'gastos'
+  | 'gastos_categoria'
   | 'metas'
   | 'investimentos'
-  | 'dívidas'
+  | 'dividas'
   | 'reservas'
   | 'economia'
   | 'cartao'
   | 'conquistas'
   | 'desafio52'
+  | 'score'
+  | 'projecao'
+  | 'orcamento'
+  | 'recorrencias'
+  | 'lembretes'
+  | 'regra503020'
+  | 'amortizacao'
+  | 'assinaturas'
+  | 'comparativo'
   | 'ajuda'
+  | 'elogio'
   | 'desconhecido'
+
+// ── Normalizar texto para matching ───────────────────────────────────────────
+function norm(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+}
 
 // ── Detectar intenção a partir do texto ──────────────────────────────────────
 function detectarIntencao(msg: string): Intencao {
-  const t = msg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const t = norm(msg)
 
-  if (/saldo|sobrou|quanto tenho|dinheiro disponivel|sobra/.test(t)) return 'saldo'
-  if (/gasto|gastei|despesa|gastando|onde gasto|gasta/.test(t)) return 'gastos'
-  if (/meta|objetivo|sonho|quanto falta|progresso da meta/.test(t)) return 'metas'
-  if (/investimento|aplicacao|rendimento|cdi|acoes|caixinha|fii/.test(t)) return 'investimentos'
-  if (/divida|emprestimo|financiamento|parcela|devo|quanto devo/.test(t)) return 'dívidas'
-  if (/reserva|emergencia|fundo de emergencia|guardei/.test(t)) return 'reservas'
-  if (/economizar|poupar|economia|como guardar|dica|conselho/.test(t)) return 'economia'
-  if (/cartao|fatura|limite|credito/.test(t)) return 'cartao'
-  if (/conquista|badge|pontos|gamificacao/.test(t)) return 'conquistas'
-  if (/desafio|52 semanas|semana/.test(t)) return 'desafio52'
-  if (/ajuda|o que voce faz|comandos|funcoes|help/.test(t)) return 'ajuda'
+  // Score financeiro
+  if (/score|saude financeira|nota financeira|health|minha nota|meu score|pontuacao|diagnostico/.test(t)) return 'score'
+  // Saldo
+  if (/saldo|sobrou|quanto tenho|dinheiro disponivel|sobra|tenho no mes|saldo do mes/.test(t)) return 'saldo'
+  // Gastos por categoria específica
+  if (/(gastei|gasto|gastando|despesa).*(moradia|aluguel|alimentacao|comida|transporte|saude|lazer|educacao|assinatura|cartao|servico|streaming)/.test(t) ||
+      /(moradia|aluguel|alimentacao|comida|transporte|saude|lazer|educacao|assinatura|streaming).*(gasto|gastei|despesa|custo)/.test(t)) return 'gastos_categoria'
+  // Gastos gerais
+  if (/gasto|gastei|despesa|gastando|onde gasto|gasta|maiores gastos|categorias/.test(t)) return 'gastos'
+  // Metas
+  if (/meta|objetivo|sonho|quanto falta|progresso|quanto preciso guardar|minha meta/.test(t)) return 'metas'
+  // Investimentos
+  if (/investimento|aplicacao|rendimento|cdi|acoes|caixinha|fii|renda fixa|tesouro|carteira|patrimonio/.test(t)) return 'investimentos'
+  // Dívidas
+  if (/divida|emprestimo|financiamento|parcela|devo|quanto devo|debito|parcelado/.test(t)) return 'dividas'
+  // Reservas
+  if (/reserva|emergencia|fundo de emergencia|guardei|protecao|meses de reserva/.test(t)) return 'reservas'
+  // Cartão
+  if (/cartao|fatura|limite|credito|nubank|itau|bradesco|santander|limite do cartao/.test(t)) return 'cartao'
+  // Conquistas
+  if (/conquista|badge|medalha|pontos|gamificacao|premio/.test(t)) return 'conquistas'
+  // Desafio 52
+  if (/desafio|52 semanas|semana|desafio 52/.test(t)) return 'desafio52'
+  // Projeção
+  if (/projecao|previsao|futuro|proximo mes|daqui|tendencia|vai ser/.test(t)) return 'projecao'
+  // Orçamento
+  if (/orcamento|limite|budget|quanto posso gastar|teto de gasto/.test(t)) return 'orcamento'
+  // Recorrências
+  if (/recorrencia|fixo|mensal|todo mes|pagamentos fixos|conta fixa/.test(t)) return 'recorrencias'
+  // Lembretes
+  if (/lembrete|vencimento|pagar|data de pagamento|vencem/.test(t)) return 'lembretes'
+  // Regra 50/30/20
+  if (/50.30.20|regra|distribuicao|como dividir|como organizar a renda/.test(t)) return 'regra503020'
+  // Amortização
+  if (/amortiz|pagar antecipado|reduzir parcela|quitar mais rapido|extra no financiamento/.test(t)) return 'amortizacao'
+  // Assinaturas
+  if (/assinatura|streaming|netflix|spotify|esqueci|cobran|assino|mensalidade esquecida/.test(t)) return 'assinaturas'
+  // Comparativo
+  if (/comparativo|comparar|mes anterior|variacao|mudou|cresceu|caiu|aumentou|diminuiu/.test(t)) return 'comparativo'
+  // Economia
+  if (/economiz|poupar|economia|como guardar|dica|conselho|cortar gasto|reduzir|gastar menos/.test(t)) return 'economia'
+  // Elogio / conversa social
+  if (/obrigad|valeu|otimo|excelente|muito bom|perfeito|top|show|parabens|legal|ajudou/.test(t)) return 'elogio'
+  // Ajuda
+  if (/ajuda|o que voce faz|comandos|funcoes|help|menu|opcoes|o que sabe/.test(t)) return 'ajuda'
 
   return 'desconhecido'
 }
 
-// ── Buscar contexto financeiro do usuário ─────────────────────────────────────
+// ── Buscar contexto financeiro completo do usuário ────────────────────────────
 async function buscarContexto(db: D1Database, userId: number) {
-  const mes = new Date().getMonth() + 1
-  const ano = new Date().getFullYear()
+  const now = new Date()
+  const mes    = now.getMonth() + 1
+  const ano    = now.getFullYear()
   const mesStr = String(mes).padStart(2, '0')
   const anoStr = String(ano)
+  const mesAntInt  = mes === 1 ? 12 : mes - 1
+  const anoAntInt  = mes === 1 ? ano - 1 : ano
+  const mesAntStr  = String(mesAntInt).padStart(2, '0')
+  const anoAntStr  = String(anoAntInt)
 
-  const [receitas, despesas, metas, investimentos, emprestimos, financiamentos, reservas, conquistas, desafio, topTags] = await Promise.all([
-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesStr, anoStr).first() as any,
-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',COALESCE(vencimento,data))=? AND strftime('%Y',COALESCE(vencimento,data))=?`).bind(userId, mesStr, anoStr).first() as any,
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as total_obj, COALESCE(SUM(valor_atual),0) as total_atual FROM metas WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_atual),0) as total FROM investimentos WHERE user_id=?`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM financiamentos WHERE user_id=? AND status='ativo'`).bind(userId).first() as any,
-    db.prepare(`SELECT COALESCE(SUM(current_amount),0) as total, COALESCE(SUM(target_amount),0) as meta FROM specialized_reserves WHERE user_id=? AND status IN ('active','completed')`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=?`).bind(userId).first() as any,
-    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year = ?`).bind(userId, anoStr).first() as any,
-    // Bloco 4.3: top tags do mês para análise de padrões
-    db.prepare(`
-      SELECT t.nome, COALESCE(SUM(d.valor), 0) as total
-      FROM despesa_tags dt
-      JOIN tags t ON t.id = dt.tag_id
-      JOIN despesas d ON d.id = dt.despesa_id
-      WHERE d.user_id = ? AND strftime('%m', COALESCE(d.vencimento, d.data)) = ? AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
-      GROUP BY t.id, t.nome ORDER BY total DESC LIMIT 3
-    `).bind(userId, mesStr, anoStr).all() as any
+  const [
+    receitasMes, despesasMes,
+    receitasAnt, despesasAnt,
+    metas, investimentos, emprestimos, financiamentos,
+    reservas, conquistas, desafio, cartoes,
+    topCategorias, topTags, lembretes,
+    recorrencias, orcamentos, score
+  ] = await Promise.all([
+    // Receitas mês atual
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesStr, anoStr).first() as Promise<any>,
+    // Despesas mês atual
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as cnt FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`).bind(userId, mesStr, anoStr).first() as Promise<any>,
+    // Receitas mês anterior
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
+    // Despesas mês anterior
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
+    // Metas ativas
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as total_obj, COALESCE(SUM(valor_atual),0) as total_atual FROM metas WHERE user_id=? AND status='ativo'`).bind(userId).first() as Promise<any>,
+    // Investimentos
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_atual),0) as total, COALESCE(SUM(valor_investido),0) as investido FROM investimentos WHERE user_id=?`).bind(userId).first() as Promise<any>,
+    // Empréstimos ativos
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(userId).first() as Promise<any>,
+    // Financiamentos ativos
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(saldo_devedor),0) as total, COALESCE(SUM(valor_parcela),0) as parcelas FROM financiamentos WHERE user_id=? AND status='ativo'`).bind(userId).first() as Promise<any>,
+    // Reservas especializadas
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(current_amount),0) as total, COALESCE(SUM(target_amount),0) as meta FROM specialized_reserves WHERE user_id=? AND status IN ('active','completed')`).bind(userId).first() as Promise<any>,
+    // Conquistas
+    db.prepare(`SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=?`).bind(userId).first() as Promise<any>,
+    // Desafio 52 semanas
+    db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year=?`).bind(userId, anoStr).first() as Promise<any>,
+    // Cartões
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite_total),0) as total_limite, COALESCE(SUM(limite_disponivel),0) as disponivel FROM cartoes WHERE user_id=?`).bind(userId).first() as Promise<any>,
+    // Top 5 categorias de despesas do mês
+    db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+    // Top tags do mês
+    db.prepare(`SELECT t.nome, COALESCE(SUM(d.valor),0) as total FROM despesa_tags dt JOIN tags t ON t.id=dt.tag_id JOIN despesas d ON d.id=dt.despesa_id WHERE d.user_id=? AND strftime('%m',d.data)=? AND strftime('%Y',d.data)=? GROUP BY t.id ORDER BY total DESC LIMIT 3`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+    // Lembretes próximos (30 dias)
+    db.prepare(`SELECT COUNT(*) as cnt FROM lembretes WHERE user_id=? AND ativo=1 AND proximo_vencimento <= date('now', '+30 days')`).bind(userId).first() as Promise<any>,
+    // Recorrências ativas
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as total_desp, COALESCE(SUM(CASE WHEN tipo='receita' THEN valor ELSE 0 END),0) as total_rec FROM recorrencias WHERE user_id=? AND ativo=1`).bind(userId).first() as Promise<any>,
+    // Orçamentos do mês
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite),0) as total_limite FROM orcamentos WHERE user_id=? AND mes=? AND ano=?`).bind(userId, mes, ano).first() as Promise<any>,
+    // Score saúde (do dashboard)
+    db.prepare(`SELECT score_saude FROM users WHERE id=?`).bind(userId).first() as Promise<any>,
   ])
 
-  const totalReceitas = parseFloat((receitas as any)?.total || 0)
-  const totalDespesas = parseFloat((despesas as any)?.total || 0)
-  const saldo = totalReceitas - totalDespesas
+  const totalReceitas  = parseFloat(receitasMes?.total  || 0)
+  const totalDespesas  = parseFloat(despesasMes?.total  || 0)
+  const totalRecAnt    = parseFloat(receitasAnt?.total  || 0)
+  const totalDespAnt   = parseFloat(despesasAnt?.total  || 0)
+  const saldo          = totalReceitas - totalDespesas
+  const taxaPoupanca   = totalReceitas > 0 ? (saldo / totalReceitas * 100) : 0
 
   return {
-    totalReceitas,
-    totalDespesas,
-    saldo,
-    taxaPoupanca: totalReceitas > 0 ? (saldo / totalReceitas * 100) : 0,
+    totalReceitas, totalDespesas, totalRecAnt, totalDespAnt,
+    saldo, taxaPoupanca,
     metas: metas as any,
     investimentos: investimentos as any,
     emprestimos: emprestimos as any,
@@ -87,218 +168,394 @@ async function buscarContexto(db: D1Database, userId: number) {
     reservas: reservas as any,
     conquistas: conquistas as any,
     desafio: desafio as any,
-    topTags: (topTags as any)?.results || [],  // Bloco 4.3
-    mes, ano
+    cartoes: cartoes as any,
+    topCategorias: (topCategorias as any)?.results || [],
+    topTags: (topTags as any)?.results || [],
+    lembretes: lembretes as any,
+    recorrencias: recorrencias as any,
+    orcamentos: orcamentos as any,
+    scoreSaude: (score as any)?.score_saude || null,
+    mes, ano, mesAntInt, anoAntInt,
+    qtdDespesasMes: despesasMes?.cnt || 0,
   }
 }
 
-// ── Formatar moeda ───────────────────────────────────────────────────────────
+// ── Formatar moeda ────────────────────────────────────────────────────────────
 function fmt(v: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
 
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
 // ── Gerar resposta baseada na intenção ────────────────────────────────────────
-function gerarResposta(intencao: Intencao, ctx: Awaited<ReturnType<typeof buscarContexto>>, nomeUsuario: string): string {
-  const mesesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
-  const mesNome = mesesNome[ctx.mes - 1]
+function gerarResposta(intencao: Intencao, ctx: Awaited<ReturnType<typeof buscarContexto>>, nome: string): string {
+  const mesNome = MESES[ctx.mes - 1]
+  const mesAntNome = MESES[ctx.mesAntInt - 1]
+  const primeiro = nome.split(' ')[0]
 
   switch (intencao) {
+
+    // ── SALDO ────────────────────────────────────────────────────────────────
     case 'saldo': {
       const emoji = ctx.saldo >= 0 ? '💚' : '🔴'
-      const status = ctx.saldo >= 0
-        ? `Você está no positivo! ${ctx.taxaPoupanca >= 20 ? 'Excelente taxa de poupança! 🎉' : 'Tente guardar mais para atingir 20% da renda.'}`
-        : `Atenção: suas despesas superaram a renda este mês.`
-      return `${emoji} **Saldo de ${mesNome}:**\n\n💰 Receitas: ${fmt(ctx.totalReceitas)}\n💸 Despesas: ${fmt(ctx.totalDespesas)}\n📊 Saldo líquido: **${fmt(ctx.saldo)}**\n\n${status}`
+      const varDesp = ctx.totalDespAnt > 0
+        ? ((ctx.totalDespesas - ctx.totalDespAnt) / ctx.totalDespAnt * 100).toFixed(0)
+        : null
+      const varDespStr = varDesp !== null
+        ? ` (${parseFloat(varDesp) >= 0 ? '+' : ''}${varDesp}% vs ${mesAntNome})`
+        : ''
+      const analise = ctx.saldo >= 0
+        ? ctx.taxaPoupanca >= 20
+          ? '🎉 Taxa de poupança de ' + ctx.taxaPoupanca.toFixed(0) + '% — acima da meta de 20%! Excelente!'
+          : ctx.taxaPoupanca >= 10
+          ? '✅ Positivo, mas há espaço para poupar mais. Meta: 20% da renda.'
+          : '⚡ Positivo, porém poupança abaixo de 10%. Revise gastos variáveis.'
+        : '⚠️ Despesas superam a renda neste mês. Ação necessária!'
+      return `${emoji} **Saldo de ${mesNome}:**\n\n💰 Receitas: **${fmt(ctx.totalReceitas)}**\n💸 Despesas: **${fmt(ctx.totalDespesas)}**${varDespStr}\n📊 Saldo líquido: **${fmt(ctx.saldo)}**\n💹 Taxa de poupança: ${ctx.taxaPoupanca.toFixed(1)}%\n\n${analise}`
     }
 
+    // ── GASTOS GERAIS ────────────────────────────────────────────────────────
     case 'gastos': {
       const porc = ctx.totalReceitas > 0 ? (ctx.totalDespesas / ctx.totalReceitas * 100).toFixed(0) : '0'
-      const alerta = parseFloat(porc) > 90 ? '⚠️ Você está gastando quase tudo que ganha!' : parseFloat(porc) > 70 ? '⚡ Gastos elevados — tente reduzir.' : '✅ Bom controle de gastos!'
-      // Bloco 4.3: incluir análise de tags se disponível
-      const tagsInfo = ctx.topTags && ctx.topTags.length > 0
-        ? `\n\n🏷️ **Maiores gastos por tag:**\n${ctx.topTags.map((t: any) => `• #${t.nome}: ${fmt(t.total)}`).join('\n')}`
+      const alerta = parseFloat(porc) > 90 ? '🔴 Gastos críticos — você está comprometendo toda a renda!'
+        : parseFloat(porc) > 75 ? '⚠️ Gastos elevados (acima de 75% da renda). Tente reduzir.'
+        : '✅ Bom controle — gastos dentro do razoável.'
+      const cats = ctx.topCategorias.slice(0, 5)
+        .map((c: any) => `• **${c.categoria}**: ${fmt(parseFloat(c.total))}`)
+        .join('\n')
+      const tagsStr = ctx.topTags.length > 0
+        ? `\n🏷️ **Por Tag:** ${ctx.topTags.map((t: any) => `#${t.nome} ${fmt(t.total)}`).join(' | ')}`
         : ''
-      return `💸 **Seus gastos em ${mesNome}:**\n\nTotal: ${fmt(ctx.totalDespesas)} (${porc}% da renda)\n\n${alerta}${tagsInfo}\n\n💡 Dica: acesse **Despesas** para ver o detalhamento por categoria e use **Orçamentos** para definir limites por categoria.`
+      return `💸 **Gastos de ${mesNome}:**\n\nTotal: **${fmt(ctx.totalDespesas)}** (${porc}% da renda)\n${ctx.qtdDespesasMes} lançamento(s)\n\n${alerta}\n\n📊 **Top categorias:**\n${cats || 'Nenhuma despesa registrada ainda.'}${tagsStr}`
     }
 
+    // ── GASTOS POR CATEGORIA ─────────────────────────────────────────────────
+    case 'gastos_categoria': {
+      const cats = ctx.topCategorias
+      if (!cats || cats.length === 0) {
+        return `📂 Você não tem despesas registradas em ${mesNome} ainda.\n\nAdicione despesas na aba **Despesas** para ver o detalhamento por categoria.`
+      }
+      const lista = cats.map((c: any, i: number) => `${i+1}. **${c.categoria}**: ${fmt(parseFloat(c.total))}`).join('\n')
+      return `📂 **Gastos por categoria em ${mesNome}:**\n\n${lista}\n\n💡 Use **Orçamentos** para definir limites por categoria e receber alertas quando estiver próximo do teto.`
+    }
+
+    // ── SCORE FINANCEIRO ─────────────────────────────────────────────────────
+    case 'score': {
+      const score = ctx.scoreSaude
+      if (score === null || score === undefined) {
+        return `📊 **Score de Saúde Financeira:**\n\nAinda não calculamos seu score. Registre receitas e despesas por pelo menos um mês para gerar seu diagnóstico completo.\n\n💡 Acesse **Diagnóstico 360°** para uma análise detalhada quando tiver dados suficientes.`
+      }
+      const nivel = score >= 80 ? '🟢 **Excelente**' : score >= 60 ? '🟡 **Bom**' : score >= 40 ? '🟠 **Regular**' : '🔴 **Crítico**'
+      const dica = score >= 80
+        ? 'Continue assim! Você está no top dos usuários VerdeMais. 🏆'
+        : score >= 60
+        ? 'Bom caminho. Foque em aumentar a reserva de emergência e reduzir dívidas.'
+        : score >= 40
+        ? 'Atenção necessária. Prioridades: 1) Reserva emergência, 2) Quitar dívidas caras, 3) Diversificar renda.'
+        : 'Situação crítica. Corte gastos não essenciais imediatamente e busque ampliar sua renda.'
+      const aspectos = []
+      if (parseFloat(ctx.reservas?.total || 0) === 0) aspectos.push('🔴 Reserva de emergência: inexistente')
+      if (parseFloat(ctx.emprestimos?.total || 0) + parseFloat(ctx.financiamentos?.total || 0) > ctx.totalReceitas * 12) aspectos.push('⚠️ Dívidas acima de 12x a renda mensal')
+      if (ctx.taxaPoupanca < 10) aspectos.push('⚠️ Taxa de poupança abaixo de 10%')
+      if (parseFloat(ctx.investimentos?.total || 0) > 0) aspectos.push('✅ Investe regularmente')
+      if (ctx.taxaPoupanca >= 20) aspectos.push('✅ Taxa de poupança excelente (≥20%)')
+      return `📊 **Seu Score de Saúde Financeira:**\n\n${nivel} — **${score}/100**\n\n${aspectos.length > 0 ? aspectos.join('\n') + '\n\n' : ''}${dica}\n\n💡 Acesse **Diagnóstico 360°** para ver o plano de ação completo.`
+    }
+
+    // ── METAS ────────────────────────────────────────────────────────────────
     case 'metas': {
       const m = ctx.metas
       if (!m || m.cnt === 0) {
-        return `🎯 Você ainda não tem metas cadastradas.\n\nCrie sua primeira meta financeira! Pode ser uma viagem, um imóvel, um carro ou qualquer sonho seu. Acesse a aba **Metas** para começar.`
+        return `🎯 Você ainda não tem metas financeiras cadastradas.\n\nDefinir metas é o primeiro passo para transformar sonhos em realidade! Exemplos:\n• 🏖️ Viagem — R$ 10.000 em 12 meses\n• 🏠 Entrada de imóvel — R$ 50.000 em 36 meses\n• 🚗 Carro — R$ 30.000 em 24 meses\n\nAcesse a aba **Metas** para criar sua primeira! Para atingir mais rápido: deposite mensalmente e habilite aportes automáticos.`
       }
-      const porc = m.total_obj > 0 ? (m.total_atual / m.total_obj * 100).toFixed(0) : '0'
-      return `🎯 **Suas Metas Financeiras:**\n\n📌 ${m.cnt} meta(s) ativa(s)\n💰 Total acumulado: ${fmt(parseFloat(m.total_atual))}\n🏁 Total objetivo: ${fmt(parseFloat(m.total_obj))}\n📈 Progresso geral: **${porc}%**\n\n💡 Acesse a aba **Metas** para ver o detalhamento e fazer depósitos.`
+      const porc = m.total_obj > 0 ? (parseFloat(m.total_atual) / parseFloat(m.total_obj) * 100).toFixed(1) : '0'
+      const falta = parseFloat(m.total_obj) - parseFloat(m.total_atual)
+      const aporteSugerido = ctx.totalReceitas > 0 ? Math.max(50, falta / 12) : 0
+      return `🎯 **Suas Metas Financeiras:**\n\n📌 ${m.cnt} meta(s) ativa(s)\n💰 Acumulado: **${fmt(parseFloat(m.total_atual))}**\n🏁 Total objetivado: **${fmt(parseFloat(m.total_obj))}**\n📈 Progresso geral: **${porc}%**\n💸 Faltam: ${fmt(falta)}\n\n💡 Para concluir em 12 meses: aportar **${fmt(aporteSugerido)}/mês**\n\nAcesse **Metas** para ver cada meta individualmente e fazer depósitos.`
     }
 
+    // ── INVESTIMENTOS ─────────────────────────────────────────────────────────
     case 'investimentos': {
       const inv = ctx.investimentos
       if (!inv || inv.cnt === 0) {
-        return `📈 Você ainda não tem investimentos registrados.\n\nComece pequeno! A Caixinha CDI é uma ótima opção para iniciantes — rendimento diário com liquidez. Acesse a aba **Investimentos** para começar.`
+        return `📈 Você ainda não tem investimentos registrados.\n\n💡 **Por onde começar:**\n1. 🛡️ Primeiro: complete sua reserva de emergência (3-6 meses de gastos)\n2. 📊 Depois: Tesouro Selic ou CDB 100% CDI (liquidez diária)\n3. 📈 Com mais experiência: Ações, FIIs e Tesouro IPCA\n\nAcesse a aba **Investimentos** para registrar seus ativos e acompanhar a rentabilidade.`
       }
-      const rentab = inv.cnt > 0 ? '' : ''
-      return `📈 **Seus Investimentos:**\n\n📊 ${inv.cnt} investimento(s) ativo(s)\n💰 Total em carteira: **${fmt(parseFloat(inv.total))}**\n\n💡 Acesse a aba **Investimentos** para ver rentabilidade por ativo e usar o Simulador de Investimentos.`
+      const rentab = parseFloat(inv.investido) > 0
+        ? ((parseFloat(inv.total) - parseFloat(inv.investido)) / parseFloat(inv.investido) * 100).toFixed(1)
+        : '0'
+      return `📈 **Seus Investimentos:**\n\n📊 ${inv.cnt} ativo(s) registrado(s)\n💰 Valor total atual: **${fmt(parseFloat(inv.total))}**\n💵 Total investido: ${fmt(parseFloat(inv.investido))}\n📈 Rentabilidade: **+${rentab}%**\n\n💡 Compare com o CDI atual (~14,9% a.a.) na aba **Investimentos**. Diversifique para reduzir risco.`
     }
 
-    case 'dívidas': {
+    // ── DÍVIDAS ──────────────────────────────────────────────────────────────
+    case 'dividas': {
       const emp = ctx.emprestimos
       const fin = ctx.financiamentos
-      const totalDivida = parseFloat(emp?.total || 0) + parseFloat(fin?.total || 0)
+      const totalDivida  = parseFloat(emp?.total || 0) + parseFloat(fin?.total || 0)
       const totalParcelas = parseFloat(emp?.parcelas || 0) + parseFloat(fin?.parcelas || 0)
 
       if (totalDivida === 0) {
-        return `🎉 **Parabéns, ${nomeUsuario}!** Você não tem dívidas ativas registradas.\n\nManter-se livre de dívidas é um ótimo indicador de saúde financeira! Continue assim. ✅`
+        return `🎉 **Parabéns, ${primeiro}!** Nenhuma dívida ativa registrada.\n\nManter-se livre de dívidas é uma conquista enorme! A maioria das pessoas compromete 30-40% da renda com parcelas.\n\n💡 Com a renda liberada, aproveite para acelerar seus investimentos e reservas.`
       }
-      return `💳 **Suas Dívidas:**\n\n📉 Saldo devedor total: ${fmt(totalDivida)}\n💸 Parcelas mensais: ${fmt(totalParcelas)}\n\n💡 Use o **Simulador de Amortização** (plano Premium/Pro) para ver quanto você economizaria fazendo um pagamento extra.`
+      const comprometimento = ctx.totalReceitas > 0
+        ? (totalParcelas / ctx.totalReceitas * 100).toFixed(0)
+        : '0'
+      const alerta = parseFloat(comprometimento) > 30
+        ? '⚠️ Comprometimento acima de 30% — situação de atenção. Considere amortização extra.'
+        : '✅ Comprometimento abaixo de 30% — dentro do controlável.'
+      return `💳 **Suas Dívidas:**\n\n📉 Saldo devedor total: **${fmt(totalDivida)}**\n💸 Parcelas mensais: **${fmt(totalParcelas)}**\n📊 Comprometimento da renda: **${comprometimento}%**\n\n${alerta}\n\n💡 Use o **Simulador de Amortização** para calcular quanto economizaria com um pagamento extra. Método recomendado: avalanche (quita a maior taxa de juros primeiro).`
     }
 
+    // ── RESERVAS ─────────────────────────────────────────────────────────────
     case 'reservas': {
       const r = ctx.reservas
       const totalReservas = parseFloat(r?.total || 0)
-      const metaReservas = parseFloat(r?.meta || 0)
-      const porc = metaReservas > 0 ? (totalReservas / metaReservas * 100).toFixed(0) : '0'
+      const metaReservas  = parseFloat(r?.meta  || 0)
+      const porc = metaReservas > 0 ? Math.min(100, (totalReservas / metaReservas * 100)).toFixed(0) : '0'
+      const reservaIdeal = ctx.totalDespesas * 6
 
       if (totalReservas === 0) {
-        return `🛡️ Você ainda não tem reservas especializadas.\n\nA reserva de emergência é o alicerce das finanças saudáveis. Recomendamos 3 a 6 meses de gastos. Acesse **Reservas** para começar!`
+        return `🛡️ **Reserva de Emergência:**\n\nVocê ainda não tem reserva cadastrada.\n\n📊 **Valor ideal para você:** ${fmt(reservaIdeal)}\n(6 meses × ${fmt(ctx.totalDespesas)}/mês)\n\n💡 **Como montar:**\n1. Separe ao menos 10% da renda mensalmente\n2. Guarde em CDB com liquidez diária ou Tesouro Selic\n3. Meta mínima: 3 meses. Meta ideal: 6 meses\n\nAcesse **Minhas Reservas** para começar agora!`
       }
-      return `🛡️ **Suas Reservas:**\n\n💰 Total guardado: ${fmt(totalReservas)}\n🎯 Meta total: ${fmt(metaReservas)}\n📊 Progresso: **${porc}%**\n\n${parseFloat(porc) >= 100 ? '🎉 Reservas completas! Você está muito bem protegido.' : '💡 Continue contribuindo mensalmente para atingir sua meta de proteção.'}`
+      const status = parseFloat(porc) >= 100
+        ? '🎉 Reservas completas! Você está muito bem protegido.'
+        : parseFloat(porc) >= 50
+        ? `✅ Boa evolução! Com ${fmt(totalReservas)} guardados, você tem ~${Math.round(totalReservas / (ctx.totalDespesas || 1) * 10)/10} meses de cobertura.`
+        : `⚠️ Reserva ainda baixa. Faltam ${fmt(Math.max(0, reservaIdeal - totalReservas))} para 6 meses de cobertura.`
+      return `🛡️ **Suas Reservas:**\n\n💰 Total guardado: **${fmt(totalReservas)}**\n🎯 Meta total: ${fmt(metaReservas)}\n📊 Progresso: **${porc}%**\n\n${status}`
     }
 
-    case 'economia': {
-      const dicas = []
-      if (ctx.taxaPoupanca < 10) dicas.push('💡 Tente aplicar a regra 50/30/20: 50% necessidades, 30% desejos, 20% poupança.')
-      if (ctx.saldo < 0) dicas.push('⚠️ Suas despesas estão superando a renda. Revise gastos variáveis como delivery e lazer.')
-      if (parseFloat(ctx.investimentos?.total || 0) === 0) dicas.push('📈 Comece a investir mesmo que seja pouco. A Caixinha CDI rende mais que a poupança.')
-      if (parseFloat(ctx.reservas?.total || 0) === 0) dicas.push('🛡️ Crie uma reserva de emergência antes de qualquer investimento de risco.')
-      dicas.push('🏷️ Use Tags nas despesas para identificar onde seu dinheiro vai.')
-      dicas.push('🔄 Ative o Detector de Assinaturas para encontrar gastos esquecidos.')
-
-      return `💡 **Dicas para Economizar:**\n\n${dicas.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`
-    }
-
+    // ── CARTÃO ───────────────────────────────────────────────────────────────
     case 'cartao': {
-      return `💳 **Cartões de Crédito:**\n\nAcesse a aba **Cartões** para:\n• Ver o limite disponível em cada cartão\n• Acompanhar a fatura do mês\n• Receber alertas quando uso > 80%\n• Ver compras incomuns\n\n💡 Dica: pagar a fatura completa todo mês evita juros que podem superar 300% ao ano.`
+      const c = ctx.cartoes
+      if (!c || c.cnt === 0) {
+        return `💳 Você não tem cartões de crédito cadastrados.\n\nAdicione seus cartões na aba **Cartões** para:\n• Controlar limite disponível\n• Acompanhar a fatura do mês\n• Receber alertas de uso excessivo\n• Detectar assinaturas esquecidas`
+      }
+      const utilizado = parseFloat(c.total_limite) - parseFloat(c.disponivel)
+      const uso = parseFloat(c.total_limite) > 0
+        ? (utilizado / parseFloat(c.total_limite) * 100).toFixed(0)
+        : '0'
+      const alertaUso = parseFloat(uso) > 80
+        ? '🔴 Uso do limite acima de 80% — cuidado com o endividamento!'
+        : parseFloat(uso) > 50
+        ? '⚠️ Uso moderado. Ideal é manter abaixo de 30% do limite.'
+        : '✅ Uso dentro do recomendado.'
+      return `💳 **Seus Cartões:**\n\n📊 ${c.cnt} cartão(ões) cadastrado(s)\n💰 Limite total: ${fmt(parseFloat(c.total_limite))}\n✅ Disponível: **${fmt(parseFloat(c.disponivel))}**\n💸 Utilizado: ${fmt(utilizado)} (${uso}%)\n\n${alertaUso}\n\n💡 Acesse **Cartões** para ver a fatura detalhada e receber alertas automáticos.`
     }
 
+    // ── CONQUISTAS ────────────────────────────────────────────────────────────
     case 'conquistas': {
-      const c = ctx.conquistas
-      const cnt = c?.cnt || 0
-      return `🏆 **Suas Conquistas:**\n\n🎖️ ${cnt} conquista(s) desbloqueada(s)\n\n${cnt === 0 ? 'Comece registrando sua primeira receita ou despesa para desbloquear a primeira conquista!' : 'Continue usando o app para desbloquear mais conquistas e acumular pontos!'}\n\n💡 Acesse a aba **Conquistas** para ver todas as medalhas disponíveis.`
+      const cnt = ctx.conquistas?.cnt || 0
+      return `🏆 **Suas Conquistas:**\n\n🎖️ ${cnt} conquista(s) desbloqueada(s) de 105 disponíveis\n\n${cnt === 0
+        ? '🌱 Comece registrando receitas, despesas e metas para desbloquear as primeiras medalhas!'
+        : cnt < 10 ? '📈 Bom começo! Continue usando todas as funcionalidades do app.'
+        : cnt < 30 ? '⭐ Usuário engajado! Explore as funcionalidades avançadas: Reservas, Desafio 52, Simulações...'
+        : '🌟 Impressionante! Você está entre os usuários mais dedicados do VerdeMais.'}\n\n💡 Acesse **Conquistas** para ver o que falta desbloquear.`
     }
 
+    // ── DESAFIO 52 SEMANAS ────────────────────────────────────────────────────
     case 'desafio52': {
       const d = ctx.desafio
       const concluidas = d?.concluidas || 0
-      const economizado = Array.from({ length: concluidas }, (_, i) => i + 1).reduce((a, b) => a + b, 0)
-      return `🗓️ **Desafio 52 Semanas:**\n\n✅ ${concluidas} semana(s) concluída(s) em ${ctx.ano}\n💰 Economizado até agora: R$ ${economizado.toFixed(2)}\n🎯 Meta anual: R$ 1.378,00\n\n💡 Na semana N você guarda R$ N. Na semana 1 = R$1, semana 52 = R$52. Simples e eficaz!\n\nAcesse a aba **Desafio 52** para marcar as semanas.`
+      const economizado = Array.from({ length: concluidas }, (_: any, i: number) => i + 1).reduce((a: number, b: number) => a + b, 0)
+      const faltam = 52 - concluidas
+      const restante = Array.from({ length: faltam }, (_: any, i: number) => concluidas + i + 1).reduce((a: number, b: number) => a + b, 0)
+      return `🗓️ **Desafio 52 Semanas (${ctx.ano}):**\n\n✅ Semanas concluídas: **${concluidas}/52**\n💰 Economizado: **R$ ${economizado.toFixed(2)}**\n🎯 Meta anual: R$ 1.378,00\n📊 Faltam: R$ ${restante.toFixed(2)} em ${faltam} semanas\n\n${concluidas === 0 ? '🚀 Comece hoje! Semana 1 = só R$1,00.' : concluidas >= 52 ? '🏆 Desafio concluído! Você economizou R$1.378 este ano.' : '💡 Acesse **Desafio 52** para marcar as próximas semanas.'}`
     }
 
+    // ── PROJEÇÃO ──────────────────────────────────────────────────────────────
+    case 'projecao': {
+      const proximoMes = MESES[ctx.mes % 12]
+      const mediaDesp = (ctx.totalDespesas + ctx.totalDespAnt) / 2
+      const mediaRec  = (ctx.totalReceitas + ctx.totalRecAnt) / 2
+      const saldoProj = mediaRec - mediaDesp
+      return `🔮 **Projeção para ${proximoMes}:**\n\nCom base nos últimos 2 meses:\n💰 Receitas estimadas: **${fmt(mediaRec)}**\n💸 Despesas estimadas: **${fmt(mediaDesp)}**\n📊 Saldo projetado: **${fmt(saldoProj)}**\n\n${saldoProj >= 0 ? '✅ Projeção positiva!' : '⚠️ Projeção negativa — revise seus gastos fixos.'}\n\n💡 Acesse **Projeção Financeira** para ver os próximos 6 meses com mais precisão.`
+    }
+
+    // ── ORÇAMENTO ─────────────────────────────────────────────────────────────
+    case 'orcamento': {
+      const o = ctx.orcamentos
+      if (!o || o.cnt === 0) {
+        return `📋 Você não tem orçamentos configurados para ${mesNome}.\n\n💡 **Como usar orçamentos:**\nDefina um limite por categoria (ex: Alimentação R$800/mês). O app avisa quando você está próximo do teto.\n\nAcesse **Orçamentos** para criar limites por categoria e ganhar controle total dos gastos.`
+      }
+      return `📋 **Orçamentos de ${mesNome}:**\n\n📊 ${o.cnt} categoria(s) com orçamento\n💰 Limite total: **${fmt(parseFloat(o.total_limite))}**\n\n💡 Acesse a aba **Orçamentos** para ver o progresso de cada categoria e ver quais estão no limite.`
+    }
+
+    // ── RECORRÊNCIAS ──────────────────────────────────────────────────────────
+    case 'recorrencias': {
+      const r = ctx.recorrencias
+      if (!r || r.cnt === 0) {
+        return `🔄 Você não tem recorrências automáticas cadastradas.\n\n💡 Recorrências automatizam o registro de contas fixas como:\n• Aluguel, condomínio, IPTU\n• Assinaturas (Netflix, Spotify...)\n• Salário, rendas fixas\n\nAcesse **Recorrências** para configurar e nunca esquecer um lançamento!`
+      }
+      const desp = parseFloat(r.total_desp || 0)
+      const rec  = parseFloat(r.total_rec  || 0)
+      return `🔄 **Recorrências Automáticas:**\n\n📊 ${r.cnt} recorrência(s) ativa(s)\n💸 Despesas fixas: **${fmt(desp)}/mês**\n💰 Receitas fixas: **${fmt(rec)}/mês**\n📊 Comprometimento fixo da renda: ${ctx.totalReceitas > 0 ? (desp / ctx.totalReceitas * 100).toFixed(0) : 0}%\n\nAcesse **Recorrências** para lançar o mês atual e gerenciar pagamentos variáveis.`
+    }
+
+    // ── LEMBRETES ─────────────────────────────────────────────────────────────
+    case 'lembretes': {
+      const cnt = ctx.lembretes?.cnt || 0
+      return cnt === 0
+        ? `⏰ Nenhum lembrete vencendo nos próximos 30 dias. Tudo em dia!\n\n💡 Crie lembretes para contas com vencimento variável (IPVA, IPTU, revisão do carro...) e nunca pague multa por atraso.`
+        : `⏰ **Lembretes:**\n\n⚠️ Você tem **${cnt} lembrete(s)** vencendo nos próximos 30 dias!\n\n💡 Acesse a aba **Lembretes** para verificar o que precisa ser pago e converter em despesas quando efetuar o pagamento.`
+    }
+
+    // ── REGRA 50/30/20 ────────────────────────────────────────────────────────
+    case 'regra503020': {
+      const nec = ctx.totalReceitas * 0.50
+      const des = ctx.totalReceitas * 0.30
+      const pou = ctx.totalReceitas * 0.20
+      return `⚖️ **Regra 50/30/20 para você (${mesNome}):**\n\nBaseado na sua renda de **${fmt(ctx.totalReceitas)}**:\n\n🏠 **50% Necessidades:** até ${fmt(nec)}\n(moradia, alimentação, transporte, saúde)\n\n🎮 **30% Desejos:** até ${fmt(des)}\n(lazer, restaurantes, roupas, hobbies)\n\n💰 **20% Investimentos/Poupança:** ao menos ${fmt(pou)}\n(reserva, metas, aposentadoria)\n\n💡 Acesse **Regra 50/30/20** no app para ver como você está em relação a cada categoria.`
+    }
+
+    // ── AMORTIZAÇÃO ───────────────────────────────────────────────────────────
+    case 'amortizacao': {
+      const totalDivida = parseFloat(ctx.emprestimos?.total || 0) + parseFloat(ctx.financiamentos?.total || 0)
+      if (totalDivida === 0) {
+        return `🏦 Você não tem dívidas ativas para simular amortização.\n\n💡 O Simulador de Amortização é útil para calcular quanto você economiza fazendo um pagamento extra no financiamento ou empréstimo. Cadastre seus financiamentos na aba correspondente.`
+      }
+      return `🏦 **Simulador de Amortização:**\n\nVocê tem **${fmt(totalDivida)}** em dívidas ativas.\n\n💡 Fazer um pagamento extra no financiamento pode economizar **dezenas de milhares de reais** em juros.\n\nExemplo: R$5.000 extras num financiamento de 30 anos pode economizar mais de R$50.000 e reduzir o prazo em anos.\n\nAcesse **Simul. Amortização** para calcular exatamente o seu caso.`
+    }
+
+    // ── ASSINATURAS FANTASMA ──────────────────────────────────────────────────
+    case 'assinaturas': {
+      return `👻 **Assinaturas Fantasma:**\n\nO detector analisa seus últimos 3 meses de despesas em busca de cobranças recorrentes que você pode ter esquecido.\n\n💡 Serviços comuns que passam despercebidos:\n• Trials gratuitos que viraram pagos\n• Apps com renovação automática\n• Serviços que você parou de usar\n\nAcesse **Assinaturas Fantasma** → clique em "Escanear" para encontrar agora!`
+    }
+
+    // ── COMPARATIVO ───────────────────────────────────────────────────────────
+    case 'comparativo': {
+      const varDesp = ctx.totalDespAnt > 0
+        ? ((ctx.totalDespesas - ctx.totalDespAnt) / ctx.totalDespAnt * 100).toFixed(1)
+        : null
+      const varRec = ctx.totalRecAnt > 0
+        ? ((ctx.totalReceitas - ctx.totalRecAnt) / ctx.totalRecAnt * 100).toFixed(1)
+        : null
+      if (varDesp === null && varRec === null) {
+        return `📊 Não há dados suficientes do mês anterior para comparar.\n\nRegistre receitas e despesas mensalmente para que eu possa mostrar a evolução dos seus indicadores financeiros.`
+      }
+      const emojiDesp = varDesp && parseFloat(varDesp) > 0 ? '📈' : '📉'
+      const emojiRec  = varRec  && parseFloat(varRec)  > 0 ? '📈' : '📉'
+      return `📊 **Comparativo ${mesAntNome} → ${mesNome}:**\n\n${emojiRec} Receitas: ${fmt(ctx.totalRecAnt)} → **${fmt(ctx.totalReceitas)}**${varRec !== null ? ` (${parseFloat(varRec) >= 0 ? '+' : ''}${varRec}%)` : ''}\n${emojiDesp} Despesas: ${fmt(ctx.totalDespAnt)} → **${fmt(ctx.totalDespesas)}**${varDesp !== null ? ` (${parseFloat(varDesp) >= 0 ? '+' : ''}${varDesp}%)` : ''}\n\n💡 Acesse **Comparativo Mensal** para o detalhamento por categoria.`
+    }
+
+    // ── ECONOMIA ──────────────────────────────────────────────────────────────
+    case 'economia': {
+      const dicas: string[] = []
+      if (ctx.taxaPoupanca < 10) dicas.push('1. 💡 **Regra 50/30/20**: 50% necessidades, 30% desejos, 20% poupança.')
+      if (ctx.saldo < 0) dicas.push('2. ⚠️ **Corte gastos imediato**: despesas > receitas. Identifique os vilões em **Gastos por Categoria**.')
+      if (parseFloat(ctx.investimentos?.total || 0) === 0) dicas.push('3. 📈 **Comece a investir**: mesmo R$50/mês em CDB 100% CDI faz diferença no longo prazo.')
+      if (parseFloat(ctx.reservas?.total || 0) === 0) dicas.push('4. 🛡️ **Reserva primeiro**: antes de investir, forme 3 meses de gastos em liquidez diária.')
+      if (ctx.topCategorias.length > 0) {
+        const top = ctx.topCategorias[0]
+        dicas.push(`5. 🔍 **Maior gasto: ${top.categoria}** (${fmt(parseFloat(top.total))}). Vale revisar se há como reduzir.`)
+      }
+      dicas.push('6. 🏷️ **Use Tags** nas despesas para identificar padrões de consumo.')
+      dicas.push('7. 👻 **Escaneie Assinaturas Fantasma** para cancelar serviços esquecidos.')
+      dicas.push('8. 🔄 **Automatize recorrências** para nunca pagar multas por esquecimento.')
+      return `💡 **Dicas personalizadas para ${primeiro}:**\n\n${dicas.join('\n\n')}`
+    }
+
+    // ── ELOGIO ────────────────────────────────────────────────────────────────
+    case 'elogio': {
+      return `😊 Obrigado, ${primeiro}! Fico feliz em ajudar.\n\nEstou aqui sempre que precisar entender seus números, buscar dicas ou tirar dúvidas sobre suas finanças.\n\nPergunta qualquer coisa — tô ligado! 🚀`
+    }
+
+    // ── AJUDA ─────────────────────────────────────────────────────────────────
     case 'ajuda': {
-      return `🤖 **Olá, ${nomeUsuario}! Sou o Assistente VerdeMais.**\n\nPosso responder sobre:\n\n💰 **Saldo** — "quanto tenho este mês?"\n💸 **Gastos** — "onde estou gastando?"\n🎯 **Metas** — "como estão minhas metas?"\n📈 **Investimentos** — "quanto tenho investido?"\n💳 **Dívidas** — "quanto devo?"\n🛡️ **Reservas** — "como está minha reserva?"\n💡 **Economia** — "como economizar mais?"\n🏆 **Conquistas** — "quantas conquistas tenho?"\n🗓️ **Desafio 52** — "como está meu desafio?"\n\nBasta digitar sua pergunta com naturalidade!`
+      return `🤖 **Olá, ${primeiro}! Sou o Assistente VerdeMais v2.**\n\nEntendo perguntas sobre:\n\n💰 **"Qual meu saldo?"** — balanço do mês\n💸 **"Onde estou gastando?"** — análise por categoria\n📊 **"Meu score financeiro"** — sua saúde financeira\n🎯 **"Como estão minhas metas?"** — progresso e aportes\n📈 **"Meus investimentos"** — carteira e rentabilidade\n💳 **"Minhas dívidas"** — saldo e comprometimento\n🛡️ **"Minha reserva de emergência"** — cobertura em meses\n💳 **"Meus cartões"** — limite e uso\n🔮 **"Projeção do próximo mês"** — tendência financeira\n📋 **"Meus orçamentos"** — limites por categoria\n⚖️ **"Regra 50/30/20"** — distribuição ideal da renda\n🏦 **"Amortização"** — economizar em financiamentos\n👻 **"Assinaturas esquecidas"** — detector automático\n💡 **"Dicas para economizar"** — sugestões personalizadas\n\nBasta digitar com naturalidade! 😊`
     }
 
+    // ── FALLBACK ──────────────────────────────────────────────────────────────
     default: {
-      return `🤔 Não entendi bem sua pergunta, ${nomeUsuario}.\n\nTente perguntar sobre:\n• Saldo do mês\n• Gastos e despesas\n• Metas financeiras\n• Investimentos\n• Dívidas\n• Reservas de emergência\n• Dicas para economizar\n\nOu digite **ajuda** para ver todos os tópicos disponíveis.`
+      // Resposta contextual baseada na situação atual
+      const snippets: string[] = []
+      if (ctx.saldo < 0) snippets.push(`⚠️ Alerta: você está no negativo este mês (${fmt(ctx.saldo)}).`)
+      if (ctx.lembretes?.cnt > 0) snippets.push(`⏰ ${ctx.lembretes.cnt} lembrete(s) vencendo em 30 dias.`)
+      const intro = snippets.length > 0
+        ? `\n\n📌 **Avisos importantes:**\n${snippets.join('\n')}\n`
+        : ''
+      return `🤔 Não entendi exatamente "${nome}", mas posso ajudar com:${intro}\n• "Qual meu saldo?"\n• "Onde estou gastando mais?"\n• "Meu score financeiro"\n• "Como estão minhas metas?"\n• "Dicas para economizar"\n\nOu digite **ajuda** para ver tudo que sei fazer. 😊`
     }
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// POST /api/assistente/chat
-// ────────────────────────────────────────────────────────────────────────────────
+// ── POST /api/assistente/chat ─────────────────────────────────────────────────
 assistente.post('/chat', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mensagem } = await c.req.json()
+  const body = await c.req.json().catch(() => ({})) as any
+  const mensagem = (body.mensagem || body.message || '').trim()
 
-  if (!mensagem || typeof mensagem !== 'string' || mensagem.trim().length === 0) {
+  if (!mensagem) {
     return c.json({ error: 'Mensagem não pode ser vazia' }, 400)
   }
-
-  if (mensagem.length > 500) {
-    return c.json({ error: 'Mensagem muito longa (máximo 500 caracteres)' }, 400)
+  if (mensagem.length > 1000) {
+    return c.json({ error: 'Mensagem muito longa (máximo 1000 caracteres)' }, 400)
   }
 
-  // 1. Detectar intenção
   const intencao = detectarIntencao(mensagem)
-
-  // 2. Buscar contexto financeiro
   const ctx = await buscarContexto(c.env.DB, user.id)
-
-  // 3. Gerar resposta
   const resposta = gerarResposta(intencao, ctx, user.nome)
 
-  // 4. Salvar na tabela de conversas
+  // Salvar conversa
   await c.env.DB.prepare(`
     INSERT INTO assistente_conversas (user_id, mensagem, resposta, intencao, created_at)
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `).bind(user.id, mensagem.trim(), resposta, intencao).run()
+  `).bind(user.id, mensagem, resposta, intencao).run().catch(() => {})
 
-  // Bloco 5: conquista ia_power_user — 20+ perguntas ao assistente
+  // Conquista power user
   try {
-    const totalMsgs = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM assistente_conversas WHERE user_id=?`
-    ).bind(user.id).first() as any
-    if ((totalMsgs?.cnt || 0) >= 20) {
-      await c.env.DB.prepare(
-        `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
-         VALUES (?, 'ia_power_user', datetime('now'), 0)`
-      ).bind(user.id).run().catch(() => {})
+    const total = await c.env.DB.prepare(`SELECT COUNT(*) as cnt FROM assistente_conversas WHERE user_id=?`).bind(user.id).first() as any
+    if ((total?.cnt || 0) >= 20) {
+      await c.env.DB.prepare(`INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado) VALUES (?, 'ia_power_user', datetime('now'), 0)`).bind(user.id).run().catch(() => {})
     }
   } catch(_) {}
 
-  return c.json({
-    resposta,
-    intencao,
-    sugestoes: getSugestoes(intencao)
-  })
+  return c.json({ resposta, intencao, sugestoes: getSugestoes(intencao) })
 })
 
-// ────────────────────────────────────────────────────────────────────────────────
-// GET /api/assistente/historico
-// Retorna as últimas 20 mensagens do usuário
-// ────────────────────────────────────────────────────────────────────────────────
+// ── GET /api/assistente/historico ─────────────────────────────────────────────
 assistente.get('/historico', requireAuth, async (c) => {
   const user = c.get('user')
-
+  const limit = Math.min(parseInt(c.req.query('limit') || '30'), 100)
   const result = await c.env.DB.prepare(`
     SELECT id, mensagem as mensagem_usuario, resposta as resposta_ia, intencao, created_at
-    FROM assistente_conversas
-    WHERE user_id = ?
-    ORDER BY created_at DESC
-    LIMIT 20
-  `).bind(user.id).all()
-
+    FROM assistente_conversas WHERE user_id=? ORDER BY created_at DESC LIMIT ?
+  `).bind(user.id, limit).all()
   return c.json({ historico: result.results || [] })
 })
 
-// ────────────────────────────────────────────────────────────────────────────────
-// DELETE /api/assistente/historico
-// Limpa o histórico de conversa do usuário
-// ────────────────────────────────────────────────────────────────────────────────
+// ── DELETE /api/assistente/historico ─────────────────────────────────────────
 assistente.delete('/historico', requireAuth, async (c) => {
   const user = c.get('user')
-
-  await c.env.DB.prepare(
-    'DELETE FROM assistente_conversas WHERE user_id = ?'
-  ).bind(user.id).run()
-
+  await c.env.DB.prepare('DELETE FROM assistente_conversas WHERE user_id=?').bind(user.id).run()
   return c.json({ success: true, message: 'Histórico limpo!' })
 })
 
-// ── Sugestões de perguntas baseadas na intenção ───────────────────────────────
+// ── Sugestões baseadas na intenção ────────────────────────────────────────────
 function getSugestoes(intencao: Intencao): string[] {
   const mapa: Record<Intencao, string[]> = {
-    saldo:         ['Como estão meus gastos?', 'Quais são minhas metas?', 'Como posso economizar mais?'],
-    gastos:        ['Qual meu saldo este mês?', 'Como reduzir gastos?', 'Ver orçamentos por categoria'],
-    metas:         ['Como está meu progresso?', 'Quanto falta para minha meta?', 'Como investir mais rápido?'],
-    investimentos: ['Quanto devo guardar?', 'Qual o melhor investimento?', 'Como usar a caixinha CDI?'],
-    'dívidas':     ['Como quitar mais rápido?', 'Simular amortização', 'Quanto pago de juros?'],
-    reservas:      ['Quanto devo ter de reserva?', 'Como aumentar a reserva?', 'Qual é a reserva ideal?'],
-    economia:      ['Regra 50/30/20', 'Como investir o que sobra?', 'Quais gastos cortar?'],
-    cartao:        ['Ver minha fatura', 'Como controlar o cartão?', 'Alertas de uso excessivo'],
-    conquistas:    ['Como ganhar mais pontos?', 'Quais conquistas estão próximas?', 'Ver todas as medalhas'],
-    desafio52:     ['Como funciona o desafio?', 'Marcar semana como concluída', 'Quanto já guardei?'],
-    ajuda:         ['Ver saldo do mês', 'Como economizar?', 'Status dos investimentos'],
-    desconhecido:  ['Ver saldo', 'Ver gastos', 'Dicas para economizar', 'Status das metas']
+    saldo:            ['Como estão meus gastos?', 'Qual minha taxa de poupança?', 'Dicas para economizar'],
+    gastos:           ['Qual categoria gasto mais?', 'Ver meus orçamentos', 'Como reduzir gastos?'],
+    gastos_categoria: ['Criar orçamento por categoria', 'Ver todas despesas', 'Como economizar nessa categoria?'],
+    score:            ['Como melhorar meu score?', 'Ver diagnóstico 360°', 'Quais metas definir?'],
+    metas:            ['Como está meu progresso?', 'Quanto poupar por mês?', 'Estratégias para metas'],
+    investimentos:    ['Qual o melhor investimento?', 'Como usar a caixinha CDI?', 'Ver minha carteira'],
+    dividas:          ['Simular amortização', 'Método avalanche de pagamento', 'Quanto pago de juros?'],
+    reservas:         ['Quanto devo ter de reserva?', 'Onde guardar a reserva?', 'Ver minhas reservas'],
+    economia:         ['Regra 50/30/20', 'Detectar assinaturas esquecidas', 'Como investir o que sobra?'],
+    cartao:           ['Ver minha fatura', 'Alertas de uso excessivo', 'Assinaturas no cartão'],
+    conquistas:       ['Como ganhar mais?', 'Quais próximas medalhas?', 'Ver todas as conquistas'],
+    desafio52:        ['Marcar semana concluída', 'Quanto já guardei?', 'Reiniciar desafio'],
+    projecao:         ['Ver próximos 6 meses', 'Como melhorar projeção?', 'Meu saldo atual'],
+    orcamento:        ['Ver gastos por categoria', 'Criar limite de gasto', 'Como funciona orçamento?'],
+    recorrencias:     ['Lançar mês atual', 'Adicionar recorrência', 'Ver despesas fixas'],
+    lembretes:        ['Ver vencimentos', 'Criar novo lembrete', 'Converter em despesa'],
+    regra503020:      ['Ver análise 50/30/20', 'Criar orçamentos sugeridos', 'Como ajustar gastos?'],
+    amortizacao:      ['Simular pagamento extra', 'Ver meu financiamento', 'Método SAC vs PRICE'],
+    assinaturas:      ['Escanear assinaturas', 'Ver gastos recorrentes', 'Cancelar serviço'],
+    comparativo:      ['Ver comparativo detalhado', 'Análise por categoria', 'Tendência de gastos'],
+    elogio:           ['O que mais você faz?', 'Ver meu saldo', 'Dicas para economizar'],
+    ajuda:            ['Ver saldo do mês', 'Análise de gastos', 'Meu score financeiro'],
+    desconhecido:     ['Qual meu saldo?', 'Onde estou gastando?', 'Meu score financeiro'],
   }
   return mapa[intencao] || mapa.desconhecido
 }

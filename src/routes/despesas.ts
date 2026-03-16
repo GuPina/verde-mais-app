@@ -85,9 +85,21 @@ despesas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
 
+  // ── Normalizar meio_pagamento: mapear aliases do frontend para valores canônicos ──
+  // 'debito' é alias de 'cartao_debito'
+  // 'parcelado_sem_juros' é alias de 'parcelado_cartao'
+  const normalizarMeioPagamento = (mp: string): string => {
+    const mapa: Record<string, string> = {
+      'debito': 'cartao_debito',
+      'parcelado_sem_juros': 'parcelado_cartao',
+    }
+    return mapa[mp] ?? mp
+  }
+  const meioPagamentoNorm = normalizarMeioPagamento(meio_pagamento)
+
   // Validar: se meio de pagamento é cartão, cartao_id é obrigatório
   const meioPagamentoCartaoCheck = ['cartao_credito', 'parcelado_cartao']
-  if (meioPagamentoCartaoCheck.includes(meio_pagamento) && !cartao_id) {
+  if (meioPagamentoCartaoCheck.includes(meioPagamentoNorm) && !cartao_id) {
     return c.json({ error: 'Selecione um cartão para pagamentos com cartão de crédito.' }, 400)
   }
 
@@ -101,7 +113,7 @@ despesas.post('/', requireAuth, async (c) => {
   // Buscar dados do cartão para calcular billing correto
   let cartaoInfo: any = null
   const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao']
-  if (cartao_id && meioPagamentoCartao.includes(meio_pagamento)) {
+  if (cartao_id && meioPagamentoCartao.includes(meioPagamentoNorm)) {
     cartaoInfo = await c.env.DB.prepare(
       'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
     ).bind(parseInt(cartao_id), user.id).first() as any
@@ -166,7 +178,7 @@ despesas.post('/', requireAuth, async (c) => {
       dataParaGravar, categoria, subcategoria || null, valorParcela,
       parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
       fixa_ou_variavel, recorrente ? 1 : 0, dataVenc || null, observacoes || null,
-      cartao_id ? parseInt(cartao_id) : null, meio_pagamento,
+      cartao_id ? parseInt(cartao_id) : null, meioPagamentoNorm,
       bMonth, bYear, groupId
     ).run()
     ids.push(result.meta.last_row_id as number)
@@ -191,7 +203,7 @@ despesas.post('/', requireAuth, async (c) => {
   }
 
   // Reduzir limite do cartão pelo total de parcelas pendentes
-  if (cartaoInfo && meioPagamentoCartao.includes(meio_pagamento) && status !== 'pago') {
+  if (cartaoInfo && meioPagamentoCartao.includes(meioPagamentoNorm) && status !== 'pago') {
     const valorDesconto = valorParcela * totalParcelas
     await c.env.DB.prepare(
       'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'

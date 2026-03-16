@@ -286,10 +286,14 @@ tags.get('/receita/:receitaId', requireAuth, async (c) => {
 tags.get('/analise', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, limit = '10' } = c.req.query()
-  const mesStr = mes ? String(mes).padStart(2, '0') : null
-  const anoStr = ano || null
 
-  let sql = `
+  // Default: mês e ano atuais se não fornecidos
+  const now = new Date()
+  const mesStr = mes ? String(mes).padStart(2, '0') : String(now.getMonth() + 1).padStart(2, '0')
+  const anoStr = ano || String(now.getFullYear())
+
+  // Análise de despesas por tag no período
+  const sqlDespesas = `
     SELECT t.id, t.nome, t.cor,
            COUNT(DISTINCT dt.despesa_id) as qtd_despesas,
            COALESCE(SUM(d.valor), 0) as total_gasto
@@ -297,19 +301,54 @@ tags.get('/analise', requireAuth, async (c) => {
     JOIN despesa_tags dt ON dt.tag_id = t.id
     JOIN despesas d ON d.id = dt.despesa_id
     WHERE t.user_id = ? AND d.user_id = ?
+      AND strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?
+      AND d.status != 'cancelado'
+    GROUP BY t.id, t.nome, t.cor
+    ORDER BY total_gasto DESC
+    LIMIT ?
   `
-  const params: any[] = [user.id, user.id]
+  const rowsDesp = await c.env.DB.prepare(sqlDespesas)
+    .bind(user.id, user.id, mesStr, anoStr, parseInt(limit)).all()
 
-  if (mesStr && anoStr) {
-    sql += ` AND strftime('%m', COALESCE(d.vencimento, d.data)) = ? AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?`
-    params.push(mesStr, anoStr)
-  }
+  // Análise de receitas por tag no período
+  const sqlReceitas = `
+    SELECT t.id, t.nome, t.cor,
+           COUNT(DISTINCT rt.receita_id) as qtd_receitas,
+           COALESCE(SUM(r.valor), 0) as total_receita
+    FROM tags t
+    JOIN receita_tags rt ON rt.tag_id = t.id
+    JOIN receitas r ON r.id = rt.receita_id
+    WHERE t.user_id = ? AND r.user_id = ?
+      AND strftime('%m', r.data) = ? AND strftime('%Y', r.data) = ?
+    GROUP BY t.id, t.nome, t.cor
+    ORDER BY total_receita DESC
+    LIMIT ?
+  `
+  let rowsRec: any = { results: [] }
+  try {
+    rowsRec = await c.env.DB.prepare(sqlReceitas)
+      .bind(user.id, user.id, mesStr, anoStr, parseInt(limit)).all()
+  } catch(_) {}
 
-  sql += ` GROUP BY t.id ORDER BY total_gasto DESC LIMIT ?`
-  params.push(parseInt(limit))
+  // Totais gerais do período para calcular percentuais
+  const totals = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`
+  ).bind(user.id, mesStr, anoStr).first() as any
+  const totalGeral = parseFloat(totals?.total || 0)
 
-  const rows = await c.env.DB.prepare(sql).bind(...params).all()
-  return c.json({ tags_analise: rows.results || [] })
+  const tags_analise = (rowsDesp.results || []).map((t: any) => ({
+    ...t,
+    total_gasto: parseFloat(t.total_gasto || 0),
+    percentual: totalGeral > 0 ? Math.round((parseFloat(t.total_gasto || 0) / totalGeral) * 100) : 0,
+  }))
+
+  return c.json({
+    tags_analise,
+    tags_receita: rowsRec.results || [],
+    mes: parseInt(mesStr),
+    ano: parseInt(anoStr),
+    total_despesas_periodo: totalGeral,
+  })
 })
 
 export default tags

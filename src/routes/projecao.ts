@@ -125,8 +125,16 @@ projecao.get('/', requireAuth, async (c) => {
   const INFLACAO_MENSAL = 0.003
   const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
   const projecoes: Array<{ mes: number; ano: number; label: string; valor: number; receitas: number; despesas: number; deterministica: number; tem_dados_reais: boolean }> = []
-  const avgReceitas = meses.reduce((a, m) => a + m.receitas, 0) / n
-  const avgDespesas = meses.reduce((a, m) => a + m.despesas, 0) / n
+  
+  // Ignorar meses sem dados ao calcular médias (B10 fix)
+  const mesesComReceita = meses.filter(m => m.receitas > 0)
+  const mesesComDespesa = meses.filter(m => m.despesas > 0)
+  const avgReceitas = mesesComReceita.length > 0
+    ? mesesComReceita.reduce((a, m) => a + m.receitas, 0) / mesesComReceita.length
+    : 0
+  const avgDespesas = mesesComDespesa.length > 0
+    ? mesesComDespesa.reduce((a, m) => a + m.despesas, 0) / mesesComDespesa.length
+    : 0
 
   let saldoAcum = saldoAtual
   for (let i = 1; i <= 12; i++) {

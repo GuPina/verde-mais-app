@@ -82,10 +82,23 @@ desafio52.patch('/:semana', requireAuth, async (c) => {
   const user = c.get('user')
   const weekNum = parseInt(c.req.param('semana'))
   const ano = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
-  const { status } = await c.req.json()
+  const body = await c.req.json()
+  // Aceitar status em pt-BR e en (retrocompatível)
+  const statusMap: Record<string, string> = {
+    'pago': 'completed',
+    'concluido': 'completed',
+    'concluído': 'completed',
+    'completed': 'completed',
+    'pulado': 'skipped',
+    'pulei': 'skipped',
+    'skipped': 'skipped',
+    'pendente': 'pending',
+    'pending': 'pending',
+  }
+  const status = statusMap[body.status?.toLowerCase()] || body.status
 
   if (!['completed', 'skipped', 'pending'].includes(status))
-    return c.json({ error: 'Status inválido' }, 400)
+    return c.json({ error: 'Status inválido. Use: completed/pago, skipped/pulado, pending/pendente' }, 400)
   if (weekNum < 1 || weekNum > 52)
     return c.json({ error: 'Semana inválida' }, 400)
 

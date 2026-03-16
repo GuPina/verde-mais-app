@@ -140,12 +140,13 @@ lembretes.post('/:id/converter-despesa', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!lembrete) return c.json({ error: 'Lembrete não encontrado' }, 404)
 
-  const body = await c.req.json()
+  const body = await c.req.json().catch(() => ({})) as any
+  const hoje = new Date().toISOString().split('T')[0]
   const {
     descricao = lembrete.titulo,
     valor = lembrete.valor_estimado,
-    data,
-    categoria = 'Outros',
+    data = lembrete.proximo_vencimento || hoje,   // ← default: próximo vencimento ou hoje
+    categoria = lembrete.tipo === 'despesa' ? 'outros' : 'outros',
     subcategoria = null,
     status = 'pendente',
     cartao_id = null,
@@ -156,7 +157,7 @@ lembretes.post('/:id/converter-despesa', requireAuth, async (c) => {
     billing_year = null,
   } = body
 
-  if (!data) return c.json({ error: 'Data é obrigatória' }, 400)
+  // data pode não vir no body — já tem default acima
   if (!valor || Number(valor) <= 0) return c.json({ error: 'Valor deve ser maior que zero' }, 400)
 
   const result = await c.env.DB.prepare(

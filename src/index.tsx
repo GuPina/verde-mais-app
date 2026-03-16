@@ -26,6 +26,7 @@ import relatorioRoutes from './routes/relatorio'
 import alertasCartaoRoutes from './routes/alertas-cartao'
 import reservasEspRoutes from './routes/reservas-especializadas'
 import assinaturasFantasmaRoutes from './routes/assinaturas-fantasma'
+import comprasFantasmaRoutes from './routes/compras-fantasma'
 import regra503020Routes from './routes/regra-503020'
 import desafio52Routes from './routes/desafio-52'
 import amortizacaoRoutes from './routes/amortizacao'
@@ -71,6 +72,7 @@ app.route('/api/alertas-cartao', alertasCartaoRoutes)
 // ── v3.0 — Novas Funcionalidades ──
 app.route('/api/reservas-esp', reservasEspRoutes)
 app.route('/api/assinaturas-fantasma', assinaturasFantasmaRoutes)
+app.route('/api/compras-fantasma', comprasFantasmaRoutes)
 app.route('/api/regra-503020', regra503020Routes)
 app.route('/api/desafio-52', desafio52Routes)
 app.route('/api/amortizacao', amortizacaoRoutes)
@@ -596,7 +598,7 @@ function appShell() {
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=20260316-2">
 </head>
 <body>
   <div id="app">
@@ -607,7 +609,7 @@ function appShell() {
       </div>
     </div>
   </div>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260316-2"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

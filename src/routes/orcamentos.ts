@@ -41,11 +41,17 @@ orcamentos.get('/', requireAuth, async (c) => {
     const gasto = await c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total
        FROM despesas
-       WHERE user_id = ? AND categoria = ?
-         AND strftime('%m', COALESCE(vencimento, data)) = ?
-         AND strftime('%Y', COALESCE(vencimento, data)) = ?
+       WHERE user_id = ? AND LOWER(categoria) = LOWER(?)
+         AND (
+           (strftime('%m', data) = ? AND strftime('%Y', data) = ?)
+           OR
+           (vencimento IS NOT NULL AND strftime('%m', vencimento) = ? AND strftime('%Y', vencimento) = ?)
+         )
          AND status IN ('pago', 'pendente')`
-    ).bind(user.id, o.categoria, String(mes).padStart(2,'0'), String(ano)).first() as any
+    ).bind(user.id, o.categoria,
+      String(mes).padStart(2,'0'), String(ano),
+      String(mes).padStart(2,'0'), String(ano)
+    ).first() as any
 
     const gasto_real = Number(gasto?.total || 0)
     const percentual = Math.round((gasto_real / Number(o.limite)) * 100)
@@ -146,13 +152,19 @@ orcamentos.get('/resumo', requireAuth, async (c) => {
   const gasto = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(d.valor), 0) as total
      FROM despesas d
-     INNER JOIN orcamentos o ON d.categoria = o.categoria AND o.user_id = d.user_id
+     INNER JOIN orcamentos o ON LOWER(d.categoria) = LOWER(o.categoria) AND o.user_id = d.user_id
      WHERE d.user_id = ?
        AND o.mes = ? AND o.ano = ?
-       AND strftime('%m', COALESCE(d.vencimento, d.data)) = ?
-       AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
+       AND (
+         (strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?)
+         OR
+         (d.vencimento IS NOT NULL AND strftime('%m', d.vencimento) = ? AND strftime('%Y', d.vencimento) = ?)
+       )
        AND d.status IN ('pago', 'pendente')`
-  ).bind(user.id, mes, ano, String(mes).padStart(2,'0'), String(ano)).first() as any
+  ).bind(user.id, mes, ano,
+    String(mes).padStart(2,'0'), String(ano),
+    String(mes).padStart(2,'0'), String(ano)
+  ).first() as any
 
   return c.json({
     qtd_orcamentos: total?.qtd || 0,

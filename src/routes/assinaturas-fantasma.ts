@@ -6,30 +6,62 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const assinaturas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// Palavras-chave de serviços conhecidos
-const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string }> = [
-  { keywords: ['netflix', 'netflix.com'], type: 'streaming' },
-  { keywords: ['spotify', 'spotif'], type: 'streaming' },
-  { keywords: ['amazon', 'prime', 'amazon prime', 'amazon video'], type: 'streaming' },
-  { keywords: ['youtube', 'youtube premium'], type: 'streaming' },
-  { keywords: ['disney', 'disney+', 'disneyplus'], type: 'streaming' },
-  { keywords: ['hbo', 'hbomax', 'max', 'paramount'], type: 'streaming' },
-  { keywords: ['globoplay', 'globo'], type: 'streaming' },
-  { keywords: ['deezer', 'apple music', 'tidal'], type: 'streaming' },
-  { keywords: ['icloud', 'apple'], type: 'cloud' },
-  { keywords: ['dropbox'], type: 'cloud' },
-  { keywords: ['onedrive', 'office 365', 'microsoft'], type: 'cloud' },
-  { keywords: ['google one', 'google storage'], type: 'cloud' },
-  { keywords: ['adobe', 'photoshop', 'illustrator'], type: 'software' },
-  { keywords: ['canva'], type: 'software' },
-  { keywords: ['chatgpt', 'openai', 'claude', 'copilot'], type: 'software' },
-  { keywords: ['smartfit', 'bodytech', 'academia', 'gym', 'crossfit', 'bluefit'], type: 'fitness' },
-  { keywords: ['uber', 'uber one'], type: 'transport' },
-  { keywords: ['ifood', 'iFood'], type: 'food' },
-  { keywords: ['rappi', 'rappi prime'], type: 'food' },
-  { keywords: ['xbox', 'xbox game pass', 'playstation', 'ps plus', 'nintendo'], type: 'gaming' },
-  { keywords: ['linkedin', 'linkedin premium'], type: 'professional' },
-  { keywords: ['duolingo', 'duolingo plus'], type: 'education' },
+// Palavras-chave de serviços conhecidos (expandido)
+const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string; nome: string }> = [
+  { keywords: ['netflix', 'netflix.com'], type: 'streaming', nome: 'Netflix' },
+  { keywords: ['spotify', 'spotif'], type: 'streaming', nome: 'Spotify' },
+  { keywords: ['amazon', 'prime', 'amazon prime', 'amazon video', 'amazn'], type: 'streaming', nome: 'Amazon Prime' },
+  { keywords: ['youtube', 'youtube premium'], type: 'streaming', nome: 'YouTube Premium' },
+  { keywords: ['disney', 'disney+', 'disneyplus'], type: 'streaming', nome: 'Disney+' },
+  { keywords: ['hbo', 'hbomax', 'max', 'paramount', 'hbo max'], type: 'streaming', nome: 'HBO/Max' },
+  { keywords: ['globoplay', 'globo play'], type: 'streaming', nome: 'Globoplay' },
+  { keywords: ['deezer', 'apple music', 'tidal'], type: 'streaming', nome: 'Música Streaming' },
+  { keywords: ['icloud', 'apple storage'], type: 'cloud', nome: 'iCloud' },
+  { keywords: ['dropbox'], type: 'cloud', nome: 'Dropbox' },
+  { keywords: ['onedrive', 'office 365', 'microsoft 365', 'microsoft'], type: 'cloud', nome: 'Microsoft 365' },
+  { keywords: ['google one', 'google storage', 'google play'], type: 'cloud', nome: 'Google One' },
+  { keywords: ['adobe', 'photoshop', 'illustrator', 'creative cloud'], type: 'software', nome: 'Adobe' },
+  { keywords: ['canva'], type: 'software', nome: 'Canva' },
+  { keywords: ['chatgpt', 'openai', 'claude', 'copilot'], type: 'software', nome: 'IA (ChatGPT/Claude)' },
+  { keywords: ['notion', 'evernote', 'obsidian'], type: 'software', nome: 'Produtividade' },
+  { keywords: ['zoom', 'meet'], type: 'software', nome: 'Videoconferência' },
+  { keywords: ['smartfit', 'smart fit', 'bodytech', 'body tech', 'bluefit', 'blue fit', 'crossfit', 'academia'], type: 'fitness', nome: 'Academia' },
+  { keywords: ['uber one', 'uber pass'], type: 'transport', nome: 'Uber One' },
+  { keywords: ['ifood clube', 'ifood pass'], type: 'food', nome: 'iFood Clube' },
+  { keywords: ['rappi prime', 'rappi turbo'], type: 'food', nome: 'Rappi Prime' },
+  { keywords: ['xbox', 'game pass', 'playstation', 'ps plus', 'ps+', 'nintendo'], type: 'gaming', nome: 'Gaming' },
+  { keywords: ['linkedin', 'linkedin premium'], type: 'professional', nome: 'LinkedIn Premium' },
+  { keywords: ['duolingo', 'duolingo plus'], type: 'education', nome: 'Duolingo' },
+  { keywords: ['alura', 'coursera', 'udemy', 'hotmart', 'kiwify'], type: 'education', nome: 'Cursos Online' },
+  { keywords: ['vpn', 'nordvpn', 'expressvpn', 'surfshark'], type: 'software', nome: 'VPN' },
+  { keywords: ['antivirus', 'norton', 'kaspersky', 'bitdefender', 'mcafee'], type: 'software', nome: 'Antivírus' },
+  { keywords: ['nubank', 'nupay', 'nubank plus', 'ultravioleta'], type: 'banking', nome: 'Nubank Premium' },
+  { keywords: ['inter cel', 'inter plus'], type: 'banking', nome: 'Banco Inter Premium' },
+  { keywords: ['strava', 'myfitnesspal', 'nike run', 'garmin'], type: 'fitness', nome: 'App Fitness' },
+  { keywords: ['kindle', 'audible', 'scribd', 'kindle unlimited'], type: 'education', nome: 'Leitura Digital' },
+  { keywords: ['crunchyroll', 'funimation', 'hidive'], type: 'streaming', nome: 'Anime Streaming' },
+  { keywords: ['twitch', 'twitch prime'], type: 'streaming', nome: 'Twitch' },
+]
+
+// Padrões de descrições que NÃO são assinaturas (falsos positivos comuns)
+const EXCLUSION_PATTERNS = [
+  /pagamento\s*(de\s*)?fatura/i,
+  /fatura\s*(cartao|nubank|inter|itau|bradesco|santander)/i,
+  /transferencia/i,
+  /salario|salário/i,
+  /aluguel\s*imovel/i,
+  /parcela\s*\d+/i,
+  /emprestimo|financiamento/i,
+  /supermercado|mercado|padaria|acougue|farmacia/i,
+  /gasolina|combustivel|posto/i,
+  /restaurante|lanchonete|ifood\s+pedido/i,
+  /hospital|medico|consulta|exame/i,
+  /escola|mensalidade\s*(escolar|faculdade)/i,
+  /^aporte[:\s]/i,          // Aportes (investimentos)
+  /investimento|aplicacao/i, // Aplicações financeiras
+  /rendimento|juros\s+\w/i,  // Rendimentos
+  /cdb|lci|lca|cri|cra|tesouro/i, // Títulos financeiros
+  /poupanca|poupança/i,      // Poupança
 ]
 
 function normalizeDesc(desc: string): string {
@@ -40,64 +72,96 @@ function normalizeDesc(desc: string): string {
     .trim()
 }
 
+function isExcluded(desc: string): boolean {
+  return EXCLUSION_PATTERNS.some(pattern => pattern.test(desc))
+}
+
 // ── POST /api/assinaturas-fantasma/scan ───────────────────────────────────
 assinaturas.post('/scan', requireAuth, async (c) => {
   const user = c.get('user')
 
-  // Buscar despesas dos últimos 8 meses
+  // Buscar despesas dos últimos 12 meses (expandido de 8 para 12)
   const result = await c.env.DB.prepare(`
-    SELECT id, descricao, valor, data, categoria
+    SELECT id, descricao, valor, data, categoria, status
     FROM despesas
     WHERE user_id = ? 
-      AND data >= date('now', '-8 months')
-      AND status = 'pago'
-      AND valor >= 5.0
+      AND data >= date('now', '-12 months')
+      AND valor >= 3.0
+      AND status != 'cancelado'
     ORDER BY data ASC
   `).bind(user.id).all()
 
   const expenses = result.results as any[]
 
-  if (expenses.length < 6) {
+  // Limiar mínimo reduzido: 4 despesas (era 6 meses de histórico)
+  if (expenses.length < 4) {
     return c.json({
       detected: [],
-      message: 'Dados insuficientes. Precisamos de pelo menos 6 meses de despesas pagas para detectar padrões.',
+      message: 'Dados insuficientes. Registre mais despesas para detectar padrões de assinatura.',
       insufficient_data: true
     })
   }
 
-  // Agrupar por (descrição normalizada, valor aproximado ±5%)
+  // Agrupar por (descrição normalizada, valor aproximado)
   type Group = {
     normalized: string
     original: string
     amount: number
-    occurrences: Array<{ id: number; date: Date }>
+    occurrences: Array<{ id: number; date: Date; status: string }>
+    keywordMatch: boolean
+    serviceType: string
+    serviceNome: string
   }
 
   const groups = new Map<string, Group>()
 
   for (const exp of expenses) {
-    const norm = normalizeDesc(exp.descricao)
-    // Arredondar valor para criar bucket (±2%)
-    const bucket = Math.round(exp.valor * 50) / 50
-    const key = `${norm.substring(0, 30)}|${bucket}`
+    const nDesc = normalizeDesc(exp.descricao)
+
+    // Pular despesas que claramente NÃO são assinaturas
+    if (isExcluded(exp.descricao)) continue
+
+    // Estratégia 1: match por palavra-chave (aceita qualquer frequência)
+    let kwMatch = false
+    let kwType = 'unknown'
+    let kwNome = ''
+    for (const svc of SUBSCRIPTION_KEYWORDS) {
+      if (svc.keywords.some(kw => nDesc.includes(kw.toLowerCase()))) {
+        kwMatch = true; kwType = svc.type; kwNome = svc.nome; break
+      }
+    }
+
+    // Bucket de valor: arredondar para 50 centavos (±R$0,25)
+    const bucket = Math.round(exp.valor * 2) / 2
+    // Chave: primeiros 35 chars da desc normalizada + bucket de valor
+    const key = `${nDesc.substring(0, 35)}|${bucket}`
 
     if (!groups.has(key)) {
       groups.set(key, {
-        normalized: norm,
+        normalized: nDesc,
         original: exp.descricao,
         amount: exp.valor,
-        occurrences: []
+        occurrences: [],
+        keywordMatch: kwMatch,
+        serviceType: kwType,
+        serviceNome: kwNome,
       })
     }
-    groups.get(key)!.occurrences.push({ id: exp.id, date: new Date(exp.data) })
+    const g = groups.get(key)!
+    g.occurrences.push({ id: exp.id, date: new Date(exp.data + 'T12:00:00'), status: exp.status })
+    // Se qualquer ocorrência tem keyword, marcar grupo
+    if (kwMatch && !g.keywordMatch) { g.keywordMatch = true; g.serviceType = kwType; g.serviceNome = kwNome }
   }
 
-  // Analisar cada grupo
   const toInsert: any[] = []
 
   for (const [, group] of groups) {
     const occs = group.occurrences
-    if (occs.length < 3) continue
+    const kwMatch = group.keywordMatch
+
+    // Com keyword: aceitar a partir de 1 ocorrência
+    // Sem keyword: exigir pelo menos 3 ocorrências
+    if (!kwMatch && occs.length < 3) continue
 
     // Calcular intervalos entre ocorrências
     const intervals: number[] = []
@@ -108,55 +172,72 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       if (diff > 0) intervals.push(diff)
     }
 
-    if (intervals.length === 0) continue
+    let avgInterval = 30  // default: mensal
+    let stdDev = 0
+    let isMonthly = false
+    let isBiweekly = false
+    let isWeekly = false
+    let isAnnual = false
+    let isQuarterly = false
 
-    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
-    const variance = intervals.reduce((s, v) => s + Math.pow(v - avgInterval, 2), 0) / intervals.length
-    const stdDev = Math.sqrt(variance)
+    if (intervals.length > 0) {
+      avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
+      const variance = intervals.reduce((s, v) => s + Math.pow(v - avgInterval, 2), 0) / intervals.length
+      stdDev = Math.sqrt(variance)
 
-    // Padrão mensal: 25-37 dias com baixo desvio
-    const isMonthly = avgInterval >= 25 && avgInterval <= 37 && stdDev < 8
-    // Padrão quinzenal
-    const isBiweekly = avgInterval >= 12 && avgInterval <= 18 && stdDev < 4
-    // Padrão anual (alguns apps cobram anualmente)
-    const isAnnual = avgInterval >= 335 && avgInterval <= 395 && occs.length >= 2
-
-    if (!isMonthly && !isBiweekly && !isAnnual) continue
-
-    // Detectar tipo de serviço
-    let serviceType = 'unknown'
-    let keywordMatch = false
-    for (const svc of SUBSCRIPTION_KEYWORDS) {
-      if (svc.keywords.some(kw => group.normalized.includes(kw))) {
-        serviceType = svc.type
-        keywordMatch = true
-        break
-      }
+      isWeekly   = avgInterval >= 6  && avgInterval <= 10 && stdDev < 4
+      isBiweekly = avgInterval >= 12 && avgInterval <= 18 && stdDev < 5
+      isMonthly  = avgInterval >= 22 && avgInterval <= 40 && stdDev < 10
+      isQuarterly = avgInterval >= 80 && avgInterval <= 100 && stdDev < 12
+      isAnnual   = avgInterval >= 330 && avgInterval <= 400
     }
 
-    // Calcular confiança
+    // Para keyword matches com 1 ocorrência: tratar como mensal
+    const hasPattern = isMonthly || isBiweekly || isAnnual || isWeekly || isQuarterly
+    if (!kwMatch && !hasPattern) continue
+
+    // Calcular confiança (0-100)
     let confidence = 0
-    if (keywordMatch)           confidence += 40
-    if (isMonthly || isBiweekly) confidence += 30
-    if (occs.length >= 6)       confidence += 20
-    if (stdDev < 3)             confidence += 10
-    if (isAnnual)               confidence = Math.max(confidence, 65)
+    if (kwMatch)                           confidence += 45  // Keyword match é forte sinal
+    if (isMonthly || isBiweekly)           confidence += 25
+    if (isAnnual)                          confidence += 20
+    if (isWeekly || isQuarterly)           confidence += 15
+    if (occs.length >= 6)                  confidence += 15
+    else if (occs.length >= 3)             confidence += 10
+    else if (occs.length >= 2)             confidence += 5
+    if (stdDev < 3)                        confidence += 10
+    else if (stdDev < 7)                   confidence += 5
+    if (group.amount >= 10 && group.amount <= 200) confidence += 5  // Faixa típica de assinatura
 
-    if (confidence < 60) continue
+    // Limiar: keyword = 45+, sem keyword = 65+
+    const minConf = kwMatch ? 45 : 65
+    if (confidence < minConf) continue
 
-    const yearlyCost = isAnnual ? group.amount : group.amount * 12
+    const yearlyCost = isAnnual ? group.amount
+      : isQuarterly ? group.amount * 4
+      : isBiweekly ? group.amount * 26
+      : isWeekly ? group.amount * 52
+      : group.amount * 12
+
+    const frequencyLabel = isAnnual ? 'anual'
+      : isQuarterly ? 'trimestral'
+      : isBiweekly ? 'quinzenal'
+      : isWeekly ? 'semanal'
+      : 'mensal'
 
     toInsert.push({
       user_id: user.id,
       normalized_description: group.normalized.substring(0, 200),
       original_description: group.original.substring(0, 200),
+      service_nome: group.serviceNome || group.original.substring(0, 50),
       amount: Math.round(group.amount * 100) / 100,
       frequency: occs.length,
+      frequency_label: frequencyLabel,
       first_occurrence: occs[0].date.toISOString().split('T')[0],
       last_occurrence: occs[occs.length - 1].date.toISOString().split('T')[0],
       average_interval_days: Math.round(avgInterval * 10) / 10,
       confidence: Math.min(100, confidence),
-      service_type: serviceType,
+      service_type: group.serviceType,
       yearly_cost: Math.round(yearlyCost * 100) / 100,
     })
   }
@@ -166,18 +247,19 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   for (const item of toInsert) {
     const existing = await c.env.DB.prepare(`
       SELECT id, status FROM detected_subscriptions 
-      WHERE user_id = ? AND normalized_description = ? AND amount = ?
+      WHERE user_id = ? AND normalized_description = ? AND ABS(amount - ?) < 1.0
     `).bind(item.user_id, item.normalized_description, item.amount).first() as any
 
     if (!existing) {
       await c.env.DB.prepare(`
         INSERT INTO detected_subscriptions 
-        (user_id, normalized_description, original_description, amount, frequency,
-         first_occurrence, last_occurrence, average_interval_days, confidence, service_type, yearly_cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, normalized_description, original_description, service_nome, amount, frequency,
+         frequency_label, first_occurrence, last_occurrence, average_interval_days, confidence, service_type, yearly_cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         item.user_id, item.normalized_description, item.original_description,
-        item.amount, item.frequency, item.first_occurrence, item.last_occurrence,
+        item.service_nome, item.amount, item.frequency, item.frequency_label,
+        item.first_occurrence, item.last_occurrence,
         item.average_interval_days, item.confidence, item.service_type, item.yearly_cost
       ).run()
       insertedCount++
@@ -195,7 +277,7 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   if (toInsert.length > 0) {
     await c.env.DB.prepare(
       `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'sub_detector_scanned', 0)`
-    ).bind(user.id).run()
+    ).bind(user.id).run().catch(() => {})
   }
 
   // Retornar todos os detectados ativos
@@ -205,13 +287,18 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     ORDER BY yearly_cost DESC
   `).bind(user.id).all()
 
+  const totalMensal = (allDetected.results as any[]).reduce((s, d) => s + (d.amount || 0), 0)
+  const totalAnual  = (allDetected.results as any[]).reduce((s, d) => s + (d.yearly_cost || 0), 0)
+
   return c.json({
     detected: allDetected.results,
     new_found: insertedCount,
     total: allDetected.results.length,
+    totalMensal: Math.round(totalMensal * 100) / 100,
+    totalAnual: Math.round(totalAnual * 100) / 100,
     message: toInsert.length === 0
       ? '🎉 Nenhuma assinatura fantasma encontrada!'
-      : `🕵️ Encontramos ${toInsert.length} possíveis assinatura(s)!`
+      : `🕵️ Encontramos ${toInsert.length} possível(is) assinatura(s) esquecida(s)! Custo anual estimado: R$ ${Math.round(toInsert.reduce((s, i) => s + i.yearly_cost, 0) * 100)/100}`
   })
 })
 

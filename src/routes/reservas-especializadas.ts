@@ -75,7 +75,16 @@ reservasEsp.post('/', requireAuth, async (c) => {
   }
 
   const body = await c.req.json()
-  const { type = 'custom', name, description, target_amount, current_amount = 0, deadline, monthly_target, priority, linked_meta_id } = body
+  // Aceitar campos em pt-BR OU en (retrocompatível)
+  const type = body.tipo || body.type || 'custom'
+  const name = body.nome || body.name
+  const description = body.descricao || body.description
+  const target_amount = body.meta_valor || body.valor_meta || body.target_amount
+  const current_amount = body.valor_atual || body.current_amount || 0
+  const deadline = body.prazo || body.deadline
+  const monthly_target = body.aporte_mensal || body.monthly_target
+  const priority = body.prioridade || body.priority
+  const linked_meta_id = body.meta_id || body.linked_meta_id
 
   if (!name || !target_amount || target_amount <= 0)
     return c.json({ error: 'Nome e valor meta são obrigatórios' }, 400)
@@ -125,7 +134,14 @@ reservasEsp.put('/:id', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
 
   const body = await c.req.json()
-  const { name, description, target_amount, deadline, monthly_target, priority, status } = body
+  // Aceitar campos em pt-BR OU en (retrocompatível)
+  const name = body.nome || body.name
+  const description = body.descricao || body.description
+  const target_amount = body.meta_valor || body.valor_meta || body.target_amount
+  const deadline = body.prazo || body.deadline
+  const monthly_target = body.aporte_mensal || body.monthly_target
+  const priority = body.prioridade || body.priority
+  const status = body.status
 
   await c.env.DB.prepare(
     `UPDATE specialized_reserves SET

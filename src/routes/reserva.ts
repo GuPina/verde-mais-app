@@ -7,10 +7,9 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 const reserva = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // GET /api/reserva — busca (ou cria) a reserva de emergência do usuário
+// Sincroniza com specialized_reserves (tipo emergency) quando disponível
 reserva.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-
-  let r = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE user_id = ? LIMIT 1').bind(user.id).first() as any
 
   // Calcular média de despesas mensais (últimos 3 meses)
   const mediaDespesas = await c.env.DB.prepare(`
@@ -23,15 +22,44 @@ reserva.get('/', requireAuth, async (c) => {
   `).bind(user.id).first() as any
 
   const mediaGastos = mediaDespesas?.media || 0
+  const valorIdeal = Math.round(mediaGastos * 6 * 100) / 100  // 6 meses padrão
+
+  // 1) Tentar pegar da reserva especializada (tipo emergency)
+  const reservaEsp = await c.env.DB.prepare(
+    `SELECT * FROM specialized_reserves WHERE user_id = ? AND type = 'emergency' AND status != 'cancelled' ORDER BY created_at ASC LIMIT 1`
+  ).bind(user.id).first() as any
+
+  if (reservaEsp) {
+    const cobertura = valorIdeal > 0 ? Math.min(100, Math.round((reservaEsp.current_amount / valorIdeal) * 100)) : 0
+    const mesesCobertos = mediaGastos > 0 ? Math.round((reservaEsp.current_amount / mediaGastos) * 10) / 10 : 0
+    return c.json({
+      reserva: {
+        id: reservaEsp.id,
+        nome: reservaEsp.name,
+        objetivo_meses: 6,
+        valor_atual: reservaEsp.current_amount,
+        meta: reservaEsp.target_amount,
+        origem: 'reservas_esp',
+        reserve_id: reservaEsp.id,
+      },
+      media_gastos_mensais: Math.round(mediaGastos * 100) / 100,
+      valor_ideal: valorIdeal,
+      cobertura_pct: cobertura,
+      meses_cobertos: mesesCobertos
+    })
+  }
+
+  // 2) Fallback: tabela legada reserva_emergencia
+  let r = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE user_id = ? LIMIT 1').bind(user.id).first() as any
   const mesesObj = r?.objetivo_meses || 6
-  const valorIdeal = mediaGastos * mesesObj
-  const cobertura = valorIdeal > 0 && r ? Math.round((r.valor_atual / valorIdeal) * 100) : 0
+  const valorIdealLegado = Math.round(mediaGastos * mesesObj * 100) / 100
+  const cobertura = valorIdealLegado > 0 && r ? Math.round((r.valor_atual / valorIdealLegado) * 100) : 0
   const mesesCobertos = mediaGastos > 0 && r ? Math.round((r.valor_atual / mediaGastos) * 10) / 10 : 0
 
   return c.json({
     reserva: r || null,
     media_gastos_mensais: Math.round(mediaGastos * 100) / 100,
-    valor_ideal: Math.round(valorIdeal * 100) / 100,
+    valor_ideal: valorIdealLegado,
     cobertura_pct: Math.min(100, cobertura),
     meses_cobertos: mesesCobertos
   })
