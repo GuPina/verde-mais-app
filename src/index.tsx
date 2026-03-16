@@ -80,6 +80,14 @@ app.route('/api/despesas-compartilhadas', despesasCompartilhadasRoutes)
 app.route('/api/assistente', assistenteRoutes)
 app.route('/api/chat', chatRoutes)
 
+// Alias: POST /api/chat/mensagem → /api/assistente/chat (compatibilidade)
+app.post('/api/chat/mensagem', async (c) => {
+  const newUrl = new URL(c.req.url)
+  newUrl.pathname = '/api/assistente/chat'
+  const newReq = new Request(newUrl.toString(), { method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body })
+  return fetch(newReq)
+})
+
 // Admin panel — protegido por Basic Auth
 app.route('/admin', adminRoutes)
 

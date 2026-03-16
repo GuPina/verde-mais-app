@@ -269,6 +269,64 @@ emprestimos.patch('/:id/amortizacao', requireAuth, async (c) => {
   })
 })
 
+// GET /api/emprestimos/:id/simulacao — simula cenários de pagamento antecipado
+emprestimos.get('/:id/simulacao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const emp = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  const saldo = emp.saldo_devedor || 0
+  const taxaMensal = emp.taxa_juros_mensal / 100
+  const parcelasRestantes = emp.numero_parcelas - emp.parcelas_pagas
+  const valorParcela = emp.valor_parcela
+
+  // Calcular total a pagar no ritmo atual
+  const totalAtual = valorParcela * parcelasRestantes
+  const jurosAtual = totalAtual - saldo
+
+  // Simular amortização extra de 10%, 20%, 30% do saldo
+  const cenarios = [10, 20, 30].map(pct => {
+    const extra = Math.round(saldo * pct / 100 * 100) / 100
+    const novoSaldo = Math.max(0, saldo - extra)
+    if (novoSaldo <= 0) return { pct, extra, parcelas_economizadas: parcelasRestantes, economia: jurosAtual, novo_saldo: 0 }
+
+    // Calcular nova parcela com SAC simplificado
+    let novasParcelas = parcelasRestantes
+    let saldoCalc = novoSaldo
+    let totalJurosNovo = 0
+    for (let i = 0; i < parcelasRestantes; i++) {
+      const jMes = saldoCalc * taxaMensal
+      totalJurosNovo += jMes
+      saldoCalc = saldoCalc - (valorParcela - jMes)
+      if (saldoCalc <= 0) { novasParcelas = i + 1; break }
+    }
+
+    return {
+      pct,
+      extra,
+      novo_saldo: Math.round(novoSaldo * 100) / 100,
+      parcelas_economizadas: parcelasRestantes - novasParcelas,
+      economia_juros: Math.round((jurosAtual - totalJurosNovo) * 100) / 100
+    }
+  })
+
+  return c.json({
+    emprestimo_id: emp.id,
+    saldo_atual: saldo,
+    taxa_mensal: emp.taxa_juros_mensal,
+    parcelas_restantes: parcelasRestantes,
+    valor_parcela: valorParcela,
+    total_a_pagar: Math.round(totalAtual * 100) / 100,
+    juros_projetados: Math.round(jurosAtual * 100) / 100,
+    cenarios_amortizacao: cenarios
+  })
+})
+
 // DELETE /api/emprestimos/:id — cascade: apaga todas as despesas pendentes vinculadas
 emprestimos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')

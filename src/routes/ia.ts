@@ -739,10 +739,17 @@ ia.get('/insights', requireAuth, async (c) => {
   })
 })
 
-// ─── GET /api/ia/analise360 — alias para insights ───────────────────────────
+// ─── GET /api/ia/analise360 — alias para insights (resposta direta, sem redirect) ──
 ia.get('/analise360', requireAuth, async (c) => {
-  c.req.raw.headers
-  return c.redirect('/api/ia/insights')
+  // Ao invés de redirect 302, fazer forward interno para insights
+  // Preserva headers de autenticação
+  const insightsUrl = new URL(c.req.url)
+  insightsUrl.pathname = '/api/ia/insights'
+  const forwardReq = new Request(insightsUrl.toString(), {
+    method: 'GET',
+    headers: c.req.raw.headers
+  })
+  return fetch(forwardReq)
 })
 
 // ─── GET /api/ia/score-saude — score simplificado de saúde financeira ───────

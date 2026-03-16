@@ -28,6 +28,29 @@ financiamentos.get('/', requireAuth, async (c) => {
   return c.json({ financiamentos: list, resumo: { total_saldo_devedor: totalSaldo, total_parcelas_mes: totalParcelas } })
 })
 
+// GET /api/financiamentos/:id — detalhe individual
+financiamentos.get('/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const fin = await c.env.DB.prepare(
+    'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const percPago = fin.numero_parcelas > 0 ? Math.round((fin.parcelas_pagas / fin.numero_parcelas) * 100) : 0
+  const parcelasRestantes = fin.numero_parcelas - fin.parcelas_pagas
+  const totalPago = fin.valor_parcela * fin.parcelas_pagas
+
+  return c.json({
+    ...fin,
+    perc_pago: percPago,
+    parcelas_restantes: parcelasRestantes,
+    total_pago: Math.round(totalPago * 100) / 100
+  })
+})
+
 // POST /api/financiamentos
 financiamentos.post('/', requireAuth, async (c) => {
   const user = c.get('user')

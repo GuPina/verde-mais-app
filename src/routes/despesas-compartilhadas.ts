@@ -171,9 +171,20 @@ despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
   const id = c.req.param('id')
   const { status } = await c.req.json()
 
-  const validStatus = ['pending', 'paid', 'cancelled']
-  if (!validStatus.includes(status)) {
-    return c.json({ error: `Status inválido. Use: ${validStatus.join(', ')}` }, 400)
+  // Mapeamento de aliases para os valores aceitos pelo DB CHECK (pending, settled)
+  const statusMap: Record<string, string> = {
+    'pending': 'pending',
+    'pendente': 'pending',
+    'paid': 'settled',
+    'pago': 'settled',
+    'settled': 'settled',
+    'quitado': 'settled',
+    'cancelled': 'pending',  // cancelled → reset para pending (DB só aceita pending/settled)
+    'cancelado': 'pending'
+  }
+  const statusNorm = statusMap[status?.toLowerCase()]
+  if (!statusNorm) {
+    return c.json({ error: 'Status inválido. Use: pending/pendente, paid/pago/settled' }, 400)
   }
 
   const existing = await c.env.DB.prepare(
@@ -183,9 +194,9 @@ despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
 
   await c.env.DB.prepare(
     'UPDATE shared_expenses SET status = ? WHERE id = ? AND user_id = ?'
-  ).bind(status, id, user.id).run()
+  ).bind(statusNorm, id, user.id).run()
 
-  return c.json({ success: true, message: `Status atualizado para: ${status}` })
+  return c.json({ success: true, status: statusNorm, message: `Status atualizado para: ${statusNorm}` })
 })
 
 // DELETE /api/despesas-compartilhadas/:id
