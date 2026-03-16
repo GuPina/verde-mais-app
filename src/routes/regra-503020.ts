@@ -7,9 +7,23 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 const regra503020 = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // Mapeamento de categorias do VerdeMais para os 3 grupos
-const NEEDS_CATS = ['Alimentação', 'Moradia', 'Saúde', 'Transporte', 'Educação', 'Contas', 'Mercado', 'Farmácia']
-const WANTS_CATS = ['Lazer', 'Viagem', 'Roupas', 'Assinaturas', 'Delivery', 'Restaurante', 'Beleza', 'Entretenimento', 'Pets', 'Eletrônicos', 'Outros']
-const SAVINGS_CATS = ['Investimentos', 'Poupança']
+const NEEDS_CATS = [
+  'Alimentação', 'Moradia', 'Saúde', 'Transporte', 'Educação', 'Contas',
+  'Mercado', 'Farmácia', 'Farmacia', 'Aluguel', 'Seguro', 'Serviços',
+  'Serviços Essenciais', 'Supermercado', 'Conta de Luz', 'Conta de Água',
+  'Conta de Gás', 'Internet', 'Telefone', 'Plano de Saúde', 'Escola',
+  'Faculdade', 'Trabalho', 'Condomínio'
+]
+const WANTS_CATS = [
+  'Lazer', 'Viagem', 'Roupas', 'Assinaturas', 'Delivery', 'Restaurante',
+  'Beleza', 'Entretenimento', 'Pets', 'Eletrônicos', 'Outros',
+  'Tecnologia', 'Shopping', 'Esporte', 'Academia', 'Streaming',
+  'Bar', 'Jogos', 'Hobbies', 'Presente', 'Moda', 'Cosméticos'
+]
+const SAVINGS_CATS = [
+  'Investimentos', 'Poupança', 'Reserva', 'Aplicação', 'Tesouro',
+  'Previdência', 'CDB', 'LCI', 'LCA', 'Fundo'
+]
 
 // ── GET /api/regra-503020/config — Melhoria 3.2 ───────────────────────────────
 regra503020.get('/config', requireAuth, async (c) => {

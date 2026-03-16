@@ -1083,6 +1083,10 @@ const VM = {
               <span class="nav-icon">👻</span> Assinaturas Fantasma
               <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
             </a>
+            <a class="nav-item" id="nav-compras-fantasma" onclick="VM.navigate('compras-fantasma')">
+              <span class="nav-icon">🛍️</span> Compras Fantasma
+              <span style="margin-left:auto;background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
+            </a>
             <a class="nav-item" id="nav-regra-503020" onclick="VM.navigate('regra-503020')">
               <span class="nav-icon">⚖️</span> Regra 50/30/20
               <span style="margin-left:auto;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
@@ -1482,6 +1486,7 @@ const VM = {
       'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada'],
       'reservas-esp': ['🛡️ Minhas Reservas', 'Múltiplas reservas por objetivos específicos'],
       'assinaturas-fantasma': ['👻 Assinaturas Fantasma', 'Detecte gastos recorrentes esquecidos'],
+      'compras-fantasma': ['🛍️ Compras Fantasma', 'Identifique gastos impulsivos e desnecessários'],
       'regra-503020': ['⚖️ Regra 50/30/20', 'Equilíbrio das suas finanças pessoais'],
       'desafio-52': ['🎯 Desafio 52 Semanas', 'Poupe R$ 1.378 ao longo do ano'],
       'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros'],
@@ -1518,6 +1523,7 @@ const VM = {
       'alertas-cartao': () => this.pageAlertasCartao(),
       'reservas-esp': () => this.pageReservasEsp(),
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
+      'compras-fantasma': () => this.pageComprasFantasma(),
       'regra-503020': () => this.pageRegra503020(),
       'desafio-52': () => this.pageDesafio52(),
       'amortizacao': () => this.pageAmortizacao(),
@@ -9817,6 +9823,168 @@ const VM = {
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  // v3.1 — COMPRAS FANTASMA
+  // ═══════════════════════════════════════════════════════════════
+  async pageComprasFantasma() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
+
+    try {
+      const data = await this.api('GET', 'compras-fantasma')
+      const {
+        resumo = {},
+        compras_impulsivas = [],
+        categorias_impulsivas = [],
+        alertas = [],
+        dica = '',
+        periodo_meses = 3
+      } = data
+
+      const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})
+      const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'
+      const totalAnalisado = Number(resumo.total_analisado||0)
+      const totalImpulsivo = Number(resumo.total_impulsivo||0)
+      const pctImpulsivo   = Number(resumo.percentual_impulsivo||0)
+      const economiaPot    = Number(resumo.economia_potencial||0)
+      const qtdImpulsivas  = Number(resumo.qtd_impulsivas||0)
+
+      content.innerHTML = `
+        <div style="max-width:1000px;">
+          <!-- Header -->
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">🛍️ Compras Fantasma</h1>
+              <p style="color:#64748B;margin:0;">Identifique padrões de gastos impulsivos e descubra onde seu dinheiro realmente vai.</p>
+            </div>
+            <button onclick="VM.analisarComprasFantasma()" id="btn-analisar-compras"
+              style="background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">
+              🔍 Analisar ${periodo_meses} Meses
+            </button>
+          </div>
+
+          <!-- KPIs -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;">
+            <div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#FED7AA;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Total Analisado</div>
+              <div style="font-size:1.6rem;font-weight:800;color:#FB923C;">R$ ${fmtBRL(totalAnalisado)}</div>
+              <div style="color:#64748B;font-size:0.72rem;">últimos ${periodo_meses} meses</div>
+            </div>
+            <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#FDA4AF;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🚨 Gastos Impulsivos</div>
+              <div style="font-size:1.6rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalImpulsivo)}</div>
+              <div style="color:#64748B;font-size:0.72rem;">${pctImpulsivo.toFixed(1)}% do total • ${qtdImpulsivas} compras</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+              <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Potencial</div>
+              <div style="font-size:1.6rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(economiaPot)}</div>
+              <div style="color:#64748B;font-size:0.72rem;">se cortar 30% dos impulsos</div>
+            </div>
+          </div>
+
+          ${alertas.length > 0 ? `
+          <!-- Alertas -->
+          <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
+            <h3 style="color:#F43F5E;font-size:0.9rem;font-weight:700;margin:0 0 10px;">🚨 Alertas de Consumo</h3>
+            ${alertas.map(a => `<div style="color:#FDA4AF;font-size:0.82rem;margin-bottom:6px;">• ${a}</div>`).join('')}
+          </div>` : ''}
+
+          ${categorias_impulsivas.length > 0 ? `
+          <!-- Categorias -->
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">📊 Categorias com Mais Impulsos</h2>
+            ${categorias_impulsivas.map((cat, i) => {
+              const pct = totalImpulsivo > 0 ? Math.round((cat.total/totalImpulsivo)*100) : 0
+              return `
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                <div style="width:36px;height:36px;background:rgba(249,115,22,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;">
+                  ${cat.emoji||'📦'}
+                </div>
+                <div style="flex:1;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                    <span style="color:#f1f5f9;font-size:0.85rem;font-weight:600;">${cat.categoria}</span>
+                    <span style="color:#FB923C;font-size:0.85rem;font-weight:700;">R$ ${fmtBRL(cat.total)}</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#F97316,#EA580C);border-radius:4px;transition:width 0.5s;"></div>
+                  </div>
+                  <div style="color:#64748B;font-size:0.7rem;margin-top:3px;">${cat.qtd} compras • ${pct}% dos impulsos</div>
+                </div>
+              </div>`
+            }).join('')}
+          </div>` : ''}
+
+          ${compras_impulsivas.length > 0 ? `
+          <!-- Lista de Compras Impulsivas -->
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🛍️ Compras Impulsivas Identificadas</h2>
+            ${compras_impulsivas.slice(0,10).map(c => {
+              const scoreColor = c.impulsive_score >= 70 ? '#F43F5E' : c.impulsive_score >= 50 ? '#F97316' : '#FBBF24'
+              return `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <div style="flex:1;">
+                  <div style="color:#f1f5f9;font-size:0.88rem;font-weight:600;">${c.descricao}</div>
+                  <div style="color:#64748B;font-size:0.75rem;">${fmtDate(c.data)} • ${c.categoria||'Outros'}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="color:#FB923C;font-weight:700;">R$ ${fmtBRL(c.valor)}</div>
+                  <div style="font-size:0.7rem;color:${scoreColor};font-weight:600;">Score ${c.impulsive_score}% impulsivo</div>
+                </div>
+              </div>`
+            }).join('')}
+            ${compras_impulsivas.length > 10 ? `<div style="color:#64748B;font-size:0.78rem;text-align:center;margin-top:12px;">+${compras_impulsivas.length-10} compras adicionais</div>` : ''}
+          </div>` : `
+          <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;margin-bottom:20px;">
+            <div style="font-size:4rem;margin-bottom:16px;">🛍️</div>
+            <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma compra impulsiva identificada</h2>
+            <p style="color:#64748B;margin:0 0 20px;">Seus gastos estão bem controlados, ou clique em "Analisar" para uma análise atualizada.</p>
+          </div>`}
+
+          <!-- Dica personalizada -->
+          ${dica ? `
+          <div style="background:linear-gradient(135deg,rgba(249,115,22,0.08),rgba(234,88,12,0.05));border:1px solid rgba(249,115,22,0.2);border-radius:16px;padding:20px;margin-bottom:20px;">
+            <h3 style="color:#FB923C;font-size:0.9rem;font-weight:700;margin:0 0 8px;">💡 Dica Personalizada</h3>
+            <p style="color:#94A3B8;font-size:0.85rem;margin:0;line-height:1.6;">${dica}</p>
+          </div>` : ''}
+
+          <!-- Estratégias -->
+          <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(249,115,22,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;">
+            <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">🧠 Estratégias Anti-Impulso</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+              <div>
+                <h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">⏳ Regra das 48 Horas</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para compras acima de R$ 100, espere 48 horas. Se ainda quiser depois, provavelmente é necessário.</p>
+              </div>
+              <div>
+                <h4 style="color:#FED7AA;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📋 Lista de Desejos</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Crie uma lista e adicione itens que quiser. Após 30 dias, reavalie: ainda é uma prioridade?</p>
+              </div>
+              <div>
+                <h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">💰 Custo em Horas de Trabalho</h4>
+                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Calcule quantas horas de trabalho equivale ao produto. Isso muda sua perspectiva de valor.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    } catch (e) {
+      document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar análise: ${e.message}</p></div>`
+    }
+  },
+
+  async analisarComprasFantasma() {
+    const btn = document.getElementById('btn-analisar-compras')
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Analisando...' }
+    try {
+      const resp = await this.api('POST', 'compras-fantasma/analisar')
+      this.toast(resp.message || '✅ Análise concluída!', 'success')
+      this.pageComprasFantasma()
+    } catch (err) {
+      this.toast(err.message || 'Erro ao analisar', 'error')
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Analisar 3 Meses' }
+    }
+  },
+
   // v3.0 — REGRA 50/30/20
   // ═══════════════════════════════════════════════════════════════
   async pageRegra503020() {

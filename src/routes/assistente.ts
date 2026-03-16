@@ -144,7 +144,7 @@ async function buscarContexto(db: D1Database, userId: number) {
     // Lembretes próximos (30 dias)
     db.prepare(`SELECT COUNT(*) as cnt FROM lembretes WHERE user_id=? AND ativo=1 AND proximo_vencimento <= date('now', '+30 days')`).bind(userId).first() as Promise<any>,
     // Recorrências ativas
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as total_desp, COALESCE(SUM(CASE WHEN tipo='receita' THEN valor ELSE 0 END),0) as total_rec FROM recorrencias WHERE user_id=? AND ativo=1`).bind(userId).first() as Promise<any>,
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as total_desp, COALESCE(SUM(CASE WHEN tipo='receita' THEN valor ELSE 0 END),0) as total_rec FROM recorrencias WHERE user_id=? AND ativa=1`).bind(userId).first() as Promise<any>,
     // Orçamentos do mês
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite),0) as total_limite FROM orcamentos WHERE user_id=? AND mes=? AND ano=?`).bind(userId, mes, ano).first() as Promise<any>,
     // Score saúde (do dashboard)

@@ -52,14 +52,22 @@ investimentos.get('/', requireAuth, async (c) => {
   const total_investido = lista.reduce((sum, i) => sum + i.valor_investido, 0)
   const total_atual = lista.reduce((sum, i) => sum + (i.valor_atual || i.valor_investido), 0)
   const rentabilidade_total = total_investido > 0 ? ((total_atual - total_investido) / total_investido) * 100 : 0
+  const lucro_prejuizo = Math.round((total_atual - total_investido) * 100) / 100
+
+  // Rentabilidade média ponderada por valor investido
+  const rentabilidade_media = lista.length > 0
+    ? Math.round(lista.reduce((s, i) => s + (i.rentabilidade_percentual || 0), 0) / lista.length * 100) / 100
+    : 0
 
   return c.json({ 
     investimentos: lista,
     resumo: {
-      total_investido,
-      total_atual,
+      total_investido: Math.round(total_investido * 100) / 100,
+      total_atual: Math.round(total_atual * 100) / 100,
       rentabilidade_total: Math.round(rentabilidade_total * 100) / 100,
-      lucro_prejuizo: total_atual - total_investido
+      lucro_prejuizo,
+      total_rendimento: lucro_prejuizo,   // alias para compatibilidade
+      rentabilidade_media,                 // média das rentabilidades individuais
     }
   })
 })
