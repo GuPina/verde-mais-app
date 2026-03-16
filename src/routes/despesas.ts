@@ -126,15 +126,34 @@ despesas.post('/', requireAuth, async (c) => {
     let dataVenc: string | null = vencimento || null
 
     if (cartaoInfo) {
+      // ── Calcular período de faturamento (mesmo algoritmo de cartoes.ts) ──────
       const dDay = dataBase.getDate()
       let m = dataBase.getMonth() + 1
       let y = dataBase.getFullYear()
+      // Compra no fechamento ou após → próxima fatura
       if (dDay >= cartaoInfo.dia_fechamento) { m++; if (m > 12) { m = 1; y++ } }
       bMonth = m; bYear = y
-      const lastDay = new Date(y, m, 0).getDate()
+
+      // ── Calcular data de vencimento com regra bancária correta ───────────────
+      // Se dia_vencimento <= dia_fechamento, o vencimento cai no mês SEGUINTE
+      // ao período de faturamento (ex: fecha dia 25, vence dia 1 → vence no mês+1)
+      let vMonth = m
+      let vYear  = y
+      if (cartaoInfo.dia_vencimento <= cartaoInfo.dia_fechamento) {
+        vMonth++
+        if (vMonth > 12) { vMonth = 1; vYear++ }
+      }
+      const lastDay = new Date(vYear, vMonth, 0).getDate()
       const vDay = Math.min(cartaoInfo.dia_vencimento, lastDay)
-      dataVenc = `${y}-${String(m).padStart(2,'0')}-${String(vDay).padStart(2,'0')}`
+      dataVenc = `${vYear}-${String(vMonth).padStart(2,'0')}-${String(vDay).padStart(2,'0')}`
     }
+
+    // ── Campo 'data' da despesa ─────────────────────────────────────────────────
+    // Para cartão de crédito: usar dataVenc (data de vencimento da fatura)
+    //   → a tela de Despesas filtra por 'data', então a despesa precisa aparecer
+    //     no mês em que a fatura vence, não no mês em que a compra foi feita.
+    // Para outros meios: usar dataParcela (data real da compra/débito).
+    const dataParaGravar = (cartaoInfo && dataVenc) ? dataVenc : dataParcela
 
     const result = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor,
@@ -144,7 +163,7 @@ despesas.post('/', requireAuth, async (c) => {
     ).bind(
       user.id,
       totalParcelas > 1 ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao,
-      dataParcela, categoria, subcategoria || null, valorParcela,
+      dataParaGravar, categoria, subcategoria || null, valorParcela,
       parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
       fixa_ou_variavel, recorrente ? 1 : 0, dataVenc || null, observacoes || null,
       cartao_id ? parseInt(cartao_id) : null, meio_pagamento,
