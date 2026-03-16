@@ -745,4 +745,42 @@ ia.get('/analise360', requireAuth, async (c) => {
   return c.redirect('/api/ia/insights')
 })
 
+// ─── GET /api/ia/score-saude — score simplificado de saúde financeira ───────
+ia.get('/score-saude', requireAuth, async (c) => {
+  const user = c.get('user')
+  const uid = user.id
+  const now = new Date()
+  const mes = String(now.getMonth() + 1).padStart(2, '0')
+  const ano = String(now.getFullYear())
+
+  try {
+    const [recRow, despRow, reservaRow, dividaRow] = await Promise.all([
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total FROM reservas WHERE user_id=?`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+    ])
+
+    const receita = Number(recRow?.total || 0)
+    const despesa = Number(despRow?.total || 0)
+    const reserva = Number(reservaRow?.total || 0)
+    const divida  = Number(dividaRow?.total || 0)
+    const saldo   = receita - despesa
+
+    // Score simples 0-100
+    const sCF  = receita > 0 ? Math.min(30, Math.round((saldo / receita) * 100)) : 0
+    const sRes = receita > 0 ? Math.min(25, Math.round((reserva / (receita * 3)) * 25)) : 0
+    const sDiv = receita > 0 ? Math.max(0, 25 - Math.round((divida / receita) * 5)) : 25
+    const sBase = 20
+    const score = Math.min(100, Math.max(0, sBase + sCF + sRes + sDiv))
+
+    const status = score >= 80 ? 'EXCELENTE' : score >= 55 ? 'BOM' : score >= 35 ? 'ATENCAO' : 'CRITICO'
+    const veredicto = score >= 85 ? '🏆 Saúde Financeira Excelente' : score >= 70 ? '✅ Finanças Bem Organizadas' : score >= 55 ? '⚡ Momento de Construção' : score >= 35 ? '⚠️ Atenção Necessária' : '🚨 Situação Crítica'
+
+    return c.json({ score, status, veredicto, kpis: { receita, despesa, saldo, reserva, divida }, periodo: { mes, ano } })
+  } catch (e: any) {
+    return c.json({ score: 0, status: 'CRITICO', veredicto: '⚠️ Dados insuficientes', error: e.message }, 200)
+  }
+})
+
 export default ia

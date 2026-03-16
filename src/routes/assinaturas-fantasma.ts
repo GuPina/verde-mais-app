@@ -315,7 +315,15 @@ assinaturas.get('/', requireAuth, async (c) => {
   const totalMensal = detected.reduce((s, d) => s + (d.amount || 0), 0)
   const totalAnual = detected.reduce((s, d) => s + (d.yearly_cost || 0), 0)
 
-  return c.json({ detected, totalMensal, totalAnual })
+  return c.json({
+    detected,
+    totalMensal: Math.round(totalMensal * 100) / 100,
+    totalAnual: Math.round(totalAnual * 100) / 100,
+    // aliases pt-BR para compatibilidade
+    total_detectadas: detected.length,
+    total_mensal: Math.round(totalMensal * 100) / 100,
+    total_anual: Math.round(totalAnual * 100) / 100,
+  })
 })
 
 // ── PATCH /api/assinaturas-fantasma/:id/feedback ──────────────────────────

@@ -7,6 +7,35 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const reservasEsp = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// Mapa de tipos PT-BR para EN (compatibilidade com frontend)
+const TYPE_PTBR_MAP: Record<string, string> = {
+  // PT-BR
+  'viagem':        'travel',
+  'emergencia':    'emergency',
+  'emergência':    'emergency',
+  'saude':         'health',
+  'saúde':         'health',
+  'desemprego':    'unemployment',
+  'familia':       'family',
+  'família':       'family',
+  'educacao':      'education',
+  'educação':      'education',
+  'veiculo':       'vehicle',
+  'veículo':       'vehicle',
+  'evento':        'event',
+  'personalizado': 'custom',
+  // EN (passthrough)
+  'travel':        'travel',
+  'emergency':     'emergency',
+  'health':        'health',
+  'unemployment':  'unemployment',
+  'family':        'family',
+  'education':     'education',
+  'vehicle':       'vehicle',
+  'event':         'event',
+  'custom':        'custom',
+}
+
 // Tipos de reserva com configuração padrão
 const RESERVE_CONFIGS: Record<string, { icon: string; color: string; priority: number; months: number }> = {
   emergency:    { icon: '🚨', color: '#EF4444', priority: 1, months: 6 },
@@ -76,7 +105,8 @@ reservasEsp.post('/', requireAuth, async (c) => {
 
   const body = await c.req.json()
   // Aceitar campos em pt-BR OU en (retrocompatível)
-  const type = body.tipo || body.type || 'custom'
+  const rawType = body.tipo || body.type || 'custom'
+  const type = TYPE_PTBR_MAP[rawType.toLowerCase()] || 'custom'
   const name = body.nome || body.name
   const description = body.descricao || body.description
   const target_amount = body.meta_valor || body.valor_meta || body.target_amount
