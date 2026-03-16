@@ -27,14 +27,34 @@ function calcBillingPeriod(purchaseDateStr: string, closingDay: number) {
 }
 
 /**
- * Retorna a data de vencimento da fatura (dia_vencimento do cartão,
- * no mês da fatura calculado acima).
+ * Retorna a data de vencimento da fatura (dia_vencimento do cartão).
+ *
+ * Regra bancária: o vencimento ocorre APÓS o fechamento.
+ * • Se dueDay > closingDay  → vencimento no mesmo mês da fatura
+ *   Ex: fechamento 25, vencimento 28, ciclo março → vence 28/03
+ * • Se dueDay <= closingDay → vencimento no mês SEGUINTE ao da fatura
+ *   Ex: fechamento 25, vencimento 1,  ciclo março → vence 01/04
+ *   Ex: fechamento 25, vencimento 10, ciclo março → vence 10/04
+ *
+ * @param billingMonth   Mês da fatura (1-12) retornado por calcBillingPeriod
+ * @param billingYear    Ano da fatura retornado por calcBillingPeriod
+ * @param dueDay         Dia de vencimento configurado no cartão
+ * @param closingDay     Dia de fechamento configurado no cartão
  */
-function calcDueDate(billingMonth: number, billingYear: number, dueDay: number): string {
+function calcDueDate(billingMonth: number, billingYear: number, dueDay: number, closingDay: number): string {
+  let month = billingMonth
+  let year  = billingYear
+
+  // Vencimento <= fechamento → vence no mês seguinte ao da fatura
+  if (dueDay <= closingDay) {
+    month++
+    if (month > 12) { month = 1; year++ }
+  }
+
   // Cuidado: dueDay pode ser 31 em mês de 30 dias → usar último dia do mês
-  const lastDay = new Date(billingYear, billingMonth, 0).getDate()
+  const lastDay = new Date(year, month, 0).getDate()
   const day     = Math.min(dueDay, lastDay)
-  return `${billingYear}-${String(billingMonth).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`
 }
 
 /** Gera um UUID v4 simples compatível com Cloudflare Workers */
@@ -179,7 +199,7 @@ cartoes.get('/:id/fatura', requireAuth, async (c) => {
   const limite_disponivel = Math.max(0, cartao.limite_total - limite_utilizado)
 
   // Data de vencimento desta fatura
-  const data_vencimento = calcDueDate(mes, ano, cartao.dia_vencimento)
+  const data_vencimento = calcDueDate(mes, ano, cartao.dia_vencimento, cartao.dia_fechamento)
 
   // Status da fatura: futura / aberta / fechada / paga
   const hoje      = new Date()
@@ -241,8 +261,14 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
 
     // Período de faturamento calculado pelo fechamento do cartão
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const descParcela = nparcelas > 1 ? `${descricao} (${i}/${nparcelas})` : descricao
+
+    // CORREÇÃO: campo 'data' deve ser dataVenc (data de vencimento da fatura),
+    // não parcelaDateStr (data da compra). Isso garante que a despesa aparece
+    // no mês correto na tela de Despesas (que filtra por 'data').
+    // parcelaDateStr é preservado apenas no card_charges.data_compra.
+    const despesaData = dataVenc
 
     // 1. Criar despesa
     const dr = await c.env.DB.prepare(
@@ -251,7 +277,7 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 'variavel', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      user.id, descParcela, parcelaDateStr, categoria,
+      user.id, descParcela, despesaData, categoria,
       valorParcela, nparcelas > 1 ? 1 : 0, nparcelas, i,
       dataVenc, observacoes || null, parseInt(cardId), meio_pagamento,
       bMonth, bYear, groupId
@@ -327,10 +353,14 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
 
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc    = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+    const dataVenc    = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const isPaid      = i <= jaPagas
     const statusParcela = isPaid ? 'pago' : 'pendente'
     const descParcela = `${descricao} (${i}/${nparcelas})`
+
+    // CORREÇÃO: campo 'data' deve ser dataVenc (vencimento da fatura),
+    // para que a despesa apareça no mês correto na tela de Despesas.
+    const despesaDataRetro = dataVenc
 
     const dr = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado,
@@ -338,7 +368,7 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'variavel', ?, ?, ?, 'cartao_credito', ?, ?, ?)`
     ).bind(
-      user.id, descParcela, parcelaDateStr, categoria,
+      user.id, descParcela, despesaDataRetro, categoria,
       valorParcela, nparcelas, i, statusParcela,
       dataVenc,
       observacoes ? `[Retroativo] ${observacoes}` : '[Retroativo]',
@@ -641,7 +671,7 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const desc     = nparcelas > 1 ? `${descricao} (${i}/${nparcelas})` : descricao
 
     const dr = await c.env.DB.prepare(
@@ -699,7 +729,7 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc   = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+    const dataVenc   = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const isPaid     = i <= jaPagas
     const desc       = `${descricao} (${i}/${nparcelas})`
 
@@ -839,7 +869,7 @@ cartoes.post('/sincronizar-despesas', requireAuth, async (c) => {
         ).bind(bMonth, bYear, d.id).run()
       }
 
-      const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+      const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
       const groupId  = d.purchase_group_id || null
 
       await c.env.DB.prepare(`
@@ -875,7 +905,7 @@ cartoes.get('/:id/info', requireAuth, async (c) => {
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   const { month: bMonth, year: bYear } = calcBillingPeriod(dataCompra, cartao.dia_fechamento)
-  const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento)
+  const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
 
   return c.json({
     cartao_id: cartao.id,
