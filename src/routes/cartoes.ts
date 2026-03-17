@@ -111,7 +111,7 @@ cartoes.post('/', requireAuth, async (c) => {
       return c.json({ error: MSG_UPGRADE.cartoes, upgrade: true, limite: lim.cartoes }, 403)
   }
 
-  const { nome, bandeira: bandeiraBruta, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
+  const { nome, bandeira: bandeiraBruta, banco, apelido, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
   if (!nome || !bandeiraBruta || !banco || !limite_total || !dia_vencimento || !dia_fechamento)
     return c.json({ error: 'Campos obrigatórios: nome, bandeira, banco, limite_total, dia_vencimento, dia_fechamento' }, 400)
 
@@ -126,10 +126,10 @@ cartoes.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Limite inválido — deve ser um número maior que zero' }, 400)
 
   const r = await c.env.DB.prepare(
-    `INSERT INTO cartoes (user_id, nome, bandeira, banco, limite_total, limite_disponivel,
+    `INSERT INTO cartoes (user_id, nome, bandeira, banco, apelido, limite_total, limite_disponivel,
      dia_vencimento, dia_fechamento, cor, ultimos_digitos)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, nome, bandeira, banco,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, nome, bandeira, banco, apelido || null,
     limiteNum, limiteNum,
     parseInt(dia_vencimento), parseInt(dia_fechamento),
     cor || '#2FBF71', ultimos_digitos || null
@@ -148,7 +148,7 @@ cartoes.put('/:id', requireAuth, async (c) => {
   const ex   = await c.env.DB.prepare('SELECT id FROM cartoes WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  const { nome, bandeira: bandeiraBrutaEdit, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
+  const { nome, bandeira: bandeiraBrutaEdit, banco, apelido: apelidoEdit, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
 
   // C2: normalizar bandeira PUT também
   const bandeiraEdit = bandeiraBrutaEdit ? String(bandeiraBrutaEdit).toLowerCase() : undefined
@@ -157,10 +157,10 @@ cartoes.put('/:id', requireAuth, async (c) => {
     return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidasEdit.join(', ')}` }, 400)
 
   await c.env.DB.prepare(
-    `UPDATE cartoes SET nome=?, bandeira=?, banco=?, limite_total=?,
+    `UPDATE cartoes SET nome=?, bandeira=?, banco=?, apelido=?, limite_total=?,
      dia_vencimento=?, dia_fechamento=?, cor=?, ultimos_digitos=?
      WHERE id=? AND user_id=?`
-  ).bind(nome, bandeiraEdit || bandeiraBrutaEdit, banco, parseFloat(limite_total),
+  ).bind(nome, bandeiraEdit || bandeiraBrutaEdit, banco, apelidoEdit || null, parseFloat(limite_total),
     parseInt(dia_vencimento), parseInt(dia_fechamento),
     cor, ultimos_digitos || null, id, user.id
   ).run()
@@ -178,6 +178,141 @@ cartoes.delete('/:id', requireAuth, async (c) => {
   if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
   await c.env.DB.prepare('UPDATE cartoes SET ativo = 0 WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true, message: 'Cartão removido!' })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/fatura-resumo — dashboard: todas faturas do mês corrente
+// IMPORTANTE: deve ficar ANTES de /:id/* para não ser capturado pelo param
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/fatura-resumo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const now  = new Date()
+  const mes  = now.getMonth() + 1
+  const ano  = now.getFullYear()
+
+  const lista = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE user_id = ? AND ativo = 1'
+  ).bind(user.id).all()
+  const resumo = []
+
+  for (const cartao of lista.results as any[]) {
+    const fat = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total,
+              COALESCE(SUM(CASE WHEN status='pendente' THEN valor ELSE 0 END),0) as pendente
+       FROM card_charges WHERE card_id = ? AND billing_month = ? AND billing_year = ?`
+    ).bind(cartao.id, mes, ano).first() as any
+
+    const usoG = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
+       WHERE card_id = ? AND status = 'pendente'`
+    ).bind(cartao.id).first() as any
+
+    const limite_utilizado  = Number(usoG?.total || 0)
+    const limite_disponivel = Math.max(0, cartao.limite_total - limite_utilizado)
+
+    resumo.push({
+      ...cartao,
+      fatura_atual: Number(fat?.total || 0),
+      fatura_pendente: Number(fat?.pendente || 0),
+      limite_utilizado,
+      limite_disponivel
+    })
+  }
+  return c.json({ resumo })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/resumo-faturas — S-C2: resumo unificado com próximo vencimento
+// Retorna para cada cartão: fatura atual, pendente, próxima data de vencimento,
+// dias até o vencimento, dias até o fechamento e status de alerta de limite (S-C3)
+// IMPORTANTE: deve ficar ANTES de /:id/* para não ser capturado pelo param
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/resumo-faturas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const now  = new Date()
+  const hoje = now.toISOString().split('T')[0]
+  const mes  = now.getMonth() + 1
+  const ano  = now.getFullYear()
+
+  const lista = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY id ASC'
+  ).bind(user.id).all()
+
+  const resumo = []
+  let totalFaturasAbertas = 0
+  let totalFaturasPendentes = 0
+
+  for (const cartao of lista.results as any[]) {
+    // Determinar mês de fatura atual (baseado no dia de fechamento)
+    let mesFat = mes, anoFat = ano
+    if (now.getDate() >= cartao.dia_fechamento) {
+      mesFat++; if (mesFat > 12) { mesFat = 1; anoFat++ }
+    }
+
+    const fat = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total,
+              COALESCE(SUM(CASE WHEN status='pendente' THEN valor ELSE 0 END),0) as pendente,
+              COUNT(*) as qtd
+       FROM card_charges WHERE card_id = ? AND billing_month = ? AND billing_year = ?`
+    ).bind(cartao.id, mesFat, anoFat).first() as any
+
+    const usoG = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
+       WHERE card_id = ? AND status = 'pendente'`
+    ).bind(cartao.id).first() as any
+
+    const limite_utilizado  = Math.round(Number(usoG?.total || 0) * 100) / 100
+    const limite_disponivel = Math.round(Math.max(0, cartao.limite_total - limite_utilizado) * 100) / 100
+    const percentual_uso    = cartao.limite_total > 0 ? Math.round((limite_utilizado / cartao.limite_total) * 100) : 0
+
+    // S-C1: calcular próxima data de vencimento
+    const proxVencimento = calcDueDate(mesFat, anoFat, cartao.dia_vencimento, cartao.dia_fechamento)
+    const diffVenc = Math.ceil((new Date(proxVencimento + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24))
+
+    // Dias até o fechamento da fatura corrente
+    let dataFechamento = `${ano}-${String(mes).padStart(2,'0')}-${String(Math.min(cartao.dia_fechamento, 28)).padStart(2,'0')}`
+    const diffFech = Math.ceil((new Date(dataFechamento + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24))
+
+    // S-C3: alerta de limite
+    const alerta_limite = percentual_uso >= 90 ? 'critico' : percentual_uso >= 70 ? 'atencao' : 'ok'
+
+    const fatura_atual    = Math.round(Number(fat?.total    || 0) * 100) / 100
+    const fatura_pendente = Math.round(Number(fat?.pendente || 0) * 100) / 100
+
+    totalFaturasAbertas   += fatura_atual
+    totalFaturasPendentes += fatura_pendente
+
+    resumo.push({
+      id: cartao.id,
+      nome: cartao.nome,
+      apelido: cartao.apelido || null,
+      bandeira: cartao.bandeira,
+      banco: cartao.banco,
+      cor: cartao.cor,
+      limite_total: cartao.limite_total,
+      limite_utilizado,
+      limite_disponivel,
+      percentual_uso,
+      alerta_limite,
+      fatura_atual,
+      fatura_pendente,
+      fatura_mes: mesFat,
+      fatura_ano: anoFat,
+      prox_vencimento: proxVencimento,
+      dias_para_vencer: diffVenc,
+      dias_para_fechar: diffFech,
+      qtd_lancamentos: Number(fat?.qtd || 0)
+    })
+  }
+
+  return c.json({
+    resumo,
+    totais: {
+      total_faturas: Math.round(totalFaturasAbertas * 100) / 100,
+      total_pendente: Math.round(totalFaturasPendentes * 100) / 100,
+      qtd_cartoes: resumo.length
+    }
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -635,6 +770,133 @@ cartoes.get('/fatura-resumo', requireAuth, async (c) => {
     })
   }
   return c.json({ resumo })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/resumo-faturas — S-C2: resumo unificado com próximo vencimento
+// Retorna para cada cartão: fatura atual, pendente, próxima data de vencimento,
+// dias até o vencimento, dias até o fechamento e status de alerta de limite (S-C3)
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/resumo-faturas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const now  = new Date()
+  const hoje = now.toISOString().split('T')[0]
+  const mes  = now.getMonth() + 1
+  const ano  = now.getFullYear()
+
+  const lista = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY id ASC'
+  ).bind(user.id).all()
+
+  const resumo = []
+  let totalFaturasAbertas = 0
+  let totalFaturasPendentes = 0
+
+  for (const cartao of lista.results as any[]) {
+    // Determinar mês de fatura atual (baseado no dia de fechamento)
+    let mesFat = mes, anoFat = ano
+    if (now.getDate() >= cartao.dia_fechamento) {
+      mesFat++; if (mesFat > 12) { mesFat = 1; anoFat++ }
+    }
+
+    const fat = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total,
+              COALESCE(SUM(CASE WHEN status='pendente' THEN valor ELSE 0 END),0) as pendente,
+              COUNT(*) as qtd
+       FROM card_charges WHERE card_id = ? AND billing_month = ? AND billing_year = ?`
+    ).bind(cartao.id, mesFat, anoFat).first() as any
+
+    const usoG = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
+       WHERE card_id = ? AND status = 'pendente'`
+    ).bind(cartao.id).first() as any
+
+    const limite_utilizado  = Math.round(Number(usoG?.total || 0) * 100) / 100
+    const limite_disponivel = Math.round(Math.max(0, cartao.limite_total - limite_utilizado) * 100) / 100
+    const percentual_uso    = cartao.limite_total > 0 ? Math.round((limite_utilizado / cartao.limite_total) * 100) : 0
+
+    // S-C1: calcular próxima data de vencimento
+    const proxVencimento = calcDueDate(mesFat, anoFat, cartao.dia_vencimento, cartao.dia_fechamento)
+    const diffVenc = Math.ceil((new Date(proxVencimento + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24))
+
+    // Dias até o fechamento da fatura corrente
+    let dataFechamento = `${ano}-${String(mes).padStart(2,'0')}-${String(Math.min(cartao.dia_fechamento, 28)).padStart(2,'0')}`
+    const diffFech = Math.ceil((new Date(dataFechamento + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24))
+
+    // S-C3: alerta de limite
+    const alerta_limite = percentual_uso >= 90 ? 'critico' : percentual_uso >= 70 ? 'atencao' : 'ok'
+
+    const fatura_atual    = Math.round(Number(fat?.total    || 0) * 100) / 100
+    const fatura_pendente = Math.round(Number(fat?.pendente || 0) * 100) / 100
+
+    totalFaturasAbertas   += fatura_atual
+    totalFaturasPendentes += fatura_pendente
+
+    resumo.push({
+      id: cartao.id,
+      nome: cartao.nome,
+      apelido: cartao.apelido || null,
+      bandeira: cartao.bandeira,
+      banco: cartao.banco,
+      cor: cartao.cor,
+      limite_total: cartao.limite_total,
+      limite_utilizado,
+      limite_disponivel,
+      percentual_uso,
+      alerta_limite,
+      fatura_atual,
+      fatura_pendente,
+      fatura_mes: mesFat,
+      fatura_ano: anoFat,
+      prox_vencimento: proxVencimento,
+      dias_para_vencer: diffVenc,
+      dias_para_fechar: diffFech,
+      qtd_lancamentos: Number(fat?.qtd || 0)
+    })
+  }
+
+  return c.json({
+    resumo,
+    totais: {
+      total_faturas: Math.round(totalFaturasAbertas * 100) / 100,
+      total_pendente: Math.round(totalFaturasPendentes * 100) / 100,
+      qtd_cartoes: resumo.length
+    }
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/cartoes/:id/limite — S-C4: ajuste manual de limite disponível
+// Permite ao usuário sincronizar o limite disponível com o banco real
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.patch('/:id/limite', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(id, user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const { limite_disponivel, motivo } = await c.req.json()
+  const novoLimite = parseFloat(limite_disponivel)
+
+  if (isNaN(novoLimite) || novoLimite < 0)
+    return c.json({ error: 'Limite disponível inválido — deve ser um número >= 0' }, 400)
+  if (novoLimite > cartao.limite_total)
+    return c.json({ error: `Limite disponível não pode exceder o limite total (${cartao.limite_total})` }, 400)
+
+  await c.env.DB.prepare(
+    'UPDATE cartoes SET limite_disponivel = ? WHERE id = ? AND user_id = ?'
+  ).bind(novoLimite, id, user.id).run()
+
+  return c.json({
+    success: true,
+    message: 'Limite disponível atualizado!',
+    limite_disponivel: novoLimite,
+    limite_total: cartao.limite_total,
+    motivo: motivo || 'Ajuste manual'
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
