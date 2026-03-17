@@ -139,7 +139,8 @@ lembretes.post('/', requireAuth, async (c) => {
     frequencia = 'mensal',
     alertar_dias_antes = 3,
     notas = null,
-    tags = null
+    tags = null,
+    cor = null       // S-L8
   } = body
 
   if (!titulo) return c.json({ error: 'Título é obrigatório' }, 400)
@@ -159,15 +160,15 @@ lembretes.post('/', requireAuth, async (c) => {
   const proximo = calcProximoVencimento(parseInt(dia_vencimento) || 1, frequencia)
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO lembretes (user_id, titulo, descricao, tipo, valor_estimado, dia_vencimento, frequencia, proximo_vencimento, alertar_dias_antes, notas, tags)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO lembretes (user_id, titulo, descricao, tipo, valor_estimado, dia_vencimento, frequencia, proximo_vencimento, alertar_dias_antes, notas, tags, cor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     user.id, titulo, descricao || null, tipo,
     parseFloat(String(valor_estimado)) || 0,
     dia_vencimento ? parseInt(dia_vencimento) : null,
     frequencia, proximo,
     parseInt(alertar_dias_antes),
-    notas || null, tagsStr
+    notas || null, tagsStr, cor || null
   ).run()
 
   // Verificar conquista
@@ -188,7 +189,7 @@ lembretes.put('/:id', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Lembrete não encontrado' }, 404)
 
   const body = await c.req.json()
-  const { titulo, descricao, tipo, valor_estimado, dia_vencimento, frequencia, alertar_dias_antes, ativo, notas, tags } = body
+  const { titulo, descricao, tipo, valor_estimado, dia_vencimento, frequencia, alertar_dias_antes, ativo, notas, tags, cor } = body
 
   // Validar tipo se fornecido
   if (tipo !== undefined && !TIPOS_LEMBRETE.includes(tipo))
@@ -200,7 +201,7 @@ lembretes.put('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare(
     `UPDATE lembretes SET titulo=?, descricao=?, tipo=?, valor_estimado=?, dia_vencimento=?,
-     frequencia=?, alertar_dias_antes=?, ativo=?, notas=?, tags=? WHERE id=? AND user_id=?`
+     frequencia=?, alertar_dias_antes=?, ativo=?, notas=?, tags=?, cor=? WHERE id=? AND user_id=?`
   ).bind(
     titulo ?? existing.titulo,
     descricao !== undefined ? (descricao || null) : existing.descricao,
@@ -212,6 +213,7 @@ lembretes.put('/:id', requireAuth, async (c) => {
     ativo != null ? (ativo ? 1 : 0) : (existing.ativo ?? 1),
     notas !== undefined ? (notas || null) : existing.notas,
     tagsStr,
+    cor !== undefined ? (cor || null) : existing.cor,
     id, user.id
   ).run()
 
@@ -316,6 +318,151 @@ lembretes.post('/:id/converter-despesa', requireAuth, async (c) => {
     success: true,
     despesa_id: result.meta.last_row_id,
     message: 'Lembrete convertido em despesa com sucesso!'
+  }, 201)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S-L4: GET /api/lembretes/urgentes
+// ─────────────────────────────────────────────────────────────────────────────
+lembretes.get('/urgentes', requireAuth, async (c) => {
+  const user = c.get('user')
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM lembretes WHERE user_id = ? AND ativo = 1 AND status_mes = ? ORDER BY dia_vencimento ASC'
+  ).bind(user.id, 'aguardando').all()
+
+  const hoje = new Date()
+  const urgentes = (result.results as any[]).map(l => {
+    let diasParaVencer = null
+    if (l.dia_vencimento) {
+      const dv = new Date(hoje.getFullYear(), hoje.getMonth(), l.dia_vencimento)
+      if (dv < hoje) dv.setMonth(dv.getMonth() + 1)
+      diasParaVencer = Math.ceil((dv.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+    }
+    return { ...l, dias_para_vencer: diasParaVencer, urgente: diasParaVencer !== null && diasParaVencer <= (l.alertar_dias_antes || 3) }
+  }).filter(l => l.urgente)
+
+  return c.json({ urgentes, total: urgentes.length })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S-L5: PATCH /api/lembretes/:id/snooze — adiar vencimento por N dias
+// ─────────────────────────────────────────────────────────────────────────────
+lembretes.patch('/:id/snooze', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const dias = parseInt((body as any).dias || '1')
+
+  if (isNaN(dias) || dias < 1 || dias > 30)
+    return c.json({ error: 'dias deve ser entre 1 e 30' }, 400)
+
+  const lembrete = await c.env.DB.prepare(
+    'SELECT * FROM lembretes WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!lembrete) return c.json({ error: 'Lembrete não encontrado' }, 404)
+
+  const base = lembrete.proximo_vencimento
+    ? new Date(lembrete.proximo_vencimento + 'T00:00:00')
+    : new Date()
+  base.setDate(base.getDate() + dias)
+  const novaData = base.toISOString().split('T')[0]
+
+  await c.env.DB.prepare(
+    'UPDATE lembretes SET proximo_vencimento = ?, status_mes = ? WHERE id = ? AND user_id = ?'
+  ).bind(novaData, 'aguardando', id, user.id).run()
+
+  return c.json({
+    success: true,
+    proximo_vencimento: novaData,
+    message: `Lembrete adiado ${dias} dia(s). Novo vencimento: ${novaData}`
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S-L6: GET /api/lembretes/calendario?mes=3&ano=2026
+// ─────────────────────────────────────────────────────────────────────────────
+lembretes.get('/calendario', requireAuth, async (c) => {
+  const user = c.get('user')
+  const mes  = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
+  const ano  = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
+
+  const todos = await c.env.DB.prepare(
+    'SELECT * FROM lembretes WHERE user_id = ? AND ativo = 1 ORDER BY dia_vencimento ASC'
+  ).bind(user.id).all()
+
+  const hoje = new Date()
+  const eventos = (todos.results as any[]).flatMap(l => {
+    if (!l.dia_vencimento) return []
+    const lastDay = new Date(ano, mes, 0).getDate()
+    const dia = Math.min(l.dia_vencimento, lastDay)
+    const data = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`
+    const dv   = new Date(data + 'T00:00:00')
+    const diff = Math.ceil((dv.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+    return [{
+      id: l.id, titulo: l.titulo, tipo: l.tipo,
+      valor_estimado: Number(l.valor_estimado || 0),
+      data, dia, status_mes: l.status_mes,
+      cor: l.cor || '#2FBF71',
+      urgente: diff <= (l.alertar_dias_antes || 3) && l.status_mes === 'aguardando'
+    }]
+  })
+
+  const totalValor = eventos.reduce((s, e) => s + e.valor_estimado, 0)
+  return c.json({ mes, ano, eventos, total_eventos: eventos.length, total_valor_estimado: Math.round(totalValor * 100) / 100 })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S-L7: POST /api/lembretes/bulk — criar múltiplos lembretes
+// ─────────────────────────────────────────────────────────────────────────────
+lembretes.post('/bulk', requireAuth, async (c) => {
+  const user = c.get('user')
+  const lim  = getLimites(user.plano)
+  const body = await c.req.json() as any
+
+  if (!Array.isArray(body.lembretes) || body.lembretes.length === 0)
+    return c.json({ error: 'Envie um array lembretes com ao menos 1 item' }, 400)
+  if (body.lembretes.length > 20)
+    return c.json({ error: 'Máximo de 20 lembretes por chamada' }, 400)
+
+  if (lim.lembretes !== Infinity) {
+    const countRow = await c.env.DB.prepare('SELECT COUNT(*) as n FROM lembretes WHERE user_id = ? AND ativo = 1').bind(user.id).first() as any
+    const atual = Number(countRow?.n || 0)
+    if (atual + body.lembretes.length > lim.lembretes)
+      return c.json({ error: `Limite do plano: ${lim.lembretes} lembretes ativos. Atualmente: ${atual}`, upgrade: true }, 403)
+  }
+
+  const criados: number[] = []
+  const erros: { index: number; error: string }[] = []
+
+  for (let i = 0; i < body.lembretes.length; i++) {
+    const item = body.lembretes[i]
+    if (!item.titulo) { erros.push({ index: i, error: 'titulo obrigatório' }); continue }
+    const tipo       = item.tipo || 'conta'
+    const frequencia = item.frequencia || 'mensal'
+    if (!TIPOS_LEMBRETE.includes(tipo))      { erros.push({ index: i, error: `tipo inválido: ${tipo}` }); continue }
+    if (!FREQUENCIAS_VALIDAS.includes(frequencia)) { erros.push({ index: i, error: `frequencia inválida: ${frequencia}` }); continue }
+
+    const tagsStr = Array.isArray(item.tags) ? JSON.stringify(item.tags) : (item.tags || null)
+    const proximo = calcProximoVencimento(parseInt(item.dia_vencimento) || 1, frequencia)
+
+    const r = await c.env.DB.prepare(
+      `INSERT INTO lembretes (user_id, titulo, descricao, tipo, valor_estimado, dia_vencimento,
+       frequencia, proximo_vencimento, alertar_dias_antes, notas, tags, cor)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      user.id, item.titulo, item.descricao || null, tipo,
+      parseFloat(String(item.valor_estimado || 0)) || 0,
+      item.dia_vencimento ? parseInt(item.dia_vencimento) : null,
+      frequencia, proximo, parseInt(item.alertar_dias_antes || 3),
+      item.notas || null, tagsStr, item.cor || null
+    ).run()
+    criados.push(r.meta.last_row_id as number)
+  }
+
+  return c.json({
+    success: true, criados: criados.length, ids: criados,
+    erros: erros.length > 0 ? erros : undefined,
+    message: `${criados.length} lembrete(s) criado(s)${erros.length > 0 ? `, ${erros.length} com erro` : ''}`
   }, 201)
 })
 
