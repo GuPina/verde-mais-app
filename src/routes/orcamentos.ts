@@ -14,10 +14,10 @@ const CATEGORIAS = [
 ]
 
 const CATEGORIAS_LABEL: Record<string, string> = {
-  alimentacao: 'Alimentacao', moradia: 'Moradia',
-  transporte: 'Transporte', saude: 'Saude',
-  educacao: 'Educacao', lazer: 'Lazer',
-  vestuario: 'Vestuario', beleza: 'Beleza',
+  alimentacao: 'Alimentação', moradia: 'Moradia',
+  transporte: 'Transporte', saude: 'Saúde',
+  educacao: 'Educação', lazer: 'Lazer',
+  vestuario: 'Vestuário', beleza: 'Beleza',
   pets: 'Pets', assinaturas: 'Assinaturas',
   tecnologia: 'Tecnologia', viagem: 'Viagens',
   outros: 'Outros', fixo: 'Gastos Fixos',
@@ -135,7 +135,8 @@ orcamentos.post('/', requireAuth, async (c) => {
 
   const { categoria: categoriaRaw, mes, ano, limite, alerta_percentual = 80 } = await c.req.json()
 
-  if (!categoriaRaw || !mes || !ano || !limite)
+  // BUG O1 (fix): usar verificação explícita para não capturar limite=0 como "campo ausente"
+  if (!categoriaRaw || !mes || !ano || limite === undefined || limite === null || limite === '')
     return c.json({ error: 'Campos obrigatórios: categoria, mes, ano, limite' }, 400)
 
   // Normalizar categoria (aceita acentuado ou capitalizado)
@@ -143,15 +144,20 @@ orcamentos.post('/', requireAuth, async (c) => {
 
   if (!CATEGORIAS.includes(categoria))
     return c.json({ error: `Categoria inválida. Aceitas: ${CATEGORIAS.join(', ')}` }, 400)
+  // BUG O1: validar limite > 0 com mensagem específica (antes era capturado como falsy)
   if (Number(limite) <= 0)
     return c.json({ error: 'Limite deve ser maior que zero' }, 400)
+  // BUG O3: validar alerta_percentual no range 50-100 antes do INSERT para evitar CHECK constraint do DB
+  const alertaNum = Number(alerta_percentual)
+  if (isNaN(alertaNum) || alertaNum < 50 || alertaNum > 100)
+    return c.json({ error: 'alerta_percentual deve ser entre 50 e 100' }, 400)
 
   await c.env.DB.prepare(
     `INSERT INTO orcamentos (user_id, categoria, mes, ano, limite, alerta_percentual, updated_at) ` +
     `VALUES (?, ?, ?, ?, ?, ?, datetime('now')) ` +
     `ON CONFLICT(user_id, categoria, mes, ano) ` +
     `DO UPDATE SET limite = excluded.limite, alerta_percentual = excluded.alerta_percentual, updated_at = datetime('now')`
-  ).bind(user.id, categoria, mes, ano, limite, alerta_percentual).run()
+  ).bind(user.id, categoria, mes, ano, limite, alertaNum).run()
 
   const orc = await c.env.DB.prepare(
     'SELECT * FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?'

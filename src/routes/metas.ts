@@ -152,7 +152,11 @@ metas.put('/:id', requireAuth, async (c) => {
   const novaCategoria     = categoria     ?? metaAtual.categoria
   const novaCor           = cor           ?? metaAtual.cor
   const novoIcone         = icone         ?? metaAtual.icone
-  const novoStatus        = status        ?? metaAtual.status ?? 'ativa'
+  // BUG M3: validar enum de status antes do UPDATE para evitar 500 por CHECK constraint
+  const STATUS_VALIDOS = ['ativa', 'concluida', 'cancelada']
+  const novoStatus = status ?? metaAtual.status ?? 'ativa'
+  if (!STATUS_VALIDOS.includes(novoStatus))
+    return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
 
   await c.env.DB.prepare(
     'UPDATE metas SET nome = ?, descricao = ?, valor_objetivo = ?, valor_atual = ?, data_meta = ?, categoria = ?, cor = ?, icone = ?, status = ? WHERE id = ? AND user_id = ?'
@@ -167,10 +171,15 @@ metas.patch('/:id/deposito', requireAuth, async (c) => {
   const id = c.req.param('id')
   const { valor } = await c.req.json()
 
+  // BUG M1: validar valor positivo antes de qualquer operação
+  const valorNum = parseFloat(valor)
+  if (isNaN(valorNum) || valorNum <= 0)
+    return c.json({ error: 'O valor do depósito deve ser maior que zero' }, 400)
+
   const meta = await c.env.DB.prepare('SELECT * FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!meta) return c.json({ error: 'Meta não encontrada' }, 404)
 
-  const novoValor = meta.valor_atual + parseFloat(valor)
+  const novoValor = meta.valor_atual + valorNum
   const status = novoValor >= meta.valor_objetivo ? 'concluida' : 'ativa'
 
   await c.env.DB.prepare(
@@ -179,9 +188,9 @@ metas.patch('/:id/deposito', requireAuth, async (c) => {
 
   return c.json({ 
     success: true, 
-    novo_valor: novoValor,
+    novo_valor: Math.round(novoValor * 100) / 100,
     status,
-    message: status === 'concluida' ? '🎉 Parabéns! Meta concluída!' : `R$ ${valor} adicionado à meta!`
+    message: status === 'concluida' ? '🎉 Parabéns! Meta concluída!' : `R$ ${valorNum.toFixed(2)} adicionado à meta!`
   })
 })
 
