@@ -2345,8 +2345,10 @@ const VM = {
     
     try {
       const data = await this.api('GET', `despesas?mes=${mes}&ano=${ano}${status ? '&status=' + status : ''}`)
-      const pago = data.despesas.filter(d => d.status === 'pago').reduce((s, d) => s + d.valor, 0)
-      const pendente = data.despesas.filter(d => d.status === 'pendente').reduce((s, d) => s + d.valor, 0)
+      // M-D1: usar totais reais do backend (sem depender do limit/offset da página)
+      const pago     = data.total_pago     ?? data.despesas.filter(d => d.status === 'pago').reduce((s, d) => s + d.valor, 0)
+      const pendente = data.total_pendente ?? data.despesas.filter(d => d.status === 'pendente').reduce((s, d) => s + d.valor, 0)
+      const totalCount = data.total_count ?? data.count
 
       const statsEl = document.getElementById('despesas-stats')
       if (statsEl) {
@@ -2355,7 +2357,7 @@ const VM = {
             <div><div style="color:#888;font-size:0.8rem;">Total</div><div style="font-size:1.4rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(data.total)}</div></div>
             <div><div style="color:#888;font-size:0.8rem;">Pago</div><div style="font-size:1.4rem;font-weight:800;color:#2FBF71;">${this.formatMoney(pago)}</div></div>
             <div><div style="color:#888;font-size:0.8rem;">Pendente</div><div style="font-size:1.4rem;font-weight:800;color:#ffc400;">${this.formatMoney(pendente)}</div></div>
-            <div><div style="color:#888;font-size:0.8rem;">Qtd</div><div style="font-size:1.4rem;font-weight:800;">${data.count}</div></div>
+            <div><div style="color:#888;font-size:0.8rem;">Qtd</div><div style="font-size:1.4rem;font-weight:800;">${totalCount}</div></div>
           </div>
         `
       }

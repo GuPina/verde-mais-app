@@ -38,19 +38,36 @@ despesas.get('/', requireAuth, async (c) => {
 
   const result = await c.env.DB.prepare(query).bind(...params).all()
 
-  // Total do período
-  let totalQuery = 'SELECT COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM despesas WHERE user_id = ?'
-  const totalParams: any[] = [user.id]
+  // M-D1+B9: total separado por status, respeitando todos os filtros ativos
+  let baseFilter = 'FROM despesas WHERE user_id = ?'
+  const baseParams: any[] = [user.id]
   if (mes && ano) {
-    totalQuery += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    totalParams.push(mes.padStart(2, '0'), ano)
+    baseFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
+    baseParams.push(mes.padStart(2, '0'), ano)
+  } else if (ano) {
+    baseFilter += ' AND strftime("%Y", data) = ?'
+    baseParams.push(ano)
   }
-  const total = await c.env.DB.prepare(totalQuery).bind(...totalParams).first() as any
+  if (categoria) { baseFilter += ' AND categoria = ?'; baseParams.push(categoria) }
+
+  const [totPago, totPendente, totGeral] = await c.env.DB.batch([
+    c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pago'`).bind(...baseParams),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pendente'`).bind(...baseParams),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter}`).bind(...baseParams),
+  ])
+  const rPago     = (totPago.results?.[0]     as any) || { v: 0, n: 0 }
+  const rPendente = (totPendente.results?.[0]  as any) || { v: 0, n: 0 }
+  const rGeral    = (totGeral.results?.[0]     as any) || { v: 0, n: 0 }
 
   return c.json({ 
     despesas: result.results, 
-    total: total?.total || 0,
-    count: result.results.length 
+    total:          rGeral.v,
+    count:          result.results.length,
+    total_count:    rGeral.n,       // M-D4: contagem real sem limit/offset
+    total_pago:     rPago.v,
+    count_pago:     rPago.n,
+    total_pendente: rPendente.v,
+    count_pendente: rPendente.n,
   })
 })
 
@@ -81,8 +98,13 @@ despesas.post('/', requireAuth, async (c) => {
     parcelas_total_original = null
   } = body
 
-  if (!descricao || !data || !categoria || !valor) {
+  if (!descricao || !data || !categoria || valor === undefined || valor === null) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
+  }
+  // M-D3: rejeitar valor negativo ou zero
+  const valorNum = parseFloat(valor)
+  if (isNaN(valorNum) || valorNum <= 0) {
+    return c.json({ error: 'Valor inválido — deve ser um número maior que zero' }, 400)
   }
 
   // ── Normalizar meio_pagamento: mapear aliases do frontend para valores canônicos ──
@@ -230,9 +252,23 @@ despesas.put('/:id', requireAuth, async (c) => {
 
   const { descricao, data, categoria, subcategoria, valor, status, fixa_ou_variavel, vencimento, observacoes } = body
 
+  // B7: validar campos obrigatórios e valor
+  if (!descricao || !data || !categoria || valor === undefined) {
+    return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
+  }
+  const valorEditNum = parseFloat(valor)
+  if (isNaN(valorEditNum) || valorEditNum <= 0) {
+    return c.json({ error: 'Valor inválido — deve ser um número maior que zero' }, 400)
+  }
+  // B8/M-D2: validar enum de status
+  const statusValidos = ['pago', 'pendente', 'cancelado']
+  if (status && !statusValidos.includes(status)) {
+    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
+  }
+
   await c.env.DB.prepare(
     'UPDATE despesas SET descricao = ?, data = ?, categoria = ?, subcategoria = ?, valor = ?, status = ?, fixa_ou_variavel = ?, vencimento = ?, observacoes = ? WHERE id = ? AND user_id = ?'
-  ).bind(descricao, data, categoria, subcategoria || null, parseFloat(valor), status, fixa_ou_variavel, vencimento || null, observacoes || null, id, user.id).run()
+  ).bind(descricao, data, categoria, subcategoria || null, valorEditNum, status, fixa_ou_variavel, vencimento || null, observacoes || null, id, user.id).run()
 
   return c.json({ success: true, message: 'Despesa atualizada!' })
 })
@@ -242,6 +278,12 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
   const { status } = await c.req.json()
+
+  // B8/M-D2: validar enum de status antes de qualquer query
+  const statusValidos = ['pago', 'pendente', 'cancelado']
+  if (!status || !statusValidos.includes(status)) {
+    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
+  }
 
   const existing = await c.env.DB.prepare(
     'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
