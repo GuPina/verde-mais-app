@@ -764,7 +764,14 @@ ia.get('/score-saude', requireAuth, async (c) => {
     const [recRow, despRow, reservaRow, dividaRow] = await Promise.all([
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total FROM reservas WHERE user_id=?`).bind(uid).first() as any,
+      // Soma reserva_emergencia (legada) + specialized_reserves
+      c.env.DB.prepare(`
+        SELECT COALESCE(
+          (SELECT SUM(valor_atual) FROM reserva_emergencia WHERE user_id=?),0
+        ) + COALESCE(
+          (SELECT SUM(current_amount) FROM specialized_reserves WHERE user_id=? AND status!='cancelled'),0
+        ) as total
+      `).bind(uid, uid).first() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
     ])
 

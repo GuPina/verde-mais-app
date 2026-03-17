@@ -136,11 +136,27 @@ metas.put('/:id', requireAuth, async (c) => {
   const existing = await c.env.DB.prepare('SELECT id FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Meta não encontrada' }, 404)
 
-  const { nome, descricao, valor_objetivo, valor_atual, data_meta, categoria, cor, icone, status } = body
+  const {
+    nome, descricao, valor_objetivo, valor_atual,
+    data_meta, categoria, cor, icone, status
+  } = body
+
+  // Buscar meta atual para usar como fallback nos campos não enviados
+  const metaAtual = await c.env.DB.prepare('SELECT * FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+
+  const novoNome          = nome          ?? metaAtual.nome
+  const novoDescricao     = descricao     !== undefined ? (descricao || null) : metaAtual.descricao
+  const novoValorObj      = valor_objetivo !== undefined ? parseFloat(valor_objetivo) : metaAtual.valor_objetivo
+  const novoValorAtual    = valor_atual    !== undefined ? parseFloat(valor_atual)    : metaAtual.valor_atual
+  const novaDataMeta      = data_meta     ?? metaAtual.data_meta
+  const novaCategoria     = categoria     ?? metaAtual.categoria
+  const novaCor           = cor           ?? metaAtual.cor
+  const novoIcone         = icone         ?? metaAtual.icone
+  const novoStatus        = status        ?? metaAtual.status ?? 'ativa'
 
   await c.env.DB.prepare(
     'UPDATE metas SET nome = ?, descricao = ?, valor_objetivo = ?, valor_atual = ?, data_meta = ?, categoria = ?, cor = ?, icone = ?, status = ? WHERE id = ? AND user_id = ?'
-  ).bind(nome, descricao || null, parseFloat(valor_objetivo), parseFloat(valor_atual), data_meta, categoria, cor, icone, status || 'ativa', id, user.id).run()
+  ).bind(novoNome, novoDescricao, novoValorObj, novoValorAtual, novaDataMeta, novaCategoria, novaCor, novoIcone, novoStatus, id, user.id).run()
 
   return c.json({ success: true, message: 'Meta atualizada!' })
 })

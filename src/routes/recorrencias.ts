@@ -104,10 +104,23 @@ recorrencias.put('/:id', requireAuth, async (c) => {
   ).bind(id, user.id).first()
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
-  const { descricao, valor, categoria, dia_vencimento, meio_pagamento,
-          data_fim, valor_variavel } = await c.req.json()
+  const body2 = await c.req.json()
+  const { valor, meio_pagamento, data_fim, valor_variavel } = body2
 
-  const valorSalvo = (valor_variavel) ? (Number(valor) || 0) : Number(valor)
+  // Buscar recorrência atual para fallback de campos opcionais
+  const recAtual = await c.env.DB.prepare(
+    `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+
+  const descricao      = body2.descricao     ?? recAtual.descricao
+  const categoria      = body2.categoria     ?? recAtual.categoria
+  const dia_vencimento = body2.dia_vencimento !== undefined ? body2.dia_vencimento : recAtual.dia_vencimento
+
+  const vv         = valor_variavel !== undefined ? valor_variavel : (recAtual.valor_variavel === 1)
+  const valorFinal = valor !== undefined ? Number(valor) : recAtual.valor
+  const valorSalvo = vv ? (valorFinal || 0) : valorFinal
+  const mpFinal    = meio_pagamento  ?? recAtual.meio_pagamento ?? 'outros'
+  const dfFinal    = data_fim        !== undefined ? data_fim : recAtual.data_fim
 
   await c.env.DB.prepare(
     `UPDATE recorrencias
@@ -115,7 +128,7 @@ recorrencias.put('/:id', requireAuth, async (c) => {
          meio_pagamento=?, data_fim=?, valor_variavel=?
      WHERE id = ? AND user_id = ?`
   ).bind(descricao, valorSalvo, categoria, dia_vencimento,
-         meio_pagamento, data_fim, valor_variavel ? 1 : 0, id, user.id).run()
+         mpFinal, dfFinal, vv ? 1 : 0, id, user.id).run()
 
   return c.json({ success: true })
 })

@@ -836,9 +836,11 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 cartoes.post('/sincronizar-despesas', requireAuth, async (c) => {
   const user = c.get('user')
 
-  // Buscar despesas de cartão que NÃO têm card_charge associado
+  // Buscar despesas de cartão do usuário que NÃO têm card_charge associado
+  // SEGURANÇA: garante que o cartao_id também pertence ao mesmo usuário
   const orfas = await c.env.DB.prepare(`
     SELECT d.* FROM despesas d
+    INNER JOIN cartoes ca ON ca.id = d.cartao_id AND ca.user_id = d.user_id
     LEFT JOIN card_charges cc ON cc.expense_id = d.id
     WHERE d.user_id = ? 
       AND d.cartao_id IS NOT NULL
@@ -851,11 +853,17 @@ cartoes.post('/sincronizar-despesas', requireAuth, async (c) => {
   let sincronizadas = 0
   for (const d of (orfas.results as any[])) {
     try {
-      // Buscar cartão para calcular billing
+      // Buscar cartão — OBRIGATÓRIO pertencer ao usuário
       const cartao = await c.env.DB.prepare(
-        'SELECT * FROM cartoes WHERE id = ?'
-      ).bind(d.cartao_id).first() as any
+        'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+      ).bind(d.cartao_id, user.id).first() as any
       if (!cartao) continue
+
+      // Verificar novamente se já existe charge (evita race condition)
+      const jaExiste = await c.env.DB.prepare(
+        'SELECT id FROM card_charges WHERE expense_id = ?'
+      ).bind(d.id).first()
+      if (jaExiste) continue
 
       // Calcular billing se não tiver
       let bMonth = d.billing_month
@@ -865,15 +873,15 @@ cartoes.post('/sincronizar-despesas', requireAuth, async (c) => {
         bMonth = month; bYear = year
         // Atualizar despesa com billing_month/year
         await c.env.DB.prepare(
-          'UPDATE despesas SET billing_month=?, billing_year=? WHERE id=?'
-        ).bind(bMonth, bYear, d.id).run()
+          'UPDATE despesas SET billing_month=?, billing_year=? WHERE id=? AND user_id=?'
+        ).bind(bMonth, bYear, d.id, user.id).run()
       }
 
       const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
       const groupId  = d.purchase_group_id || null
 
       await c.env.DB.prepare(`
-        INSERT OR IGNORE INTO card_charges
+        INSERT INTO card_charges
           (card_id, expense_id, descricao, valor, data_compra, data_vencimento,
            billing_month, billing_year, parcela_atual, total_parcelas,
            purchase_group_id, status)

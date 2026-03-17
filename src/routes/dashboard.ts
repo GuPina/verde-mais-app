@@ -14,174 +14,151 @@ dashboard.get('/', requireAuth, async (c) => {
   const mes = String(now.getMonth() + 1).padStart(2, '0')
   const ano = String(now.getFullYear())
 
-  // Receitas do mês — usa data de recebimento
-  const receitasMes = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor), 0) as total FROM receitas 
-     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-  ).bind(user.id, mes, ano).first() as any
-
-  // Despesas do mês — critério temporal consistente:
-  //   pago   → usa data (data em que foi paga)
-  //   pendente/outro → usa COALESCE(vencimento, data) (vencimento se existir, senão data)
-  // BUG 1.1 FIX: excluir aportes (tipo='aporte') do total de despesas
-  const despesasMes = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ?
-       AND COALESCE(tipo,'normal') != 'aporte'
-       AND COALESCE(eh_aporte_patrimonial, 0) = 0
-       AND CASE WHEN status = 'pago'
-                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
-           END`
-  ).bind(user.id, mes, ano, mes, ano).first() as any
-
-  // Despesas pagas vs pendentes (mesmo critério temporal) — sem aportes
-  const despesasStatus = await c.env.DB.prepare(
-    `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ?
-       AND COALESCE(tipo,'normal') != 'aporte'
-       AND COALESCE(eh_aporte_patrimonial, 0) = 0
-       AND CASE WHEN status = 'pago'
-                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
-           END
-     GROUP BY status`
-  ).bind(user.id, mes, ano, mes, ano).all()
-
-  // Total investimentos
-  const totalInvestimentos = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor_atual), 0) as total, COALESCE(SUM(valor_investido), 0) as investido FROM investimentos WHERE user_id = ?`
-  ).bind(user.id).first() as any
-
-  // Metas ativas
-  const metasAtivas = await c.env.DB.prepare(
-    `SELECT COUNT(*) as count, COALESCE(SUM(valor_objetivo), 0) as objetivo_total, 
-     COALESCE(SUM(valor_atual), 0) as atual_total FROM metas WHERE user_id = ? AND status = 'ativa'`
-  ).bind(user.id).first() as any
-
-  // === NOVO: Empréstimos ativos ===
-  const emprestimosAtivos = await c.env.DB.prepare(
-    `SELECT 
-       COUNT(*) as count,
-       COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
-       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
-       COALESCE(SUM(valor_original), 0) as total_valor_original
-     FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
-  ).bind(user.id).first() as any
-
-  // === NOVO: Financiamentos ativos ===
-  const financiamentosAtivos = await c.env.DB.prepare(
-    `SELECT 
-       COUNT(*) as count,
-       COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
-       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
-       COALESCE(SUM(valor_financiado), 0) as total_valor_financiado
-     FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
-  ).bind(user.id).first() as any
-
-  // === 2.1: Patrimônio Bruto / Líquido ===
-  // Patrimônio Bruto = investimentos + reservas especializadas + saldo bancário estimado (saldo acumulado)
-  // Patrimônio Líquido = Bruto - total dívidas (empréstimos + financiamentos)
-  const reservasEspTotal = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(current_amount), 0) as total FROM specialized_reserves WHERE user_id = ? AND status IN ('active','completed')`
-  ).bind(user.id).first() as any
-
-  const reservaLegadoTotal = await c.env.DB.prepare(
-    `SELECT COALESCE(valor_atual, 0) as total FROM reserva_emergencia WHERE user_id = ? ORDER BY id DESC LIMIT 1`
-  ).bind(user.id).first() as any
-
-  // Assinaturas fantasma detectadas (alertas ativos)
-  const assinaturasAlerta = await c.env.DB.prepare(
-    `SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total_mensal
-     FROM detected_subscriptions WHERE user_id = ? AND user_feedback IS NULL`
-  ).bind(user.id).first() as any
-
-  // Desafio 52 semanas — progresso do ano atual
-  const desafioProgresso = await c.env.DB.prepare(
-    `SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as concluidas,
-     SUM(CASE WHEN status='completed' THEN week_number ELSE 0 END) as valor_acumulado
-     FROM weekly_challenges WHERE user_id = ? AND year = ?`
-  ).bind(user.id, ano).first() as any
-
-  // === NOVO: Fatura de cartão do mês corrente (pendentes) ===
-  // Soma card_charges com billing_month/billing_year igual ao mês atual e status pendente
-  const faturaCartoesMes = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(cc.valor), 0) as total
-     FROM card_charges cc
-     JOIN cartoes c ON cc.card_id = c.id
-     WHERE c.user_id = ?
-       AND cc.billing_month = ?
-       AND cc.billing_year = ?
-       AND cc.status = 'pendente'`
-  ).bind(user.id, parseInt(mes), parseInt(ano)).first() as any
-
-  // Evolução dos últimos 6 meses
-  const evolucao = []
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date()
-    d.setMonth(d.getMonth() - i)
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const a = String(d.getFullYear())
-
-    const rec = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, m, a).first() as any
-
-    const desp = await c.env.DB.prepare(
+  // ── M2: batch das queries principais (1 round-trip ao D1) ──────────────────
+  const [
+    receitasMesR,
+    despesasMesR,
+    despesasStatusR,
+    totalInvestimentosR,
+    metasAtivasR,
+    emprestimosAtivosR,
+    financiamentosAtivosR,
+    reservasEspTotalR,
+    reservaLegadoTotalR,
+    assinaturasAlertaR,
+    desafioProgressoR,
+    faturaCartoesMesR,
+    categoriasDespesasR,
+    categoriasReceitasR,
+    ultimasTransacoesR,
+    proximosVencimentosR,
+  ] = await c.env.DB.batch([
+    // receitas do mês
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total FROM receitas 
+       WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+    ).bind(user.id, mes, ano),
+    // despesas do mês (sem aportes)
+    c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
        WHERE user_id = ?
+         AND COALESCE(tipo,'normal') != 'aporte'
+         AND COALESCE(eh_aporte_patrimonial, 0) = 0
          AND CASE WHEN status = 'pago'
                   THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
                   ELSE strftime('%m', COALESCE(vencimento, data)) = ?
                    AND strftime('%Y', COALESCE(vencimento, data)) = ?
              END`
-    ).bind(user.id, m, a, m, a).first() as any
+    ).bind(user.id, mes, ano, mes, ano),
+    // despesas por status
+    c.env.DB.prepare(
+      `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ?
+         AND COALESCE(tipo,'normal') != 'aporte'
+         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+         AND CASE WHEN status = 'pago'
+                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             END
+       GROUP BY status`
+    ).bind(user.id, mes, ano, mes, ano),
+    // total investimentos
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor_atual), 0) as total, COALESCE(SUM(valor_investido), 0) as investido FROM investimentos WHERE user_id = ?`
+    ).bind(user.id),
+    // metas ativas
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(valor_objetivo), 0) as objetivo_total, 
+       COALESCE(SUM(valor_atual), 0) as atual_total FROM metas WHERE user_id = ? AND status = 'ativa'`
+    ).bind(user.id),
+    // empréstimos ativos
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
+       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
+       COALESCE(SUM(valor_original), 0) as total_valor_original
+       FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(user.id),
+    // financiamentos ativos
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(saldo_devedor), 0) as total_saldo_devedor,
+       COALESCE(SUM(valor_parcela), 0) as total_parcela_mensal,
+       COALESCE(SUM(valor_financiado), 0) as total_valor_financiado
+       FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(user.id),
+    // reservas especializadas total
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(current_amount), 0) as total FROM specialized_reserves WHERE user_id = ? AND status IN ('active','completed')`
+    ).bind(user.id),
+    // reserva legado (emergência)
+    c.env.DB.prepare(
+      `SELECT COALESCE(valor_atual, 0) as total FROM reserva_emergencia WHERE user_id = ? ORDER BY id DESC LIMIT 1`
+    ).bind(user.id),
+    // assinaturas fantasma
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total_mensal
+       FROM detected_subscriptions WHERE user_id = ? AND user_feedback IS NULL`
+    ).bind(user.id),
+    // desafio 52 semanas
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as concluidas,
+       SUM(CASE WHEN status='completed' THEN week_number ELSE 0 END) as valor_acumulado
+       FROM weekly_challenges WHERE user_id = ? AND year = ?`
+    ).bind(user.id, ano),
+    // fatura cartões mês
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(cc.valor), 0) as total
+       FROM card_charges cc JOIN cartoes c ON cc.card_id = c.id
+       WHERE c.user_id = ? AND cc.billing_month = ? AND cc.billing_year = ? AND cc.status = 'pendente'`
+    ).bind(user.id, parseInt(mes), parseInt(ano)),
+    // categorias despesas
+    c.env.DB.prepare(
+      `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ?
+         AND CASE WHEN status = 'pago'
+                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             END
+       GROUP BY categoria ORDER BY total DESC LIMIT 8`
+    ).bind(user.id, mes, ano, mes, ano),
+    // categorias receitas
+    c.env.DB.prepare(
+      `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM receitas 
+       WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
+       GROUP BY categoria ORDER BY total DESC LIMIT 6`
+    ).bind(user.id, mes, ano),
+    // últimas transações
+    c.env.DB.prepare(
+      `SELECT 'receita' as tipo, id, descricao, data, categoria, valor, 'pago' as status FROM receitas WHERE user_id = ?
+       UNION ALL
+       SELECT 'despesa' as tipo, id, descricao, data, categoria, valor, status FROM despesas WHERE user_id = ?
+       ORDER BY data DESC, id DESC LIMIT 10`
+    ).bind(user.id, user.id),
+    // próximos vencimentos
+    c.env.DB.prepare(
+      `SELECT * FROM despesas WHERE user_id = ? AND status = 'pendente' 
+       AND vencimento BETWEEN date('now') AND date('now', '+7 days')
+       ORDER BY vencimento ASC LIMIT 5`
+    ).bind(user.id),
+  ])
 
-    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-    evolucao.push({
-      mes: meses[d.getMonth()],
-      ano: a,
-      receitas: rec?.total || 0,
-      despesas: desp?.total || 0,
-      saldo: (rec?.total || 0) - (desp?.total || 0)
-    })
-  }
-
-  // Despesas por categoria (mês atual) — mesmo critério temporal
-  const categoriasDespesas = await c.env.DB.prepare(
-    `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM despesas 
-     WHERE user_id = ?
-       AND CASE WHEN status = 'pago'
-                THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                 AND strftime('%Y', COALESCE(vencimento, data)) = ?
-           END
-     GROUP BY categoria ORDER BY total DESC LIMIT 8`
-  ).bind(user.id, mes, ano, mes, ano).all()
-
-  // Receitas por categoria (mês atual)
-  const categoriasReceitas = await c.env.DB.prepare(
-    `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM receitas 
-     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
-     GROUP BY categoria ORDER BY total DESC LIMIT 6`
-  ).bind(user.id, mes, ano).all()
-
-  // Últimas transações
-  const ultimasTransacoes = await c.env.DB.prepare(
-    `SELECT 'receita' as tipo, id, descricao, data, categoria, valor, 'pago' as status FROM receitas WHERE user_id = ?
-     UNION ALL
-     SELECT 'despesa' as tipo, id, descricao, data, categoria, valor, status FROM despesas WHERE user_id = ?
-     ORDER BY data DESC, id DESC LIMIT 10`
-  ).bind(user.id, user.id).all()
-
-  // Despesas com vencimento próximo (próximos 7 dias)
-  const proximosVencimentos = await c.env.DB.prepare(
-    `SELECT * FROM despesas WHERE user_id = ? AND status = 'pendente' 
-     AND vencimento BETWEEN date('now') AND date('now', '+7 days')
-     ORDER BY vencimento ASC LIMIT 5`
-  ).bind(user.id).all()
+  const receitasMes        = receitasMesR.results?.[0]        ?? receitasMesR as any
+  const despesasMes        = despesasMesR.results?.[0]        ?? despesasMesR as any
+  const despesasStatus     = despesasStatusR
+  const totalInvestimentos = totalInvestimentosR.results?.[0] ?? totalInvestimentosR as any
+  const metasAtivas        = metasAtivasR.results?.[0]        ?? metasAtivasR as any
+  const emprestimosAtivos  = emprestimosAtivosR.results?.[0]  ?? emprestimosAtivosR as any
+  const financiamentosAtivos = financiamentosAtivosR.results?.[0] ?? financiamentosAtivosR as any
+  const reservasEspTotal   = reservasEspTotalR.results?.[0]   ?? reservasEspTotalR as any
+  const reservaLegadoTotal = reservaLegadoTotalR.results?.[0] ?? reservaLegadoTotalR as any
+  const assinaturasAlerta  = assinaturasAlertaR.results?.[0]  ?? assinaturasAlertaR as any
+  const desafioProgresso   = desafioProgressoR.results?.[0]   ?? desafioProgressoR as any
+  const faturaCartoesMes   = faturaCartoesMesR.results?.[0]   ?? faturaCartoesMesR as any
+  const categoriasDespesas = categoriasDespesasR
+  const categoriasReceitas = categoriasReceitasR
+  const ultimasTransacoes  = ultimasTransacoesR
+  const proximosVencimentos = proximosVencimentosR
 
   const totalReceitas = receitasMes?.total || 0
   const totalDespesas = despesasMes?.total || 0
@@ -198,12 +175,48 @@ dashboard.get('/', requireAuth, async (c) => {
   const totalReservasEsp = parseFloat(reservasEspTotal?.total || 0)
   const totalReservaLegado = parseFloat(reservaLegadoTotal?.total || 0)
   const totalReservas = totalReservasEsp + totalReservaLegado
-  // Buscar meta total das reservas especializadas
-  const metaReservasEspRow = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(target_amount), 0) as meta FROM specialized_reserves WHERE user_id = ? AND status IN ('active','completed')`
-  ).bind(user.id).first() as any
-  const metaReservasEsp = parseFloat(metaReservasEspRow?.meta || 0)
+
+  // ── M2: batch evolução 6 meses + meta reservas (1 round-trip) ──────────────
+  const evolucaoMeses: { m: string; a: string; label: string }[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth() - i)
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    evolucaoMeses.push({
+      m: String(d.getMonth() + 1).padStart(2, '0'),
+      a: String(d.getFullYear()),
+      label: meses[d.getMonth()]
+    })
+  }
+
+  const evolucaoBatch = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(target_amount), 0) as meta FROM specialized_reserves WHERE user_id = ? AND status IN ('active','completed')`
+    ).bind(user.id),
+    ...evolucaoMeses.flatMap(({ m, a }) => [
+      c.env.DB.prepare(
+        `SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+      ).bind(user.id, m, a),
+      c.env.DB.prepare(
+        `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+         WHERE user_id = ?
+           AND CASE WHEN status = 'pago'
+                    THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                    ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                     AND strftime('%Y', COALESCE(vencimento, data)) = ?
+               END`
+      ).bind(user.id, m, a, m, a),
+    ])
+  ])
+
+  const metaReservasEsp = parseFloat((evolucaoBatch[0].results?.[0] as any)?.meta || 0)
   const progressoReservas = metaReservasEsp > 0 ? Math.round((totalReservasEsp / metaReservasEsp) * 100) : 0
+
+  const evolucao = evolucaoMeses.map((item, i) => {
+    const rec  = (evolucaoBatch[1 + i * 2].results?.[0] as any)?.total || 0
+    const desp = (evolucaoBatch[2 + i * 2].results?.[0] as any)?.total || 0
+    return { mes: item.label, ano: item.a, receitas: rec, despesas: desp, saldo: rec - desp }
+  })
+
   // Patrimônio Bruto = investimentos (a valor de mercado) + reservas
   const patrimonioBruto = parseFloat(totalInvest as any) + totalReservas
   // Patrimônio Líquido = Bruto - total dívidas (saldo devedor)
@@ -342,9 +355,14 @@ dashboard.get('/', requireAuth, async (c) => {
       progresso_reservas_pct: progressoReservas
     },
     // Score e fatores: disponível apenas para Premium/Pro
+    // B1-fix: score_saude como objeto {score, fatores} para compatibilidade com frontend
     score_saude: lim.score_saude ? score : null,
     fatores_score: lim.score_saude ? fatoresScore : null,
     score_bloqueado: !lim.score_saude,
+    // Alias para frontend que consome como objeto
+    score_saude_obj: lim.score_saude
+      ? { score, fatores: fatoresScore }
+      : { score: null, fatores: [] },
     plano: user.plano,
     limites: {
       metas: lim.metas,
@@ -404,6 +422,7 @@ dashboard.get('/', requireAuth, async (c) => {
         : 0
     },
     evolucao,
+    evolucao_6meses: evolucao,  // B3-fix: alias para compatibilidade com frontend
     categorias_despesas: categoriasDespesas.results,
     categorias_receitas: categoriasReceitas.results,
     ultimas_transacoes: ultimasTransacoes.results,
@@ -431,67 +450,76 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
   } catch {}
 
   const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-  const relatorio = []
 
-  for (let i = 0; i < 12; i++) {
-    const m = String(i + 1).padStart(2, '0')
+  // ── M2: batch relatório anual — 24 queries mensais + 4 resumos (1 round-trip) ──
+  const mesesPadded = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'))
 
-    const rec = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, m, ano).first() as any
+  const relatorioBatch = await c.env.DB.batch([
+    // empréstimos anuais
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
+       FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(user.id),
+    // financiamentos anuais
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
+       FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
+    ).bind(user.id),
+    // metas resumo
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as total_metas,
+         COALESCE(SUM(CASE WHEN status='ativa' THEN 1 ELSE 0 END), 0) as ativas,
+         COALESCE(SUM(CASE WHEN status='concluida' THEN 1 ELSE 0 END), 0) as concluidas,
+         COALESCE(SUM(valor_objetivo), 0) as total_objetivo,
+         COALESCE(SUM(valor_atual), 0) as total_atual
+       FROM metas WHERE user_id = ?`
+    ).bind(user.id),
+    // investimentos resumo
+    c.env.DB.prepare(
+      `SELECT COUNT(*) as total, COALESCE(SUM(valor_investido), 0) as total_investido,
+         COALESCE(SUM(valor_atual), 0) as total_atual
+       FROM investimentos WHERE user_id = ?`
+    ).bind(user.id),
+    // top categorias do ano
+    c.env.DB.prepare(
+      `SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
+       FROM despesas
+       WHERE user_id = ? AND strftime('%Y', COALESCE(vencimento, data)) = ?
+         AND COALESCE(tipo,'normal') != 'aporte'
+         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+       GROUP BY categoria ORDER BY total DESC LIMIT 8`
+    ).bind(user.id, ano),
+    // receitas e despesas de cada mês (12 × 2 = 24 queries)
+    ...mesesPadded.flatMap(m => [
+      c.env.DB.prepare(
+        `SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+      ).bind(user.id, m, ano),
+      c.env.DB.prepare(
+        `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+         WHERE user_id = ?
+           AND CASE WHEN status = 'pago'
+                    THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                    ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                     AND strftime('%Y', COALESCE(vencimento, data)) = ?
+               END`
+      ).bind(user.id, m, ano, m, ano),
+    ])
+  ])
 
-    const desp = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
-       WHERE user_id = ?
-         AND CASE WHEN status = 'pago'
-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
-             END`
-    ).bind(user.id, m, ano, m, ano).first() as any
+  const emprestimosAnuais   = relatorioBatch[0].results?.[0] as any
+  const financiamentosAnuais = relatorioBatch[1].results?.[0] as any
+  const metasResumo         = relatorioBatch[2].results?.[0] as any
+  const investResumo        = relatorioBatch[3].results?.[0] as any
+  const top_categorias      = relatorioBatch[4].results || []
 
-    relatorio.push({
-      mes: mesesNomes[i],
-      numero_mes: i + 1,
-      receitas: rec?.total || 0,
-      despesas: desp?.total || 0,
-      saldo: (rec?.total || 0) - (desp?.total || 0)
-    })
-  }
+  const relatorio = mesesPadded.map((_, i) => {
+    const rec  = (relatorioBatch[5 + i * 2].results?.[0] as any)?.total || 0
+    const desp = (relatorioBatch[6 + i * 2].results?.[0] as any)?.total || 0
+    return { mes: mesesNomes[i], numero_mes: i + 1, receitas: rec, despesas: desp, saldo: rec - desp }
+  })
 
   const totalAnualReceitas = relatorio.reduce((sum, m) => sum + m.receitas, 0)
   const totalAnualDespesas = relatorio.reduce((sum, m) => sum + m.despesas, 0)
-
-  // === NOVO: Resumo anual de dívidas ===
-  const emprestimosAnuais = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
-     FROM emprestimos WHERE user_id = ? AND status = 'ativo'`
-  ).bind(user.id).first() as any
-
-  const financiamentosAnuais = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(saldo_devedor), 0) as saldo, COALESCE(SUM(valor_parcela), 0) as parcela
-     FROM financiamentos WHERE user_id = ? AND status = 'ativo'`
-  ).bind(user.id).first() as any
-
-  // === NOVO: Resumo de metas ===
-  const metasResumo = await c.env.DB.prepare(
-    `SELECT 
-       COUNT(*) as total_metas,
-       COALESCE(SUM(CASE WHEN status='ativa' THEN 1 ELSE 0 END), 0) as ativas,
-       COALESCE(SUM(CASE WHEN status='concluida' THEN 1 ELSE 0 END), 0) as concluidas,
-       COALESCE(SUM(valor_objetivo), 0) as total_objetivo,
-       COALESCE(SUM(valor_atual), 0) as total_atual
-     FROM metas WHERE user_id = ?`
-  ).bind(user.id).first() as any
-
-  // === NOVO: Resumo de investimentos ===
-  const investResumo = await c.env.DB.prepare(
-    `SELECT 
-       COUNT(*) as total,
-       COALESCE(SUM(valor_investido), 0) as total_investido,
-       COALESCE(SUM(valor_atual), 0) as total_atual
-     FROM investimentos WHERE user_id = ?`
-  ).bind(user.id).first() as any
 
   return c.json({
     ano,
@@ -501,6 +529,7 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
       despesas: totalAnualDespesas,
       saldo: totalAnualReceitas - totalAnualDespesas
     },
+    top_categorias,
     dividas: {
       total_devedor: (emprestimosAnuais?.saldo || 0) + (financiamentosAnuais?.saldo || 0),
       emprestimos_saldo: emprestimosAnuais?.saldo || 0,

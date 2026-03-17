@@ -133,12 +133,16 @@ orcamentos.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Orçamentos por categoria são exclusivos do plano Premium.', upgrade: true, feature: 'orcamentos' }, 403)
   }
 
-  const { categoria, mes, ano, limite, alerta_percentual = 80 } = await c.req.json()
+  const { categoria: categoriaRaw, mes, ano, limite, alerta_percentual = 80 } = await c.req.json()
 
-  if (!categoria || !mes || !ano || !limite)
+  if (!categoriaRaw || !mes || !ano || !limite)
     return c.json({ error: 'Campos obrigatórios: categoria, mes, ano, limite' }, 400)
+
+  // Normalizar categoria (aceita acentuado ou capitalizado)
+  const categoria = normCat(String(categoriaRaw))
+
   if (!CATEGORIAS.includes(categoria))
-    return c.json({ error: 'Categoria inválida' }, 400)
+    return c.json({ error: `Categoria inválida. Aceitas: ${CATEGORIAS.join(', ')}` }, 400)
   if (Number(limite) <= 0)
     return c.json({ error: 'Limite deve ser maior que zero' }, 400)
 

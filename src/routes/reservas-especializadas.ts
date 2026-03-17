@@ -207,7 +207,9 @@ reservasEsp.post('/:id/depositar', requireAuth, async (c) => {
   if (!reserve) return c.json({ error: 'Reserva não encontrada' }, 404)
   if (reserve.status !== 'active') return c.json({ error: 'Reserva não está ativa' }, 400)
 
-  const { amount, description } = await c.req.json()
+  const body = await c.req.json()
+  const amount = body.amount ?? body.valor ?? body.value ?? 0
+  const description = body.description ?? body.descricao
   if (!amount || amount <= 0) return c.json({ error: 'Valor inválido' }, 400)
 
   const newAmount = Math.min(reserve.current_amount + parseFloat(amount), reserve.target_amount)
@@ -264,7 +266,9 @@ reservasEsp.post('/:id/sacar', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!reserve) return c.json({ error: 'Reserva não encontrada' }, 404)
 
-  const { amount, description } = await c.req.json()
+  const body2 = await c.req.json()
+  const amount = body2.amount ?? body2.valor ?? body2.value ?? 0
+  const description = body2.description ?? body2.descricao
   if (!amount || amount <= 0) return c.json({ error: 'Valor inválido' }, 400)
   if (amount > reserve.current_amount) return c.json({ error: `Saldo insuficiente (disponível: R$ ${reserve.current_amount.toFixed(2)})` }, 400)
 
@@ -316,5 +320,33 @@ async function checkConquista(db: D1Database, userId: number, codigo: string) {
     ).bind(userId, codigo).run()
   } catch { }
 }
+
+// ── Alias: POST /api/reservas-esp/:id/deposito → depositar ─────────────────
+reservasEsp.post('/:id/deposito', requireAuth, async (c) => {
+  const id = parseInt(c.req.param('id'))
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as any
+  const amount = body.amount ?? body.valor ?? body.value ?? 0
+  const description = body.description ?? body.descricao
+
+  const reserve = await c.env.DB.prepare(
+    `SELECT * FROM specialized_reserves WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+  if (!reserve) return c.json({ error: 'Reserva não encontrada' }, 404)
+  if (reserve.status !== 'active') return c.json({ error: 'Reserva não está ativa' }, 400)
+  if (!amount || amount <= 0) return c.json({ error: 'Valor inválido' }, 400)
+
+  const newAmount = Math.min(reserve.current_amount + parseFloat(amount), reserve.target_amount)
+  const actualDeposit = newAmount - reserve.current_amount
+  await c.env.DB.prepare(`UPDATE specialized_reserves SET current_amount = ? WHERE id = ?`).bind(newAmount, id).run()
+  await c.env.DB.prepare(`INSERT INTO reserve_transactions (reserve_id, type, amount, description) VALUES (?, 'deposit', ?, ?)`).bind(id, actualDeposit, description || 'Depósito').run()
+
+  const completed = newAmount >= reserve.target_amount
+  if (completed) {
+    await c.env.DB.prepare(`UPDATE specialized_reserves SET status = 'completed', completed_at = datetime('now') WHERE id = ?`).bind(id).run()
+    await checkConquista(c.env.DB, user.id, 'reserva_spec_completa')
+  }
+  return c.json({ success: true, new_amount: newAmount, percent_complete: Math.round((newAmount / reserve.target_amount) * 100), completed, message: `Depósito de R$ ${actualDeposit.toFixed(2)} realizado!` })
+})
 
 export default reservasEsp

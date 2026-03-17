@@ -59,6 +59,17 @@ const VM = {
     this.token = localStorage.getItem('vm_token')
     const userStr = localStorage.getItem('vm_user')
     if (userStr) this.user = JSON.parse(userStr)
+
+    // Aviso de sessão próxima de expirar (após 6 dias dos 7 disponíveis)
+    const loginAt = parseInt(localStorage.getItem('vm_login_at') || '0')
+    if (loginAt && this.token) {
+      const diffDias = (Date.now() - loginAt) / (1000 * 60 * 60 * 24)
+      if (diffDias >= 6) {
+        setTimeout(() => {
+          this.toast(`⚠️ Sua sessão expira em breve. Faça login novamente para continuar.`, 'warning', 8000)
+        }, 3000)
+      }
+    }
     
     const path = window.location.pathname
     if (path === '/login') return this.renderLogin()
@@ -120,7 +131,7 @@ const VM = {
     })
   },
 
-  toast(msg, type = 'success') {
+  toast(msg, type = 'success', duration = 4000) {
     let container = document.getElementById('toast-container')
     if (!container) {
       container = document.createElement('div')
@@ -133,7 +144,7 @@ const VM = {
     const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' }
     t.innerHTML = `<span>${icons[type] || '💬'}</span><span>${msg}</span>`
     container.appendChild(t)
-    setTimeout(() => t.remove(), 4000)
+    setTimeout(() => t.remove(), duration)
   },
 
   formatMoney(v) {
@@ -374,6 +385,7 @@ const VM = {
         })
         localStorage.setItem('vm_token', res.data.token)
         localStorage.setItem('vm_user', JSON.stringify(res.data.user))
+        localStorage.setItem('vm_login_at', Date.now().toString())
         window.location.href = '/app'
       } catch (e) {
         errEl.textContent = e.response?.data?.error || 'Erro ao fazer login'
@@ -914,6 +926,7 @@ const VM = {
       // Atualizar token e user
       if (res.data.token) {
         localStorage.setItem('vm_token', res.data.token)
+        localStorage.setItem('vm_login_at', Date.now().toString())
         this.token = res.data.token
       }
       if (res.data.user) {
@@ -1561,11 +1574,50 @@ const VM = {
       const reservasTotal = reservas_esp?.total_guardado || 0
       const reservasProgresso = reservas_esp?.progresso_pct || 0
       const desafio52Concluidas = desafio_52?.concluidas || 0
-      const desafio52Guardado = desafio_52?.valor_guardado || 0
+      const desafio52Guardado = desafio_52?.valor_acumulado || 0
       const assinaturasTem = alerta_assinaturas?.tem_alerta || false
       const assinaturasGasto = alerta_assinaturas?.custo_mensal_estimado || 0
 
+      // Detectar conta nova (dashboard completamente vazio)
+      const contaNova = resumo.total_receitas === 0 && resumo.total_despesas === 0 &&
+                        resumo.total_investido === 0 && resumo.patrimonio_liquido === 0 &&
+                        ultimas_transacoes?.length === 0
+
       content.innerHTML = `
+        ${contaNova ? `
+        <!-- BANNER BOAS-VINDAS — conta nova -->
+        <div style="background:linear-gradient(135deg,rgba(47,191,113,0.12),rgba(16,185,129,0.06));border:1px solid rgba(47,191,113,0.25);border-radius:16px;padding:24px;margin-bottom:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+          <div style="font-size:2.8rem;flex-shrink:0;">👋</div>
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:1.1rem;font-weight:800;color:#f1f5f9;margin-bottom:4px;">Bem-vindo ao VerdeMais, ${this.user?.nome?.split(' ')[0] || 'usuário'}!</div>
+            <div style="font-size:0.82rem;color:#94A3B8;line-height:1.5;margin-bottom:14px;">Seu dashboard está vazio. Comece adicionando seus dados financeiros para ter uma visão completa da sua saúde financeira.</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button onclick="VM.navigate('receitas')" class="button-premium button-premium--sm" style="background:rgba(47,191,113,0.15);border-color:rgba(47,191,113,0.4);color:#2FBF71;">
+                <i class="fas fa-plus"></i> Adicionar Receita
+              </button>
+              <button onclick="VM.navigate('despesas')" class="button-premium button-premium--sm" style="background:rgba(255,107,107,0.1);border-color:rgba(255,107,107,0.3);color:#ff6b6b;">
+                <i class="fas fa-plus"></i> Adicionar Despesa
+              </button>
+              <button onclick="VM.navigate('investimentos')" class="button-premium button-premium--sm" style="background:rgba(116,185,255,0.1);border-color:rgba(116,185,255,0.3);color:#74b9ff;">
+                <i class="fas fa-chart-line"></i> Registrar Investimento
+              </button>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;">
+            <div style="font-size:0.7rem;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Próximos passos</div>
+            ${[
+              ['1', 'Cadastre suas receitas mensais', 'receitas'],
+              ['2', 'Lance suas despesas recorrentes', 'despesas'],
+              ['3', 'Configure seu perfil financeiro', 'perfil'],
+            ].map(([n, txt, nav]) => `
+              <div onclick="VM.navigate('${nav}')" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                <span style="width:20px;height:20px;border-radius:50%;background:rgba(47,191,113,0.2);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:#2FBF71;flex-shrink:0;">${n}</span>
+                <span style="font-size:0.78rem;color:#94A3B8;">${txt}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        ` : ''}
         <!-- STATS ROW — 4 cards principais -->
         <div class="grid-4" style="margin-bottom:16px;">
           <div class="stat-card">
@@ -1642,7 +1694,7 @@ const VM = {
           </div>
           <div class="stat-card" onclick="VM.navigate('assinaturas-fantasma')" style="cursor:pointer;border-color:${assinaturasTem ? 'rgba(139,92,246,0.3)' : 'rgba(42,58,42,0.5)'};">
             <div class="stat-label" style="margin-bottom:6px;">👻 Assinaturas Detectadas</div>
-            <div class="stat-value" style="color:${assinaturasTem ? '#A78BFA' : '#666'};font-size:1.2rem;">${alerta_assinaturas?.total_detectadas || 0}</div>
+            <div class="stat-value" style="color:${assinaturasTem ? '#A78BFA' : '#666'};font-size:1.2rem;">${alerta_assinaturas?.count_nao_avaliadas || 0}</div>
             <div style="font-size:0.7rem;color:${assinaturasTem ? '#A78BFA' : '#555'};margin-top:4px;">
               ${assinaturasTem ? `~${this.formatMoney(assinaturasGasto)}/mês ⚠️` : 'Nenhuma detectada ✅'}
             </div>
@@ -1687,8 +1739,8 @@ const VM = {
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(15,15,26,0.7);backdrop-filter:blur(2px);border-radius:16px;cursor:pointer;" onclick="VM.upsellModal('score_saude')">
                 <div style="font-size:1.4rem;margin-bottom:6px;">🔒</div>
                 <div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:4px;">Score Financeiro</div>
-                <div style="font-size:0.75rem;color:#2FBF71;font-weight:600;">Plano Premium</div>
-                <div style="font-size:0.7rem;color:#888;margin-top:4px;">Clique para desbloquear</div>
+                <div style="font-size:0.72rem;color:#94A3B8;text-align:center;padding:0 8px;margin-bottom:6px;line-height:1.4;">Disponível nos planos <strong style="color:#2FBF71;">Premium</strong> e <strong style="color:#a78bfa;">Pro</strong></div>
+                <div style="font-size:0.7rem;color:#2FBF71;font-weight:600;background:rgba(47,191,113,0.12);padding:4px 12px;border-radius:20px;">👆 Clique para upgrade</div>
               </div>
             ` : `
             <div style="position:relative;width:120px;height:120px;margin-bottom:10px;">
@@ -3884,7 +3936,9 @@ const VM = {
     const ano = document.getElementById('rel-ano')?.value || new Date().getFullYear()
     try {
       const data = await this.api('GET', `dashboard/relatorio?ano=${ano}`)
-      const { relatorio, totais } = data
+      const { relatorio, totais, top_categorias = [] } = data
+
+      const temDados = relatorio.some(m => m.receitas > 0 || m.despesas > 0)
 
       document.getElementById('rel-container').innerHTML = `
         <div class="grid-3" style="margin-bottom:24px;">
@@ -3892,13 +3946,26 @@ const VM = {
           <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📤 Despesas ${ano}</div><div class="stat-value negative">${this.formatMoney(totais.despesas)}</div></div>
           <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💰 Saldo ${ano}</div><div class="stat-value ${totais.saldo >= 0 ? 'positive' : 'negative'}">${this.formatMoney(totais.saldo)}</div></div>
         </div>
-        
+
+        ${!temDados ? `
+        <div class="card" style="margin-bottom:24px;text-align:center;padding:40px 20px;">
+          <div style="font-size:2.5rem;margin-bottom:12px;">📭</div>
+          <div style="font-weight:700;font-size:1rem;color:#f1f5f9;margin-bottom:8px;">Nenhum dado registrado em ${ano}</div>
+          <div style="font-size:0.82rem;color:#64748B;line-height:1.6;max-width:360px;margin:0 auto 20px;">
+            Adicione receitas e despesas para visualizar sua evolução financeira ao longo do ano.
+          </div>
+          <button onclick="VM.navigate('despesas')" class="button-premium button-premium--sm">
+            <i class="fas fa-plus"></i> Adicionar primeira despesa
+          </button>
+        </div>
+        ` : `
         <div class="card" style="margin-bottom:24px;">
           <div style="font-weight:700;margin-bottom:20px;">📊 Evolução Mensal ${ano}</div>
           <div style="height:280px;"><canvas id="chart-relatorio"></canvas></div>
         </div>
+        `}
 
-        <div class="card">
+        <div class="card" style="margin-bottom:24px;">
           <div style="font-weight:700;margin-bottom:16px;">📋 Detalhamento por Mês</div>
           <table class="data-table">
             <thead><tr>
@@ -3915,36 +3982,56 @@ const VM = {
                   <td style="text-align:right;color:#2FBF71;">${this.formatMoney(m.receitas)}</td>
                   <td style="text-align:right;color:#ff6b6b;">${this.formatMoney(m.despesas)}</td>
                   <td style="text-align:right;font-weight:700;${m.saldo >= 0 ? 'color:#2FBF71' : 'color:#ff6b6b'};">${this.formatMoney(m.saldo)}</td>
-                  <td style="text-align:right;">${m.saldo >= 0 ? '<span class="badge badge-green">✅ Positivo</span>' : '<span class="badge badge-red">❌ Negativo</span>'}</td>
+                  <td style="text-align:right;">${m.saldo > 0 ? '<span class="badge badge-green">✅ Positivo</span>' : m.saldo < 0 ? '<span class="badge badge-red">❌ Negativo</span>' : '<span class="badge" style="background:rgba(100,116,139,0.15);color:#64748B;">— Neutro</span>'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
         </div>
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:16px;">🏷️ Top Categorias de Despesas ${ano}</div>
+          ${top_categorias.length > 0 ? top_categorias.map((c, i) => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+              <div style="width:24px;height:24px;border-radius:50%;background:rgba(255,107,107,0.15);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#ff6b6b;flex-shrink:0;">${i+1}</div>
+              <div style="flex:1;font-size:0.85rem;color:#f1f5f9;">${c.categoria || 'Sem categoria'}</div>
+              <div style="font-size:0.8rem;color:#94A3B8;">${c.qtd}x</div>
+              <div style="font-weight:700;color:#ff6b6b;font-size:0.9rem;">${this.formatMoney(c.total)}</div>
+            </div>
+          `).join('') : `
+            <div style="text-align:center;padding:24px 0;color:#64748B;">
+              <div style="font-size:1.5rem;margin-bottom:8px;">📭</div>
+              <div style="font-size:0.85rem;">Nenhuma despesa registrada em ${ano}</div>
+              <div style="font-size:0.78rem;margin-top:4px;color:#475569;">As categorias aparecerão assim que você adicionar despesas.</div>
+            </div>
+          `}
+        </div>
       `
 
-      const ctx = document.getElementById('chart-relatorio')
-      if (ctx) {
-        if (this.charts.relatorio) this.charts.relatorio.destroy()
-        this.charts.relatorio = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: relatorio.map(m => m.mes),
-            datasets: [
-              { label: 'Receitas', data: relatorio.map(m => m.receitas), borderColor: '#2FBF71', backgroundColor: 'rgba(47,191,113,0.1)', fill: true, tension: 0.4, pointRadius: 4 },
-              { label: 'Despesas', data: relatorio.map(m => m.despesas), borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.1)', fill: true, tension: 0.4, pointRadius: 4 },
-              { label: 'Saldo', data: relatorio.map(m => m.saldo), borderColor: '#74b9ff', backgroundColor: 'rgba(116,185,255,0.05)', fill: false, tension: 0.4, pointRadius: 4 }
-            ]
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
-            scales: {
-              x: { ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-              y: { ticks: { color: '#888', callback: v => 'R$ ' + v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      if (temDados) {
+        const ctx = document.getElementById('chart-relatorio')
+        if (ctx) {
+          if (this.charts.relatorio) this.charts.relatorio.destroy()
+          this.charts.relatorio = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: relatorio.map(m => m.mes),
+              datasets: [
+                { label: 'Receitas', data: relatorio.map(m => m.receitas), borderColor: '#2FBF71', backgroundColor: 'rgba(47,191,113,0.1)', fill: true, tension: 0.4, pointRadius: 4 },
+                { label: 'Despesas', data: relatorio.map(m => m.despesas), borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.1)', fill: true, tension: 0.4, pointRadius: 4 },
+                { label: 'Saldo', data: relatorio.map(m => m.saldo), borderColor: '#74b9ff', backgroundColor: 'rgba(116,185,255,0.05)', fill: false, tension: 0.4, pointRadius: 4 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+              scales: {
+                x: { ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                y: { ticks: { color: '#888', callback: v => 'R$ ' + v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } }
+              }
             }
-          }
-        })
+          })
+        }
       }
     } catch (e) {
       this.toast('Erro ao carregar relatório', 'error')
@@ -5394,8 +5481,8 @@ const VM = {
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Faturas, compras e controle de limite</div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button onclick="VM.sincronizarDespesasCartao()" title="Sincroniza despesas antigas com o sistema de faturas" style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
-            <i class="fas fa-sync-alt"></i> Sincronizar
+          <button onclick="VM.modalGerenciarCompras()" title="Excluir compras parceladas e todas as suas parcelas" style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);color:#ff6b6b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
+            <i class="fas fa-trash-alt"></i> Gerenciar Compras
           </button>
           <button onclick="VM.modalLancarCompraAnterior()" class="btn-secondary" style="width:auto;padding:10px 16px;font-size:0.85rem;">
             <i class="fas fa-history"></i> Compra Anterior
@@ -5412,18 +5499,122 @@ const VM = {
     this.carregarCartoes()
   },
 
-  // Sincroniza despesas de cartão que não têm card_charge
-  async sincronizarDespesasCartao() {
+  // ─── GERENCIAR COMPRAS PARCELADAS ────────────────────────────────────────────
+  async modalGerenciarCompras() {
+    const mc = document.getElementById('modal-container')
+    mc.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto;padding:0;">
+          <div style="position:sticky;top:0;background:#1a1a2e;z-index:10;border-bottom:1px solid rgba(255,255,255,0.08);padding:18px 20px 14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:1.05rem;font-weight:700;">🗑️ Gerenciar Compras Parceladas</div>
+                <div style="font-size:0.75rem;color:#888;margin-top:2px;">Selecione o cartão para ver e excluir compras</div>
+              </div>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
+            </div>
+          </div>
+          <div style="padding:20px;">
+            <div class="form-group" style="margin-bottom:16px;">
+              <label class="form-label">Selecione o Cartão</label>
+              <select id="gc-cartao-select" class="form-input" onchange="VM._carregarComprasParaGerenciar(this.value)">
+                <option value="">-- Escolha um cartão --</option>
+              </select>
+            </div>
+            <div id="gc-lista-compras">
+              <div style="text-align:center;padding:32px;color:#555;font-size:0.85rem;">Selecione um cartão acima</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+    // Carregar cartões no select
     try {
-      const r = await this.api('POST', 'cartoes/sincronizar-despesas', {})
-      if (r.sincronizadas > 0) {
-        this.toast(`✅ ${r.sincronizadas} despesa(s) sincronizada(s) com o sistema de faturas!`)
-        this.carregarCartoes()
-      } else {
-        this.toast('ℹ️ Tudo sincronizado! Nenhuma despesa órfã encontrada.')
-      }
+      const data = await this.api('GET', 'cartoes')
+      const sel = document.getElementById('gc-cartao-select')
+      if (!sel) return
+      data.cartoes.forEach(c => {
+        const opt = document.createElement('option')
+        opt.value = c.id
+        opt.textContent = `${c.nome} (${c.banco})`
+        sel.appendChild(opt)
+      })
     } catch(e) {
-      this.toast('Erro ao sincronizar', 'error')
+      this.toast('Erro ao carregar cartões', 'error')
+    }
+  },
+
+  async _carregarComprasParaGerenciar(cartaoId) {
+    const div = document.getElementById('gc-lista-compras')
+    if (!div || !cartaoId) return
+    div.innerHTML = `<div style="text-align:center;padding:32px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando compras...</div>`
+    try {
+      const data = await this.api('GET', `cartoes/${cartaoId}/compras`)
+      const { compras } = data
+      if (!compras || compras.length === 0) {
+        div.innerHTML = `<div style="text-align:center;padding:32px;color:#555;font-size:0.85rem;">Nenhuma compra registrada neste cartão.</div>`
+        return
+      }
+      const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      div.innerHTML = `
+        <div style="font-size:0.75rem;color:#888;margin-bottom:12px;padding:0 2px;">
+          ${compras.length} compra(s) encontrada(s) — excluir remove <strong>todas</strong> as parcelas e despesas vinculadas
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${compras.map(cp => {
+            const d = cp.data_compra ? new Date(cp.data_compra + 'T12:00:00') : null
+            const dataFmt = d ? `${String(d.getDate()).padStart(2,'0')}/${meses[d.getMonth()]}/${d.getFullYear()}` : '—'
+            const isParcelada = cp.total_parcelas > 1
+            const parcelaLabel = isParcelada
+              ? `<span style="background:rgba(116,185,255,0.12);color:#74b9ff;border-radius:4px;padding:1px 7px;font-size:0.68rem;">${cp.parcelas.length}/${cp.total_parcelas} parcelas</span>`
+              : `<span style="background:rgba(255,255,255,0.06);color:#aaa;border-radius:4px;padding:1px 7px;font-size:0.68rem;">À vista</span>`
+            const statusLabel = cp.pendentes > 0
+              ? `<span style="color:#ffc400;font-size:0.72rem;">⏳ ${cp.pendentes} pendente(s)</span>`
+              : `<span style="color:#2FBF71;font-size:0.72rem;">✅ Quitada</span>`
+            const groupParam = cp.purchase_group_id ? `'${cp.purchase_group_id}'` : 'null'
+            return `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.06);">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cp.descricao}</div>
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;">
+                    ${parcelaLabel} ${statusLabel}
+                    <span style="color:#666;font-size:0.72rem;">${dataFmt}</span>
+                  </div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-right:8px;">
+                  <div style="font-size:0.9rem;font-weight:700;">${this.formatMoney(cp.valor_parcela)}${isParcelada ? '/parc.' : ''}</div>
+                  ${isParcelada ? `<div style="font-size:0.7rem;color:#888;">Total: ${this.formatMoney(cp.valor_total_compra)}</div>` : ''}
+                </div>
+                <button onclick="VM._confirmarExcluirGrupo(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
+                  style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:0.78rem;white-space:nowrap;flex-shrink:0;">
+                  <i class="fas fa-trash"></i> Excluir
+                </button>
+              </div>
+            `
+          }).join('')}
+        </div>
+      `
+    } catch(e) {
+      div.innerHTML = `<div style="text-align:center;padding:32px;color:#ff6b6b;font-size:0.85rem;">Erro ao carregar compras.</div>`
+    }
+  },
+
+  async _confirmarExcluirGrupo(groupId, descricao) {
+    if (!groupId) {
+      this.toast('Esta compra não possui grupo — use o botão de excluir na fatura.', 'error')
+      return
+    }
+    if (!confirm(`Excluir a compra "${descricao}" e TODAS as suas parcelas (passadas, presente e futuras)?\n\nEssa ação não pode ser desfeita.`)) return
+    try {
+      await this.api('DELETE', `cartoes/compras/${groupId}`)
+      this.toast(`✅ Compra "${descricao}" e todas as parcelas foram excluídas!`)
+      // Recarregar a lista do cartão selecionado
+      const sel = document.getElementById('gc-cartao-select')
+      if (sel && sel.value) await this._carregarComprasParaGerenciar(sel.value)
+      // Atualizar cards de cartões em background
+      this.carregarCartoes()
+    } catch(e) {
+      this.toast(e.response?.data?.error || 'Erro ao excluir compra', 'error')
     }
   },
 

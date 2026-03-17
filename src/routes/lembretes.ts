@@ -74,7 +74,17 @@ lembretes.put('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare(
     'UPDATE lembretes SET titulo=?, descricao=?, tipo=?, valor_estimado=?, dia_vencimento=?, frequencia=?, alertar_dias_antes=?, ativo=? WHERE id=? AND user_id=?'
-  ).bind(titulo, descricao || null, tipo, parseFloat(valor_estimado), parseInt(dia_vencimento) || null, frequencia, parseInt(alertar_dias_antes), ativo ? 1 : 0, id, user.id).run()
+  ).bind(
+    titulo,
+    descricao ?? null,
+    tipo ?? null,
+    valor_estimado != null ? parseFloat(valor_estimado) : null,
+    dia_vencimento != null ? (parseInt(dia_vencimento) || null) : null,
+    frequencia ?? null,
+    alertar_dias_antes != null ? (parseInt(alertar_dias_antes) || 3) : 3,
+    ativo != null ? (ativo ? 1 : 0) : 1,
+    id, user.id
+  ).run()
 
   return c.json({ success: true, message: 'Lembrete atualizado!' })
 })

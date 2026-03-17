@@ -86,14 +86,21 @@ reserva.post('/', requireAuth, async (c) => {
 reserva.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const { nome, objetivo_meses, valor_atual, observacoes } = await c.req.json()
 
-  const existing = await c.env.DB.prepare('SELECT id FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first()
+  const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
+
+  const body = await c.req.json()
+
+  // Fallback para campos não enviados (usa valor atual do banco)
+  const nome          = body.nome          ?? existing.nome
+  const objetivo_meses = body.objetivo_meses !== undefined ? parseInt(body.objetivo_meses) : existing.objetivo_meses
+  const valor_atual   = body.valor_atual   !== undefined ? parseFloat(body.valor_atual)   : existing.valor_atual
+  const observacoes   = body.observacoes   !== undefined ? (body.observacoes || null)      : existing.observacoes
 
   await c.env.DB.prepare(
     'UPDATE reserva_emergencia SET nome=?, objetivo_meses=?, valor_atual=?, data_atualizacao=?, observacoes=? WHERE id=? AND user_id=?'
-  ).bind(nome, parseInt(objetivo_meses), parseFloat(valor_atual), new Date().toISOString().split('T')[0], observacoes || null, id, user.id).run()
+  ).bind(nome, objetivo_meses, valor_atual, new Date().toISOString().split('T')[0], observacoes, id, user.id).run()
 
   // Verificar conquistas de cobertura
   const mediaDespesas = await c.env.DB.prepare(`
@@ -105,15 +112,70 @@ reserva.put('/:id', requireAuth, async (c) => {
 
   const media = mediaDespesas?.media || 0
   if (media > 0) {
-    const mesesCobertos = parseFloat(valor_atual) / media
+    const mesesCobertos = valor_atual / media
     if (mesesCobertos >= 1) await verificarConquista(c.env.DB, user.id, 'reserva_1_mes')
     if (mesesCobertos >= 3) await verificarConquista(c.env.DB, user.id, 'reserva_3_meses')
     if (mesesCobertos >= 6) await verificarConquista(c.env.DB, user.id, 'reserva_6_meses')
-    const objetivoMesesN = parseInt(objetivo_meses)
-    if (mesesCobertos >= objetivoMesesN) await verificarConquista(c.env.DB, user.id, 'reserva_completa')
+    if (mesesCobertos >= objetivo_meses) await verificarConquista(c.env.DB, user.id, 'reserva_completa')
   }
 
   return c.json({ success: true, message: 'Reserva atualizada!' })
+})
+
+// PATCH /api/reserva/:id/depositar — adicionar valor à reserva legácia
+reserva.patch('/:id/depositar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { valor, descricao = 'Depósito' } = await c.req.json()
+
+  if (!valor || parseFloat(valor) <= 0)
+    return c.json({ error: 'Informe um valor positivo' }, 400)
+
+  const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
+
+  const novoValor = parseFloat(existing.valor_atual) + parseFloat(valor)
+  await c.env.DB.prepare(
+    'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
+  ).bind(novoValor, new Date().toISOString().split('T')[0], id, user.id).run()
+
+  // Verificar conquistas
+  const mediaDespesas = await c.env.DB.prepare(`
+    SELECT COALESCE(AVG(total_mes), 0) as media FROM (
+      SELECT SUM(valor) as total_mes FROM despesas WHERE user_id = ? 
+      AND data >= date('now', '-3 months') GROUP BY strftime('%Y-%m', data)
+    )
+  `).bind(user.id).first() as any
+  const media = mediaDespesas?.media || 0
+  if (media > 0) {
+    const meses = novoValor / media
+    if (meses >= 1) await verificarConquista(c.env.DB, user.id, 'reserva_1_mes')
+    if (meses >= 3) await verificarConquista(c.env.DB, user.id, 'reserva_3_meses')
+    if (meses >= 6) await verificarConquista(c.env.DB, user.id, 'reserva_6_meses')
+    if (meses >= (existing.objetivo_meses || 6)) await verificarConquista(c.env.DB, user.id, 'reserva_completa')
+  }
+
+  return c.json({ success: true, novo_valor: novoValor, message: `R$ ${parseFloat(valor).toFixed(2)} depositado!` })
+})
+
+// PATCH /api/reserva/:id/sacar — remover valor da reserva legácia
+reserva.patch('/:id/sacar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { valor, descricao = 'Saque' } = await c.req.json()
+
+  if (!valor || parseFloat(valor) <= 0)
+    return c.json({ error: 'Informe um valor positivo' }, 400)
+
+  const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
+
+  const novoValor = Math.max(0, parseFloat(existing.valor_atual) - parseFloat(valor))
+  await c.env.DB.prepare(
+    'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
+  ).bind(novoValor, new Date().toISOString().split('T')[0], id, user.id).run()
+
+  return c.json({ success: true, novo_valor: novoValor, message: `R$ ${parseFloat(valor).toFixed(2)} sacado!` })
 })
 
 // DELETE /api/reserva/:id
@@ -122,6 +184,25 @@ reserva.delete('/:id', requireAuth, async (c) => {
   const id = c.req.param('id')
   await c.env.DB.prepare('DELETE FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true })
+})
+
+// GET /api/reserva/historico — histórico de depósitos/saques (specialized_reserves transactions)
+reserva.get('/historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  // Buscar a reserva de emergência (specialized ou legada)
+  const reservaEsp = await c.env.DB.prepare(
+    `SELECT id FROM specialized_reserves WHERE user_id = ? AND type = 'emergency' AND status != 'cancelled' ORDER BY created_at ASC LIMIT 1`
+  ).bind(user.id).first() as any
+
+  if (reservaEsp) {
+    const transactions = await c.env.DB.prepare(
+      `SELECT * FROM reserve_transactions WHERE reserve_id = ? ORDER BY created_at DESC LIMIT 24`
+    ).bind(reservaEsp.id).all()
+    return c.json({ historico: transactions.results, reserve_id: reservaEsp.id })
+  }
+
+  // Fallback: histórico vazio para reserva legada
+  return c.json({ historico: [], reserve_id: null })
 })
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {

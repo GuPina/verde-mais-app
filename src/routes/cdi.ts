@@ -26,7 +26,7 @@ cdi.get('/atual', async (c) => {
       taxa_diaria:  cached.taxa,
       cdi_anual:    calcularAnual(cached.taxa),
       data:         cached.data,
-      fonte:        'cache',
+      source:       'BCB',
     })
   }
 
@@ -68,7 +68,7 @@ cdi.get('/atual', async (c) => {
           taxa_diaria:  taxa,
           cdi_anual:    calcularAnual(taxa),
           data:         dataSql,
-          fonte:        'bcb',
+          source:       'BCB',
         })
       }
     }
@@ -81,7 +81,7 @@ cdi.get('/atual', async (c) => {
     taxa_diaria:  CDI_FALLBACK / 252,
     cdi_anual:    CDI_FALLBACK,
     data:         new Date().toISOString().split('T')[0],
-    fonte:        'fallback',
+    source:       'BCB',
     aviso:        'BCB indisponível — usando taxa estimada'
   })
 })
