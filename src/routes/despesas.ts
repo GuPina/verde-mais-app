@@ -141,8 +141,8 @@ despesas.post('/', requireAuth, async (c) => {
     ).bind(parseInt(cartao_id), user.id).first() as any
   }
 
-  // Gerar UUID simples para agrupar parcelas
-  const groupId = cartaoInfo
+  // Gerar UUID simples para agrupar parcelas (S3: gerado para qualquer parcelamento >= 2)
+  const groupId = totalParcelas > 1
     ? 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,
         c2 => { const r=(Math.random()*16)|0; return (c2==='x'?r:(r&0x3)|0x8).toString(16) })
     : null
@@ -239,6 +239,40 @@ despesas.post('/', requireAuth, async (c) => {
     parcelas_total_original: totalParcelasLabel,
     message: totalParcelas > 1 ? `${totalParcelas} parcelas criadas! (${parcelaInicialLabel}/${totalParcelasLabel} a ${totalParcelas + parcelaInicialLabel - 1}/${totalParcelasLabel})` : 'Despesa adicionada!'
   }, 201)
+})
+
+// PATCH /api/despesas/batch-status — S2: marcar todas como pagas em lote (registro ANTES de /:id)
+despesas.patch('/batch-status', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { mes, ano, status } = await c.req.json()
+
+  const statusValidos = ['pago', 'pendente', 'cancelado']
+  if (!status || !statusValidos.includes(status)) {
+    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
+  }
+  if (!mes || !ano) {
+    return c.json({ error: 'Parâmetros mes e ano são obrigatórios' }, 400)
+  }
+
+  const pendentes = await c.env.DB.prepare(
+    `SELECT * FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ? AND status = 'pendente'`
+  ).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
+
+  const rows = (pendentes.results || []) as any[]
+  if (rows.length === 0) return c.json({ success: true, atualizadas: 0, message: 'Nenhuma despesa pendente encontrada.' })
+
+  let atualizadas = 0
+  for (const d of rows) {
+    await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, d.id, user.id).run()
+    if (d.cartao_id && status === 'pago') {
+      await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE expense_id = ?').bind('pago', d.id).run()
+      await c.env.DB.prepare(
+        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
+      ).bind(Number(d.valor), d.cartao_id, user.id).run()
+    }
+    atualizadas++
+  }
+  return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como ${status}!` })
 })
 
 // PUT /api/despesas/:id

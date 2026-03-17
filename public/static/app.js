@@ -2300,8 +2300,11 @@ const VM = {
   // ============== DESPESAS ==============
   async pageDespesas() {
     const now = new Date()
-    const mes = String(now.getMonth() + 1)
-    const ano = String(now.getFullYear())
+    // S1: restaurar filtro salvo; fallback para mês/ano atual
+    const saved = this._despesaFiltro || {}
+    const mes  = saved.mes  || String(now.getMonth() + 1)
+    const ano  = saved.ano  || String(now.getFullYear())
+    const stat = saved.status || ''
 
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
@@ -2322,9 +2325,9 @@ const VM = {
           ${[parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
         </select>
         <select id="filtro-status-d" class="form-select" style="width:auto;padding:8px 14px;">
-          <option value="">Todos os status</option>
-          <option value="pendente">Pendente</option>
-          <option value="pago">Pago</option>
+          <option value="" ${stat===''?'selected':''}>Todos os status</option>
+          <option value="pendente" ${stat==='pendente'?'selected':''}>Pendente</option>
+          <option value="pago" ${stat==='pago'?'selected':''}>Pago</option>
         </select>
         <button onclick="VM.carregarDespesas()" class="btn-secondary"><i class="fas fa-search"></i> Filtrar</button>
       </div>
@@ -2342,6 +2345,9 @@ const VM = {
     const mes = document.getElementById('filtro-mes-d')?.value || String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano-d')?.value || String(new Date().getFullYear())
     const status = document.getElementById('filtro-status-d')?.value || ''
+
+    // S1: persistir filtro ativo para restaurar ao voltar à tela
+    this._despesaFiltro = { mes, ano, status }
     
     try {
       const data = await this.api('GET', `despesas?mes=${mes}&ano=${ano}${status ? '&status=' + status : ''}`)
@@ -2353,11 +2359,17 @@ const VM = {
       const statsEl = document.getElementById('despesas-stats')
       if (statsEl) {
         statsEl.innerHTML = `
-          <div style="display:flex;gap:32px;align-items:center;flex-wrap:wrap;">
-            <div><div style="color:#888;font-size:0.8rem;">Total</div><div style="font-size:1.4rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(data.total)}</div></div>
-            <div><div style="color:#888;font-size:0.8rem;">Pago</div><div style="font-size:1.4rem;font-weight:800;color:#2FBF71;">${this.formatMoney(pago)}</div></div>
-            <div><div style="color:#888;font-size:0.8rem;">Pendente</div><div style="font-size:1.4rem;font-weight:800;color:#ffc400;">${this.formatMoney(pendente)}</div></div>
-            <div><div style="color:#888;font-size:0.8rem;">Qtd</div><div style="font-size:1.4rem;font-weight:800;">${totalCount}</div></div>
+          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;">
+              <div><div style="color:#888;font-size:0.8rem;">Total</div><div style="font-size:1.4rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(data.total)}</div></div>
+              <div><div style="color:#888;font-size:0.8rem;">Pago</div><div style="font-size:1.4rem;font-weight:800;color:#2FBF71;">${this.formatMoney(pago)}</div></div>
+              <div><div style="color:#888;font-size:0.8rem;">Pendente</div><div style="font-size:1.4rem;font-weight:800;color:#ffc400;">${this.formatMoney(pendente)}</div></div>
+              <div><div style="color:#888;font-size:0.8rem;">Qtd</div><div style="font-size:1.4rem;font-weight:800;">${totalCount}</div></div>
+            </div>
+            ${data.count_pendente > 0 ? `
+            <button onclick="VM.marcarTodasPagas('${mes}','${ano}')" class="btn-primary" style="width:auto;padding:8px 16px;font-size:0.82rem;background:linear-gradient(135deg,#2FBF71,#10a055);">
+              <i class="fas fa-check-double"></i> Marcar todas como pagas (${data.count_pendente})
+            </button>` : ''}
           </div>
         `
       }
@@ -2384,9 +2396,18 @@ const VM = {
             </tr>
           </thead>
           <tbody>
-            ${data.despesas.map(d => `
+            ${data.despesas.map(d => {
+              // S3: badge de parcelas com link para filtrar grupo
+              const parcelaBadge = d.parcelado && d.numero_parcelas > 1
+                ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo" 
+                     onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '')}')"
+                     style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.72rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
+                     💳 ${d.parcela_atual}/${d.numero_parcelas}
+                   </span>`
+                : ''
+              return `
               <tr>
-                <td style="font-weight:500;">${d.descricao}</td>
+                <td style="font-weight:500;">${d.descricao}${parcelaBadge}</td>
                 <td><span class="badge badge-red">${catIcons[d.categoria] || '📦'} ${d.categoria}</span></td>
                 <td style="color:#888;">${this.formatDate(d.data)}</td>
                 <td><span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span></td>
@@ -2402,7 +2423,7 @@ const VM = {
                   <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                 </td>
               </tr>
-            `).join('')}
+            `}).join('')}
           </tbody>
         </table>
       `
@@ -2414,8 +2435,7 @@ const VM = {
   async toggleDespesaStatus(id, status) {
     const novoStatus = status === 'pago' ? 'pendente' : 'pago'
     try {
-      const r = await this.api('PATCH', `despesas/${id}/status`, { status: novoStatus })
-      // Mostrar feedback de sincronização com cartão se aplicável
+      await this.api('PATCH', `despesas/${id}/status`, { status: novoStatus })
       if (novoStatus === 'pago') {
         this.toast(`✅ Despesa paga! Limite do cartão restaurado automaticamente.`)
       } else {
@@ -2424,6 +2444,86 @@ const VM = {
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao atualizar', 'error')
+    }
+  },
+
+  // S2 – Marcar todas as despesas pendentes do período como pagas em lote
+  async marcarTodasPagas(mes, ano) {
+    const ok = confirm(`Marcar TODAS as despesas pendentes de ${mes}/${ano} como pagas?`)
+    if (!ok) return
+    try {
+      const r = await this.api('PATCH', 'despesas/batch-status', { mes, ano, status: 'pago' })
+      this.toast(`✅ ${r.message}`, 'success')
+      this.carregarDespesas()
+    } catch(e) {
+      this.toast('Erro ao atualizar despesas em lote', 'error')
+    }
+  },
+
+  // S3 – Filtrar todas as parcelas do mesmo grupo (por purchase_group_id ou descrição base)
+  async filtrarGrupoParcela(groupId, totalParcelas, descBase) {
+    if (!groupId && !descBase) return
+    try {
+      // Buscar todas as despesas sem filtro de mês para pegar todas as parcelas
+      const data = await this.api('GET', `despesas?limit=200`)
+      const parcelas = groupId
+        ? data.despesas.filter(d => d.purchase_group_id === groupId)
+        : data.despesas.filter(d => d.descricao?.startsWith(descBase) && d.numero_parcelas === totalParcelas)
+
+      if (parcelas.length === 0) {
+        this.toast('Nenhuma parcela encontrada', 'warning')
+        return
+      }
+
+      const total = parcelas.reduce((s, d) => s + (d.valor || 0), 0)
+      const pagas = parcelas.filter(d => d.status === 'pago').length
+      const mesesList = [...new Set(parcelas.map(d => d.data?.substring(0, 7)))].sort()
+
+      document.getElementById('modal-container').innerHTML = `
+        <div class="modal-overlay" onclick="VM.closeModal(event)">
+          <div class="modal" style="max-width:520px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+              <h3 style="font-size:1.1rem;font-weight:700;">💳 Parcelas: ${descBase}</h3>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+              <div style="background:#f8f9fa;border-radius:10px;padding:12px 18px;flex:1;">
+                <div style="color:#888;font-size:0.78rem;">Total do grupo</div>
+                <div style="font-size:1.2rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(total)}</div>
+              </div>
+              <div style="background:#f8f9fa;border-radius:10px;padding:12px 18px;flex:1;">
+                <div style="color:#888;font-size:0.78rem;">Pagas</div>
+                <div style="font-size:1.2rem;font-weight:800;color:#2FBF71;">${pagas}/${parcelas.length}</div>
+              </div>
+            </div>
+            <div style="overflow:auto;max-height:320px;">
+              <table class="data-table" style="font-size:0.85rem;">
+                <thead><tr><th>Parcela</th><th>Vencimento</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead>
+                <tbody>
+                  ${parcelas.map(d => `
+                    <tr>
+                      <td style="font-weight:600;">${d.parcela_atual}/${d.numero_parcelas}</td>
+                      <td>${this.formatDate(d.data)}</td>
+                      <td>
+                        <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}" 
+                          onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}');VM.closeModal();" style="cursor:pointer;">
+                          ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
+                        </span>
+                      </td>
+                      <td style="text-align:right;font-weight:700;">${this.formatMoney(d.valor)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top:16px;text-align:right;">
+              <button onclick="VM.closeModal()" class="btn-secondary">Fechar</button>
+            </div>
+          </div>
+        </div>
+      `
+    } catch(e) {
+      this.toast('Erro ao carregar parcelas', 'error')
     }
   },
 

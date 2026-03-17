@@ -81,8 +81,8 @@ cartoes.get('/', requireAuth, async (c) => {
        WHERE card_id = ? AND status = 'pendente'`
     ).bind(cartao.id).first() as any
 
-    const limite_utilizado  = Number(uso?.total || 0)
-    const limite_disponivel = Math.max(0, cartao.limite_total - limite_utilizado)
+    const limite_utilizado  = Math.round(Number(uso?.total || 0) * 100) / 100
+    const limite_disponivel = Math.round(Math.max(0, cartao.limite_total - limite_utilizado) * 100) / 100
 
     return {
       ...cartao,
@@ -111,16 +111,26 @@ cartoes.post('/', requireAuth, async (c) => {
       return c.json({ error: MSG_UPGRADE.cartoes, upgrade: true, limite: lim.cartoes }, 403)
   }
 
-  const { nome, bandeira, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
-  if (!nome || !bandeira || !banco || !limite_total || !dia_vencimento || !dia_fechamento)
+  const { nome, bandeira: bandeiraBruta, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
+  if (!nome || !bandeiraBruta || !banco || !limite_total || !dia_vencimento || !dia_fechamento)
     return c.json({ error: 'Campos obrigatórios: nome, bandeira, banco, limite_total, dia_vencimento, dia_fechamento' }, 400)
+
+  // C2: normalizar bandeira para lowercase e validar enum
+  const bandeira = String(bandeiraBruta).toLowerCase()
+  const bandeirasValidas = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
+  if (!bandeirasValidas.includes(bandeira))
+    return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidas.join(', ')}` }, 400)
+
+  const limiteNum = parseFloat(limite_total)
+  if (isNaN(limiteNum) || limiteNum <= 0)
+    return c.json({ error: 'Limite inválido — deve ser um número maior que zero' }, 400)
 
   const r = await c.env.DB.prepare(
     `INSERT INTO cartoes (user_id, nome, bandeira, banco, limite_total, limite_disponivel,
      dia_vencimento, dia_fechamento, cor, ultimos_digitos)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(user.id, nome, bandeira, banco,
-    parseFloat(limite_total), parseFloat(limite_total),
+    limiteNum, limiteNum,
     parseInt(dia_vencimento), parseInt(dia_fechamento),
     cor || '#2FBF71', ultimos_digitos || null
   ).run()
@@ -138,12 +148,19 @@ cartoes.put('/:id', requireAuth, async (c) => {
   const ex   = await c.env.DB.prepare('SELECT id FROM cartoes WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  const { nome, bandeira, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
+  const { nome, bandeira: bandeiraBrutaEdit, banco, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
+
+  // C2: normalizar bandeira PUT também
+  const bandeiraEdit = bandeiraBrutaEdit ? String(bandeiraBrutaEdit).toLowerCase() : undefined
+  const bandeirasValidasEdit = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
+  if (bandeiraEdit && !bandeirasValidasEdit.includes(bandeiraEdit))
+    return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidasEdit.join(', ')}` }, 400)
+
   await c.env.DB.prepare(
     `UPDATE cartoes SET nome=?, bandeira=?, banco=?, limite_total=?,
      dia_vencimento=?, dia_fechamento=?, cor=?, ultimos_digitos=?
      WHERE id=? AND user_id=?`
-  ).bind(nome, bandeira, banco, parseFloat(limite_total),
+  ).bind(nome, bandeiraEdit || bandeiraBrutaEdit, banco, parseFloat(limite_total),
     parseInt(dia_vencimento), parseInt(dia_fechamento),
     cor, ultimos_digitos || null, id, user.id
   ).run()
@@ -156,6 +173,9 @@ cartoes.put('/:id', requireAuth, async (c) => {
 cartoes.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id   = c.req.param('id')
+  // C7: verificar se cartão existe e pertence ao usuário antes de deletar
+  const ex = await c.env.DB.prepare('SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1').bind(id, user.id).first()
+  if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
   await c.env.DB.prepare('UPDATE cartoes SET ativo = 0 WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true, message: 'Cartão removido!' })
 })
@@ -195,8 +215,8 @@ cartoes.get('/:id/fatura', requireAuth, async (c) => {
     `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
      WHERE card_id = ? AND status = 'pendente'`
   ).bind(cardId).first() as any
-  const limite_utilizado  = Number(usoGlobal?.total || 0)
-  const limite_disponivel = Math.max(0, cartao.limite_total - limite_utilizado)
+  const limite_utilizado  = Math.round(Number(usoGlobal?.total || 0) * 100) / 100
+  const limite_disponivel = Math.round(Math.max(0, cartao.limite_total - limite_utilizado) * 100) / 100
 
   // Data de vencimento desta fatura
   const data_vencimento = calcDueDate(mes, ano, cartao.dia_vencimento, cartao.dia_fechamento)
