@@ -69,13 +69,18 @@ receitas.post('/', requireAuth, async (c) => {
   const body = await c.req.json()
   const { descricao, data, categoria, valor, recorrente = false, frequencia, observacoes } = body
 
-  if (!descricao || !data || !categoria || !valor) {
+  if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
+  }
+
+  const valorNum = parseFloat(valor)
+  if (isNaN(valorNum) || valorNum < 0) {
+    return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
   }
 
   const result = await c.env.DB.prepare(
     'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(user.id, descricao, data, categoria, parseFloat(valor), recorrente ? 1 : 0, frequencia || null, observacoes || null).run()
+  ).bind(user.id, descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null).run()
 
   // Conquista: primeira receita
   try {
@@ -92,12 +97,21 @@ receitas.put('/:id', requireAuth, async (c) => {
   const body = await c.req.json()
   const { descricao, data, categoria, valor, recorrente, frequencia, observacoes } = body
 
+  if (!descricao || !data || !categoria || valor === undefined) {
+    return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
+  }
+
+  const valorNum = parseFloat(valor)
+  if (isNaN(valorNum) || valorNum < 0) {
+    return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
+  }
+
   const existing = await c.env.DB.prepare('SELECT id FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)
 
   await c.env.DB.prepare(
     'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ? WHERE id = ? AND user_id = ?'
-  ).bind(descricao, data, categoria, parseFloat(valor), recorrente ? 1 : 0, frequencia || null, observacoes || null, id, user.id).run()
+  ).bind(descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, id, user.id).run()
 
   return c.json({ success: true, message: 'Receita atualizada!' })
 })

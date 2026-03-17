@@ -13,7 +13,7 @@ const VM = {
     if (!this.limites) return true // se ainda não carregou, permite (o backend vai bloquear)
     const v = this.limites[feature]
     if (typeof v === 'boolean') return v
-    if (typeof v === 'number') return v > 0
+    if (typeof v === 'number') return v === -1 || v > 0  // -1 = sem limite (Pro/Premium)
     return true
   },
 
