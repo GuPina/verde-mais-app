@@ -11896,193 +11896,298 @@ const VM = {
   async pageImportacao() {
     const content = document.getElementById('page-content')
     content.innerHTML = `
-      <div style="max-width:720px;margin:0 auto;">
+      <div style="max-width:900px;margin:0 auto;padding:16px;">
+        <h2 style="color:#fff;font-size:1.3rem;font-weight:700;margin-bottom:20px;">
+          <i class="fas fa-file-import" style="color:#2FBF71;margin-right:8px;"></i>Importar CSV
+        </h2>
 
         <!-- STEP 1: Upload -->
         <div id="imp-step1">
-          <div style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;margin-bottom:20px;">
-            <h3 style="margin:0 0 8px;color:#2FBF71;font-size:1.1rem;">📥 Importar Extrato CSV</h3>
-            <p style="margin:0 0 20px;color:#aaa;font-size:0.85rem;">Importe despesas ou receitas a partir de extratos bancários, planilhas ou exportações de outros apps.</p>
-
-            <div style="margin-bottom:16px;">
-              <label style="font-size:0.82rem;color:#ccc;display:block;margin-bottom:6px;">Tipo de dados</label>
-              <div style="display:flex;gap:10px;">
-                <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;" id="tipo-desp-label">
-                  <input type="radio" name="imp-tipo" value="despesas" checked onchange="VM._impTipoChange()" style="accent-color:#2FBF71;">
-                  <span style="font-size:0.9rem;">💸 Despesas</span>
-                </label>
-                <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;" id="tipo-rec-label">
-                  <input type="radio" name="imp-tipo" value="receitas" onchange="VM._impTipoChange()" style="accent-color:#2FBF71;">
-                  <span style="font-size:0.9rem;">💰 Receitas</span>
-                </label>
-              </div>
+          <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px;">
+            <p style="color:#aaa;margin-bottom:16px;font-size:0.9rem;">Cole ou carregue seu CSV de extrato bancário ou fatura de cartão.</p>
+            <div style="display:flex;gap:12px;margin-bottom:16px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="radio" name="imp-tipo" value="despesas" checked style="accent-color:#2FBF71;">
+                <span style="color:#e0e0e0;font-size:0.9rem;">Despesas</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="radio" name="imp-tipo" value="receitas" style="accent-color:#2FBF71;">
+                <span style="color:#e0e0e0;font-size:0.9rem;">Receitas</span>
+              </label>
             </div>
-
-            <div style="margin-bottom:20px;">
-              <label style="font-size:0.82rem;color:#ccc;display:block;margin-bottom:6px;">Cole o conteúdo do CSV aqui</label>
-              <textarea id="imp-csv-input" rows="8" placeholder="data,descricao,valor&#10;15/03/2026,Supermercado,250.00&#10;16/03/2026,Conta de luz,180.50&#10;..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:12px;color:#fff;font-size:0.82rem;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+            <textarea id="imp-csv" placeholder="Cole aqui o conteúdo do CSV..." rows="10"
+              style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:#e0e0e0;padding:12px;font-size:0.82rem;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+              <label style="color:#aaa;font-size:0.8rem;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                <input type="file" id="imp-file" accept=".csv,.txt" style="display:none;" onchange="VM._impCarregarArquivo(this)">
+                <span style="padding:6px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:8px;">
+                  <i class="fas fa-upload" style="margin-right:4px;"></i>Carregar arquivo
+                </span>
+              </label>
             </div>
-
-            <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:10px;padding:14px;margin-bottom:20px;">
-              <p style="margin:0 0 8px;font-size:0.8rem;color:#93c5fd;font-weight:600;">💡 Formatos aceitos</p>
-              <ul style="margin:0;padding-left:16px;font-size:0.78rem;color:#aaa;line-height:1.8;">
-                <li>Separador: <strong style="color:#ddd;">vírgula (,)</strong> ou <strong style="color:#ddd;">ponto e vírgula (;)</strong></li>
-                <li>Data: <strong style="color:#ddd;">dd/mm/aaaa</strong>, <strong style="color:#ddd;">aaaa-mm-dd</strong> ou <strong style="color:#ddd;">mm/dd/aaaa</strong></li>
-                <li>Valor: <strong style="color:#ddd;">1.234,56</strong> (BR) ou <strong style="color:#ddd;">1234.56</strong> (EN) — sem R$</li>
-                <li>Cabeçalho obrigatório na 1ª linha</li>
-              </ul>
-            </div>
-
-            <button id="imp-btn-preview" onclick="VM._impPreview()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
-              🔍 Pré-visualizar
+            <button id="imp-btn-preview" onclick="VM._impPreview()" style="width:100%;margin-top:16px;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
+              <i class="fas fa-search" style="margin-right:6px;"></i>Pré-visualizar e Analisar
             </button>
           </div>
         </div>
 
-        <!-- STEP 2: Preview + Mapeamento -->
+        <!-- STEP 2: Preview enriquecido -->
         <div id="imp-step2" style="display:none;">
-          <div style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;margin-bottom:20px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-              <h3 style="margin:0;color:#2FBF71;font-size:1.05rem;">🗂️ Pré-visualização</h3>
-              <button onclick="VM._impVoltar()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#aaa;padding:6px 14px;border-radius:8px;font-size:0.8rem;cursor:pointer;">← Voltar</button>
-            </div>
-
-            <div id="imp-info-cols" style="margin-bottom:16px;font-size:0.82rem;color:#aaa;"></div>
-
-            <!-- Mapeamento de colunas -->
-            <div id="imp-mapeamento" style="margin-bottom:20px;"></div>
-
-            <!-- Tabela preview -->
-            <div id="imp-preview-table" style="overflow-x:auto;margin-bottom:16px;"></div>
-
-            <div id="imp-resumo" style="margin-bottom:16px;"></div>
-
-            <button id="imp-btn-executar" onclick="VM._impExecutar()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
-              ✅ Confirmar e Importar
-            </button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <button onclick="VM._impVoltar()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#aaa;padding:6px 14px;border-radius:8px;font-size:0.8rem;cursor:pointer;">← Voltar</button>
+            <span id="imp-stats-badge" style="font-size:0.8rem;color:#aaa;"></span>
           </div>
+
+          <!-- Painel de alertas globais -->
+          <div id="imp-alertas" style="display:none;margin-bottom:16px;"></div>
+
+          <!-- Configurações globais do lote -->
+          <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin-bottom:16px;">
+            <h3 style="color:#2FBF71;font-size:0.9rem;font-weight:600;margin-bottom:12px;"><i class="fas fa-sliders-h" style="margin-right:6px;"></i>Configurações do Lote</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div>
+                <label style="color:#aaa;font-size:0.8rem;display:block;margin-bottom:4px;">Vincular TODOS ao cartão:</label>
+                <select id="imp-cartao-lote" style="width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:8px;border-radius:8px;font-size:0.85rem;">
+                  <option value="">— Nenhum cartão (dinheiro/pix) —</option>
+                </select>
+              </div>
+              <div>
+                <label style="color:#aaa;font-size:0.8rem;display:block;margin-bottom:4px;">Ações rápidas em duplicatas:</label>
+                <div style="display:flex;gap:8px;margin-top:4px;">
+                  <button onclick="VM._impDecidirTodos(true)" style="padding:6px 12px;background:rgba(47,191,113,0.15);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:8px;font-size:0.78rem;cursor:pointer;">✅ Importar todos</button>
+                  <button onclick="VM._impDecidirTodos(false)" style="padding:6px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;border-radius:8px;font-size:0.78rem;cursor:pointer;">🚫 Ignorar todos</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabela de linhas -->
+          <div id="imp-linhas-container" style="display:flex;flex-direction:column;gap:8px;max-height:520px;overflow-y:auto;padding-right:4px;"></div>
+
+          <button id="imp-btn-executar" onclick="VM._impExecutar()" style="width:100%;margin-top:16px;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
+            <i class="fas fa-check-circle" style="margin-right:6px;"></i>Confirmar e Importar
+          </button>
         </div>
 
         <!-- STEP 3: Resultado -->
-        <div id="imp-step3" style="display:none;">
-          <div id="imp-resultado" style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;text-align:center;"></div>
-        </div>
-
+        <div id="imp-step3" style="display:none;"></div>
       </div>
     `
-    // Bind internal state
-    this._impData = { csv: '', tipo: 'despesas', previewData: null }
   },
 
-  _impTipoChange() {
-    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
-    this._impData = this._impData || {}
-    this._impData.tipo = tipo
+  _impCarregarArquivo(input) {
+    const file = input.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = e => {
+      document.getElementById('imp-csv').value = e.target.result
+    }
+    reader.readAsText(file, 'UTF-8')
   },
 
   async _impPreview() {
-    const csv = document.getElementById('imp-csv-input')?.value?.trim()
-    if (!csv) { this.toast('Cole o conteúdo CSV no campo acima', 'warning'); return }
-    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
-    this._impData = { csv, tipo, previewData: null }
-
     const btn = document.getElementById('imp-btn-preview')
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...' }
+    const csv = document.getElementById('imp-csv').value.trim()
+    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
+
+    if (!csv) { this.toast('Cole o CSV antes de continuar', 'error'); return }
+    btn.disabled = true
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando...'
 
     try {
-      const res = await this.api('POST', 'importacao/preview', { csv, tipo })
+      const resp = await this.api('POST', 'importacao/preview', { csv, tipo })
+      this._impData = { csv, tipo, preview: resp.preview, mapeamento: {
+        data: resp.colunas_detectadas?.data !== null ? resp.cabecalho_original?.indexOf(resp.colunas_detectadas?.data) : -1,
+        descricao: resp.colunas_detectadas?.descricao !== null ? resp.cabecalho_original?.indexOf(resp.colunas_detectadas?.descricao) : -1,
+        valor: resp.colunas_detectadas?.valor !== null ? resp.cabecalho_original?.indexOf(resp.colunas_detectadas?.valor) : -1,
+        categoria: resp.colunas_detectadas?.categoria !== null ? resp.cabecalho_original?.indexOf(resp.colunas_detectadas?.categoria) : -1,
+      }, cartoes: resp.cartoes || [], tags: resp.tags || [], stats: resp.stats || {} }
 
-      if (res.error) { this.toast(res.error, 'error'); return }
-
-      this._impData.previewData = res
-      this._impData.cabecalho = res.cabecalho_original
-
-      // Montar mapeamento
-      const cols = res.cabecalho_original
-      const colsOpts = cols.map((c, i) => `<option value="${i}">${c}</option>`).join('')
-      const colsOptsNone = `<option value="-1">— Não usar —</option>` + colsOpts
-
-      const det = res.colunas_detectadas
-      const selData  = cols.findIndex((_, i) => i === cols.findIndex((_, j) => j === (det.data  !== null ? cols.indexOf(det.data)  : -1)))
-      const idxData  = det.data      !== null ? cols.map(c => c.toLowerCase()).indexOf((det.data||'').toLowerCase())      : 0
-      const idxDesc  = det.descricao !== null ? cols.map(c => c.toLowerCase()).indexOf((det.descricao||'').toLowerCase())  : Math.min(1, cols.length-1)
-      const idxValor = det.valor     !== null ? cols.map(c => c.toLowerCase()).indexOf((det.valor||'').toLowerCase())     : Math.min(2, cols.length-1)
-      const idxCat   = det.categoria !== null ? cols.map(c => c.toLowerCase()).indexOf((det.categoria||'').toLowerCase()) : -1
-
-      document.getElementById('imp-mapeamento').innerHTML = `
-        <p style="font-size:0.82rem;color:#aaa;margin:0 0 10px;">Confirme o mapeamento de colunas:</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">📅 Data</label>
-            <select id="map-data" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
-              ${cols.map((c,i)=>`<option value="${i}" ${i===idxData?'selected':''}>${c}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">📝 Descrição</label>
-            <select id="map-desc" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
-              ${cols.map((c,i)=>`<option value="${i}" ${i===idxDesc?'selected':''}>${c}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">💰 Valor</label>
-            <select id="map-valor" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
-              ${cols.map((c,i)=>`<option value="${i}" ${i===idxValor?'selected':''}>${c}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">🏷️ Categoria (opcional)</label>
-            <select id="map-cat" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
-              ${colsOptsNone.replace(`value="${idxCat}"`, `value="${idxCat}" selected`)}
-            </select>
-          </div>
-        </div>
-      `
-
-      // Tabela preview
-      const rows = res.preview.map(r => `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px;font-size:0.8rem;color:#93c5fd;">${r.data}</td>
-          <td style="padding:8px;font-size:0.8rem;color:#ddd;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.descricao}</td>
-          <td style="padding:8px;font-size:0.8rem;color:#4ade80;text-align:right;">R$ ${r.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-          <td style="padding:8px;font-size:0.8rem;color:#aaa;">${r.categoria}</td>
-        </tr>
-      `).join('')
-
-      document.getElementById('imp-preview-table').innerHTML = `
-        <p style="font-size:0.8rem;color:#aaa;margin:0 0 8px;">Primeiras linhas detectadas:</p>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="border-bottom:1px solid rgba(47,191,113,0.3);">
-              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Data</th>
-              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Descrição</th>
-              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:right;">Valor</th>
-              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Categoria</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      `
-
-      document.getElementById('imp-resumo').innerHTML = `
-        <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:14px;display:flex;gap:24px;flex-wrap:wrap;">
-          <div><span style="font-size:0.75rem;color:#888;">Total de linhas</span><br><strong style="color:#2FBF71;font-size:1.1rem;">${res.total_linhas}</strong></div>
-          <div><span style="font-size:0.75rem;color:#888;">Tipo</span><br><strong style="color:#ddd;font-size:1rem;">${tipo === 'despesas' ? '💸 Despesas' : '💰 Receitas'}</strong></div>
-          ${res.erros_preview.length ? `<div><span style="font-size:0.75rem;color:#f87171;">⚠️ Avisos preview</span><br><strong style="color:#f87171;">${res.erros_preview.length}</strong></div>` : ''}
-        </div>
-      `
-
+      // Preencher select de cartões
       document.getElementById('imp-step1').style.display = 'none'
       document.getElementById('imp-step2').style.display = 'block'
       document.getElementById('imp-step3').style.display = 'none'
 
-    } catch (e) {
-      const msg = e?.response?.data?.error || e?.message || String(e)
-      this.toast('Erro ao processar CSV: ' + msg, 'error')
-    } finally {
-      const btn2 = document.getElementById('imp-btn-preview')
-      if (btn2) { btn2.disabled = false; btn2.textContent = '🔍 Pré-visualizar' }
+      const sel = document.getElementById('imp-cartao-lote')
+      sel.innerHTML = '<option value="">— Nenhum cartão (dinheiro/pix) —</option>'
+      for (const c of (resp.cartoes || [])) {
+        sel.innerHTML += `<option value="${c.id}">${c.nome} (${c.bandeira || ''}) — Limite: R$ ${(c.limite_disponivel||0).toFixed(2)}</option>`
+      }
+
+      // Badge de stats
+      const s = resp.stats || {}
+      const parts = [`${s.total||0} linhas`]
+      if (s.duplicatas_provaveis > 0) parts.push(`<span style="color:#ef4444">🔴 ${s.duplicatas_provaveis} duplicata(s)</span>`)
+      if (s.duplicatas_possiveis > 0) parts.push(`<span style="color:#f59e0b">🟡 ${s.duplicatas_possiveis} possível(is)</span>`)
+      if (s.parcelas_detectadas > 0) parts.push(`<span style="color:#3b82f6">📦 ${s.parcelas_detectadas} parcela(s)</span>`)
+      if (s.tags_sugeridas > 0) parts.push(`<span style="color:#8b5cf6">🏷 ${s.tags_sugeridas} tag(s) sugerida(s)</span>`)
+      document.getElementById('imp-stats-badge').innerHTML = parts.join(' &nbsp;|&nbsp; ')
+
+      // Alertas globais
+      const alertasEl = document.getElementById('imp-alertas')
+      const alertas = []
+      if (resp.erros_preview?.length > 0) {
+        alertas.push(`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;color:#ef4444;font-size:0.82rem;">
+          <b>Erros de leitura:</b><br>${resp.erros_preview.slice(0,5).join('<br>')}
+        </div>`)
+      }
+      if (alertas.length > 0) {
+        alertasEl.style.display = 'block'
+        alertasEl.innerHTML = alertas.join('')
+      }
+
+      // Renderizar linhas
+      this._impRenderizarLinhas()
+
+    } catch(e) {
+      btn.disabled = false
+      btn.innerHTML = '<i class="fas fa-search" style="margin-right:6px;"></i>Pré-visualizar e Analisar'
+      this.toast('Erro ao analisar CSV: ' + (e.message || e), 'error')
     }
+  },
+
+  _impRenderizarLinhas() {
+    const container = document.getElementById('imp-linhas-container')
+    if (!container) return
+    const preview = this._impData?.preview || []
+    const tags = this._impData?.tags || []
+
+    container.innerHTML = preview.map((item, idx) => {
+      const dup = item.duplicata
+      const parc = item.parcela
+      const tagSug = item.tag_sugerida
+
+      // Cores por nível de duplicata
+      let borderColor = 'rgba(255,255,255,0.06)'
+      let bgColor = 'rgba(255,255,255,0.03)'
+      let dupBadge = ''
+      let decisao = item.decisao !== false  // default true, exceto duplicatas com null
+
+      if (dup?.nivel === 'provavel') {
+        borderColor = 'rgba(239,68,68,0.4)'
+        bgColor = 'rgba(239,68,68,0.07)'
+        dupBadge = `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🔴 Duplicata Provável</span>`
+        decisao = false
+      } else if (dup?.nivel === 'possivel') {
+        borderColor = 'rgba(245,158,11,0.4)'
+        bgColor = 'rgba(245,158,11,0.06)'
+        dupBadge = `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🟡 Possível Duplicata</span>`
+        decisao = false
+      }
+
+      const parcBadge = parc
+        ? `<span style="background:rgba(59,130,246,0.15);color:#3b82f6;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">📦 Parcela ${parc.atual}/${parc.total}</span>`
+        : ''
+
+      // Select de tag
+      const tagOptions = tags.map(t =>
+        `<option value="${t.id}" ${tagSug?.id === t.id ? 'selected' : ''}>${t.nome}</option>`
+      ).join('')
+
+      // Select de cartão por linha
+      const cartoes = this._impData?.cartoes || []
+      const cartaoOptions = cartoes.map(c =>
+        `<option value="${c.id}">${c.nome}</option>`
+      ).join('')
+
+      const checkedStr = decisao ? 'checked' : ''
+      const checkColor = decisao ? '#2FBF71' : '#ef4444'
+      const checkLabel = decisao ? 'Importar' : 'Ignorar'
+
+      return `
+        <div id="imp-linha-${idx}" data-linha="${item.linha}" data-idx="${idx}"
+          style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:12px;transition:border 0.2s;">
+          <div style="display:flex;align-items:flex-start;gap:10px;">
+            <!-- Checkbox de decisão -->
+            <div style="flex-shrink:0;margin-top:2px;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="Marcar para importar ou ignorar">
+                <input type="checkbox" id="imp-chk-${idx}" ${checkedStr}
+                  onchange="VM._impToggleDecisao(${idx}, this.checked)"
+                  style="accent-color:#2FBF71;width:16px;height:16px;cursor:pointer;">
+                <span id="imp-chk-label-${idx}" style="font-size:0.72rem;color:${checkColor};font-weight:600;min-width:44px;">${checkLabel}</span>
+              </label>
+            </div>
+
+            <!-- Dados principais -->
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:6px;">
+                <span style="color:#e0e0e0;font-size:0.88rem;font-weight:600;">${item.descricao}</span>
+                ${dupBadge}
+                ${parcBadge}
+                ${tagSug ? `<span style="background:rgba(139,92,246,0.15);color:#8b5cf6;padding:2px 8px;border-radius:12px;font-size:0.72rem;">🏷 ${tagSug.nome}</span>` : ''}
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:0.8rem;color:#aaa;margin-bottom:6px;">
+                <span>📅 ${item.data}</span>
+                <span style="color:#2FBF71;font-weight:600;">R$ ${item.valor?.toFixed(2)}</span>
+                <span>📂 ${item.categoria}</span>
+                <span>💳 ${item.meio_pagamento}</span>
+              </div>
+
+              <!-- Alerta de duplicata -->
+              ${dup ? `<div style="background:rgba(${dup.nivel==='provavel'?'239,68,68':'245,158,11'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${dup.nivel==='provavel'?'#ef4444':'#f59e0b'};margin-bottom:6px;">
+                ⚠️ ${dup.motivo}
+              </div>` : ''}
+
+              <!-- Info de parcelas -->
+              ${parc ? `<div style="background:rgba(59,130,246,0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:#3b82f6;margin-bottom:6px;">
+                📦 Parcela ${parc.atual} de ${parc.total} — Serão criadas <b>${parc.total}</b> parcelas (retroativas: ${parc.retroativas}, futuras: ${parc.futuras}) | Data da compra original: ${parc.dataBase}
+              </div>` : ''}
+
+              <!-- Configurações por linha -->
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                ${cartoes.length > 0 ? `
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <label style="color:#aaa;font-size:0.75rem;">Cartão:</label>
+                  <select id="imp-cartao-${idx}" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
+                    <option value="">Usar lote</option>
+                    ${cartaoOptions}
+                  </select>
+                </div>` : ''}
+                ${tags.length > 0 ? `
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <label style="color:#aaa;font-size:0.75rem;">Tag:</label>
+                  <select id="imp-tag-${idx}" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
+                    <option value="">Sem tag</option>
+                    ${tagOptions}
+                  </select>
+                </div>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    }).join('')
+
+    // Inicializar decisões
+    this._impDecisoes = preview.map(item => {
+      if (item.duplicata?.nivel === 'provavel') return false
+      if (item.duplicata?.nivel === 'possivel') return false
+      return true
+    })
+  },
+
+  _impToggleDecisao(idx, checked) {
+    if (!this._impDecisoes) this._impDecisoes = []
+    this._impDecisoes[idx] = checked
+    const label = document.getElementById(`imp-chk-label-${idx}`)
+    if (label) {
+      label.textContent = checked ? 'Importar' : 'Ignorar'
+      label.style.color = checked ? '#2FBF71' : '#ef4444'
+    }
+    const container = document.getElementById(`imp-linha-${idx}`)
+    if (container) {
+      container.style.opacity = checked ? '1' : '0.5'
+    }
+  },
+
+  _impDecidirTodos(importar) {
+    const preview = this._impData?.preview || []
+    preview.forEach((_, idx) => {
+      this._impDecisoes[idx] = importar
+      const chk = document.getElementById(`imp-chk-${idx}`)
+      if (chk) chk.checked = importar
+      this._impToggleDecisao(idx, importar)
+    })
   },
 
   _impVoltar() {
@@ -12094,57 +12199,68 @@ const VM = {
   async _impExecutar() {
     const btn = document.getElementById('imp-btn-executar')
     btn.disabled = true
-    btn.textContent = '⏳ Importando...'
-
-    const mapeamento = {
-      data:      parseInt(document.getElementById('map-data')?.value),
-      descricao: parseInt(document.getElementById('map-desc')?.value),
-      valor:     parseInt(document.getElementById('map-valor')?.value),
-      categoria: parseInt(document.getElementById('map-cat')?.value)
-    }
-    if (mapeamento.categoria === -1) delete mapeamento.categoria
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Importando...'
 
     try {
-      const res = await this.api('POST', 'importacao/executar', {
-        csv: this._impData.csv,
-        tipo: this._impData.tipo,
-        mapeamento
+      const { csv, tipo, mapeamento, preview } = this._impData
+      const cartaoLote = document.getElementById('imp-cartao-lote')?.value || ''
+
+      // Montar config por linha
+      const linhas_config = preview.map((item, idx) => {
+        const importar = this._impDecisoes ? this._impDecisoes[idx] : true
+        const cartaoOverride = document.getElementById(`imp-cartao-${idx}`)?.value || ''
+        const tagId = document.getElementById(`imp-tag-${idx}`)?.value || ''
+        return {
+          linha: item.linha,
+          importar,
+          cartao_id_override: cartaoOverride ? parseInt(cartaoOverride) : null,
+          tag_id: tagId ? parseInt(tagId) : null,
+        }
+      })
+
+      const resp = await this.api('POST', 'importacao/executar', {
+        csv, tipo, mapeamento,
+        cartao_id: cartaoLote ? parseInt(cartaoLote) : null,
+        linhas_config,
       })
 
       document.getElementById('imp-step2').style.display = 'none'
       document.getElementById('imp-step3').style.display = 'block'
 
-      const ok = res.importados > 0
-      document.getElementById('imp-resultado').innerHTML = `
-        <div style="font-size:3rem;margin-bottom:16px;">${ok ? '✅' : '⚠️'}</div>
-        <h3 style="color:${ok?'#2FBF71':'#f87171'};margin:0 0 8px;">${ok ? 'Importação concluída!' : 'Nenhum dado importado'}</h3>
-        <p style="color:#aaa;font-size:0.9rem;margin:0 0 20px;">${res.mensagem || ''}</p>
-        <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:24px;">
-          <div style="background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px 24px;">
-            <div style="font-size:1.8rem;font-weight:700;color:#2FBF71;">${res.importados}</div>
-            <div style="font-size:0.75rem;color:#888;">Importados</div>
+      const temErros = (resp.ignorados || 0) > 0
+      const temParcelas = (resp.parcelas_criadas || 0) > 0
+
+      document.getElementById('imp-step3').innerHTML = `
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:28px;text-align:center;">
+          <div style="font-size:3rem;margin-bottom:12px;">${temErros ? '⚠️' : '🎉'}</div>
+          <h3 style="color:#fff;font-size:1.2rem;font-weight:700;margin-bottom:8px;">Importação Concluída</h3>
+          <p style="color:#2FBF71;font-size:1rem;margin-bottom:6px;">
+            <b>${resp.importados || 0}</b> ${tipo} importadas com sucesso
+          </p>
+          ${temParcelas ? `<p style="color:#3b82f6;font-size:0.88rem;margin-bottom:6px;">📦 <b>${resp.parcelas_criadas}</b> parcelas geradas no histórico</p>` : ''}
+          ${resp.ignorados > 0 ? `<p style="color:#f59e0b;font-size:0.88rem;margin-bottom:6px;">⚠️ <b>${resp.ignorados}</b> linha(s) ignoradas</p>` : ''}
+          ${resp.erros_detalhes?.length > 0 ? `
+            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px;margin:12px 0;text-align:left;">
+              <p style="color:#ef4444;font-size:0.82rem;font-weight:600;margin-bottom:6px;">Erros:</p>
+              ${resp.erros_detalhes.map(e => `<p style="color:#ef4444;font-size:0.78rem;margin:2px 0;">${e}</p>`).join('')}
+            </div>` : ''}
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap;">
+            <button onclick="VM.navigate('despesas')" style="padding:10px 22px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:600;cursor:pointer;">
+              <i class="fas fa-list" style="margin-right:6px;"></i>Ver Despesas
+            </button>
+            <button onclick="VM.pageImportacao()" style="padding:10px 22px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;cursor:pointer;">
+              <i class="fas fa-redo" style="margin-right:6px;"></i>Nova Importação
+            </button>
           </div>
-          ${res.erros > 0 ? `<div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2);border-radius:10px;padding:12px 24px;">
-            <div style="font-size:1.8rem;font-weight:700;color:#f87171;">${res.erros}</div>
-            <div style="font-size:0.75rem;color:#888;">Ignorados</div>
-          </div>` : ''}
-        </div>
-        ${res.erros_detalhes?.length ? `<div style="text-align:left;background:rgba(248,113,113,0.05);border:1px solid rgba(248,113,113,0.1);border-radius:8px;padding:12px;margin-bottom:16px;font-size:0.78rem;color:#f87171;">${res.erros_detalhes.map(e=>`<div>⚠️ ${e}</div>`).join('')}</div>` : ''}
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <button onclick="VM.navigate('${this._impData.tipo}')" style="padding:10px 22px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:600;cursor:pointer;">
-            Ver ${this._impData.tipo === 'despesas' ? 'Despesas' : 'Receitas'} →
-          </button>
-          <button onclick="VM.pageImportacao()" style="padding:10px 22px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;cursor:pointer;">
-            Nova Importação
-          </button>
         </div>
       `
-    } catch (e) {
+    } catch(e) {
       btn.disabled = false
-      btn.textContent = '✅ Confirmar e Importar'
+      btn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:6px;"></i>Confirmar e Importar'
       this.toast('Erro na importação: ' + (e.message || e), 'error')
     }
   },
+
 
   markdownToHtml(text) {
     if (!text) return ''
