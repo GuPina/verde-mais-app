@@ -1,12 +1,12 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const assinaturas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// Palavras-chave de serviços conhecidos (expandido)
+// ── Lista de serviços conhecidos de assinatura ─────────────────────────────
 const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string; nome: string }> = [
   { keywords: ['netflix', 'netflix.com'], type: 'streaming', nome: 'Netflix' },
   { keywords: ['spotify', 'spotif'], type: 'streaming', nome: 'Spotify' },
@@ -16,7 +16,7 @@ const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string; nome: str
   { keywords: ['hbo', 'hbomax', 'max', 'paramount', 'hbo max'], type: 'streaming', nome: 'HBO/Max' },
   { keywords: ['globoplay', 'globo play'], type: 'streaming', nome: 'Globoplay' },
   { keywords: ['deezer', 'apple music', 'tidal'], type: 'streaming', nome: 'Música Streaming' },
-  { keywords: ['icloud', 'apple storage'], type: 'cloud', nome: 'iCloud' },
+  { keywords: ['icloud', 'apple storage', 'apple one'], type: 'cloud', nome: 'iCloud' },
   { keywords: ['dropbox'], type: 'cloud', nome: 'Dropbox' },
   { keywords: ['onedrive', 'office 365', 'microsoft 365', 'microsoft'], type: 'cloud', nome: 'Microsoft 365' },
   { keywords: ['google one', 'google storage', 'google play'], type: 'cloud', nome: 'Google One' },
@@ -35,38 +35,54 @@ const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string; nome: str
   { keywords: ['alura', 'coursera', 'udemy', 'hotmart', 'kiwify'], type: 'education', nome: 'Cursos Online' },
   { keywords: ['vpn', 'nordvpn', 'expressvpn', 'surfshark'], type: 'software', nome: 'VPN' },
   { keywords: ['antivirus', 'norton', 'kaspersky', 'bitdefender', 'mcafee'], type: 'software', nome: 'Antivírus' },
-  { keywords: ['nubank', 'nupay', 'nubank plus', 'ultravioleta'], type: 'banking', nome: 'Nubank Premium' },
+  { keywords: ['nubank plus', 'ultravioleta'], type: 'banking', nome: 'Nubank Premium' },
   { keywords: ['inter cel', 'inter plus'], type: 'banking', nome: 'Banco Inter Premium' },
   { keywords: ['strava', 'myfitnesspal', 'nike run', 'garmin'], type: 'fitness', nome: 'App Fitness' },
   { keywords: ['kindle', 'audible', 'scribd', 'kindle unlimited'], type: 'education', nome: 'Leitura Digital' },
   { keywords: ['crunchyroll', 'funimation', 'hidive'], type: 'streaming', nome: 'Anime Streaming' },
   { keywords: ['twitch', 'twitch prime'], type: 'streaming', nome: 'Twitch' },
+  { keywords: ['claro', 'vivo', 'tim', 'oi', 'nextel'], type: 'telecom', nome: 'Operadora Telefônica' },
+  { keywords: ['sky', 'claro tv', 'net combo', 'iptv'], type: 'tv', nome: 'TV por Assinatura' },
+  { keywords: ['plano de saude', 'plano saude', 'unimed', 'amil', 'bradesco saude', 'sulamerica', 'notre dame'], type: 'health', nome: 'Plano de Saúde' },
+  { keywords: ['previdencia', 'prev privada', 'pgbl', 'vgbl'], type: 'financial', nome: 'Previdência Privada' },
+  { keywords: ['seguro vida', 'seguro auto', 'seguro residencial', 'porto seguro', 'bradesco seguros'], type: 'insurance', nome: 'Seguro' },
+  { keywords: ['assinatura', 'mensalidade', 'plano mensal', 'renovacao', 'renovação'], type: 'generic', nome: 'Assinatura' },
 ]
 
-// Padrões de descrições que NÃO são assinaturas (falsos positivos comuns)
+// ── Padrões de descrições que NÃO são assinaturas ─────────────────────────
 const EXCLUSION_PATTERNS = [
   /pagamento\s*(de\s*)?fatura/i,
   /fatura\s*(cartao|nubank|inter|itau|bradesco|santander)/i,
   /transferencia/i,
   /salario|salário/i,
-  /aluguel\s*imovel/i,
-  /parcela\s*\d+/i,
+  /aluguel\s*imovel|aluguel\s*casa|aluguel\s*apt/i,
+  /parcela\s*\d+\s*(de\s*)?\d+/i,    // Parcelas "X de Y"
   /emprestimo|financiamento/i,
-  /supermercado|mercado|padaria|acougue|farmacia/i,
+  /supermercado|mercado\s|padaria|açougue|farmacia\s+\w+\s+\d/i,
   /gasolina|combustivel|posto/i,
-  /restaurante|lanchonete|ifood\s+pedido/i,
-  /hospital|medico|consulta|exame/i,
-  /escola|mensalidade\s*(escolar|faculdade)/i,
-  /^aporte[:\s]/i,          // Aportes (investimentos)
-  /investimento|aplicacao/i, // Aplicações financeiras
-  /rendimento|juros\s+\w/i,  // Rendimentos
-  /cdb|lci|lca|cri|cra|tesouro/i, // Títulos financeiros
-  /poupanca|poupança/i,      // Poupança
+  /restaurante|lanchonete|ifood\s+pedido|ifood\s+-/i,
+  /hospital|consulta\s+medica|exame\s+\w/i,
+  /escola\s+|mensalidade\s*(escolar|faculdade|colegio)/i,
+  /^aporte[:\s]/i,
+  /investimento|aplicacao/i,
+  /rendimento|juros\s+\w/i,
+  /cdb|lci|lca|cri|cra|tesouro\s+direto/i,
+  /poupanca|poupança/i,
+  /luz\s+\d|agua\s+\d|gas\s+\d|condominio\s+\d/i,  // Contas com número (não assinatura)
+  /taxi|uber\s+viagem|99\s+viagem|corrida/i,         // Corridas avulsas
+  /compra\s+\d+|pedido\s+\d+/i,                      // Compras com número de pedido
+]
+
+// ── Categorias que indicam assinatura quando há recorrência ───────────────
+const SUBSCRIPTION_CATEGORIES = [
+  'Assinaturas', 'Streaming', 'Software', 'Saúde', 'Fitness', 'Educação',
+  'Internet', 'Telefone', 'TV', 'Seguros', 'Plano de Saúde'
 ]
 
 function normalizeDesc(desc: string): string {
   return desc
     .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -76,16 +92,77 @@ function isExcluded(desc: string): boolean {
   return EXCLUSION_PATTERNS.some(pattern => pattern.test(desc))
 }
 
+// ── Helper: chamar IA para classificar despesas suspeitas ─────────────────
+async function classificarComIA(
+  env: Bindings,
+  despesas: Array<{ descricao: string; valor: number; ocorrencias: number; intervalo_medio: number }>
+): Promise<Array<{ descricao: string; is_assinatura: boolean; confianca: number; service_nome: string; tipo: string; motivo: string }>> {
+  const apiKey = env.OPENAI_API_KEY
+  const baseURL = (env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+
+  if (!apiKey || despesas.length === 0) return []
+
+  const prompt = `Você é um especialista financeiro brasileiro. Analise estas despesas e identifique quais são assinaturas recorrentes (serviços pagos mensalmente/periodicamente).
+
+CRITÉRIOS PARA SER ASSINATURA:
+- Serviço digital (streaming, software, app, nuvem)
+- Plano periódico (academia, telefone, TV, saúde)
+- Seguro mensal
+- Assinatura de serviço
+
+NÃO são assinaturas:
+- Compras únicas de produtos físicos
+- Pedidos de delivery avulsos
+- Pagamentos de parcelas
+- Contas de luz/água/gás (são contas, não assinaturas)
+
+Despesas para classificar (JSON):
+${JSON.stringify(despesas, null, 2)}
+
+Responda APENAS com um array JSON válido no formato:
+[{"descricao":"nome exato","is_assinatura":true/false,"confianca":0-100,"service_nome":"nome do serviço","tipo":"streaming/software/fitness/telecom/health/insurance/other","motivo":"razão breve"}]`
+
+  try {
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    })
+
+    if (!response.ok) return []
+
+    const data = await response.json() as any
+    const content = data.choices?.[0]?.message?.content || ''
+
+    // Extrair JSON da resposta
+    const jsonMatch = content.match(/\[[\s\S]*\]/)
+    if (!jsonMatch) return []
+
+    return JSON.parse(jsonMatch[0])
+  } catch {
+    return []
+  }
+}
+
 // ── POST /api/assinaturas-fantasma/scan ───────────────────────────────────
 assinaturas.post('/scan', requireAuth, async (c) => {
   const user = c.get('user')
+  const { usar_ia = true } = await c.req.json().catch(() => ({})) as any
 
-  // Buscar despesas dos últimos 12 meses (expandido de 8 para 12)
+  // Buscar despesas dos últimos 13 meses
   const result = await c.env.DB.prepare(`
     SELECT id, descricao, valor, data, categoria, status
     FROM despesas
-    WHERE user_id = ? 
-      AND data >= date('now', '-12 months')
+    WHERE user_id = ?
+      AND data >= date('now', '-13 months')
       AND valor >= 3.0
       AND status != 'cancelado'
     ORDER BY data ASC
@@ -93,7 +170,6 @@ assinaturas.post('/scan', requireAuth, async (c) => {
 
   const expenses = result.results as any[]
 
-  // Limiar mínimo reduzido: 4 despesas (era 6 meses de histórico)
   if (expenses.length < 4) {
     return c.json({
       detected: [],
@@ -102,13 +178,15 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     })
   }
 
-  // Agrupar por (descrição normalizada, valor aproximado)
+  // ── Agrupar por (descrição normalizada + bucket de valor) ────────────────
   type Group = {
     normalized: string
     original: string
     amount: number
+    categoria: string
     occurrences: Array<{ id: number; date: Date; status: string }>
     keywordMatch: boolean
+    categoryMatch: boolean
     serviceType: string
     serviceNome: string
   }
@@ -116,108 +194,87 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   const groups = new Map<string, Group>()
 
   for (const exp of expenses) {
-    const nDesc = normalizeDesc(exp.descricao)
-
-    // Pular despesas que claramente NÃO são assinaturas
     if (isExcluded(exp.descricao)) continue
 
-    // Estratégia 1: match por palavra-chave (aceita qualquer frequência)
-    let kwMatch = false
-    let kwType = 'unknown'
-    let kwNome = ''
+    const nDesc = normalizeDesc(exp.descricao)
+
+    // Match por palavra-chave
+    let kwMatch = false, kwType = 'unknown', kwNome = ''
     for (const svc of SUBSCRIPTION_KEYWORDS) {
       if (svc.keywords.some(kw => nDesc.includes(kw.toLowerCase()))) {
         kwMatch = true; kwType = svc.type; kwNome = svc.nome; break
       }
     }
 
-    // Bucket de valor: arredondar para 50 centavos (±R$0,25)
+    // Match por categoria suspeita de assinatura
+    const catMatch = SUBSCRIPTION_CATEGORIES.some(c => exp.categoria?.toLowerCase().includes(c.toLowerCase()))
+
     const bucket = Math.round(exp.valor * 2) / 2
-    // Chave: primeiros 35 chars da desc normalizada + bucket de valor
-    const key = `${nDesc.substring(0, 35)}|${bucket}`
+    const key = `${nDesc.substring(0, 40)}|${bucket}`
 
     if (!groups.has(key)) {
       groups.set(key, {
-        normalized: nDesc,
-        original: exp.descricao,
-        amount: exp.valor,
-        occurrences: [],
-        keywordMatch: kwMatch,
-        serviceType: kwType,
-        serviceNome: kwNome,
+        normalized: nDesc, original: exp.descricao,
+        amount: exp.valor, categoria: exp.categoria,
+        occurrences: [], keywordMatch: kwMatch, categoryMatch: catMatch,
+        serviceType: kwType, serviceNome: kwNome,
       })
     }
     const g = groups.get(key)!
     g.occurrences.push({ id: exp.id, date: new Date(exp.data + 'T12:00:00'), status: exp.status })
-    // Se qualquer ocorrência tem keyword, marcar grupo
     if (kwMatch && !g.keywordMatch) { g.keywordMatch = true; g.serviceType = kwType; g.serviceNome = kwNome }
   }
 
-  const toInsert: any[] = []
+  // ── Filtrar candidatos a assinatura ─────────────────────────────────────
+  const candidates: Array<{ group: Group; intervals: number[]; avgInterval: number; stdDev: number; frequencyLabel: string; confidence: number }> = []
+  const groupsForIA: Array<{ descricao: string; valor: number; ocorrencias: number; intervalo_medio: number }> = []
 
   for (const [, group] of groups) {
     const occs = group.occurrences
     const kwMatch = group.keywordMatch
 
-    // Com keyword: aceitar a partir de 1 ocorrência
-    // Sem keyword: exigir pelo menos 3 ocorrências
     if (!kwMatch && occs.length < 3) continue
 
-    // Calcular intervalos entre ocorrências
     const intervals: number[] = []
     for (let i = 1; i < occs.length; i++) {
-      const diff = Math.ceil(
-        (occs[i].date.getTime() - occs[i - 1].date.getTime()) / (1000 * 60 * 60 * 24)
-      )
+      const diff = Math.ceil((occs[i].date.getTime() - occs[i - 1].date.getTime()) / (1000 * 60 * 60 * 24))
       if (diff > 0) intervals.push(diff)
     }
 
-    let avgInterval = 30  // default: mensal
-    let stdDev = 0
-    let isMonthly = false
-    let isBiweekly = false
-    let isWeekly = false
-    let isAnnual = false
-    let isQuarterly = false
+    let avgInterval = 30, stdDev = 0
+    let isMonthly = false, isBiweekly = false, isWeekly = false
+    let isAnnual = false, isQuarterly = false
 
     if (intervals.length > 0) {
       avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
       const variance = intervals.reduce((s, v) => s + Math.pow(v - avgInterval, 2), 0) / intervals.length
       stdDev = Math.sqrt(variance)
 
-      isWeekly   = avgInterval >= 6  && avgInterval <= 10 && stdDev < 4
-      isBiweekly = avgInterval >= 12 && avgInterval <= 18 && stdDev < 5
-      isMonthly  = avgInterval >= 22 && avgInterval <= 40 && stdDev < 10
+      isWeekly    = avgInterval >= 6  && avgInterval <= 10 && stdDev < 4
+      isBiweekly  = avgInterval >= 12 && avgInterval <= 18 && stdDev < 5
+      isMonthly   = avgInterval >= 22 && avgInterval <= 40 && stdDev < 10
       isQuarterly = avgInterval >= 80 && avgInterval <= 100 && stdDev < 12
-      isAnnual   = avgInterval >= 330 && avgInterval <= 400
+      isAnnual    = avgInterval >= 330 && avgInterval <= 400
     }
 
-    // Para keyword matches com 1 ocorrência: tratar como mensal
     const hasPattern = isMonthly || isBiweekly || isAnnual || isWeekly || isQuarterly
-    if (!kwMatch && !hasPattern) continue
+    if (!kwMatch && !hasPattern && !group.categoryMatch) continue
 
-    // Calcular confiança (0-100)
     let confidence = 0
-    if (kwMatch)                           confidence += 45  // Keyword match é forte sinal
-    if (isMonthly || isBiweekly)           confidence += 25
-    if (isAnnual)                          confidence += 20
-    if (isWeekly || isQuarterly)           confidence += 15
-    if (occs.length >= 6)                  confidence += 15
-    else if (occs.length >= 3)             confidence += 10
-    else if (occs.length >= 2)             confidence += 5
-    if (stdDev < 3)                        confidence += 10
-    else if (stdDev < 7)                   confidence += 5
-    if (group.amount >= 10 && group.amount <= 200) confidence += 5  // Faixa típica de assinatura
+    if (kwMatch)                            confidence += 45
+    if (isMonthly || isBiweekly)            confidence += 25
+    if (isAnnual)                           confidence += 20
+    if (isWeekly || isQuarterly)            confidence += 15
+    if (occs.length >= 6)                   confidence += 15
+    else if (occs.length >= 3)              confidence += 10
+    else if (occs.length >= 2)              confidence += 5
+    if (stdDev < 3)                         confidence += 10
+    else if (stdDev < 7)                    confidence += 5
+    if (group.amount >= 10 && group.amount <= 500) confidence += 5
+    if (group.categoryMatch && !kwMatch)    confidence += 15
 
-    // Limiar: keyword = 45+, sem keyword = 65+
-    const minConf = kwMatch ? 45 : 65
+    const minConf = kwMatch ? 45 : (group.categoryMatch ? 55 : 65)
     if (confidence < minConf) continue
-
-    const yearlyCost = isAnnual ? group.amount
-      : isQuarterly ? group.amount * 4
-      : isBiweekly ? group.amount * 26
-      : isWeekly ? group.amount * 52
-      : group.amount * 12
 
     const frequencyLabel = isAnnual ? 'anual'
       : isQuarterly ? 'trimestral'
@@ -225,7 +282,61 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       : isWeekly ? 'semanal'
       : 'mensal'
 
-    toInsert.push({
+    candidates.push({ group, intervals, avgInterval, stdDev, frequencyLabel, confidence: Math.min(100, confidence) })
+
+    // Se não tem keyword match claro, adicionar para análise da IA
+    if (!kwMatch || confidence < 70) {
+      groupsForIA.push({
+        descricao: group.original,
+        valor: group.amount,
+        ocorrencias: occs.length,
+        intervalo_medio: Math.round(avgInterval)
+      })
+    }
+  }
+
+  // ── Análise da IA para candidatos duvidosos ──────────────────────────────
+  let iaResults: Map<string, any> = new Map()
+  if (usar_ia && groupsForIA.length > 0) {
+    const iaAnalysis = await classificarComIA(c.env, groupsForIA.slice(0, 20))
+    for (const ia of iaAnalysis) {
+      iaResults.set(normalizeDesc(ia.descricao), ia)
+    }
+  }
+
+  // ── Upsert no banco ──────────────────────────────────────────────────────
+  let insertedCount = 0
+  const toInsertItems: any[] = []
+
+  for (const { group, avgInterval, frequencyLabel, confidence } of candidates) {
+    const occs = group.occurrences
+
+    // Verificar resultado da IA
+    const nDesc = group.normalized
+    const iaResult = iaResults.get(nDesc)
+
+    // Se IA disse que NÃO é assinatura com alta confiança, pular
+    if (iaResult && !iaResult.is_assinatura && iaResult.confianca >= 80) continue
+
+    // Aplicar boost de confiança da IA
+    let finalConfidence = confidence
+    let aiEnhanced = false
+    let aiAnalysis = null
+    if (iaResult) {
+      aiEnhanced = true
+      aiAnalysis = { ...iaResult }
+      if (iaResult.is_assinatura) finalConfidence = Math.min(100, finalConfidence + 15)
+      if (iaResult.service_nome) group.serviceNome = group.serviceNome || iaResult.service_nome
+      if (iaResult.tipo) group.serviceType = group.serviceType === 'unknown' ? iaResult.tipo : group.serviceType
+    }
+
+    const yearlyCost = frequencyLabel === 'anual' ? group.amount
+      : frequencyLabel === 'trimestral' ? group.amount * 4
+      : frequencyLabel === 'quinzenal' ? group.amount * 26
+      : frequencyLabel === 'semanal' ? group.amount * 52
+      : group.amount * 12
+
+    const item = {
       user_id: user.id,
       normalized_description: group.normalized.substring(0, 200),
       original_description: group.original.substring(0, 200),
@@ -236,45 +347,51 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       first_occurrence: occs[0].date.toISOString().split('T')[0],
       last_occurrence: occs[occs.length - 1].date.toISOString().split('T')[0],
       average_interval_days: Math.round(avgInterval * 10) / 10,
-      confidence: Math.min(100, confidence),
+      confidence: Math.min(100, finalConfidence),
       service_type: group.serviceType,
       yearly_cost: Math.round(yearlyCost * 100) / 100,
-    })
+      ai_enhanced: aiEnhanced ? 1 : 0,
+      ai_analysis: aiAnalysis ? JSON.stringify(aiAnalysis) : null,
+    }
+
+    toInsertItems.push(item)
   }
 
-  // Upsert no banco
-  let insertedCount = 0
-  for (const item of toInsert) {
+  // Upsert
+  for (const item of toInsertItems) {
     const existing = await c.env.DB.prepare(`
-      SELECT id, status FROM detected_subscriptions 
+      SELECT id, status FROM detected_subscriptions
       WHERE user_id = ? AND normalized_description = ? AND ABS(amount - ?) < 1.0
     `).bind(item.user_id, item.normalized_description, item.amount).first() as any
 
     if (!existing) {
       await c.env.DB.prepare(`
-        INSERT INTO detected_subscriptions 
+        INSERT INTO detected_subscriptions
         (user_id, normalized_description, original_description, service_nome, amount, frequency,
-         frequency_label, first_occurrence, last_occurrence, average_interval_days, confidence, service_type, yearly_cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         frequency_label, first_occurrence, last_occurrence, average_interval_days, confidence,
+         service_type, yearly_cost, ai_enhanced, ai_analysis)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         item.user_id, item.normalized_description, item.original_description,
         item.service_nome, item.amount, item.frequency, item.frequency_label,
-        item.first_occurrence, item.last_occurrence,
-        item.average_interval_days, item.confidence, item.service_type, item.yearly_cost
+        item.first_occurrence, item.last_occurrence, item.average_interval_days,
+        item.confidence, item.service_type, item.yearly_cost, item.ai_enhanced, item.ai_analysis
       ).run()
       insertedCount++
     } else if (existing.status === 'detected') {
       await c.env.DB.prepare(`
         UPDATE detected_subscriptions SET
           frequency = ?, last_occurrence = ?, confidence = ?, yearly_cost = ?,
+          ai_enhanced = ?, ai_analysis = ?,
           updated_at = datetime('now')
         WHERE id = ?
-      `).bind(item.frequency, item.last_occurrence, item.confidence, item.yearly_cost, existing.id).run()
+      `).bind(item.frequency, item.last_occurrence, item.confidence, item.yearly_cost,
+        item.ai_enhanced, item.ai_analysis, existing.id).run()
     }
   }
 
   // Conquista
-  if (toInsert.length > 0) {
+  if (insertedCount > 0) {
     await c.env.DB.prepare(
       `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'sub_detector_scanned', 0)`
     ).bind(user.id).run().catch(() => {})
@@ -296,9 +413,10 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     total: allDetected.results.length,
     totalMensal: Math.round(totalMensal * 100) / 100,
     totalAnual: Math.round(totalAnual * 100) / 100,
-    message: toInsert.length === 0
-      ? '🎉 Nenhuma assinatura fantasma encontrada!'
-      : `🕵️ Encontramos ${toInsert.length} possível(is) assinatura(s) esquecida(s)! Custo anual estimado: R$ ${Math.round(toInsert.reduce((s, i) => s + i.yearly_cost, 0) * 100)/100}`
+    ia_utilizada: iaResults.size > 0,
+    message: insertedCount === 0
+      ? `🎉 Scan concluído! ${allDetected.results.length > 0 ? `${allDetected.results.length} assinatura(s) ativa(s) no radar.` : 'Nenhuma assinatura fantasma encontrada!'}`
+      : `🕵️ Encontramos ${insertedCount} nova(s) assinatura(s)! Custo anual estimado: R$ ${Math.round(toInsertItems.reduce((s, i) => s + i.yearly_cost, 0) * 100)/100}`
   })
 })
 
@@ -319,10 +437,94 @@ assinaturas.get('/', requireAuth, async (c) => {
     detected,
     totalMensal: Math.round(totalMensal * 100) / 100,
     totalAnual: Math.round(totalAnual * 100) / 100,
-    // aliases pt-BR para compatibilidade
     total_detectadas: detected.length,
     total_mensal: Math.round(totalMensal * 100) / 100,
     total_anual: Math.round(totalAnual * 100) / 100,
+  })
+})
+
+// ── GET /api/assinaturas-fantasma/canceladas ──────────────────────────────
+// Histórico de assinaturas canceladas com economia acumulada
+assinaturas.get('/canceladas', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  // Buscar histórico de cancelamentos
+  const hist = await c.env.DB.prepare(`
+    SELECT * FROM assinaturas_canceladas_historico
+    WHERE user_id = ?
+    ORDER BY cancelled_at DESC
+  `).bind(user.id).all()
+
+  const canceladas = hist.results as any[]
+
+  // Calcular economia atualizada para cada registro
+  const hoje = new Date()
+  let totalEconomiaAcumulada = 0
+  let totalEconomiaAnualProjetada = 0
+
+  const canceladasAtualizadas = canceladas.map(c => {
+    const cancelledAt = new Date(c.cancelled_at)
+    const diasDesde = Math.floor((hoje.getTime() - cancelledAt.getTime()) / (1000 * 60 * 60 * 24))
+    const mesesDesde = Math.floor(diasDesde / 30)
+
+    // Calcular economia baseada na frequência
+    let economiaAcumulada = 0
+    const frequencyLabel = c.frequency_label || 'mensal'
+    if (frequencyLabel === 'mensal') {
+      economiaAcumulada = mesesDesde * c.amount
+    } else if (frequencyLabel === 'quinzenal') {
+      economiaAcumulada = Math.floor(diasDesde / 15) * c.amount
+    } else if (frequencyLabel === 'semanal') {
+      economiaAcumulada = Math.floor(diasDesde / 7) * c.amount
+    } else if (frequencyLabel === 'trimestral') {
+      economiaAcumulada = Math.floor(mesesDesde / 3) * c.amount
+    } else if (frequencyLabel === 'anual') {
+      economiaAcumulada = Math.floor(mesesDesde / 12) * c.amount
+    }
+
+    const economiaAnualProjetada = c.yearly_cost || c.amount * 12
+
+    totalEconomiaAcumulada += economiaAcumulada
+    totalEconomiaAnualProjetada += economiaAnualProjetada
+
+    return {
+      ...c,
+      dias_desde_cancelamento: diasDesde,
+      meses_desde_cancelamento: mesesDesde,
+      economia_acumulada: Math.round(economiaAcumulada * 100) / 100,
+      economia_anual_projetada: Math.round(economiaAnualProjetada * 100) / 100,
+    }
+  })
+
+  // Também buscar assinaturas marcadas como 'cancelled' em detected_subscriptions
+  // que ainda não foram movidas para o histórico
+  const legacyCancelled = await c.env.DB.prepare(`
+    SELECT * FROM detected_subscriptions
+    WHERE user_id = ? AND status = 'cancelled'
+    ORDER BY updated_at DESC
+  `).bind(user.id).all()
+
+  return c.json({
+    canceladas: canceladasAtualizadas,
+    total_canceladas: canceladasAtualizadas.length,
+    economia_total_acumulada: Math.round(totalEconomiaAcumulada * 100) / 100,
+    economia_anual_projetada: Math.round(totalEconomiaAnualProjetada * 100) / 100,
+    // Para referência: assinaturas marcadas no detector mas sem histórico formal
+    canceladas_legadas: legacyCancelled.results,
+    resumo: {
+      mes_atual: Math.round(canceladas.reduce((s, c) => {
+        // Economia do mês atual (simplificado: soma dos valores mensais)
+        const label = c.frequency_label || 'mensal'
+        if (label === 'mensal') return s + c.amount
+        if (label === 'semanal') return s + c.amount * 4.3
+        if (label === 'quinzenal') return s + c.amount * 2
+        if (label === 'trimestral') return s + c.amount / 3
+        if (label === 'anual') return s + c.amount / 12
+        return s + c.amount
+      }, 0) * 100) / 100,
+      total_acumulado: Math.round(totalEconomiaAcumulada * 100) / 100,
+      projecao_12_meses: Math.round(totalEconomiaAnualProjetada * 100) / 100,
+    }
   })
 })
 
@@ -330,10 +532,10 @@ assinaturas.get('/', requireAuth, async (c) => {
 assinaturas.patch('/:id/feedback', requireAuth, async (c) => {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
-  const { feedback } = await c.req.json()
+  const { feedback, motivo } = await c.req.json() as { feedback: string; motivo?: string }
 
   if (!['use_regularly', 'want_cancel', 'ignore'].includes(feedback))
-    return c.json({ error: 'Feedback inválido' }, 400)
+    return c.json({ error: 'Feedback inválido. Use: use_regularly, want_cancel, ignore' }, 400)
 
   const sub = await c.env.DB.prepare(
     `SELECT * FROM detected_subscriptions WHERE id = ? AND user_id = ?`
@@ -349,46 +551,57 @@ assinaturas.patch('/:id/feedback', requireAuth, async (c) => {
     WHERE id = ? AND user_id = ?
   `).bind(feedback, newStatus, id, user.id).run()
 
-  // Conquista se cancelou
+  // Se cancelou: registrar no histórico com economia calculada
   if (feedback === 'want_cancel') {
+    // Verificar se já existe no histórico
+    const existeHist = await c.env.DB.prepare(
+      `SELECT id FROM assinaturas_canceladas_historico WHERE subscription_id = ? AND user_id = ?`
+    ).bind(id, user.id).first()
+
+    if (!existeHist) {
+      await c.env.DB.prepare(`
+        INSERT INTO assinaturas_canceladas_historico
+        (user_id, subscription_id, service_nome, service_type, amount, frequency_label, yearly_cost, motivo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        user.id, id,
+        sub.service_nome || sub.original_description,
+        sub.service_type || 'unknown',
+        sub.amount,
+        sub.frequency_label || 'mensal',
+        sub.yearly_cost || sub.amount * 12,
+        motivo || null
+      ).run()
+    }
+
+    // Conquista
     await c.env.DB.prepare(
       `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'sub_cancelou_1', 0)`
     ).bind(user.id).run()
   }
 
-  // ── BLOCO 6.1: Integração Detector → Recorrências ─────────────────────────
-  // Se usuário confirma uso regular, criar/vincular recorrência automaticamente
+  // Se confirmou uso regular: criar/vincular recorrência
   let recorrencia_criada = false
   if (feedback === 'use_regularly' && sub.amount > 0) {
-    // Verificar se já existe recorrência similar (mesmo nome e valor)
     const recExist = await c.env.DB.prepare(`
       SELECT id FROM recorrencias
       WHERE user_id = ? AND LOWER(descricao) = LOWER(?) AND ABS(valor - ?) < 5
-    `).bind(user.id, sub.service_name || sub.description, sub.amount).first()
+    `).bind(user.id, sub.service_nome || sub.original_description, sub.amount).first()
 
     if (!recExist) {
-      // Criar recorrência automaticamente
       await c.env.DB.prepare(`
-        INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo, origem)
-        VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1, 'detector_assinaturas')
-      `).bind(
-        user.id,
-        sub.service_name || sub.description,
-        parseFloat(sub.amount)
-      ).run().catch(() => {
-        // origem pode não existir — tentar sem ela
-        return c.env.DB.prepare(`
-          INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo)
-          VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1)
-        `).bind(user.id, sub.service_name || sub.description, parseFloat(sub.amount)).run()
-      })
+        INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo)
+        VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1)
+      `).bind(user.id, sub.service_nome || sub.original_description, parseFloat(sub.amount)).run()
+        .catch(() => {})
       recorrencia_criada = true
     }
   }
 
+  const yearlyCost = sub.yearly_cost || sub.amount * 12
   const messages: Record<string, string> = {
     use_regularly: `✅ Marcado como assinatura ativa${recorrencia_criada ? ' — Recorrência criada automaticamente!' : ''}`,
-    want_cancel: `✂️ Adicionado à lista — você economizará R$ ${(sub.yearly_cost || sub.amount * 12).toFixed(2)}/ano!`,
+    want_cancel: `✂️ Cancelado! Você economizará R$ ${yearlyCost.toFixed(2)}/ano. Histórico registrado.`,
     ignore: '🤐 Esta despesa não será mais sugerida'
   }
 
