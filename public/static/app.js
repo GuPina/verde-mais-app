@@ -110,12 +110,26 @@ const VM = {
   },
 
   api(method, endpoint, data) {
+    // Cache front-end para endpoints públicos pesados (CDI e cotações)
+    const CACHE_ENDPOINTS = { 'cdi/atual': 10 * 60 * 1000, 'investimentos/cotacoes': 15 * 60 * 1000 }
+    const cacheKey = `_apiCache_${endpoint}`
+    if (method === 'GET' && CACHE_ENDPOINTS[endpoint]) {
+      const cached = this[cacheKey]
+      if (cached && Date.now() - cached.ts < CACHE_ENDPOINTS[endpoint]) {
+        return Promise.resolve(cached.data)
+      }
+    }
     return axios({
       method,
       url: `/api/${endpoint}`,
       data,
       headers: this.token ? { Authorization: `Bearer ${this.token}` } : {}
-    }).then(r => r.data).catch(e => {
+    }).then(r => {
+      if (method === 'GET' && CACHE_ENDPOINTS[endpoint]) {
+        this[cacheKey] = { data: r.data, ts: Date.now() }
+      }
+      return r.data
+    }).catch(e => {
       if (e.response?.status === 401) {
         this.logout()
         throw e

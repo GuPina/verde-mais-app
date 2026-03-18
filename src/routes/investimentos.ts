@@ -10,51 +10,91 @@ const investimentos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 // CDI padrão de fallback (% ao ano)
 const CDI_PADRAO_AA = 13.65
 
+// ─── Cache em memória global (por instância do Worker) ───────────────────────
+// Evita chamadas repetidas às APIs externas dentro da janela de cache
+let _memCacheCotacoes: {
+  ts: number
+  cdi: number
+  selic: number
+  cambio: Record<string, any>
+  cripto: Record<string, any>
+  aviso: string
+} | null = null
+const MEM_CACHE_TTL_MS = 20 * 60 * 1000 // 20 min — refresca antes dos 30 min do D1
+
+// Cache em memória para CDI (atualizado pelo módulo cdi.ts via D1, mas usado aqui diretamente)
+let _memCdi: { value: number; ts: number } | null = null
+const MEM_CDI_TTL_MS = 6 * 60 * 60 * 1000 // 6 horas
+
+/** Helper: fetch com timeout */
+async function fetchWithTimeout(url: string, timeoutMs = 4000, opts: RequestInit = {}): Promise<Response> {
+  const ctrl = new AbortController()
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const resp = await fetch(url, { ...opts, signal: ctrl.signal })
+    clearTimeout(tid)
+    return resp
+  } catch (e) {
+    clearTimeout(tid)
+    throw e
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS — Cotações externas
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Retorna CDI anual: tenta BCB, cai para cache, cai para padrão */
+/** Retorna CDI anual: memória → D1 cache → BCB → fallback */
 async function getCdiAnual(db: D1Database): Promise<number> {
-  try {
-    const resp = await fetch(
-      'https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados/ultimos/1?formato=json',
-      { headers: { 'Accept': 'application/json' } }
-    )
-    if (resp.ok) {
-      const data = await resp.json() as any[]
-      if (data?.[0]?.valor) {
-        // taxa diária → anual: (1 + t/100)^252 - 1
-        const taxaDiaria = parseFloat(data[0].valor)
-        const cdiAnual = (Math.pow(1 + taxaDiaria / 100, 252) - 1) * 100
-        // Salvar no cache
-        await db.prepare(
-          `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, dados_json, atualizado_em)
-           VALUES ('cdi','CDI',?,?,datetime('now'))`
-        ).bind(Math.round(cdiAnual * 100) / 100, JSON.stringify({ taxa_diaria: taxaDiaria, taxa_anual: cdiAnual })).run()
-        return Math.round(cdiAnual * 100) / 100
-      }
-    }
-  } catch (_) {}
+  const now = Date.now()
 
-  // Tentar do cache (aceita dados de até 1 dia)
+  // 0. Cache em memória (6h)
+  if (_memCdi && now - _memCdi.ts < MEM_CDI_TTL_MS) return _memCdi.value
+
+  // 1. Tentar do D1 cache (aceita dados de até 1 dia)
   try {
     const cached = await db.prepare(
       `SELECT valor_brl FROM cotacoes_cache
        WHERE tipo='cdi' AND symbol='CDI' AND atualizado_em >= datetime('now','-1 day')`
     ).first() as any
-    if (cached?.valor_brl) return cached.valor_brl
+    if (cached?.valor_brl) {
+      _memCdi = { value: cached.valor_brl, ts: now }
+      return cached.valor_brl
+    }
   } catch (_) {}
 
+  // 2. BCB API com timeout de 3s
+  try {
+    const resp = await fetchWithTimeout(
+      'https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados/ultimos/1?formato=json',
+      3000,
+      { headers: { 'Accept': 'application/json' } }
+    )
+    if (resp.ok) {
+      const data = await resp.json() as any[]
+      if (data?.[0]?.valor) {
+        const taxaDiaria = parseFloat(data[0].valor)
+        const cdiAnual = Math.round((Math.pow(1 + taxaDiaria / 100, 252) - 1) * 10000) / 100
+        // Salvar no cache sem bloquear
+        db.prepare(
+          `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, dados_json, atualizado_em)
+           VALUES ('cdi','CDI',?,?,datetime('now'))`
+        ).bind(cdiAnual, JSON.stringify({ taxa_diaria: taxaDiaria, taxa_anual: cdiAnual })).run().catch(() => {})
+        _memCdi = { value: cdiAnual, ts: now }
+        return cdiAnual
+      }
+    }
+  } catch (_) {}
+
+  _memCdi = { value: CDI_PADRAO_AA, ts: now - MEM_CDI_TTL_MS + 5 * 60 * 1000 } // expira em 5min p/ retry
   return CDI_PADRAO_AA
 }
 
-/** Busca cotações de câmbio: USD, EUR, GBP via DolarApi.com */
+/** Busca cotações de câmbio: USD, EUR via DolarApi.com (paralelo, não sequencial) */
 async function getCotacoesCambio(db: D1Database): Promise<Record<string, { compra: number; venda: number; nome: string }>> {
-  const moedas = ['usd', 'eur', 'gbp']
   const resultado: Record<string, any> = {}
 
-  // Tentar do cache primeiro (aceita até 30 min)
+  // Cache-first: aceita até 30 min
   try {
     const cached = await db.prepare(
       `SELECT symbol, valor_brl, dados_json FROM cotacoes_cache
@@ -69,19 +109,25 @@ async function getCotacoesCambio(db: D1Database): Promise<Record<string, { compr
     }
   } catch (_) {}
 
-  // Buscar da API
-  for (const m of moedas) {
-    try {
-      const resp = await fetch(`https://br.dolarapi.com/v1/cotacoes/${m}`)
-      if (resp.ok) {
-        const data = await resp.json() as any
-        resultado[data.moeda] = { compra: data.compra, venda: data.venda, nome: data.nome }
-        await db.prepare(
-          `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, dados_json, atualizado_em)
-           VALUES ('cambio',?,?,?,datetime('now'))`
-        ).bind(data.moeda, data.compra, JSON.stringify({ compra: data.compra, venda: data.venda, nome: data.nome })).run()
-      }
-    } catch (_) {}
+  // Buscar USD e EUR em PARALELO com timeout de 4s cada
+  const moedas = ['usd', 'eur']
+  const resps = await Promise.allSettled(
+    moedas.map(m =>
+      fetchWithTimeout(`https://br.dolarapi.com/v1/cotacoes/${m}`, 4000)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    )
+  )
+
+  for (const r of resps) {
+    if (r.status !== 'fulfilled' || !r.value) continue
+    const data = r.value as any
+    if (!data?.moeda) continue
+    resultado[data.moeda] = { compra: data.compra, venda: data.venda, nome: data.nome }
+    db.prepare(
+      `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, dados_json, atualizado_em)
+       VALUES ('cambio',?,?,?,datetime('now'))`
+    ).bind(data.moeda, data.compra, JSON.stringify({ compra: data.compra, venda: data.venda, nome: data.nome })).run().catch(() => {})
   }
   return resultado
 }
@@ -123,10 +169,11 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
     const symList = upperSymbols.filter(s => ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','LTC','DOT','AVAX'].includes(s))
     if (symList.length > 0) {
       const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symList.join(',')}&tsyms=BRL,USD`
-      const resp = await fetch(url)
+      const resp = await fetchWithTimeout(url, 5000)
       if (resp.ok) {
         const data = await resp.json() as any
         const raw = data?.RAW || {}
+        const dbOps: Promise<any>[] = []
         for (const sym of symList) {
           if (!raw[sym]?.BRL) continue
           const brlData = raw[sym].BRL
@@ -137,13 +184,15 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
           const item = { brl: Math.round(brl * 100) / 100, usd: Math.round(usd * 100) / 100, variacao_24h: Math.round(variacao_24h * 100) / 100 }
           resultado[sym] = item
           btcFallbackOk = true
-          try {
-            await db.prepare(
+          dbOps.push(
+            db.prepare(
               `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
                VALUES ('cripto',?,?,?,?,?,datetime('now'))`
-            ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run()
-          } catch (_) {}
+            ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run().catch(() => {})
+          )
         }
+        // Writes em paralelo, sem bloquear
+        Promise.all(dbOps).catch(() => {})
       }
     }
   } catch (_) {}
@@ -158,7 +207,7 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
 
       // Tentar câmbio via dolarapi (já usado no cambio)
       try {
-        const camb = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+        const camb = await fetchWithTimeout('https://economia.awesomeapi.com.br/json/last/USD-BRL', 3000)
         if (camb.ok) {
           const cd = await camb.json() as any
           usdRate = parseFloat(cd?.USDBRL?.bid || usdBrl)
@@ -170,7 +219,7 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
       const krakenSyms = upperSymbols.filter(s => krakenPairs[s])
       if (krakenSyms.length > 0) {
         const pair = krakenSyms.map(s => krakenPairs[s]).join(',')
-        const resp = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`)
+        const resp = await fetchWithTimeout(`https://api.kraken.com/0/public/Ticker?pair=${pair}`, 5000)
         if (resp.ok) {
           const data = await resp.json() as any
           const krakenResult = data?.result || {}
@@ -255,36 +304,62 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.get('/cotacoes', async (c) => {
   const db = c.env.DB
+  const now = Date.now()
 
-  const [cdi, cambio, cripto] = await Promise.all([
+  // 0. Cache em memória — resposta instantânea se ainda válido
+  if (_memCacheCotacoes && now - _memCacheCotacoes.ts < MEM_CACHE_TTL_MS) {
+    return c.json({
+      atualizado_em: new Date(_memCacheCotacoes.ts).toISOString(),
+      taxas_referencia: { cdi_anual: _memCacheCotacoes.cdi, selic_meta: _memCacheCotacoes.selic },
+      cambio: _memCacheCotacoes.cambio,
+      cripto: _memCacheCotacoes.cripto,
+      aviso: _memCacheCotacoes.aviso,
+      cache: 'memory'
+    })
+  }
+
+  // 1. Buscar tudo em PARALELO — CDI, câmbio, cripto e SELIC ao mesmo tempo
+  const [cdi, cambio, cripto, selicResult] = await Promise.all([
     getCdiAnual(db),
     getCotacoesCambio(db),
-    getCotacoesCripto(db, ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOGE', 'XRP'])
+    getCotacoesCripto(db, ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOGE', 'XRP']),
+    // SELIC com timeout de 3s para não travar a resposta
+    (async () => {
+      try {
+        const ctrl = new AbortController()
+        const tid = setTimeout(() => ctrl.abort(), 3000)
+        const resp = await fetch(
+          'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json',
+          { signal: ctrl.signal }
+        )
+        clearTimeout(tid)
+        if (resp.ok) {
+          const d = await resp.json() as any[]
+          if (d?.[0]?.valor) return parseFloat(d[0].valor)
+        }
+      } catch (_) {}
+      return 14.90
+    })()
   ])
 
-  // Se cripto retornou vazio, usar fallback com valores de referência
+  // 2. Fallback de cripto se todas as APIs retornaram vazio
   const usdRate = (cambio as any)?.USD?.compra || 5.23
   const criptoFinal = Object.keys(cripto).length > 0 ? cripto
     : await getCotacoesCriptoFallback(db, ['BTC', 'ETH', 'BNB', 'SOL', 'XRP'], usdRate)
 
-  // SELIC via BCB
-  let selic = 14.90
-  try {
-    const resp = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json')
-    if (resp.ok) {
-      const d = await resp.json() as any[]
-      if (d?.[0]?.valor) selic = parseFloat(d[0].valor)
-    }
-  } catch (_) {}
+  const aviso = Object.keys(cripto).length === 0
+    ? 'Cotações cripto via valores de referência (APIs indisponíveis). Câmbio: BCB/DolarApi.'
+    : 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Kraken, CoinGecko.'
+
+  // 3. Salvar em memória para próximas requisições
+  _memCacheCotacoes = { ts: now, cdi, selic: selicResult, cambio, cripto: criptoFinal, aviso }
 
   return c.json({
     atualizado_em: new Date().toISOString(),
-    taxas_referencia: { cdi_anual: cdi, selic_meta: selic },
+    taxas_referencia: { cdi_anual: cdi, selic_meta: selicResult },
     cambio,
     cripto: criptoFinal,
-    aviso: Object.keys(cripto).length === 0 
-      ? 'Cotações cripto via valores de referência (APIs indisponíveis). Câmbio: BCB/DolarApi.'
-      : 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Binance, CoinGecko.'
+    aviso
   })
 })
 

@@ -8,81 +8,94 @@ const cdi = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // CDI padrão caso BCB não responda
 const CDI_FALLBACK = 13.65
+// Cache em memória para evitar múltiplas chamadas ao D1 na mesma instância
+let _memCache: { taxa: number; anual: number; data: string; ts: number } | null = null
 
 // ─── GET /api/cdi/atual ──────────────────────────────────────────────────────
 cdi.get('/atual', async (c) => {
-  // 1. Buscar no cache local (última entrada do histórico)
-  const cached = await c.env.DB.prepare(
-    `SELECT taxa, data FROM cdi_historico ORDER BY data DESC LIMIT 1`
-  ).first<{taxa:number; data:string}>().catch(() => null)
+  const now = Date.now()
 
-  const hoje = new Date()
-  const ontem = new Date(hoje); ontem.setDate(hoje.getDate() - 1)
-  const cacheData = cached?.data ? new Date(cached.data) : null
-  const cacheValido = cacheData && (hoje.getTime() - cacheData.getTime()) < 2 * 24 * 60 * 60 * 1000 // 2 dias
-
-  if (cacheValido && cached) {
+  // 0. Cache em memória (válido por 6 horas — CDI não muda durante o dia)
+  if (_memCache && now - _memCache.ts < 6 * 60 * 60 * 1000) {
     return c.json({
-      taxa_diaria:  cached.taxa,
-      cdi_anual:    calcularAnual(cached.taxa),
-      data:         cached.data,
-      source:       'BCB',
+      taxa_diaria: _memCache.taxa,
+      cdi_anual:   _memCache.anual,
+      data:        _memCache.data,
+      source:      'BCB',
+      cache:       'memory'
     })
   }
 
-  // 2. Buscar na API do BCB (série 12 = CDI diário)
+  // 1. Buscar no D1 (cache de banco — válido por 3 dias)
   try {
-    const dataFim  = formatDateBCB(hoje)
-    const dataIni  = formatDateBCB(new Date(hoje.getTime() - 10 * 24 * 60 * 60 * 1000))
+    const cached = await c.env.DB.prepare(
+      `SELECT taxa, data FROM cdi_historico ORDER BY data DESC LIMIT 1`
+    ).first<{taxa:number; data:string}>()
+
+    if (cached?.taxa && cached?.data) {
+      const cacheDate = new Date(cached.data + 'T00:00:00Z')
+      const diffDias = (now - cacheDate.getTime()) / (1000 * 60 * 60 * 24)
+      // Aceitar cache de até 3 dias (fins de semana o BCB não atualiza)
+      if (diffDias < 3) {
+        const anual = calcularAnual(cached.taxa)
+        _memCache = { taxa: cached.taxa, anual, data: cached.data, ts: now }
+        return c.json({
+          taxa_diaria: cached.taxa,
+          cdi_anual:   anual,
+          data:        cached.data,
+          source:      'BCB',
+          cache:       'd1'
+        })
+      }
+    }
+  } catch (_) {}
+
+  // 2. Buscar na API do BCB (apenas se cache expirado)
+  try {
+    const hoje = new Date()
+    const dataFim = formatDateBCB(hoje)
+    const dataIni = formatDateBCB(new Date(hoje.getTime() - 7 * 24 * 60 * 60 * 1000))
     const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial=${dataIni}&dataFinal=${dataFim}`
 
-    const resp = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      signal:  AbortSignal.timeout(5000)
-    })
+    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } })
 
     if (resp.ok) {
       const dados = await resp.json() as Array<{data:string; valor:string}>
       if (Array.isArray(dados) && dados.length > 0) {
-        // Ordenar por data decrescente
         const sorted = dados.sort((a, b) => parseDataBCB(b.data) - parseDataBCB(a.data))
         const ultimo = sorted[0]
         const taxa   = parseFloat(ultimo.valor)
         const dataSql = isoDateBCB(ultimo.data)
+        const anual = calcularAnual(taxa)
 
-        // Salvar histórico dos últimos dias no D1
-        for (const d of sorted.slice(0, 5)) {
-          const t = parseFloat(d.valor)
-          const dt = isoDateBCB(d.data)
-          await c.env.DB.prepare(
-            `INSERT OR IGNORE INTO cdi_historico (data, taxa) VALUES (?, ?)`
-          ).bind(dt, t).run().catch(() => {})
-        }
+        // Salvar no D1 sem await (não bloquear a resposta)
+        const inserts = sorted.slice(0, 5).map(d =>
+          c.env.DB.prepare(`INSERT OR IGNORE INTO cdi_historico (data, taxa) VALUES (?, ?)`)
+            .bind(isoDateBCB(d.data), parseFloat(d.valor))
+        )
+        c.env.DB.batch(inserts).catch(() => {})
 
-        // Atualizar CDI atual em todos os investimentos do tipo caixinha
-        await c.env.DB.prepare(
-          `UPDATE investimentos SET cdi_atual = ? WHERE tipo = 'caixinha'`
-        ).bind(calcularAnual(taxa)).run().catch(() => {})
+        // Atualizar caixinhas sem await
+        c.env.DB.prepare(`UPDATE investimentos SET cdi_atual = ? WHERE tipo = 'caixinha'`)
+          .bind(anual).run().catch(() => {})
 
-        return c.json({
-          taxa_diaria:  taxa,
-          cdi_anual:    calcularAnual(taxa),
-          data:         dataSql,
-          source:       'BCB',
-        })
+        _memCache = { taxa, anual, data: dataSql, ts: now }
+        return c.json({ taxa_diaria: taxa, cdi_anual: anual, data: dataSql, source: 'BCB' })
       }
     }
-  } catch (e) {
-    // BCB indisponível — usar fallback
-  }
+  } catch (_) {}
 
-  // 3. Fallback
+  // 3. Fallback fixo
+  const anualFallback = CDI_FALLBACK
+  const taxaFallback  = CDI_FALLBACK / 252
+  const dataFallback  = new Date().toISOString().split('T')[0]
+  _memCache = { taxa: taxaFallback, anual: anualFallback, data: dataFallback, ts: now - 5 * 60 * 60 * 1000 }
   return c.json({
-    taxa_diaria:  CDI_FALLBACK / 252,
-    cdi_anual:    CDI_FALLBACK,
-    data:         new Date().toISOString().split('T')[0],
-    source:       'BCB',
-    aviso:        'BCB indisponível — usando taxa estimada'
+    taxa_diaria: taxaFallback,
+    cdi_anual:   anualFallback,
+    data:        dataFallback,
+    source:      'BCB',
+    aviso:       'BCB indisponível — taxa estimada'
   })
 })
 
@@ -102,22 +115,15 @@ cdi.get('/historico', requireAuth, async (c) => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function calcularAnual(taxaDiaria: number): number {
-  // CDI: taxa diária em % → anualizar por 252 dias úteis
   return Math.round((Math.pow(1 + taxaDiaria / 100, 252) - 1) * 10000) / 100
 }
-
 function formatDateBCB(d: Date): string {
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yy = d.getFullYear()
-  return `${dd}/${mm}/${yy}`
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
 }
-
 function parseDataBCB(s: string): number {
   const [dd, mm, yy] = s.split('/')
   return new Date(`${yy}-${mm}-${dd}`).getTime()
 }
-
 function isoDateBCB(s: string): string {
   const [dd, mm, yy] = s.split('/')
   return `${yy}-${mm}-${dd}`
