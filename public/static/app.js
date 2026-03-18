@@ -3243,6 +3243,52 @@ const VM = {
           </div>
         </div>`
     }).catch(() => {})
+    
+    // Buscar cotações ao vivo (USD, EUR, BTC)
+    this.api('GET', 'investimentos/cotacoes').then(cotData => {
+      const b = document.getElementById('cdi-banner-invest')
+      if (!b || !cotData) return
+      const cambio = cotData.cambio || {}
+      const cripto = cotData.cripto || {}
+      const taxas = cotData.taxas_referencia || {}
+      if (Object.keys(cambio).length === 0 && Object.keys(cripto).length === 0) return
+      const fmtBRL = v => Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+      const varColor = v => Number(v||0) >= 0 ? '#10B981' : '#F43F5E'
+      const varSign = v => Number(v||0) >= 0 ? '▲' : '▼'
+      const moedaFlags = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' }
+      const cotWidget = document.createElement('div')
+      cotWidget.style.cssText = 'margin-bottom:16px;'
+      cotWidget.innerHTML = `
+        <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:14px 20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:0.68rem;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:700;">📊 Cotações em Tempo Real</div>
+            ${taxas.selic_meta ? `<div style="font-size:0.72rem;color:#F59E0B;font-weight:600;">SELIC: ${taxas.selic_meta}% a.a.</div>` : ''}
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;">
+            ${Object.entries(cambio).map(([sym, m]) => `
+              <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.05);min-width:110px;">
+                <span style="font-size:1rem;">${moedaFlags[sym]||'💱'}</span>
+                <div>
+                  <div style="font-size:0.65rem;color:#64748B;font-weight:600;">${sym}/BRL</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(m.compra)}</div>
+                  <div style="font-size:0.62rem;color:#475569;">venda: R$ ${fmtBRL(m.venda)}</div>
+                </div>
+              </div>`).join('')}
+            ${Object.entries(cripto).slice(0,3).map(([sym, c]) => `
+              <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.05);min-width:110px;">
+                <span style="font-size:1rem;">${sym==='BTC'?'₿':sym==='ETH'?'Ξ':'🪙'}</span>
+                <div>
+                  <div style="font-size:0.65rem;color:#64748B;font-weight:600;">${sym}/BRL</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(c.brl)}</div>
+                  ${c.variacao_24h != null ? `<div style="font-size:0.62rem;color:${varColor(c.variacao_24h)};font-weight:600;">${varSign(c.variacao_24h)} ${Math.abs(c.variacao_24h).toFixed(2)}% 24h</div>` : ''}
+                </div>
+              </div>`).join('')}
+            <div style="font-size:0.62rem;color:#334155;margin-left:auto;align-self:flex-end;padding-bottom:2px;">Atualizado em ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}<br>Fontes: BCB · DolarApi · CoinGecko</div>
+          </div>
+        </div>`
+      b.after(cotWidget)
+    }).catch(() => {})
+    
     this.carregarInvestimentos()
   },
 
@@ -7827,11 +7873,18 @@ const VM = {
           </div>
         </div>
 
+        <!-- ÍNDICE DE DESPERDÍCIO -->
+        <div id="indice-desperdicio-container" style="margin-top:0;">
+          <div class="skeleton" style="height:160px;border-radius:16px;"></div>
+        </div>
+
         <!-- rodapé -->
         <div style="text-align:center;font-size:0.72rem;color:#444;padding:8px 0 20px;">
           Análise gerada em ${new Date().toLocaleString('pt-BR')} • Período ${re.periodo?.mes || '—'}/${re.periodo?.ano || '—'}
         </div>
       `
+      // Carregar Índice de Desperdício de forma assíncrona
+      this.carregarIndiceDesperdicio()
     } catch (e) {
       container.innerHTML = `
         <div class="card" style="text-align:center;padding:60px 40px;">
@@ -7849,6 +7902,100 @@ const VM = {
   async gerarInsightsIA() {
     this.toast('Atualizando diagnóstico...', 'info')
     this.carregarIA()
+  },
+
+  async carregarIndiceDesperdicio() {
+    const el = document.getElementById('indice-desperdicio-container')
+    if (!el) return
+    try {
+      // Buscar dados das três fontes em paralelo
+      const [assinData, comprasData, regra] = await Promise.all([
+        this.api('GET', 'assinaturas-fantasma').catch(() => ({ totalMensal: 0 })),
+        this.api('GET', 'compras-fantasma').catch(() => ({ resumo: {} })),
+        this.api('GET', `regra-503020?mes=${new Date().getMonth()+1}&ano=${new Date().getFullYear()}`).catch(() => ({ income: 0, current: {} }))
+      ])
+
+      const income        = Number(regra.income || 0)
+      const assinMensal   = Number(assinData.totalMensal || 0)
+      const impulsivo     = Number(comprasData.resumo?.total_impulsivo || 0)
+      const pctImpulsivo  = Number(comprasData.resumo?.percentual_impulsivo || 0)
+
+      // Cálculo do Índice de Desperdício (0-100)
+      // Componente 1: Assinaturas esquecidas (peso 35%) — % da renda em assinaturas detectadas
+      const pctAssin = income > 0 ? Math.min(100, (assinMensal / income) * 100 * 3.5) : (assinMensal > 0 ? 50 : 0)
+      // Componente 2: Compras impulsivas (peso 40%) — % de gastos impulsivos
+      const pctImpulso = Math.min(100, pctImpulsivo * 2)
+      // Componente 3: Descumprimento 50/30/20 (peso 25%) — se score < 60 penaliza
+      const scoreRegra = Number(regra.score || 50)
+      const pctRegra   = Math.max(0, (60 - scoreRegra) * 2)
+
+      const indice = Math.round(pctAssin * 0.35 + pctImpulso * 0.40 + pctRegra * 0.25)
+      const cor = indice <= 20 ? '#10B981' : indice <= 40 ? '#F59E0B' : indice <= 65 ? '#F97316' : '#F43F5E'
+      const nivel = indice <= 20 ? '🟢 Excelente' : indice <= 40 ? '🟡 Moderado' : indice <= 65 ? '🟠 Elevado' : '🔴 Crítico'
+      const msg = indice <= 20 ? 'Seus gastos estão bem controlados. Mantenha o foco!' :
+                  indice <= 40 ? 'Há alguns gastos que podem ser otimizados.' :
+                  indice <= 65 ? 'Você está desperdiçando uma parcela significativa da renda.' :
+                  'Seus gastos desnecessários estão comprometendo sua saúde financeira!'
+
+      const fmtBRL = v => Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+      const circum = 2 * Math.PI * 52
+
+      el.innerHTML = `
+        <div style="background:rgba(15,23,42,0.9);border:1px solid rgba(255,255,255,0.07);border-radius:18px;padding:24px;margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+            <div>
+              <div style="font-size:0.75rem;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">🔥 Índice de Desperdício Financeiro</div>
+              <div style="color:#f1f5f9;font-size:0.85rem;max-width:400px;line-height:1.5;">${msg}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;">
+              <svg width="110" height="110" viewBox="0 0 110 110">
+                <circle cx="55" cy="55" r="52" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="8"/>
+                <circle cx="55" cy="55" r="52" fill="none" stroke="${cor}" stroke-width="8"
+                  stroke-dasharray="${circum}" stroke-dashoffset="${circum*(1-indice/100)}"
+                  stroke-linecap="round" transform="rotate(-90 55 55)"/>
+                <text x="55" y="52" text-anchor="middle" font-size="22" font-weight="800" fill="${cor}">${indice}</text>
+                <text x="55" y="68" text-anchor="middle" font-size="10" fill="#64748B">/100</text>
+              </svg>
+              <div>
+                <div style="font-size:1rem;font-weight:700;color:${cor};">${nivel}</div>
+                ${income > 0 ? `<div style="font-size:0.78rem;color:#64748B;margin-top:4px;">Renda: R$ ${fmtBRL(income)}/mês</div>` : ''}
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+            <div style="background:#0f172a;border-radius:12px;padding:14px;">
+              <div style="font-size:0.7rem;color:#8B5CF6;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📱 Assinaturas Esquecidas</div>
+              <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(assinMensal)}/mês</div>
+              <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${assinData.detected?.filter(d=>d.status==='detected').length||0} detectadas · peso 35%</div>
+              <button onclick="VM.navigate('assinaturas-fantasma')" style="margin-top:8px;font-size:0.72rem;color:#8B5CF6;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:6px;padding:4px 10px;cursor:pointer;">Ver detalhes →</button>
+            </div>
+            <div style="background:#0f172a;border-radius:12px;padding:14px;">
+              <div style="font-size:0.7rem;color:#F97316;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🛍️ Compras Impulsivas</div>
+              <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(impulsivo)}/mês</div>
+              <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${pctImpulsivo.toFixed(1)}% dos gastos · peso 40%</div>
+              <button onclick="VM.navigate('compras-fantasma')" style="margin-top:8px;font-size:0.72rem;color:#F97316;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);border-radius:6px;padding:4px 10px;cursor:pointer;">Ver detalhes →</button>
+            </div>
+            <div style="background:#0f172a;border-radius:12px;padding:14px;">
+              <div style="font-size:0.7rem;color:#60A5FA;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📊 Regra 50/30/20</div>
+              <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;">Score: ${scoreRegra}/100</div>
+              <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${scoreRegra>=80?'Meta cumprida ✅':scoreRegra>=60?'Próximo da meta':'Abaixo da meta'} · peso 25%</div>
+              <button onclick="VM.navigate('regra-503020')" style="margin-top:8px;font-size:0.72rem;color:#60A5FA;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.2);border-radius:6px;padding:4px 10px;cursor:pointer;">Ver detalhes →</button>
+            </div>
+          </div>
+          ${indice > 40 ? `
+          <div style="margin-top:14px;padding:12px 16px;background:rgba(244,63,94,0.05);border:1px solid rgba(244,63,94,0.15);border-radius:10px;">
+            <div style="font-size:0.78rem;color:#FDA4AF;line-height:1.6;">
+              💡 <strong>Para reduzir seu índice:</strong>
+              ${assinMensal > 0 ? ` Cancele assinaturas não utilizadas (economia: R$ ${fmtBRL(assinMensal*12)}/ano).` : ''}
+              ${pctImpulsivo > 20 ? ` Aplique a regra das 48h para compras acima de R$ 100.` : ''}
+              ${scoreRegra < 60 ? ` Ajuste seu orçamento para seguir a regra 50/30/20.` : ''}
+            </div>
+          </div>` : ''}
+        </div>
+      `
+    } catch(e) {
+      el.innerHTML = ''
+    }
   },
 
   // ============== CONQUISTAS ==============
@@ -7995,7 +8142,7 @@ const VM = {
                 return `<div style="text-align:center;padding:14px 10px;border-radius:12px;background:${atingido?'rgba(47,191,113,0.1)':'rgba(255,255,255,0.03)'};border:1px solid ${atingido?'rgba(47,191,113,0.3)':'rgba(255,255,255,0.06)'};">
                   <div style="font-size:1.8rem;margin-bottom:6px;${atingido?'':'filter:grayscale(80%);opacity:0.4;'}">${marco.i}</div>
                   <div style="font-size:0.78rem;font-weight:700;color:${atingido?'#2FBF71':'#555'};">${marco.l}</div>
-                  <div style="font-size:0.7rem;color:${atingido?'#2FBF71':'#444'};margin-top:2px;">${atingido?'✓ Atingido':'${this.formatMoney(marco.m * mediaGastos)}'}</div>
+                  <div style="font-size:0.7rem;color:${atingido?'#2FBF71':'#444'};margin-top:2px;">${atingido?'✓ Atingido':mediaGastos>0?'Meta: '+this.formatMoney(marco.m*mediaGastos):'Lançe despesas para calcular'}</div>
                 </div>`
               }).join('')}
             </div>
@@ -9401,6 +9548,32 @@ const VM = {
             </div>`).join('')}
         </div>
       </div>
+
+      <!-- Como funciona -->
+      <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.15);border-radius:12px;padding:20px;margin-top:16px;">
+        <div style="font-size:0.75rem;color:#60A5FA;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;font-weight:700;">🔍 Como a Projeção é Calculada</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;">
+          <div>
+            <div style="font-size:0.82rem;font-weight:700;color:#93C5FD;margin-bottom:5px;">📊 Base de Dados</div>
+            <p style="color:#64748B;font-size:0.78rem;line-height:1.5;margin:0;">Analisa seus últimos 6 meses de receitas e despesas lançados no sistema para calcular uma média mensal real.</p>
+          </div>
+          <div>
+            <div style="font-size:0.82rem;font-weight:700;color:#93C5FD;margin-bottom:5px;">📈 Tendência</div>
+            <p style="color:#64748B;font-size:0.78rem;line-height:1.5;margin:0;">Compara os últimos 3 meses com os 3 anteriores. Se o saldo mensal cresceu, a tendência é positiva; se caiu, é negativa.</p>
+          </div>
+          <div>
+            <div style="font-size:0.82rem;font-weight:700;color:#93C5FD;margin-bottom:5px;">🎯 Projeção</div>
+            <p style="color:#64748B;font-size:0.78rem;line-height:1.5;margin:0;">Aplica a média mensal à frente para estimar o saldo acumulado em 6 e 12 meses. Inclui ajuste pela tendência detectada.</p>
+          </div>
+          <div>
+            <div style="font-size:0.82rem;font-weight:700;color:#93C5FD;margin-bottom:5px;">🔒 Confiança</div>
+            <p style="color:#64748B;font-size:0.78rem;line-height:1.5;margin:0;">Quanto mais meses lançados e mais estável o padrão, maior a confiança. Com menos de 3 meses, a confiança é baixa (< 40%).</p>
+          </div>
+        </div>
+        <div style="margin-top:12px;padding:10px 14px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;">
+          <p style="color:#FDE68A;font-size:0.78rem;margin:0;line-height:1.5;">⚠️ <strong>Importante:</strong> A projeção é uma estimativa baseada no seu histórico. Eventos imprevistos (promoções, despesas extraordinárias, mudanças de renda) não são considerados. Use como referência, não como certeza.</p>
+        </div>
+      </div>
     `
 
     // Render inicial do gráfico
@@ -10063,151 +10236,185 @@ const VM = {
   // ═══════════════════════════════════════════════════════════════
   // v3.0 — DETECTOR DE ASSINATURAS FANTASMA
   // ═══════════════════════════════════════════════════════════════
-  async pageAssinaturasFantasma() {
+  async pageAssinaturasFantasma(aba) {
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
+    const abaAtiva = aba || 'ativas'
     
     try {
-      const data = await this.api('GET', 'assinaturas-fantasma')
-      const { detected = [], totalMensal = 0, totalAnual = 0 } = data
+      const [dataAtivas, dataCanceladas] = await Promise.all([
+        this.api('GET', 'assinaturas-fantasma'),
+        this.api('GET', 'assinaturas-fantasma/canceladas').catch(() => ({ canceladas: [], total_canceladas: 0, economia_acumulada: 0, projecao_12m: 0 }))
+      ])
+      const { detected = [], totalMensal = 0, totalAnual = 0 } = dataAtivas
+      const { canceladas = [], total_canceladas = 0, economia_acumulada = 0, projecao_12m = 0 } = dataCanceladas
+      
       const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
       const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'
-      
-      const serviceIcons = {
-        streaming:'🎬', cloud:'☁️', software:'💻', fitness:'💪',
-        transport:'🚗', food:'🍔', gaming:'🎮', professional:'💼',
-        education:'🎓', unknown:'📱'
-      }
+      const serviceIcons = { streaming:'🎬', cloud:'☁️', software:'💻', fitness:'💪', transport:'🚗', food:'🍔', gaming:'🎮', professional:'💼', education:'🎓', unknown:'📱' }
+
+      const tabBtn = (id, label, active) => `<button onclick="VM.pageAssinaturasFantasma('${id}')" style="padding:8px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;transition:all 0.2s;${active?'background:rgba(139,92,246,0.2);color:#A78BFA;border:1px solid rgba(139,92,246,0.4);':'background:transparent;color:#64748B;border:1px solid rgba(255,255,255,0.08);'}">${label}</button>`
+
+      const htmlAtivas = `
+        ${detected.length > 0 ? `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+          <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#C4B5FD;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🔍 Detectadas</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#A78BFA;">${detected.filter(d=>d.status==='detected').length}</div>
+            <div style="color:#64748B;font-size:0.75rem;">possíveis assinaturas</div>
+          </div>
+          <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FDA4AF;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Custo Mensal</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalMensal)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">em possíveis desperdícios</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Anual</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(totalAnual)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">se cancelar tudo</div>
+          </div>
+        </div>` : ''}
+        ${detected.length === 0 ? `
+        <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+          <div style="font-size:4rem;margin-bottom:16px;">🕵️</div>
+          <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma assinatura detectada</h2>
+          <p style="color:#64748B;margin:0 0 20px;">Clique em "Escanear Gastos" para analisar seus últimos 12 meses de despesas e encontrar padrões recorrentes.</p>
+          <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;max-width:480px;margin:0 auto;text-align:left;">
+            <p style="color:#93C5FD;font-weight:700;margin:0 0 8px;">ℹ️ Como funciona?</p>
+            <p style="color:#94A3B8;font-size:0.82rem;margin:0;line-height:1.6;">
+              O algoritmo analisa despesas dos últimos 12 meses, identifica cobranças com nome e valor semelhantes que aparecem regularmente (mensal, trimestral ou anual). 
+              Exige ao menos 4 ocorrências e confiança ≥ 60% para classificar como assinatura. A IA da OpenAI é usada para validar casos ambíguos.
+            </p>
+          </div>
+        </div>` : `
+        <div>
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🔍 Assinaturas Encontradas</h2>
+          ${detected.map(sub => `
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:12px;" onmouseover="this.style.borderColor='rgba(139,92,246,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:14px;flex:1;">
+                <div style="width:48px;height:48px;background:rgba(139,92,246,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">${serviceIcons[sub.service_type]||'📱'}</div>
+                <div style="flex:1;">
+                  <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:4px;">${sub.original_description}</div>
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span style="color:#64748B;font-size:0.75rem;">📊 ${sub.frequency}× nos últimos meses</span>
+                    <span style="color:#64748B;font-size:0.75rem;">🎯 ${sub.confidence?.toFixed(0)}% certeza</span>
+                    <span style="background:rgba(139,92,246,0.15);color:#A78BFA;font-size:0.68rem;padding:2px 8px;border-radius:50px;font-weight:600;">${sub.service_type}</span>
+                    ${sub.ai_enhanced ? '<span style="background:rgba(16,185,129,0.1);color:#10B981;font-size:0.65rem;padding:2px 8px;border-radius:50px;font-weight:600;">✨ IA</span>' : ''}
+                  </div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;min-width:220px;">
+                <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Mensal</div>
+                  <div style="font-size:1rem;font-weight:700;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.amount)}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Anual</div>
+                  <div style="font-size:1rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.yearly_cost)}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">1ª cobrança</div>
+                  <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.first_occurrence)}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Última</div>
+                  <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.last_occurrence)}</div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:16px;padding:14px;background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.08));border:1px solid rgba(139,92,246,0.2);border-radius:12px;">
+              <p style="color:#f1f5f9;font-weight:600;text-align:center;margin:0 0 12px;font-size:0.9rem;">🤔 Você ainda usa este serviço regularmente?</p>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                <button onclick="VM.feedbackAssinatura(${sub.id},'use_regularly')" style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">✅ Uso Sempre</button>
+                <button onclick="VM.feedbackAssinatura(${sub.id},'want_cancel')" style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">❌ Quero Cancelar</button>
+                <button onclick="VM.feedbackAssinatura(${sub.id},'ignore')" style="background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.82rem;">🤐 Ignorar</button>
+              </div>
+            </div>
+          </div>`).join('')}
+        </div>`}
+        <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(139,92,246,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;margin-top:24px;">
+          <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">💡 Dicas para Controlar Assinaturas</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+            <div><h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📅 Auditoria Mensal</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Reserve o último domingo do mês para revisar todas as assinaturas. Cancele o que não usou nos últimos 30 dias.</p></div>
+            <div><h4 style="color:#C4B5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">👨‍👩‍👧 Planos Familiares</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Netflix, Spotify, YouTube Premium têm planos familiares. Compartilhe custos e economize até 60%.</p></div>
+            <div><h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">🔄 Alternância Estratégica</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para streaming: assine um, assista o que precisa, cancele e assine outro. Economize sem abrir mão do conteúdo.</p></div>
+          </div>
+        </div>`
+
+      const htmlCanceladas = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Canceladas</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#10B981;">${total_canceladas}</div>
+            <div style="color:#64748B;font-size:0.75rem;">assinaturas encerradas</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Economia Acumulada</div>
+            <div style="font-size:2rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_acumulada)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">desde o cancelamento</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FDE68A;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📅 Projeção 12 Meses</div>
+            <div style="font-size:2rem;font-weight:800;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(projecao_12m)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">de economia projetada</div>
+          </div>
+        </div>
+        ${canceladas.length === 0 ? `
+        <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+          <div style="font-size:4rem;margin-bottom:16px;">🏆</div>
+          <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma assinatura cancelada ainda</h2>
+          <p style="color:#64748B;margin:0;">Quando você marcar uma assinatura como "Quero Cancelar", ela aparecerá aqui com o histórico de economia.</p>
+        </div>` : `
+        <div>
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">✂️ Histórico de Cancelamentos</h2>
+          ${canceladas.map(c => `
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:20px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:44px;height:44px;background:rgba(16,185,129,0.12);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;">${serviceIcons[c.service_type]||'✂️'}</div>
+                <div>
+                  <div style="font-weight:700;color:#f1f5f9;margin-bottom:3px;">${c.service_nome||c.normalized_description}</div>
+                  <div style="font-size:0.75rem;color:#64748B;">Cancelado em ${fmtDate(c.cancelled_at)} ${c.motivo_cancelamento?'· '+c.motivo_cancelamento:''}</div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;min-width:280px;">
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Mensal</div>
+                  <div style="font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">-R$ ${fmtBRL(c.amount)}</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Economizado</div>
+                  <div style="font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(c.economia_acumulada||0)}</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#64748B;">Proj. 12m</div>
+                  <div style="font-weight:700;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(c.projecao_anual||c.yearly_cost||0)}</div>
+                </div>
+              </div>
+            </div>
+            ${c.meses_desde_cancelamento > 0 ? `
+            <div style="margin-top:12px;background:#0f172a;border-radius:8px;overflow:hidden;">
+              <div style="height:6px;width:${Math.min(100,Math.round(c.meses_desde_cancelamento/12*100))}%;background:linear-gradient(90deg,#10B981,#059669);"></div>
+            </div>
+            <div style="font-size:0.72rem;color:#64748B;margin-top:4px;">${c.meses_desde_cancelamento} ${c.meses_desde_cancelamento===1?'mês':'meses'} cancelado — R$ ${fmtBRL(c.economia_acumulada)} economizados</div>` : ''}
+          </div>`).join('')}
+        </div>`}`
       
       content.innerHTML = `
         <div style="max-width:1000px;">
-          <!-- Header -->
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
             <div>
               <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">👻 Assinaturas Fantasma</h1>
               <p style="color:#64748B;margin:0;">O brasileiro médio desperdiça R$ 150-250/mês em serviços esquecidos. Vamos encontrar os seus.</p>
             </div>
-            <button onclick="VM.scanAssinaturas()" id="btn-scan-assin"
-              style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">
-              🔍 Escanear Gastos
-            </button>
+            <button onclick="VM.scanAssinaturas()" id="btn-scan-assin" style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Escanear Gastos</button>
           </div>
-          
-          ${detected.length > 0 ? `
-          <!-- Summary Impacto -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
-            <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#C4B5FD;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🔍 Detectadas</div>
-              <div style="font-size:2.2rem;font-weight:800;color:#A78BFA;">${detected.filter(d=>d.status==='detected').length}</div>
-              <div style="color:#64748B;font-size:0.75rem;">possíveis assinaturas</div>
-            </div>
-            <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#FDA4AF;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Custo Mensal</div>
-              <div style="font-size:2.2rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalMensal)}</div>
-              <div style="color:#64748B;font-size:0.75rem;">em possíveis desperdícios</div>
-            </div>
-            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Anual</div>
-              <div style="font-size:2.2rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(totalAnual)}</div>
-              <div style="color:#64748B;font-size:0.75rem;">se cancelar tudo</div>
-            </div>
-          </div>` : ''}
-          
-          <!-- Lista -->
-          ${detected.length === 0 ? `
-          <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
-            <div style="font-size:4rem;margin-bottom:16px;">🕵️</div>
-            <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma assinatura detectada</h2>
-            <p style="color:#64748B;margin:0 0 20px;">Clique em "Escanear Gastos" para analisar seus últimos 8 meses de despesas pagas e encontrar padrões recorrentes.</p>
-            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;max-width:480px;margin:0 auto;text-align:left;">
-              <p style="color:#93C5FD;font-weight:700;margin:0 0 8px;">ℹ️ Como funciona?</p>
-              <p style="color:#94A3B8;font-size:0.82rem;margin:0;line-height:1.6;">O algoritmo analisa cobranças com o mesmo nome e valor que aparecem mensalmente. Uma confiança ≥ 60% é necessária para a detecção.</p>
-            </div>
+          <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;">
+            ${tabBtn('ativas','🔍 Ativas ('+detected.length+')', abaAtiva==='ativas')}
+            ${tabBtn('canceladas','✂️ Canceladas ('+total_canceladas+')', abaAtiva==='canceladas')}
           </div>
-          ` : `
-          <div style="space-y:12px;">
-            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🔍 Assinaturas Encontradas</h2>
-            ${detected.map(sub => `
-            <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:12px;transition:all 0.2s;"
-              onmouseover="this.style.borderColor='rgba(139,92,246,0.3)'"
-              onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
-              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-                <div style="display:flex;align-items:center;gap:14px;flex:1;">
-                  <div style="width:48px;height:48px;background:rgba(139,92,246,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">
-                    ${serviceIcons[sub.service_type] || '📱'}
-                  </div>
-                  <div style="flex:1;">
-                    <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:4px;">${sub.original_description}</div>
-                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                      <span style="color:#64748B;font-size:0.75rem;">📊 ${sub.frequency}× nos últimos meses</span>
-                      <span style="color:#64748B;font-size:0.75rem;">🎯 ${sub.confidence?.toFixed(0)}% certeza</span>
-                      <span style="background:rgba(139,92,246,0.15);color:#A78BFA;font-size:0.68rem;padding:2px 8px;border-radius:50px;font-weight:600;">${sub.service_type}</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Valores -->
-                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;min-width:220px;">
-                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#64748B;">Mensal</div>
-                    <div style="font-size:1rem;font-weight:700;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.amount)}</div>
-                  </div>
-                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#64748B;">Anual</div>
-                    <div style="font-size:1rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.yearly_cost)}</div>
-                  </div>
-                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#64748B;">1ª cobrança</div>
-                    <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.first_occurrence)}</div>
-                  </div>
-                  <div style="background:#0f172a;border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#64748B;">Última</div>
-                    <div style="font-size:0.78rem;font-weight:600;color:#94A3B8;">${fmtDate(sub.last_occurrence)}</div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Pergunta + Ações -->
-              <div style="margin-top:16px;padding:14px;background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.08));border:1px solid rgba(139,92,246,0.2);border-radius:12px;">
-                <p style="color:#f1f5f9;font-weight:600;text-align:center;margin:0 0 12px;font-size:0.9rem;">🤔 Você ainda usa este serviço regularmente?</p>
-                <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'use_regularly')"
-                    style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">
-                    ✅ Uso Sempre
-                  </button>
-                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'want_cancel')"
-                    style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">
-                    ❌ Quero Cancelar
-                  </button>
-                  <button onclick="VM.feedbackAssinatura(${sub.id}, 'ignore')"
-                    style="background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.82rem;">
-                    🤐 Ignorar
-                  </button>
-                </div>
-              </div>
-            </div>
-            `).join('')}
-          </div>
-          `}
-          
-          <!-- Dicas -->
-          <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(139,92,246,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;margin-top:24px;">
-            <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;display:flex;align-items:center;gap:8px;">💡 Dicas para Controlar Assinaturas</h3>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
-              <div>
-                <h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📅 Auditoria Mensal</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Reserve o último domingo do mês para revisar todas as assinaturas. Cancele o que não usou nos últimos 30 dias.</p>
-              </div>
-              <div>
-                <h4 style="color:#C4B5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">👨‍👩‍👧 Planos Familiares</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Netflix, Spotify, YouTube Premium têm planos familiares. Compartilhe custos e economize até 60%.</p>
-              </div>
-              <div>
-                <h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">🔄 Alternância Estratégica</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para streaming: assine um, assista o que precisa, cancele e assine outro. Economize sem abrir mão do conteúdo.</p>
-              </div>
-            </div>
-          </div>
+          ${abaAtiva === 'ativas' ? htmlAtivas : htmlCanceladas}
         </div>
       `
     } catch (e) {
@@ -10242,20 +10449,21 @@ const VM = {
   // ═══════════════════════════════════════════════════════════════
   // v3.1 — COMPRAS FANTASMA
   // ═══════════════════════════════════════════════════════════════
-  async pageComprasFantasma() {
+  async pageComprasFantasma(aba) {
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
+    const abaAtiva = aba || 'impulsos'
 
     try {
-      const data = await this.api('GET', 'compras-fantasma')
+      const [data, dataRec] = await Promise.all([
+        this.api('GET', 'compras-fantasma'),
+        this.api('GET', 'compras-fantasma/recorrentes').catch(() => ({ recorrentes: [], total_recorrentes: 0, economia_potencial_mensal: 0, economia_potencial_anual: 0 }))
+      ])
       const {
-        resumo = {},
-        compras_impulsivas = [],
-        categorias_impulsivas = [],
-        alertas = [],
-        dica = '',
-        periodo_meses = 3
+        resumo = {}, compras_impulsivas = [], categorias_impulsivas = [],
+        alertas = [], dica = '', periodo_meses = 3
       } = data
+      const { recorrentes = [], total_recorrentes = 0, economia_potencial_mensal = 0, economia_potencial_anual = 0 } = dataRec
 
       const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})
       const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'
@@ -10265,126 +10473,183 @@ const VM = {
       const economiaPot    = Number(resumo.economia_potencial||0)
       const qtdImpulsivas  = Number(resumo.qtd_impulsivas||0)
 
+      const tabBtn = (id, label, active) => `<button onclick="VM.pageComprasFantasma('${id}')" style="padding:8px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;transition:all 0.2s;${active?'background:rgba(249,115,22,0.2);color:#FB923C;border:1px solid rgba(249,115,22,0.4);':'background:transparent;color:#64748B;border:1px solid rgba(255,255,255,0.08);'}">${label}</button>`
+
+      const htmlImpulsos = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;">
+          <div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FED7AA;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Total Analisado</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#FB923C;">R$ ${fmtBRL(totalAnalisado)}</div>
+            <div style="color:#64748B;font-size:0.72rem;">últimos ${periodo_meses} meses</div>
+          </div>
+          <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FDA4AF;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🚨 Gastos Impulsivos</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalImpulsivo)}</div>
+            <div style="color:#64748B;font-size:0.72rem;">${pctImpulsivo.toFixed(1)}% do total • ${qtdImpulsivas} compras</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Potencial</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(economiaPot)}</div>
+            <div style="color:#64748B;font-size:0.72rem;">se cortar 30% dos impulsos</div>
+          </div>
+        </div>
+        ${alertas.length > 0 ? `
+        <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
+          <h3 style="color:#F43F5E;font-size:0.9rem;font-weight:700;margin:0 0 10px;">🚨 Alertas de Consumo</h3>
+          ${alertas.map(a => `<div style="color:#FDA4AF;font-size:0.82rem;margin-bottom:6px;">• ${a}</div>`).join('')}
+        </div>` : ''}
+        ${categorias_impulsivas.length > 0 ? `
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">📊 Categorias com Mais Impulsos</h2>
+          ${categorias_impulsivas.map((cat) => {
+            const pct = totalImpulsivo > 0 ? Math.round((cat.total/totalImpulsivo)*100) : 0
+            return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+              <div style="width:36px;height:36px;background:rgba(249,115,22,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;">${cat.emoji||'📦'}</div>
+              <div style="flex:1;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                  <span style="color:#f1f5f9;font-size:0.85rem;font-weight:600;">${cat.categoria}</span>
+                  <span style="color:#FB923C;font-size:0.85rem;font-weight:700;">R$ ${fmtBRL(cat.total)}</span>
+                </div>
+                <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;overflow:hidden;">
+                  <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#F97316,#EA580C);border-radius:4px;"></div>
+                </div>
+                <div style="color:#64748B;font-size:0.7rem;margin-top:3px;">${cat.qtd} compras • ${pct}% dos impulsos</div>
+              </div>
+            </div>`
+          }).join('')}
+        </div>` : ''}
+        ${compras_impulsivas.length > 0 ? `
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🛍️ Compras Impulsivas Identificadas</h2>
+          ${compras_impulsivas.slice(0,10).map(c => {
+            const scoreColor = c.impulsive_score >= 70 ? '#F43F5E' : c.impulsive_score >= 50 ? '#F97316' : '#FBBF24'
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+              <div style="flex:1;"><div style="color:#f1f5f9;font-size:0.88rem;font-weight:600;">${c.descricao}</div><div style="color:#64748B;font-size:0.75rem;">${fmtDate(c.data)} • ${c.categoria||'Outros'}</div></div>
+              <div style="text-align:right;"><div style="color:#FB923C;font-weight:700;">R$ ${fmtBRL(c.valor)}</div><div style="font-size:0.7rem;color:${scoreColor};font-weight:600;">Score ${c.impulsive_score}% impulsivo</div></div>
+            </div>`
+          }).join('')}
+          ${compras_impulsivas.length > 10 ? `<div style="color:#64748B;font-size:0.78rem;text-align:center;margin-top:12px;">+${compras_impulsivas.length-10} compras adicionais</div>` : ''}
+        </div>` : `
+        <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;margin-bottom:20px;">
+          <div style="font-size:4rem;margin-bottom:16px;">🛍️</div>
+          <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma compra impulsiva identificada</h2>
+          <p style="color:#64748B;margin:0 0 20px;">Seus gastos estão bem controlados, ou clique em "Analisar" para uma análise atualizada.</p>
+        </div>`}
+        ${dica ? `<div style="background:linear-gradient(135deg,rgba(249,115,22,0.08),rgba(234,88,12,0.05));border:1px solid rgba(249,115,22,0.2);border-radius:16px;padding:20px;margin-bottom:20px;"><h3 style="color:#FB923C;font-size:0.9rem;font-weight:700;margin:0 0 8px;">💡 Dica Personalizada</h3><p style="color:#94A3B8;font-size:0.85rem;margin:0;line-height:1.6;">${dica}</p></div>` : ''}
+        <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(249,115,22,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;">
+          <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">🧠 Estratégias Anti-Impulso</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+            <div><h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">⏳ Regra das 48 Horas</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para compras acima de R$ 100, espere 48 horas. Se ainda quiser depois, provavelmente é necessário.</p></div>
+            <div><h4 style="color:#FED7AA;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📋 Lista de Desejos</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Crie uma lista e adicione itens que quiser. Após 30 dias, reavalie: ainda é uma prioridade?</p></div>
+            <div><h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">💰 Custo em Horas de Trabalho</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Calcule quantas horas de trabalho equivale ao produto. Isso muda sua perspectiva de valor.</p></div>
+          </div>
+        </div>`
+
+      const tipoIcons = { assinatura:'📱', servico_recorrente:'🔄', alimentacao_recorrente:'🍔', transporte_recorrente:'🚗', outros:'📦' }
+      const htmlRecorrentes = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+          <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#93C5FD;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🔄 Recorrências</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#60A5FA;">${total_recorrentes}</div>
+            <div style="color:#64748B;font-size:0.72rem;">padrões identificados</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Economia Mensal</div>
+            <div style="font-size:2rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_potencial_mensal)}</div>
+            <div style="color:#64748B;font-size:0.72rem;">potencial se reduzir</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FDE68A;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📅 Economia Anual</div>
+            <div style="font-size:2rem;font-weight:800;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_potencial_anual)}</div>
+            <div style="color:#64748B;font-size:0.72rem;">projeção 12 meses</div>
+          </div>
+        </div>
+        ${recorrentes.length === 0 ? `
+        <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+          <div style="font-size:4rem;margin-bottom:16px;">🔄</div>
+          <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma recorrência encontrada</h2>
+          <p style="color:#64748B;margin:0 0 20px;">Clique em "Analisar" para que a IA identifique padrões de gastos recorrentes nos seus lançamentos.</p>
+          <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;max-width:480px;margin:0 auto;text-align:left;">
+            <p style="color:#93C5FD;font-weight:700;margin:0 0 8px;">ℹ️ Como funciona?</p>
+            <p style="color:#94A3B8;font-size:0.82rem;margin:0;line-height:1.6;">A IA agrupa despesas similares e analisa se aparecem em intervalos regulares (semanal, quinzenal, mensal). Quando detectada uma recorrência, você pode registrar uma redução de valor e ver a economia acumulada.</p>
+          </div>
+        </div>` : `
+        <div>
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🔄 Gastos Recorrentes Detectados</h2>
+          ${recorrentes.map(r => {
+            const tipoIcon = tipoIcons[r.tipo_recorrencia]||'📦'
+            const classifColor = r.ai_classificacao === 'necessario' ? '#10B981' : r.ai_classificacao === 'dispensavel' ? '#F43F5E' : r.ai_classificacao === 'assinatura' ? '#8B5CF6' : '#F59E0B'
+            const classifLabel = r.ai_classificacao === 'necessario' ? '✅ Necessário' : r.ai_classificacao === 'dispensavel' ? '❌ Dispensável' : r.ai_classificacao === 'assinatura' ? '📱 Assinatura' : '⚡ Impulso Recorrente'
+            return `
+            <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:12px;" onmouseover="this.style.borderColor='rgba(59,130,246,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:12px;flex:1;">
+                  <div style="width:44px;height:44px;background:rgba(59,130,246,0.12);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;">${tipoIcon}</div>
+                  <div>
+                    <div style="font-weight:700;color:#f1f5f9;margin-bottom:4px;">${r.normalized_description}</div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <span style="font-size:0.72rem;color:${classifColor};font-weight:600;">${classifLabel}</span>
+                      <span style="font-size:0.72rem;color:#64748B;">${r.frequencia_ocorrencias}× detectado</span>
+                      ${r.ai_used ? '<span style="background:rgba(16,185,129,0.1);color:#10B981;font-size:0.65rem;padding:2px 8px;border-radius:50px;font-weight:600;">✨ IA</span>' : ''}
+                    </div>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;min-width:260px;">
+                  <div style="text-align:center;background:#0f172a;border-radius:10px;padding:10px;">
+                    <div style="font-size:0.65rem;color:#64748B;">Valor Médio</div>
+                    <div style="font-weight:700;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.valor_medio)}</div>
+                  </div>
+                  <div style="text-align:center;background:#0f172a;border-radius:10px;padding:10px;">
+                    <div style="font-size:0.65rem;color:#64748B;">Economia Mês</div>
+                    <div style="font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.economia_potencial_mensal||0)}</div>
+                  </div>
+                  <div style="text-align:center;background:#0f172a;border-radius:10px;padding:10px;">
+                    <div style="font-size:0.65rem;color:#64748B;">Economia Ano</div>
+                    <div style="font-weight:700;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(r.economia_potencial_anual||0)}</div>
+                  </div>
+                </div>
+              </div>
+              ${r.ai_sugestao ? `<div style="margin-top:12px;padding:10px 14px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.15);border-radius:8px;font-size:0.8rem;color:#93C5FD;line-height:1.5;">💡 ${r.ai_sugestao}</div>` : ''}
+              ${r.status === 'ativo' ? `
+              <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="VM.reduzirRecorrente(${r.id},'${r.normalized_description}',${r.valor_medio})" style="background:rgba(16,185,129,0.12);color:#10B981;border:1px solid rgba(16,185,129,0.25);padding:7px 14px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">✂️ Registrar Redução</button>
+              </div>` : r.status === 'reduzido' ? `<div style="margin-top:10px;font-size:0.75rem;color:#10B981;">✅ Reduzido — economia de R$ ${fmtBRL(r.economia_real_mensal||0)}/mês registrada</div>` : ''}
+            </div>`
+          }).join('')}
+        </div>`}
+      `
+
       content.innerHTML = `
         <div style="max-width:1000px;">
-          <!-- Header -->
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
             <div>
               <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">🛍️ Compras Fantasma</h1>
               <p style="color:#64748B;margin:0;">Identifique padrões de gastos impulsivos e descubra onde seu dinheiro realmente vai.</p>
             </div>
-            <button onclick="VM.analisarComprasFantasma()" id="btn-analisar-compras"
-              style="background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">
-              🔍 Analisar ${periodo_meses} Meses
-            </button>
+            <button onclick="VM.analisarComprasFantasma()" id="btn-analisar-compras" style="background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Analisar ${periodo_meses} Meses</button>
           </div>
-
-          <!-- KPIs -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;">
-            <div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#FED7AA;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Total Analisado</div>
-              <div style="font-size:1.6rem;font-weight:800;color:#FB923C;">R$ ${fmtBRL(totalAnalisado)}</div>
-              <div style="color:#64748B;font-size:0.72rem;">últimos ${periodo_meses} meses</div>
-            </div>
-            <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#FDA4AF;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🚨 Gastos Impulsivos</div>
-              <div style="font-size:1.6rem;font-weight:800;color:#F43F5E;">R$ ${fmtBRL(totalImpulsivo)}</div>
-              <div style="color:#64748B;font-size:0.72rem;">${pctImpulsivo.toFixed(1)}% do total • ${qtdImpulsivas} compras</div>
-            </div>
-            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
-              <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✂️ Economia Potencial</div>
-              <div style="font-size:1.6rem;font-weight:800;color:#10B981;">R$ ${fmtBRL(economiaPot)}</div>
-              <div style="color:#64748B;font-size:0.72rem;">se cortar 30% dos impulsos</div>
-            </div>
+          <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;">
+            ${tabBtn('impulsos','🛍️ Compras Impulsivas ('+qtdImpulsivas+')', abaAtiva==='impulsos')}
+            ${tabBtn('recorrentes','🔄 Recorrentes ('+total_recorrentes+')', abaAtiva==='recorrentes')}
           </div>
-
-          ${alertas.length > 0 ? `
-          <!-- Alertas -->
-          <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
-            <h3 style="color:#F43F5E;font-size:0.9rem;font-weight:700;margin:0 0 10px;">🚨 Alertas de Consumo</h3>
-            ${alertas.map(a => `<div style="color:#FDA4AF;font-size:0.82rem;margin-bottom:6px;">• ${a}</div>`).join('')}
-          </div>` : ''}
-
-          ${categorias_impulsivas.length > 0 ? `
-          <!-- Categorias -->
-          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
-            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">📊 Categorias com Mais Impulsos</h2>
-            ${categorias_impulsivas.map((cat, i) => {
-              const pct = totalImpulsivo > 0 ? Math.round((cat.total/totalImpulsivo)*100) : 0
-              return `
-              <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-                <div style="width:36px;height:36px;background:rgba(249,115,22,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;">
-                  ${cat.emoji||'📦'}
-                </div>
-                <div style="flex:1;">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                    <span style="color:#f1f5f9;font-size:0.85rem;font-weight:600;">${cat.categoria}</span>
-                    <span style="color:#FB923C;font-size:0.85rem;font-weight:700;">R$ ${fmtBRL(cat.total)}</span>
-                  </div>
-                  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;overflow:hidden;">
-                    <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#F97316,#EA580C);border-radius:4px;transition:width 0.5s;"></div>
-                  </div>
-                  <div style="color:#64748B;font-size:0.7rem;margin-top:3px;">${cat.qtd} compras • ${pct}% dos impulsos</div>
-                </div>
-              </div>`
-            }).join('')}
-          </div>` : ''}
-
-          ${compras_impulsivas.length > 0 ? `
-          <!-- Lista de Compras Impulsivas -->
-          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
-            <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🛍️ Compras Impulsivas Identificadas</h2>
-            ${compras_impulsivas.slice(0,10).map(c => {
-              const scoreColor = c.impulsive_score >= 70 ? '#F43F5E' : c.impulsive_score >= 50 ? '#F97316' : '#FBBF24'
-              return `
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-                <div style="flex:1;">
-                  <div style="color:#f1f5f9;font-size:0.88rem;font-weight:600;">${c.descricao}</div>
-                  <div style="color:#64748B;font-size:0.75rem;">${fmtDate(c.data)} • ${c.categoria||'Outros'}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="color:#FB923C;font-weight:700;">R$ ${fmtBRL(c.valor)}</div>
-                  <div style="font-size:0.7rem;color:${scoreColor};font-weight:600;">Score ${c.impulsive_score}% impulsivo</div>
-                </div>
-              </div>`
-            }).join('')}
-            ${compras_impulsivas.length > 10 ? `<div style="color:#64748B;font-size:0.78rem;text-align:center;margin-top:12px;">+${compras_impulsivas.length-10} compras adicionais</div>` : ''}
-          </div>` : `
-          <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;margin-bottom:20px;">
-            <div style="font-size:4rem;margin-bottom:16px;">🛍️</div>
-            <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhuma compra impulsiva identificada</h2>
-            <p style="color:#64748B;margin:0 0 20px;">Seus gastos estão bem controlados, ou clique em "Analisar" para uma análise atualizada.</p>
-          </div>`}
-
-          <!-- Dica personalizada -->
-          ${dica ? `
-          <div style="background:linear-gradient(135deg,rgba(249,115,22,0.08),rgba(234,88,12,0.05));border:1px solid rgba(249,115,22,0.2);border-radius:16px;padding:20px;margin-bottom:20px;">
-            <h3 style="color:#FB923C;font-size:0.9rem;font-weight:700;margin:0 0 8px;">💡 Dica Personalizada</h3>
-            <p style="color:#94A3B8;font-size:0.85rem;margin:0;line-height:1.6;">${dica}</p>
-          </div>` : ''}
-
-          <!-- Estratégias -->
-          <div style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(249,115,22,0.06));border:1px solid rgba(59,130,246,0.2);border-radius:16px;padding:24px;">
-            <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">🧠 Estratégias Anti-Impulso</h3>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
-              <div>
-                <h4 style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0 0 4px;">⏳ Regra das 48 Horas</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Para compras acima de R$ 100, espere 48 horas. Se ainda quiser depois, provavelmente é necessário.</p>
-              </div>
-              <div>
-                <h4 style="color:#FED7AA;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📋 Lista de Desejos</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Crie uma lista e adicione itens que quiser. Após 30 dias, reavalie: ainda é uma prioridade?</p>
-              </div>
-              <div>
-                <h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">💰 Custo em Horas de Trabalho</h4>
-                <p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Calcule quantas horas de trabalho equivale ao produto. Isso muda sua perspectiva de valor.</p>
-              </div>
-            </div>
-          </div>
+          ${abaAtiva === 'impulsos' ? htmlImpulsos : htmlRecorrentes}
         </div>
       `
     } catch (e) {
       document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar análise: ${e.message}</p></div>`
+    }
+  },
+
+  async reduzirRecorrente(id, nome, valorAtual) {
+    const novoValor = prompt(`Registrar redução para "${nome}"\nValor atual: R$ ${valorAtual.toFixed(2)}\n\nInforme o novo valor reduzido (R$):`)
+    if (!novoValor || isNaN(parseFloat(novoValor))) return
+    const pct = prompt('Qual o percentual de redução aplicado? (ex: 30 para 30%)', '30')
+    try {
+      const resp = await this.api('POST', `compras-fantasma/recorrentes/${id}/reduzir`, { novo_valor: parseFloat(novoValor), percentual_reducao: parseFloat(pct||'0') })
+      this.toast(resp.message || `✅ Economia de R$ ${(resp.economia_mensal||0).toFixed(2)}/mês registrada!`, 'success')
+      this.pageComprasFantasma('recorrentes')
+    } catch(err) {
+      this.toast(err.message || 'Erro ao registrar redução', 'error')
     }
   },
 
