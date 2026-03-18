@@ -105,9 +105,12 @@ tags.delete('/:id', requireAuth, async (c) => {
 
   if (!tag) return c.json({ error: 'Tag não encontrada' }, 404)
 
-  // Desvincular antes de remover (CASCADE faz isso, mas explicitando)
-  await c.env.DB.prepare(`DELETE FROM despesa_tags WHERE tag_id=?`).bind(tagId).run()
-  await c.env.DB.prepare(`DELETE FROM tags WHERE id=? AND user_id=?`).bind(tagId, user.id).run()
+  // Desvincular de despesas E receitas antes de remover
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM despesa_tags WHERE tag_id=?`).bind(tagId),
+    c.env.DB.prepare(`DELETE FROM receita_tags  WHERE tag_id=?`).bind(tagId),
+    c.env.DB.prepare(`DELETE FROM tags WHERE id=? AND user_id=?`).bind(tagId, user.id),
+  ])
 
   return c.json({ success: true })
 })
@@ -142,13 +145,13 @@ tags.post('/despesa/:despesaId', requireAuth, async (c) => {
     `DELETE FROM despesa_tags WHERE despesa_id=?`
   ).bind(despesaId).run()
 
-  // Inserir novos vínculos
+  // Inserir novos vínculos com batch
   if (tag_ids && tag_ids.length > 0) {
-    for (const tid of tag_ids) {
-      await c.env.DB.prepare(
-        `INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`
-      ).bind(despesaId, tid).run()
-    }
+    await c.env.DB.batch(
+      tag_ids.map(tid =>
+        c.env.DB.prepare(`INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`).bind(despesaId, tid)
+      )
+    )
 
     // Conquista: 5+ tags em uso
     const totalTagged = await c.env.DB.prepare(
@@ -192,8 +195,26 @@ tags.get('/despesa/:despesaId', requireAuth, async (c) => {
   return c.json(rows.results || [])
 })
 
+// ─── GET /api/tags/autocomplete?q=texto ─────────────────────────────────────
+// Buscar TAGS pelo nome (para autocomplete em formulários)
+tags.get('/autocomplete', requireAuth, async (c) => {
+  const user = c.get('user')
+  const q    = c.req.query('q') || ''
+
+  const rows = await c.env.DB.prepare(
+    `SELECT id, nome, cor,
+            (SELECT COUNT(*) FROM despesa_tags WHERE tag_id=t.id) as usos
+     FROM tags t
+     WHERE user_id=? AND nome LIKE ?
+     ORDER BY usos DESC, nome ASC
+     LIMIT 10`
+  ).bind(user.id, `%${q}%`).all<{id:number;nome:string;cor:string;usos:number}>()
+
+  return c.json(rows.results || [])
+})
+
 // ─── GET /api/tags/buscar?q=texto ────────────────────────────────────────────
-// Buscar despesas por tag
+// Buscar despesas por tag (retorna despesas cujas tags contenham o texto)
 tags.get('/buscar', requireAuth, async (c) => {
   const user   = c.get('user')
   const tagId  = parseInt(c.req.query('tag_id') || '0')
@@ -250,14 +271,14 @@ tags.post('/receita/:receitaId', requireAuth, async (c) => {
     }
   }
 
-  // Limpar e reinserir
+  // Limpar e reinserir com batch
   await c.env.DB.prepare(`DELETE FROM receita_tags WHERE receita_id=?`).bind(receitaId).run()
   if (tag_ids && tag_ids.length > 0) {
-    for (const tid of tag_ids) {
-      await c.env.DB.prepare(
-        `INSERT OR IGNORE INTO receita_tags (receita_id, tag_id) VALUES (?, ?)`
-      ).bind(receitaId, tid).run()
-    }
+    await c.env.DB.batch(
+      tag_ids.map(tid =>
+        c.env.DB.prepare(`INSERT OR IGNORE INTO receita_tags (receita_id, tag_id) VALUES (?, ?)`).bind(receitaId, tid)
+      )
+    )
   }
 
   return c.json({ success: true, vinculadas: tag_ids?.length || 0 })

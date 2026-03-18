@@ -165,6 +165,17 @@ comparativo.get('/', requireAuth, async (c) => {
     insights.push(`💡 Maior economia: "${maiorQueda.categoria}" -R$ ${Math.abs(maiorQueda.diferenca).toFixed(2)}. Continue assim!`)
   }
 
+  // Bloco 5: conquista 'analitico' — usou comparativo 5+ vezes (deve ser ANTES do return)
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', datetime('now'))`
+    ).bind(user.id).run().catch(() => {})
+    const cnt = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='comparativo_visto'`
+    ).bind(user.id).first() as any
+    if ((cnt?.cnt || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'analitico')
+  } catch(_) {}
+
   return c.json({
     periodo: {
       mes:         mesAtual,
@@ -190,59 +201,70 @@ comparativo.get('/', requireAuth, async (c) => {
     },
     categorias,
     alertas,
-    insights  // Melhoria 2.4
+    insights
   })
-
-  // Bloco 5: conquista 'analitico' — usou comparativo 5+ vezes
-  try {
-    await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', datetime('now'))`
-    ).bind(user.id).run().catch(() => {})
-    const cnt = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='comparativo_visto'`
-    ).bind(user.id).first() as any
-    if ((cnt?.cnt || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'analitico')
-  } catch(_) {}
 })
 
 // ─── GET /api/comparativo/historico?meses=6 ─────────────────────────────────
-// Últimos N meses (para gráfico de linha)
+// Últimos N meses (para gráfico de linha) — usa GROUP BY, sem loop de queries
 comparativo.get('/historico', requireAuth, async (c) => {
   const user   = c.get('user')
   const nMeses = Math.min(12, parseInt(c.req.query('meses') || '6'))
   const hoje   = new Date()
-  const result = []
 
+  // Calcular intervalo de datas
+  const meses: Array<{mes: number; ano: number; ms: string; as: string}> = []
   for (let i = nMeses - 1; i >= 0; i--) {
     let m = hoje.getMonth() + 1 - i
     let a = hoje.getFullYear()
     while (m <= 0) { m += 12; a -= 1 }
-    const ms = String(m).padStart(2, '0')
-    const as = String(a)
+    meses.push({ mes: m, ano: a, ms: String(m).padStart(2, '0'), as: String(a) })
+  }
 
-    const [rec, desp] = await Promise.all([
-      c.env.DB.prepare(
-        `SELECT COALESCE(SUM(valor),0) as t FROM receitas
-         WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`
-      ).bind(user.id, ms, as).first<{t:number}>(),
-      c.env.DB.prepare(
-        `SELECT COALESCE(SUM(valor),0) as t FROM despesas
-         WHERE user_id=? AND status!='cancelado'
-           AND strftime('%m',COALESCE(vencimento,data))=?
-           AND strftime('%Y',COALESCE(vencimento,data))=?`
-      ).bind(user.id, ms, as).first<{t:number}>(),
-    ])
+  const dataInicio = `${meses[0].as}-${meses[0].ms}-01`
+  const dataFim    = `${meses[meses.length - 1].as}-${meses[meses.length - 1].ms}-31`
 
-    const mN = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-    result.push({
+  // Uma query por tabela com GROUP BY — sem loop
+  const [rowsRec, rowsDesp] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT strftime('%m',data) as mes, strftime('%Y',data) as ano,
+              COALESCE(SUM(valor),0) as total
+       FROM receitas
+       WHERE user_id=? AND data BETWEEN ? AND ?
+       GROUP BY strftime('%Y-%m', data)`
+    ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
+
+    c.env.DB.prepare(
+      `SELECT strftime('%m',COALESCE(vencimento,data)) as mes,
+              strftime('%Y',COALESCE(vencimento,data)) as ano,
+              COALESCE(SUM(valor),0) as total
+       FROM despesas
+       WHERE user_id=? AND status!='cancelado'
+         AND COALESCE(vencimento,data) BETWEEN ? AND ?
+       GROUP BY strftime('%Y-%m', COALESCE(vencimento,data))`
+    ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
+  ])
+
+  // Indexar por mes+ano para lookup O(1)
+  const recMap:  Record<string, number> = {}
+  const despMap: Record<string, number> = {}
+  for (const r of (rowsRec.results  || [])) recMap[`${r.ano}-${r.mes}`]  = Number(r.total)
+  for (const d of (rowsDesp.results || [])) despMap[`${d.ano}-${d.mes}`] = Number(d.total)
+
+  const mN = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const result = meses.map(({ mes: m, ano: a, ms, as }) => {
+    const key = `${as}-${ms}`
+    const rec  = recMap[key]  || 0
+    const desp = despMap[key] || 0
+    return {
       label:    `${mN[m-1]}/${a}`,
       mes:      m,
       ano:      a,
-      receitas: Math.round(Number(rec?.t  || 0) * 100) / 100,
-      despesas: Math.round(Number(desp?.t || 0) * 100) / 100,
-      saldo:    Math.round((Number(rec?.t || 0) - Number(desp?.t || 0)) * 100) / 100
-    })
-  }
+      receitas: Math.round(rec  * 100) / 100,
+      despesas: Math.round(desp * 100) / 100,
+      saldo:    Math.round((rec - desp) * 100) / 100,
+    }
+  })
 
   return c.json({ historico: result })
 })

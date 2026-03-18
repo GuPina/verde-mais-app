@@ -139,6 +139,9 @@ relatorio.get('/dados', requireAuth, async (c) => {
       taxa_poupanca:   totalReceitas > 0
         ? Math.round((totalReceitas - totalDespesas) / totalReceitas * 1000) / 10
         : 0,
+      taxa_poupanca_negativa: totalReceitas > 0
+        ? (totalReceitas - totalDespesas) < 0
+        : totalDespesas > 0,
       total_investido: Math.round(totalInvest  * 100) / 100,
       total_dividas:   Math.round(totalDividas * 100) / 100,
     },
@@ -170,38 +173,60 @@ relatorio.get('/anual', requireAuth, async (c) => {
 
   const ano  = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
   const mN   = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-  const meses = []
+  const as   = String(ano)
 
-  for (let m = 1; m <= 12; m++) {
+  // 2 queries com GROUP BY em vez de 24 queries em loop
+  const [rowsRec, rowsDesp] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT strftime('%m', data) as mes, COALESCE(SUM(valor),0) as total
+       FROM receitas
+       WHERE user_id=? AND strftime('%Y',data)=?
+       GROUP BY strftime('%m', data)`
+    ).bind(user.id, as).all<{mes:string;total:number}>(),
+
+    c.env.DB.prepare(
+      `SELECT strftime('%m', COALESCE(vencimento,data)) as mes, COALESCE(SUM(valor),0) as total
+       FROM despesas
+       WHERE user_id=? AND status!='cancelado' AND strftime('%Y',COALESCE(vencimento,data))=?
+       GROUP BY strftime('%m', COALESCE(vencimento,data))`
+    ).bind(user.id, as).all<{mes:string;total:number}>(),
+  ])
+
+  const recMap:  Record<string, number> = {}
+  const despMap: Record<string, number> = {}
+  for (const r of (rowsRec.results  || [])) recMap[r.mes]  = Number(r.total)
+  for (const d of (rowsDesp.results || [])) despMap[d.mes] = Number(d.total)
+
+  const meses = Array.from({ length: 12 }, (_, idx) => {
+    const m  = idx + 1
     const ms = String(m).padStart(2, '0')
-    const as = String(ano)
-
-    const [rec, desp] = await Promise.all([
-      c.env.DB.prepare(
-        `SELECT COALESCE(SUM(valor),0) as t FROM receitas
-         WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`
-      ).bind(user.id, ms, as).first<{t:number}>(),
-      c.env.DB.prepare(
-        `SELECT COALESCE(SUM(valor),0) as t FROM despesas
-         WHERE user_id=? AND status!='cancelado'
-           AND strftime('%m',COALESCE(vencimento,data))=?
-           AND strftime('%Y',COALESCE(vencimento,data))=?`
-      ).bind(user.id, ms, as).first<{t:number}>(),
-    ])
-
-    meses.push({
-      label:    `${mN[m-1]}`,
+    const rec  = recMap[ms]  || 0
+    const desp = despMap[ms] || 0
+    return {
+      label:    mN[idx],
       mes:      m,
-      receitas: Math.round(Number(rec?.t  || 0) * 100) / 100,
-      despesas: Math.round(Number(desp?.t || 0) * 100) / 100,
-      saldo:    Math.round((Number(rec?.t || 0) - Number(desp?.t || 0)) * 100) / 100,
-    })
-  }
+      receitas: Math.round(rec  * 100) / 100,
+      despesas: Math.round(desp * 100) / 100,
+      saldo:    Math.round((rec - desp) * 100) / 100,
+    }
+  })
 
   const totRec  = meses.reduce((s, m) => s + m.receitas, 0)
   const totDesp = meses.reduce((s, m) => s + m.despesas, 0)
   const melhorMes = meses.reduce((best, m) => m.saldo > best.saldo ? m : best, meses[0])
   const piorMes   = meses.reduce((worst, m) => m.saldo < worst.saldo ? m : worst, meses[0])
+
+  // Conquistas — ANTES do return
+  try {
+    await verificarConquista(c.env.DB, user.id, 'analista')
+    await c.env.DB.prepare(
+      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', datetime('now'))`
+    ).bind(user.id).run().catch(() => {})
+    const totalViz = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='relatorio_anual_visto'`
+    ).bind(user.id).first() as any
+    if ((totalViz?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'curioso')
+  } catch(_) {}
 
   return c.json({
     ano,
@@ -217,22 +242,6 @@ relatorio.get('/anual', requireAuth, async (c) => {
       pior_mes:   piorMes.label,
     }
   })
-
-  // Bloco 5: conquistas de análise — analista (sempre) e curioso (3ª+ vez)
-  try {
-    await verificarConquista(c.env.DB, user.id, 'analista')
-    const vizCount = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM conquistas_usuario WHERE user_id=? AND conquista_codigo='curioso'`
-    ).bind(user.id).first() as any
-    // Incrementar contador de visualizações de relatório no ia_insights
-    await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', datetime('now'))`
-    ).bind(user.id).run().catch(() => {})
-    const totalViz = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='relatorio_anual_visto'`
-    ).bind(user.id).first() as any
-    if ((totalViz?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'curioso')
-  } catch(_) {}
 })
 
 export default relatorio
