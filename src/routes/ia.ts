@@ -331,8 +331,14 @@ ia.get('/insights', requireAuth, async (c) => {
   const parcelaTotal  = parcelaFin + parcelaEmp + faturaCartaoMes
   const debtRatio     = receita > 0 ? parcelaTotal / receita : 0
 
-  // Perfil investidor
-  const perfilInv     = (userPerfil?.perfil_investidor as 'conservative' | 'moderate' | 'aggressive') || 'moderate'
+  // Perfil investidor — suporta tanto inglês (moderate) quanto português (moderado)
+  const perfilRaw = userPerfil?.perfil_investidor || 'moderate'
+  const perfilMap: Record<string,string> = {
+    conservative: 'conservative', conservador: 'conservative',
+    moderate:     'moderate',     moderado:    'moderate',
+    aggressive:   'aggressive',   agressivo:   'aggressive'
+  }
+  const perfilInv     = (perfilMap[perfilRaw] || 'moderate') as 'conservative' | 'moderate' | 'aggressive'
   const perfilLabel   = { conservative: 'Conservador', moderate: 'Moderado', aggressive: 'Agressivo' }[perfilInv]
 
   // ── Scores por módulo ─────────────────────────────────────────────────
@@ -642,7 +648,7 @@ ia.get('/insights', requireAuth, async (c) => {
   ).bind(uid, mesPeriodo, scoreGeral, sCashFlow, sEmergency, sDebt, sInvest, sGoals).run().catch(() => {})
 
   // ── Salvar snapshot de patrimônio (fire-and-forget) ──────────────────────
-  const totalDividasSnap = (totalDivEmp?.total || 0) + (totalDivFin?.total || 0)
+  const totalDividasSnap = saldoEmp + saldoFin
   c.env.DB.prepare(
     `INSERT OR REPLACE INTO patrimonio_historico
      (user_id, mes, total_investimentos, total_reservas, total_dividas, patrimonio_liquido)

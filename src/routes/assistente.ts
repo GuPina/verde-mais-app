@@ -495,43 +495,58 @@ assistente.post('/chat', requireAuth, async (c) => {
   const ctx = await buscarContexto(c.env.DB, user.id)
   let resposta = gerarResposta(intencao, ctx, user.nome)
 
-  // ── LLM fallback para perguntas não reconhecidas ───────────────────────────
-  if (intencao === 'desconhecido' && c.env.OPENAI_API_KEY) {
+  // ── LLM: enriquecer resposta com GPT-4o-mini quando disponível ──────────────
+  if (c.env.OPENAI_API_KEY) {
     try {
-      const apiKey = c.env.OPENAI_API_KEY
+      const apiKey  = c.env.OPENAI_API_KEY
       const baseURL = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
-      const nome = user.nome.split(' ')[0]
-      const systemPrompt = `Você é o Assistente Financeiro VerdeMais. Responda SEMPRE em português brasileiro.
-Seja direto, amigável e use emojis moderadamente.
-Contexto financeiro atual do usuário ${nome}:
-- Receitas do mês: R$ ${ctx.totalReceitas.toFixed(2)}
-- Despesas do mês: R$ ${ctx.totalDespesas.toFixed(2)}
-- Saldo: R$ ${ctx.saldo.toFixed(2)}
-- Taxa de poupança: ${ctx.taxaPoupanca.toFixed(1)}%
-- Metas ativas: ${(ctx.metas as any)?.results?.length || 0}
-- Investimentos: ${(ctx.investimentos as any)?.results?.length || 0}
-- Score financeiro: ${ctx.scoreSaude || 'N/A'}
-Responda a pergunta do usuário de forma personalizada com base nesses dados. Máximo 200 palavras.`
+      const primeiro = user.nome.split(' ')[0]
+
+      // Contexto financeiro rico para o LLM
+      const emp = ctx.emprestimos as any
+      const fin = ctx.financiamentos as any
+      const inv = ctx.investimentos as any
+      const totalDivida = parseFloat(emp?.total||0) + parseFloat(fin?.total||0)
+      const topCats = (ctx.topCategorias as any[])
+        .slice(0,3).map((c:any) => `${c.categoria}: R$${parseFloat(c.total).toFixed(0)}`).join(', ')
+
+      const systemPrompt = `Você é o Assistente Financeiro VerdeMais — amigável, direto, sem jargão excessivo.
+Responda SEMPRE em português brasileiro. Use emojis com moderação (2-3 por resposta no máximo).
+Não use frases genéricas de template. Seja pessoal e específico para a situação do ${primeiro}.
+
+Dados financeiros REAIS do ${primeiro} (mês atual):
+- Receitas: R$ ${ctx.totalReceitas.toFixed(2)}
+- Despesas: R$ ${ctx.totalDespesas.toFixed(2)} (${(ctx.topCategorias as any[]).length > 0 ? 'top: ' + topCats : 'sem detalhes'})
+- Saldo: R$ ${ctx.saldo.toFixed(2)} | Taxa poupança: ${ctx.taxaPoupanca.toFixed(1)}%
+- Dívidas: R$ ${totalDivida.toFixed(2)} | Investimentos: R$ ${parseFloat(inv?.total||0).toFixed(2)}
+- Reservas: R$ ${parseFloat((ctx.reservas as any)?.total||0).toFixed(2)}
+- Score saúde: ${ctx.scoreSaude || 'não calculado'}
+- Metas ativas: ${(ctx.metas as any)?.cnt || 0}
+
+Dados de referência do assistente (use como base, mas reescreva de forma mais natural e personalizada):
+${resposta}
+
+Responda em no máximo 180 palavras. Seja direto, concreto e pessoal. Não repita os dados acima literalmente.`
 
       const llmRes = await fetch(`${baseURL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'claude-haiku-4-5',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: mensagem }
           ],
-          max_tokens: 400,
-          temperature: 0.7
+          max_tokens: 350,
+          temperature: 0.75
         })
       })
       if (llmRes.ok) {
         const llmData: any = await llmRes.json()
         const llmText = llmData?.choices?.[0]?.message?.content?.trim()
-        if (llmText) resposta = llmText
+        if (llmText && llmText.length > 30) resposta = llmText
       }
-    } catch (_) { /* mantém resposta determinística em caso de falha */ }
+    } catch (_) { /* fallback para resposta determinística */ }
   }
 
   // Salvar conversa

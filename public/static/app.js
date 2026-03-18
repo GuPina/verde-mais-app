@@ -1865,7 +1865,10 @@ const VM = {
             <div>
               <div style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Patrimônio Líquido</div>
               <div style="font-size:1.8rem;font-weight:900;color:${patrimonioColor};line-height:1.1;">${this.formatMoney(patrimonioLiquido)}</div>
-              <div style="font-size:0.72rem;color:#555;margin-top:2px;">Investimentos + Reservas − Dívidas</div>
+              <div style="font-size:0.72rem;color:#555;margin-top:2px;">
+                ${this.formatMoney(resumo.total_investimentos||0)} inv. + ${this.formatMoney((reservas_esp?.total_guardado||0)+(resumo.total_reservas||0))} reservas − ${this.formatMoney(resumo.total_devedor||0)} dívidas
+              </div>
+              ${patrimonioLiquido < 0 ? `<div style="font-size:0.68rem;color:#ff6b6b;margin-top:3px;font-weight:600;">⚠️ Dívidas superam ativos — cadastre investimentos para melhorar</div>` : ''}
             </div>
           </div>
           <div style="display:flex;gap:24px;flex-wrap:wrap;">
@@ -11835,7 +11838,7 @@ const VM = {
               </ul>
             </div>
 
-            <button onclick="VM._impPreview()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
+            <button id="imp-btn-preview" onclick="VM._impPreview()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
               🔍 Pré-visualizar
             </button>
           </div>
@@ -11884,15 +11887,17 @@ const VM = {
 
   async _impPreview() {
     const csv = document.getElementById('imp-csv-input')?.value?.trim()
-    if (!csv) { this.showToast('Cole o conteúdo CSV no campo acima', 'warning'); return }
+    if (!csv) { this.toast('Cole o conteúdo CSV no campo acima', 'warning'); return }
     const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
     this._impData = { csv, tipo, previewData: null }
 
+    const btn = document.getElementById('imp-btn-preview')
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...' }
+
     try {
-      this.showToast('Analisando CSV...', 'info')
       const res = await this.api('POST', 'importacao/preview', { csv, tipo })
 
-      if (res.error) { this.showToast(res.error, 'error'); return }
+      if (res.error) { this.toast(res.error, 'error'); return }
 
       this._impData.previewData = res
       this._impData.cabecalho = res.cabecalho_original
@@ -11977,7 +11982,11 @@ const VM = {
       document.getElementById('imp-step3').style.display = 'none'
 
     } catch (e) {
-      this.showToast('Erro ao processar CSV: ' + (e.message || e), 'error')
+      const msg = e?.response?.data?.error || e?.message || String(e)
+      this.toast('Erro ao processar CSV: ' + msg, 'error')
+    } finally {
+      const btn2 = document.getElementById('imp-btn-preview')
+      if (btn2) { btn2.disabled = false; btn2.textContent = '🔍 Pré-visualizar' }
     }
   },
 
@@ -12038,14 +12047,29 @@ const VM = {
     } catch (e) {
       btn.disabled = false
       btn.textContent = '✅ Confirmar e Importar'
-      this.showToast('Erro na importação: ' + (e.message || e), 'error')
+      this.toast('Erro na importação: ' + (e.message || e), 'error')
     }
   },
 
   markdownToHtml(text) {
     if (!text) return ''
     return text
+      // Headers
+      .replace(/^### (.+)$/gm, '<strong style="font-size:0.95rem;color:#2FBF71;">$1</strong>')
+      .replace(/^## (.+)$/gm, '<strong style="font-size:1rem;color:#2FBF71;">$1</strong>')
+      // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      // Itálico
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      // Listas com bullet •
+      .replace(/^[•\-\*] (.+)$/gm, '<span style="display:block;padding-left:8px;">• $1</span>')
+      // Listas numeradas
+      .replace(/^\d+\. (.+)$/gm, (m, p1, offset, str) => {
+        const num = m.match(/^(\d+)/)?.[1] || '1'
+        return `<span style="display:block;padding-left:8px;">${num}. ${p1}</span>`
+      })
+      // Quebras de linha
+      .replace(/\n\n/g, '<br><br>')
       .replace(/\n/g, '<br>')
   },
 

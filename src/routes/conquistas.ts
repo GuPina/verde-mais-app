@@ -111,7 +111,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   // ── Despesas com tag ───────────────────────────────────────────────────────
   const despesasComTag = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM despesas d
-     JOIN despesas_tags dt ON dt.despesa_id = d.id
+     JOIN despesa_tags dt ON dt.despesa_id = d.id
      WHERE d.user_id = ?`
   ).bind(user.id).first() as any
   if ((despesasComTag?.total || 0) >= 20) await ganhar('20_despesas_com_tag')

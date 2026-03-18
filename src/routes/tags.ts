@@ -21,7 +21,9 @@ tags.get('/', requireAuth, async (c) => {
             COUNT(dt.despesa_id) as usos
      FROM tags t
      LEFT JOIN despesa_tags dt ON dt.tag_id = t.id
+     LEFT JOIN despesas d ON d.id = dt.despesa_id
      WHERE t.user_id = ?
+       AND (dt.despesa_id IS NULL OR (d.categoria NOT IN ('Financiamento','Investimento','Aporte') AND d.tipo != 'aporte'))
      GROUP BY t.id
      ORDER BY usos DESC, t.nome ASC`
   ).bind(user.id).all<{id:number;nome:string;cor:string;usos:number}>()
@@ -122,12 +124,18 @@ tags.post('/despesa/:despesaId', requireAuth, async (c) => {
   const despesaId = parseInt(c.req.param('despesaId'))
   const { tag_ids } = await c.req.json() as { tag_ids: number[] }
 
-  // Verificar que a despesa pertence ao usuário
+  // Verificar que a despesa pertence ao usuário e não é de categoria bloqueada
   const despesa = await c.env.DB.prepare(
-    `SELECT id FROM despesas WHERE id=? AND user_id=?`
+    `SELECT id, categoria, tipo FROM despesas WHERE id=? AND user_id=?`
   ).bind(despesaId, user.id).first()
 
   if (!despesa) return c.json({ error: 'Despesa não encontrada' }, 404)
+
+  // Bloquear tags em despesas de financiamento, aporte ou investimento
+  const categoriasBloquadas = ['Financiamento', 'Investimento', 'Aporte']
+  if (categoriasBloquadas.includes((despesa as any).categoria) || (despesa as any).tipo === 'aporte') {
+    return c.json({ error: 'Não é possível vincular tags a despesas de financiamento, aporte ou investimento' }, 400)
+  }
 
   // Verificar que as tags pertencem ao usuário
   if (tag_ids && tag_ids.length > 0) {
@@ -230,6 +238,8 @@ tags.get('/buscar', requireAuth, async (c) => {
        JOIN despesa_tags dt ON dt.despesa_id = d.id
        JOIN tags t ON t.id = dt.tag_id
        WHERE d.user_id=? AND t.id=?
+         AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
+         AND d.tipo != 'aporte'
        ORDER BY d.data DESC
        LIMIT 100`
     ).bind(user.id, tagId).all()
@@ -240,6 +250,8 @@ tags.get('/buscar', requireAuth, async (c) => {
        JOIN despesa_tags dt ON dt.despesa_id = d.id
        JOIN tags t ON t.id = dt.tag_id
        WHERE d.user_id=? AND t.nome LIKE ?
+         AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
+         AND d.tipo != 'aporte'
        ORDER BY d.data DESC
        LIMIT 100`
     ).bind(user.id, `%${q}%`).all()
