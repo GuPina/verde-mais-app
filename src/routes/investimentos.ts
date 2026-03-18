@@ -91,7 +91,7 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
   const resultado: Record<string, any> = {}
   if (!symbols.length) return resultado
 
-  // Mapa de symbol CoinGecko
+  // Mapa de symbol CoinGecko (fallback)
   const COINGECKO_MAP: Record<string, string> = {
     'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin',
     'SOL': 'solana', 'ADA': 'cardano', 'DOGE': 'dogecoin',
@@ -100,8 +100,9 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
     'LTC': 'litecoin', 'ATOM': 'cosmos', 'FIL': 'filecoin'
   }
 
-  // Verificar cache (30 minutos)
   const upperSymbols = symbols.map(s => s.toUpperCase())
+
+  // Verificar cache (30 minutos)
   try {
     const cached = await db.prepare(
       `SELECT symbol, valor_brl, valor_usd, variacao_24h FROM cotacoes_cache
@@ -116,45 +117,118 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
     if (!faltando.length) return resultado
   } catch (_) {}
 
-  // Buscar da CoinGecko
-  const ids = upperSymbols
-    .map(s => COINGECKO_MAP[s])
-    .filter(Boolean)
-    .join(',')
-
-  if (!ids) return resultado
-
+  // ── Fonte 1: Binance API (pública, sem auth, mais rápida)
+  // Busca preço em USDT, depois converte com câmbio BRL
+  let btcFallbackOk = false
   try {
-    const resp = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=brl,usd&include_24hr_change=true`
-    )
-    if (resp.ok) {
-      const data = await resp.json() as any
-      // Inverter mapa para encontrar symbol pelo id
-      const invertedMap: Record<string, string> = {}
-      for (const [sym, id] of Object.entries(COINGECKO_MAP)) invertedMap[id as string] = sym
+    const usdBrl = 5.23 // fallback do câmbio
+    // Buscar câmbio USD real se possível
+    let usdRate = usdBrl
+    try {
+      const camb = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL', { signal: AbortSignal.timeout(3000) })
+      if (camb.ok) {
+        const cd = await camb.json() as any
+        usdRate = parseFloat(cd?.USDBRL?.bid || usdBrl)
+      }
+    } catch (_) {}
 
-      for (const [id, precos] of Object.entries(data) as any[]) {
-        const sym = invertedMap[id]
-        if (!sym) continue
-        const item = { brl: precos.brl, usd: precos.usd, variacao_24h: precos.usd_24h_change || 0 }
+    // Binance: busca ticker 24h para pares USDT
+    const binancePairs = upperSymbols.filter(s => ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE'].includes(s))
+    if (binancePairs.length > 0) {
+      const tickers = await Promise.all(
+        binancePairs.map(s =>
+          fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${s}USDT`, { signal: AbortSignal.timeout(4000) })
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+        )
+      )
+      for (let i = 0; i < binancePairs.length; i++) {
+        const sym = binancePairs[i]
+        const t = tickers[i] as any
+        if (!t?.lastPrice) continue
+        const usd = parseFloat(t.lastPrice)
+        const brl = Math.round(usd * usdRate * 100) / 100
+        const variacao_24h = parseFloat(t.priceChangePercent) || 0
+        const item = { brl, usd, variacao_24h }
         resultado[sym] = item
+        btcFallbackOk = true
         try {
           await db.prepare(
             `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
              VALUES ('cripto',?,?,?,?,?,datetime('now'))`
-          ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run()
+          ).bind(sym, brl, usd, variacao_24h, JSON.stringify(item)).run()
         } catch (_) {}
       }
     }
   } catch (_) {}
 
+  // ── Fonte 2: CoinGecko (fallback se Binance falhou)
+  if (!btcFallbackOk) {
+    const ids = upperSymbols
+      .filter(s => !resultado[s])
+      .map(s => COINGECKO_MAP[s])
+      .filter(Boolean)
+      .join(',')
+
+    if (ids) {
+      try {
+        const resp = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=brl,usd&include_24hr_change=true`,
+          { signal: AbortSignal.timeout(5000) }
+        )
+        if (resp.ok) {
+          const data = await resp.json() as any
+          const invertedMap: Record<string, string> = {}
+          for (const [sym, id] of Object.entries(COINGECKO_MAP)) invertedMap[id as string] = sym
+          for (const [id, precos] of Object.entries(data) as any[]) {
+            const sym = invertedMap[id]
+            if (!sym) continue
+            const item = { brl: precos.brl, usd: precos.usd, variacao_24h: precos.brl_24h_change ?? precos.usd_24h_change ?? 0 }
+            resultado[sym] = item
+            try {
+              await db.prepare(
+                `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
+                 VALUES ('cripto',?,?,?,?,?,datetime('now'))`
+              ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run()
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   return resultado
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers internos
+// Fallback de cotações cripto — valores de referência quando APIs falham
 // ─────────────────────────────────────────────────────────────────────────────
+async function getCotacoesCriptoFallback(db: D1Database, symbols: string[], usdBrl: number): Promise<Record<string, { brl: number; usd: number; variacao_24h: number }>> {
+  // Valores fixos de referência (USD) — atualizados periodicamente no código
+  const REF_USD: Record<string, number> = {
+    BTC: 74000, ETH: 2330, BNB: 670, SOL: 150, XRP: 2.5,
+    ADA: 0.45, DOGE: 0.17, DOT: 7.5, AVAX: 30, MATIC: 0.55,
+    LINK: 15, LTC: 85, ATOM: 8
+  }
+  const resultado: Record<string, any> = {}
+  const rate = usdBrl || 5.23
+  for (const sym of symbols.map(s => s.toUpperCase())) {
+    const usd = REF_USD[sym]
+    if (!usd) continue
+    const brl = Math.round(usd * rate * 100) / 100
+    resultado[sym] = { brl, usd, variacao_24h: 0 }
+    try {
+      // Salvar fallback no cache por 5 minutos apenas
+      await db.prepare(
+        `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
+         VALUES ('cripto',?,?,?,?,?,datetime('now','-25 minutes'))`
+      ).bind(sym, brl, usd, 0, JSON.stringify({ brl, usd, variacao_24h: 0, fallback: true })).run()
+    } catch (_) {}
+  }
+  return resultado
+}
+
+
 function calcularCaixinha(valorInvestido: number, percentualCdi: number, cdiAnual: number, diasDecorridos: number): number {
   const cdiDiario = Math.pow(1 + cdiAnual / 100, 1 / 252) - 1
   const taxaDiaria = cdiDiario * (percentualCdi / 100)
@@ -179,6 +253,11 @@ investimentos.get('/cotacoes', async (c) => {
     getCotacoesCripto(db, ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOGE', 'XRP'])
   ])
 
+  // Se cripto retornou vazio, usar fallback com valores de referência
+  const usdRate = (cambio as any)?.USD?.compra || 5.23
+  const criptoFinal = Object.keys(cripto).length > 0 ? cripto
+    : await getCotacoesCriptoFallback(db, ['BTC', 'ETH', 'BNB', 'SOL', 'XRP'], usdRate)
+
   // SELIC via BCB
   let selic = 14.90
   try {
@@ -193,8 +272,10 @@ investimentos.get('/cotacoes', async (c) => {
     atualizado_em: new Date().toISOString(),
     taxas_referencia: { cdi_anual: cdi, selic_meta: selic },
     cambio,
-    cripto,
-    aviso: 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, CoinGecko.'
+    cripto: criptoFinal,
+    aviso: Object.keys(cripto).length === 0 
+      ? 'Cotações cripto via valores de referência (APIs indisponíveis). Câmbio: BCB/DolarApi.'
+      : 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Binance, CoinGecko.'
   })
 })
 

@@ -1706,7 +1706,7 @@ const VM = {
               <div style="background:#2a1a2a;border-radius:4px;height:4px;margin-top:4px;">
                 <div style="background:#EC4899;height:4px;border-radius:4px;width:${Math.round(desafio52Concluidas/52*100)}%;"></div>
               </div>
-              <span style="color:#666;">R$ ${desafio52Guardado} guardados</span>
+              <span style="color:#666;">${this.formatMoney(desafio52Guardado)} guardados</span>
             </div>
           </div>
         </div>
@@ -1886,6 +1886,48 @@ const VM = {
             </div>
           </div>`
         bloco.prepend(cdiWidget)
+      }).catch(() => {})
+
+      // Mini-widget cotações (câmbio + cripto) no Dashboard
+      this.api('GET', 'investimentos/cotacoes').then(cotData => {
+        const bloco = document.getElementById('dash-orcamentos-block')
+        if (!bloco || !cotData) return
+        const cambio = cotData.cambio || {}
+        const cripto = cotData.cripto || {}
+        if (Object.keys(cambio).length === 0 && Object.keys(cripto).length === 0) return
+        const fmtBRL = v => Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
+        const varColor = v => Number(v||0) >= 0 ? '#10B981' : '#F43F5E'
+        const varSign  = v => Number(v||0) >= 0 ? '▲' : '▼'
+        const moedaFlags = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' }
+        const cotWidget = document.createElement('div')
+        cotWidget.style.cssText = 'margin-bottom:16px;'
+        cotWidget.innerHTML = `
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 16px;" onclick="VM.navigate('investimentos')" style="cursor:pointer;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="font-size:0.65rem;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:700;">📊 Cotações — Câmbio & Cripto</div>
+              <div style="font-size:0.62rem;color:#334155;">BCB · DolarApi · CoinGecko</div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              ${Object.entries(cambio).map(([sym, m]) => `
+                <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.05);">
+                  <span>${moedaFlags[sym]||'💱'}</span>
+                  <div>
+                    <div style="font-size:0.6rem;color:#64748B;font-weight:600;">${sym}/BRL</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(m.compra)}</div>
+                  </div>
+                </div>`).join('')}
+              ${Object.entries(cripto).slice(0,3).map(([sym, c]) => `
+                <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.05);">
+                  <span>${sym==='BTC'?'₿':sym==='ETH'?'Ξ':'🪙'}</span>
+                  <div>
+                    <div style="font-size:0.6rem;color:#64748B;font-weight:600;">${sym}/BRL</div>
+                    <div style="font-size:0.85rem;font-weight:700;color:#f1f5f9;">R$ ${fmtBRL(c.brl)}</div>
+                    ${c.variacao_24h != null ? `<div style="font-size:0.6rem;color:${varColor(c.variacao_24h)};font-weight:600;">${varSign(c.variacao_24h)} ${Math.abs(Number(c.variacao_24h)).toFixed(2)}%</div>` : ''}
+                  </div>
+                </div>`).join('')}
+            </div>
+          </div>`
+        bloco.prepend(cotWidget)
       }).catch(() => {})
 
       // Carregar widget de orçamentos (F1) e projeção (F4)
