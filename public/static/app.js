@@ -5859,9 +5859,7 @@ const VM = {
           </div>
         </div>` : ''
 
-      container.innerHTML = bannerFaturas + `
-        <div class="grid-3" style="margin-bottom:24px;">
-          ${data.cartoes.map(c => {
+      const cartoesHtml = data.cartoes.map(c => {
             const r = resumoMap[c.id] || {}
             const usado  = r.limite_utilizado ?? (c.limite_utilizado || 0)
             const pct    = r.percentual_uso   ?? (c.percentual_uso   || 0)
@@ -5869,69 +5867,75 @@ const VM = {
             // S-C3: cor e badge por nível de alerta
             const pctColor = alerta === 'critico' ? '#ff6b6b' : alerta === 'atencao' ? '#ffc400' : '#2FBF71'
             const alertaBadge = alerta === 'critico'
-              ? \`<span style="background:#ff6b6b22;color:#ff6b6b;border:1px solid #ff6b6b44;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">🚨 Limite crítico</span>\`
+              ? `<span style="background:#ff6b6b22;color:#ff6b6b;border:1px solid #ff6b6b44;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">🚨 Limite crítico</span>`
               : alerta === 'atencao'
-              ? \`<span style="background:#ffc40022;color:#ffc400;border:1px solid #ffc40044;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">⚠️ Atenção: limite alto</span>\`
+              ? `<span style="background:#ffc40022;color:#ffc400;border:1px solid #ffc40044;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">⚠️ Atenção: limite alto</span>`
               : ''
             // S-C1: badge próximo vencimento
             const diasVenc = r.dias_para_vencer
             let vencBadge = ''
             if (diasVenc !== undefined) {
               const vc = diasVenc <= 3 ? '#ff6b6b' : diasVenc <= 7 ? '#ffc400' : '#2FBF71'
-              const vl = diasVenc < 0 ? \`Vencida há \${Math.abs(diasVenc)}d\` : diasVenc === 0 ? 'Vence hoje' : diasVenc === 1 ? 'Vence amanhã' : \`Vence em \${diasVenc}d\`
-              vencBadge = \`<span style="background:\${vc}22;color:\${vc};border:1px solid \${vc}44;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">📅 \${vl}</span>\`
+              const vl = diasVenc < 0 ? `Vencida há ${Math.abs(diasVenc)}d` : diasVenc === 0 ? 'Vence hoje' : diasVenc === 1 ? 'Vence amanhã' : `Vence em ${diasVenc}d`
+              vencBadge = `<span style="background:${vc}22;color:${vc};border:1px solid ${vc}44;border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:700;">📅 ${vl}</span>`
             }
-            return \`
-              <div class="card" style="border-color:\${c.cor || '#2FBF71'}40;position:relative;overflow:hidden;cursor:pointer;"
-                   onclick="VM.abrirFaturaCartao(\${c.id}, '\${c.nome.replace(/'/g,"\\'")}', '\${c.cor||'#2FBF71'}', \${c.dia_fechamento || 0})">
-                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:\${c.cor || '#2FBF71'};"></div>
+            const nomeSeguro = c.nome.replace(/'/g, "\\'")
+            const corCartao = c.cor || '#2FBF71'
+            return `
+              <div class="card" style="border-color:${corCartao}40;position:relative;overflow:hidden;cursor:pointer;"
+                   onclick="VM.abrirFaturaCartao(${c.id}, '${nomeSeguro}', '${corCartao}', ${c.dia_fechamento || 0})">
+                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${corCartao};"></div>
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
                   <div>
-                    <div style="font-size:1rem;font-weight:700;">\${c.nome}</div>
-                    \${c.apelido ? \`<div style="font-size:0.72rem;color:#6366f1;margin-top:1px;">"\${c.apelido}"</div>\` : ''}
-                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">\${bandeiras[c.bandeira] || c.bandeira} • \${c.banco}</div>
-                    \${c.ultimos_digitos ? \`<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• \${c.ultimos_digitos}</div>\` : ''}
+                    <div style="font-size:1rem;font-weight:700;">${c.nome}</div>
+                    ${c.apelido ? '<div style="font-size:0.72rem;color:#6366f1;margin-top:1px;">"' + c.apelido + '"</div>' : ''}
+                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}</div>
+                    ${c.ultimos_digitos ? '<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• ' + c.ultimos_digitos + '</div>' : ''}
                   </div>
                   <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end;" onclick="event.stopPropagation()">
                     <div style="display:flex;gap:4px;">
-                      <button onclick="VM.modalAjustarLimite(\${c.id},'\${c.nome.replace(/'/g,"\\'")}',\${c.limite_total},\${r.limite_disponivel??c.limite_disponivel??0})" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Ajustar limite disponível"><i class="fas fa-sliders-h"></i></button>
-                      <button onclick="VM.modalCartao(\${JSON.stringify({...c, apelido: c.apelido||''}).replace(/&quot;/g,'"').replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
-                      <button onclick="VM.deleteCartao(\${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                      <button onclick="VM.modalAjustarLimite(${c.id},'${nomeSeguro}',${c.limite_total},${r.limite_disponivel??c.limite_disponivel??0})" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Ajustar limite disponível"><i class="fas fa-sliders-h"></i></button>
+                      <button onclick="VM.modalCartao(${JSON.stringify({...c, apelido: c.apelido||''}).replace(/&quot;/g,'"').replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                      <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                     </div>
-                    \${alertaBadge}
+                    ${alertaBadge}
                   </div>
                 </div>
-                \${vencBadge ? \`<div style="margin-bottom:10px;">\${vencBadge}</div>\` : ''}
+                ${vencBadge ? '<div style="margin-bottom:10px;">' + vencBadge + '</div>' : ''}
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                     <span style="font-size:0.78rem;color:#888;">Limite usado</span>
-                    <span style="font-size:0.78rem;font-weight:700;color:\${pctColor};">\${pct}%</span>
+                    <span style="font-size:0.78rem;font-weight:700;color:${pctColor};">${pct}%</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:6px;overflow:hidden;">
-                    <div style="background:\${pctColor};width:\${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.6s ease;"></div>
+                    <div style="background:${pctColor};width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.6s ease;"></div>
                   </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Limite Total</div>
-                    <div style="font-size:0.82rem;font-weight:700;">\${this.formatMoney(c.limite_total)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(c.limite_total)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Usado</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(usado)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(usado)}</div>
                   </div>
                   <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Disponível</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">\${this.formatMoney(r.limite_disponivel ?? c.limite_disponivel ?? 0)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(r.limite_disponivel ?? c.limite_disponivel ?? 0)}</div>
                   </div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
-                  <span style="font-size:0.75rem;color:#666;">Fecha: dia \${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia \${c.dia_vencimento}</span>
+                  <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
                   <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
                 </div>
               </div>
-            \`
-          }).join('')}
+            `
+          }).join('')
+
+      container.innerHTML = bannerFaturas + `
+        <div class="grid-3" style="margin-bottom:24px;">
+          ${cartoesHtml}
         </div>
       `
     } catch (e) {

@@ -617,7 +617,7 @@ function appShell() {
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=20260317-1"></script>
+  <script src="/static/app.js?v=20260318-2"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {
