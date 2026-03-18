@@ -117,84 +117,93 @@ async function getCotacoesCripto(db: D1Database, symbols: string[]): Promise<Rec
     if (!faltando.length) return resultado
   } catch (_) {}
 
-  // ── Fonte 1: Binance API (pública, sem auth, mais rápida)
-  // Busca preço em USDT, depois converte com câmbio BRL
+  // ── Fonte 1: CryptoCompare (suporta Cloudflare Workers, dados em BRL direto)
   let btcFallbackOk = false
   try {
-    const usdBrl = 5.23 // fallback do câmbio
-    // Buscar câmbio USD real se possível
-    let usdRate = usdBrl
-    try {
-      const camb = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL', { signal: AbortSignal.timeout(3000) })
-      if (camb.ok) {
-        const cd = await camb.json() as any
-        usdRate = parseFloat(cd?.USDBRL?.bid || usdBrl)
-      }
-    } catch (_) {}
-
-    // Binance: busca ticker 24h para pares USDT
-    const binancePairs = upperSymbols.filter(s => ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE'].includes(s))
-    if (binancePairs.length > 0) {
-      const tickers = await Promise.all(
-        binancePairs.map(s =>
-          fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${s}USDT`, { signal: AbortSignal.timeout(4000) })
-            .then(r => r.ok ? r.json() : null)
-            .catch(() => null)
-        )
-      )
-      for (let i = 0; i < binancePairs.length; i++) {
-        const sym = binancePairs[i]
-        const t = tickers[i] as any
-        if (!t?.lastPrice) continue
-        const usd = parseFloat(t.lastPrice)
-        const brl = Math.round(usd * usdRate * 100) / 100
-        const variacao_24h = parseFloat(t.priceChangePercent) || 0
-        const item = { brl, usd, variacao_24h }
-        resultado[sym] = item
-        btcFallbackOk = true
-        try {
-          await db.prepare(
-            `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
-             VALUES ('cripto',?,?,?,?,?,datetime('now'))`
-          ).bind(sym, brl, usd, variacao_24h, JSON.stringify(item)).run()
-        } catch (_) {}
+    const symList = upperSymbols.filter(s => ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','LTC','DOT','AVAX'].includes(s))
+    if (symList.length > 0) {
+      const url = `https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symList.join(',')}&tsyms=BRL,USD`
+      const resp = await fetch(url)
+      if (resp.ok) {
+        const data = await resp.json() as any
+        const raw = data?.RAW || {}
+        for (const sym of symList) {
+          if (!raw[sym]?.BRL) continue
+          const brlData = raw[sym].BRL
+          const usdData = raw[sym].USD || {}
+          const brl = brlData.PRICE || 0
+          const usd = usdData.PRICE || 0
+          const variacao_24h = brlData.CHANGEPCT24HOUR || 0
+          const item = { brl: Math.round(brl * 100) / 100, usd: Math.round(usd * 100) / 100, variacao_24h: Math.round(variacao_24h * 100) / 100 }
+          resultado[sym] = item
+          btcFallbackOk = true
+          try {
+            await db.prepare(
+              `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
+               VALUES ('cripto',?,?,?,?,?,datetime('now'))`
+            ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run()
+          } catch (_) {}
+        }
       }
     }
   } catch (_) {}
 
-  // ── Fonte 2: CoinGecko (fallback se Binance falhou)
+  // ── Fonte 2: Mercado Bitcoin (API BR) + Kraken (fallback)
   if (!btcFallbackOk) {
-    const ids = upperSymbols
-      .filter(s => !resultado[s])
-      .map(s => COINGECKO_MAP[s])
-      .filter(Boolean)
-      .join(',')
+    try {
+      // Buscar BTC em BRL direto do Mercado Bitcoin
+      const mbSyms: Record<string, string> = { BTC: 'BTC', ETH: 'ETH', XRP: 'XRP', SOL: 'SOL' }
+      const usdBrl = 5.23
+      let usdRate = usdBrl
 
-    if (ids) {
+      // Tentar câmbio via dolarapi (já usado no cambio)
       try {
-        const resp = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=brl,usd&include_24hr_change=true`,
-          { signal: AbortSignal.timeout(5000) }
-        )
+        const camb = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+        if (camb.ok) {
+          const cd = await camb.json() as any
+          usdRate = parseFloat(cd?.USDBRL?.bid || usdBrl)
+        }
+      } catch (_) {}
+
+      // Buscar cotações via Kraken (USD para conversão)
+      const krakenPairs: Record<string, string> = { BTC: 'XBTUSD', ETH: 'ETHUSD', XRP: 'XRPUSD', SOL: 'SOLUSD', ADA: 'ADAUSD', DOGE: 'DOGEUSD', LTC: 'LTCUSD', DOT: 'DOTUSD' }
+      const krakenSyms = upperSymbols.filter(s => krakenPairs[s])
+      if (krakenSyms.length > 0) {
+        const pair = krakenSyms.map(s => krakenPairs[s]).join(',')
+        const resp = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`)
         if (resp.ok) {
           const data = await resp.json() as any
-          const invertedMap: Record<string, string> = {}
-          for (const [sym, id] of Object.entries(COINGECKO_MAP)) invertedMap[id as string] = sym
-          for (const [id, precos] of Object.entries(data) as any[]) {
-            const sym = invertedMap[id]
-            if (!sym) continue
-            const item = { brl: precos.brl, usd: precos.usd, variacao_24h: precos.brl_24h_change ?? precos.usd_24h_change ?? 0 }
+          const krakenResult = data?.result || {}
+          // Mapa inverso: par kraken -> symbol
+          const pairToSym: Record<string, string> = {}
+          for (const sym of krakenSyms) {
+            const p = krakenPairs[sym]
+            // Kraken às vezes retorna com 'X' prefix
+            pairToSym[p] = sym
+            pairToSym['X' + p] = sym
+            pairToSym[p.replace('USD','ZUSD')] = sym
+            pairToSym['X' + p.slice(0,-3) + 'ZUSD'] = sym
+          }
+          for (const [krakenPair, ticker] of Object.entries(krakenResult) as any[]) {
+            const sym = pairToSym[krakenPair]
+            if (!sym || !ticker?.c?.[0]) continue
+            const usd = parseFloat(ticker.c[0])
+            const brl = Math.round(usd * usdRate * 100) / 100
+            const open = parseFloat(ticker?.o || ticker?.c?.[0] || usd)
+            const variacao_24h = open > 0 ? Math.round(((usd - open) / open) * 10000) / 100 : 0
+            const item = { brl, usd, variacao_24h }
             resultado[sym] = item
+            btcFallbackOk = true
             try {
               await db.prepare(
                 `INSERT OR REPLACE INTO cotacoes_cache (tipo, symbol, valor_brl, valor_usd, variacao_24h, dados_json, atualizado_em)
                  VALUES ('cripto',?,?,?,?,?,datetime('now'))`
-              ).bind(sym, item.brl, item.usd, item.variacao_24h, JSON.stringify(item)).run()
+              ).bind(sym, brl, usd, variacao_24h, JSON.stringify(item)).run()
             } catch (_) {}
           }
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
   }
 
   return resultado
