@@ -33,6 +33,8 @@ import amortizacaoRoutes from './routes/amortizacao'
 import despesasCompartilhadasRoutes from './routes/despesas-compartilhadas'
 import assistenteRoutes from './routes/assistente'
 import chatRoutes from './routes/chat'
+import importacaoRoutes from './routes/importacao'
+import alertasCategoriaRoutes from './routes/alertas-categoria'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -79,6 +81,8 @@ app.route('/api/amortizacao', amortizacaoRoutes)
 app.route('/api/despesas-compartilhadas', despesasCompartilhadasRoutes)
 app.route('/api/assistente', assistenteRoutes)
 app.route('/api/chat', chatRoutes)
+app.route('/api/importacao', importacaoRoutes)
+app.route('/api/alertas-categoria', alertasCategoriaRoutes)
 
 // Alias: POST /api/chat/mensagem → /api/assistente/chat (compatibilidade)
 app.post('/api/chat/mensagem', async (c) => {

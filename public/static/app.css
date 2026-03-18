@@ -209,6 +209,26 @@ body {
 .nav-item.active { background: rgba(47,191,113,0.12); color: var(--verde-claro); border: 1px solid rgba(47,191,113,0.2); }
 .nav-item .nav-icon { width: 20px; text-align: center; font-size: 1rem; }
 
+/* Grupos colapsáveis da sidebar */
+.nav-group-items {
+  overflow: hidden;
+  max-height: 1000px;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.25s ease;
+  padding: 0 6px;
+}
+.nav-group-header:hover { background: rgba(255,255,255,0.03); border-radius: 8px; }
+
+/* Bottom nav FAB central */
+.bottom-nav-fab {
+  background: none !important;
+  border: none !important;
+  flex-direction: column;
+  align-items: center;
+  color: #2FBF71 !important;
+}
+.bottom-nav-fab span { font-size: 0.65rem; font-weight: 700; color: #2FBF71; margin-top: -4px; }
+
 .sidebar-user {
   margin-top: auto;
   padding: 16px;

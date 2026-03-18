@@ -1026,110 +1026,137 @@ const VM = {
             <span style="font-size:1.2rem;font-weight:800;" class="gradient-text">VerdeMais</span>
           </div>
           
-          <nav style="overflow-y:auto;flex:1;padding-bottom:8px;">
-            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:0 14px 8px;font-weight:600;">Principal</div>
-            <a class="nav-item active" id="nav-dashboard" onclick="VM.navigate('dashboard')">
-              <span class="nav-icon"><i class="fas fa-chart-pie"></i></span> Dashboard
-            </a>
-            <a class="nav-item" id="nav-receitas" onclick="VM.navigate('receitas')">
-              <span class="nav-icon"><i class="fas fa-arrow-up"></i></span> Receitas
-            </a>
-            <a class="nav-item" id="nav-despesas" onclick="VM.navigate('despesas')">
-              <span class="nav-icon"><i class="fas fa-arrow-down"></i></span> Despesas
-            </a>
-            <a class="nav-item" id="nav-cartoes" onclick="VM.navigate('cartoes')">
-              <span class="nav-icon"><i class="fas fa-credit-card"></i></span> Cartões
-            </a>
-            
-            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Planejamento</div>
-            <a class="nav-item" id="nav-metas" onclick="VM.navigate('metas')">
-              <span class="nav-icon"><i class="fas fa-bullseye"></i></span> Metas
-            </a>
-            <a class="nav-item" id="nav-orcamentos" onclick="VM.navigate('orcamentos')">
-              <span class="nav-icon"><i class="fas fa-sliders-h"></i></span> Orçamentos
-              <span style="margin-left:auto;background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
-            </a>
-            <a class="nav-item" id="nav-recorrencias" onclick="VM.navigate('recorrencias')">
-              <span class="nav-icon"><i class="fas fa-sync-alt"></i></span> Recorrências
-              <span style="margin-left:auto;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
-            </a>
-            <a class="nav-item" id="nav-lembretes" onclick="VM.navigate('lembretes')">
-              <span class="nav-icon"><i class="fas fa-bell"></i></span> Lembretes
-              <span id="badge-lembretes" style="display:none;margin-left:auto;background:#ffc400;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
-            </a>
-            
-            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Patrimônio & Dívidas</div>
-            <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
-              <span class="nav-icon"><i class="fas fa-chart-line"></i></span> Investimentos
-            </a>
-            <a class="nav-item" id="nav-reserva" onclick="VM.navigate('reserva')">
-              <span class="nav-icon"><i class="fas fa-shield-alt"></i></span> Reserva de Emergência
-            </a>
-            <a class="nav-item" id="nav-financiamentos" onclick="VM.navigate('financiamentos')">
-              <span class="nav-icon"><i class="fas fa-home"></i></span> Financiamentos
-            </a>
-            <a class="nav-item" id="nav-emprestimos" onclick="VM.navigate('emprestimos')">
-              <span class="nav-icon"><i class="fas fa-hand-holding-usd"></i></span> Empréstimos
-            </a>
-            
-            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">Análises</div>
-            <a class="nav-item" id="nav-projecao" onclick="VM.navigate('projecao')">
-              <span class="nav-icon"><i class="fas fa-chart-area"></i></span> Projeção Financeira
-              <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NOVO</span>
-            </a>
-            <a class="nav-item" id="nav-comparativo" onclick="VM.navigate('comparativo')">
-              <span class="nav-icon"><i class="fas fa-exchange-alt"></i></span> Comparativo Mensal
-            </a>
-            <a class="nav-item" id="nav-relatorios" onclick="VM.navigate('relatorios')">
-              <span class="nav-icon"><i class="fas fa-file-alt"></i></span> Relatórios
-            </a>
-            <a class="nav-item" id="nav-simulacao" onclick="VM.navigate('simulacao')">
-              <span class="nav-icon"><i class="fas fa-calculator"></i></span> Simulações
-            </a>
-            <a class="nav-item" id="nav-ia" onclick="VM.navigate('ia')">
-              <span class="nav-icon"><i class="fas fa-brain"></i></span> Diagnóstico 360° ✨
-            </a>
-            <a class="nav-item" id="nav-tags" onclick="VM.navigate('tags')">
-              <span class="nav-icon"><i class="fas fa-tags"></i></span> Tags & Filtros
-            </a>
-            <a class="nav-item" id="nav-alertas-cartao" onclick="VM.navigate('alertas-cartao')">
-              <span class="nav-icon"><i class="fas fa-exclamation-triangle"></i></span> Alertas de Cartão
-              <span id="badge-alertas-cartao" style="display:none;margin-left:auto;background:#F43F5E;color:#fff;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
-            </a>
-            <a class="nav-item" id="nav-conquistas" onclick="VM.navigate('conquistas')">
-              <span class="nav-icon"><i class="fas fa-trophy"></i></span> Conquistas
-              <span id="badge-conquistas" style="display:none;margin-left:auto;background:#2FBF71;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
-            </a>
-            
-            <div style="font-size:0.68rem;color:#444;letter-spacing:1.5px;text-transform:uppercase;padding:12px 14px 8px;font-weight:600;">⚡ Novidades v3.0</div>
-            <a class="nav-item" id="nav-reservas-esp" onclick="VM.navigate('reservas-esp')">
-              <span class="nav-icon">🛡️</span> Minhas Reservas
-              <span style="margin-left:auto;background:linear-gradient(135deg,#10B981,#059669);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-assinaturas-fantasma" onclick="VM.navigate('assinaturas-fantasma')">
-              <span class="nav-icon">👻</span> Assinaturas Fantasma
-              <span style="margin-left:auto;background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-compras-fantasma" onclick="VM.navigate('compras-fantasma')">
-              <span class="nav-icon">🛍️</span> Compras Fantasma
-              <span style="margin-left:auto;background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-regra-503020" onclick="VM.navigate('regra-503020')">
-              <span class="nav-icon">⚖️</span> Regra 50/30/20
-              <span style="margin-left:auto;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-amortizacao" onclick="VM.navigate('amortizacao')">
-              <span class="nav-icon">🏦</span> Simulador Amortização
-              <span style="margin-left:auto;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-desafio-52" onclick="VM.navigate('desafio-52')">
-              <span class="nav-icon">🎯</span> Desafio 52 Semanas
-              <span style="margin-left:auto;background:linear-gradient(135deg,#EC4899,#DB2777);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
-            <a class="nav-item" id="nav-assistente" onclick="VM.navigate('assistente')">
-              <span class="nav-icon">🤖</span> Assistente IA
-              <span style="margin-left:auto;background:linear-gradient(135deg,#06B6D4,#0891B2);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:4px;font-weight:700;">NEW</span>
-            </a>
+          <nav style="overflow-y:auto;flex:1;padding-bottom:8px;" id="sidebar-nav">
+
+            <!-- ── GRUPO 1: PRINCIPAL ──────────────────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-principal')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Principal</span><i class="fas fa-chevron-down" id="chevron-grp-principal" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-principal" class="nav-group-items">
+              <a class="nav-item active" id="nav-dashboard" onclick="VM.navigate('dashboard')">
+                <span class="nav-icon"><i class="fas fa-chart-pie"></i></span> Dashboard
+              </a>
+              <a class="nav-item" id="nav-receitas" onclick="VM.navigate('receitas')">
+                <span class="nav-icon"><i class="fas fa-arrow-up" style="color:#2FBF71;"></i></span> Receitas
+              </a>
+              <a class="nav-item" id="nav-despesas" onclick="VM.navigate('despesas')">
+                <span class="nav-icon"><i class="fas fa-arrow-down" style="color:#ff6b6b;"></i></span> Despesas
+              </a>
+              <a class="nav-item" id="nav-cartoes" onclick="VM.navigate('cartoes')">
+                <span class="nav-icon"><i class="fas fa-credit-card" style="color:#74b9ff;"></i></span> Cartões
+              </a>
+            </div>
+
+            <!-- ── GRUPO 2: PLANEJAMENTO ───────────────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-planejamento')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Planejamento</span><i class="fas fa-chevron-down" id="chevron-grp-planejamento" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-planejamento" class="nav-group-items">
+              <a class="nav-item" id="nav-metas" onclick="VM.navigate('metas')">
+                <span class="nav-icon"><i class="fas fa-bullseye" style="color:#f59e0b;"></i></span> Metas
+              </a>
+              <a class="nav-item" id="nav-orcamentos" onclick="VM.navigate('orcamentos')">
+                <span class="nav-icon"><i class="fas fa-sliders-h" style="color:#a78bfa;"></i></span> Orçamentos
+              </a>
+              <a class="nav-item" id="nav-recorrencias" onclick="VM.navigate('recorrencias')">
+                <span class="nav-icon"><i class="fas fa-sync-alt" style="color:#60a5fa;"></i></span> Recorrências
+              </a>
+              <a class="nav-item" id="nav-lembretes" onclick="VM.navigate('lembretes')">
+                <span class="nav-icon"><i class="fas fa-bell" style="color:#fbbf24;"></i></span> Lembretes
+                <span id="badge-lembretes" style="display:none;margin-left:auto;background:#ffc400;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+              </a>
+              <a class="nav-item" id="nav-desafio-52" onclick="VM.navigate('desafio-52')">
+                <span class="nav-icon">🎯</span> Desafio 52 Semanas
+              </a>
+            </div>
+
+            <!-- ── GRUPO 3: PATRIMÔNIO & DÍVIDAS ──────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-patrimonio')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Patrimônio & Dívidas</span><i class="fas fa-chevron-down" id="chevron-grp-patrimonio" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-patrimonio" class="nav-group-items">
+              <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
+                <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Investimentos
+              </a>
+              <a class="nav-item" id="nav-reserva" onclick="VM.navigate('reserva')">
+                <span class="nav-icon"><i class="fas fa-shield-alt" style="color:#2FBF71;"></i></span> Reserva de Emergência
+              </a>
+              <a class="nav-item" id="nav-reservas-esp" onclick="VM.navigate('reservas-esp')">
+                <span class="nav-icon">🛡️</span> Minhas Reservas
+              </a>
+              <a class="nav-item" id="nav-financiamentos" onclick="VM.navigate('financiamentos')">
+                <span class="nav-icon"><i class="fas fa-home" style="color:#fb923c;"></i></span> Financiamentos
+              </a>
+              <a class="nav-item" id="nav-emprestimos" onclick="VM.navigate('emprestimos')">
+                <span class="nav-icon"><i class="fas fa-hand-holding-usd" style="color:#f87171;"></i></span> Empréstimos
+              </a>
+            </div>
+
+            <!-- ── GRUPO 4: ANÁLISES ───────────────────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-analises')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Análises</span><i class="fas fa-chevron-down" id="chevron-grp-analises" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-analises" class="nav-group-items">
+              <a class="nav-item" id="nav-ia" onclick="VM.navigate('ia')">
+                <span class="nav-icon"><i class="fas fa-brain" style="color:#c084fc;"></i></span> Diagnóstico 360° ✨
+              </a>
+              <a class="nav-item" id="nav-projecao" onclick="VM.navigate('projecao')">
+                <span class="nav-icon"><i class="fas fa-chart-area" style="color:#818cf8;"></i></span> Projeção Financeira
+              </a>
+              <a class="nav-item" id="nav-comparativo" onclick="VM.navigate('comparativo')">
+                <span class="nav-icon"><i class="fas fa-exchange-alt" style="color:#67e8f9;"></i></span> Comparativo Mensal
+              </a>
+              <a class="nav-item" id="nav-relatorios" onclick="VM.navigate('relatorios')">
+                <span class="nav-icon"><i class="fas fa-file-alt" style="color:#94a3b8;"></i></span> Relatórios
+              </a>
+              <a class="nav-item" id="nav-simulacao" onclick="VM.navigate('simulacao')">
+                <span class="nav-icon"><i class="fas fa-calculator" style="color:#fcd34d;"></i></span> Simulações
+              </a>
+              <a class="nav-item" id="nav-regra-503020" onclick="VM.navigate('regra-503020')">
+                <span class="nav-icon">⚖️</span> Regra 50/30/20
+              </a>
+              <a class="nav-item" id="nav-amortizacao" onclick="VM.navigate('amortizacao')">
+                <span class="nav-icon">🏦</span> Simulador Amortização
+              </a>
+            </div>
+
+            <!-- ── GRUPO 5: INTELIGÊNCIA ───────────────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-inteligencia')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Inteligência</span><i class="fas fa-chevron-down" id="chevron-grp-inteligencia" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-inteligencia" class="nav-group-items">
+              <a class="nav-item" id="nav-assistente" onclick="VM.navigate('assistente')">
+                <span class="nav-icon">🤖</span> Assistente IA
+              </a>
+              <a class="nav-item" id="nav-assinaturas-fantasma" onclick="VM.navigate('assinaturas-fantasma')">
+                <span class="nav-icon">👻</span> Assinaturas Fantasma
+              </a>
+              <a class="nav-item" id="nav-compras-fantasma" onclick="VM.navigate('compras-fantasma')">
+                <span class="nav-icon">🛍️</span> Compras Fantasma
+              </a>
+              <a class="nav-item" id="nav-tags" onclick="VM.navigate('tags')">
+                <span class="nav-icon"><i class="fas fa-tags" style="color:#a3e635;"></i></span> Tags & Filtros
+              </a>
+              <a class="nav-item" id="nav-alertas-cartao" onclick="VM.navigate('alertas-cartao')">
+                <span class="nav-icon"><i class="fas fa-exclamation-triangle" style="color:#fb923c;"></i></span> Alertas de Cartão
+                <span id="badge-alertas-cartao" style="display:none;margin-left:auto;background:#F43F5E;color:#fff;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+              </a>
+              <a class="nav-item" id="nav-importacao" onclick="VM.navigate('importacao')">
+                <span class="nav-icon"><i class="fas fa-file-import" style="color:#38bdf8;"></i></span> Importar CSV
+              </a>
+            </div>
+
+            <!-- ── GRUPO 6: PERFIL & CONQUISTAS ───────────── -->
+            <div class="nav-group-header" onclick="VM.toggleNavGroup('grp-perfil')" style="display:flex;align-items:center;justify-content:space-between;font-size:0.68rem;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;font-weight:700;cursor:pointer;user-select:none;transition:color 0.2s;" onmouseover="this.style.color='#2FBF71'" onmouseout="this.style.color='#64748b'">
+              <span>Conquistas</span><i class="fas fa-chevron-down" id="chevron-grp-perfil" style="font-size:0.6rem;transition:transform 0.25s;"></i>
+            </div>
+            <div id="grp-perfil" class="nav-group-items">
+              <a class="nav-item" id="nav-conquistas" onclick="VM.navigate('conquistas')">
+                <span class="nav-icon"><i class="fas fa-trophy" style="color:#fbbf24;"></i></span> Conquistas
+                <span id="badge-conquistas" style="display:none;margin-left:auto;background:#2FBF71;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+              </a>
+            </div>
+
           </nav>
           
           <div class="sidebar-user" onclick="VM.navigate('perfil')">
@@ -1196,17 +1223,20 @@ const VM = {
           <i class="fas fa-minus-circle"></i>
           <span>Despesas</span>
         </button>
-        <button class="bottom-nav-item" id="bnav-receitas" onclick="VM.navigate('receitas')">
-          <i class="fas fa-plus-circle"></i>
-          <span>Receitas</span>
+        <!-- Botão central de lançamento rápido -->
+        <button class="bottom-nav-item bottom-nav-fab" onclick="VM.abrirLancamentoRapido()" title="Lançamento rápido" style="position:relative;top:-16px;">
+          <div style="width:52px;height:52px;background:linear-gradient(135deg,#2FBF71,#059669);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(47,191,113,0.45);border:3px solid var(--bg-main,#0f172a);">
+            <i class="fas fa-plus" style="color:#fff;font-size:1.2rem;"></i>
+          </div>
+          <span style="margin-top:2px;">Lançar</span>
         </button>
         <button class="bottom-nav-item" id="bnav-metas" onclick="VM.navigate('metas')">
           <i class="fas fa-bullseye"></i>
           <span>Metas</span>
         </button>
-        <button class="bottom-nav-item" id="bnav-assistente" onclick="VM.navigate('assistente')">
-          <i class="fas fa-robot"></i>
-          <span>IA</span>
+        <button class="bottom-nav-item" id="bnav-menu" onclick="VM.toggleSidebarMobile()">
+          <i class="fas fa-th-large"></i>
+          <span>Menu</span>
         </button>
       </nav>
 
@@ -1269,6 +1299,9 @@ const VM = {
     // Carregar badges
     this.carregarBadges()
 
+    // Agendar notificações locais dos lembretes (se permissão já concedida)
+    setTimeout(() => this.agendarNotificacoesLembretes(), 3000)
+
     // BLOCO 9: Hamburger toggle com overlay
     const menuBtn = document.getElementById('menu-btn')
     if (menuBtn) {
@@ -1297,6 +1330,138 @@ const VM = {
     if (sidebar) sidebar.classList.remove('open')
     if (overlay) overlay.classList.remove('visible')
     document.body.style.overflow = ''
+  },
+
+  // ── Grupos colapsáveis da sidebar ────────────────────────────────────────
+  _navGroupsCollapsed: {},
+
+  toggleNavGroup(groupId) {
+    const el = document.getElementById(groupId)
+    const chevron = document.getElementById('chevron-' + groupId)
+    if (!el) return
+    const isCollapsed = this._navGroupsCollapsed[groupId]
+    if (isCollapsed) {
+      el.style.maxHeight = el.scrollHeight + 'px'
+      el.style.opacity = '1'
+      if (chevron) chevron.style.transform = 'rotate(0deg)'
+      this._navGroupsCollapsed[groupId] = false
+    } else {
+      el.style.maxHeight = '0'
+      el.style.opacity = '0'
+      if (chevron) chevron.style.transform = 'rotate(-90deg)'
+      this._navGroupsCollapsed[groupId] = true
+    }
+  },
+
+  // ── Mobile: abre sidebar pelo botão Menu do bottom nav ───────────────────
+  toggleSidebarMobile() {
+    const sidebar = document.getElementById('sidebar')
+    if (!sidebar) return
+    if (sidebar.classList.contains('open')) {
+      this.closeSidebar()
+    } else {
+      this.toggleSidebar()
+    }
+  },
+
+  // ── Lançamento Rápido ─────────────────────────────────────────────────────
+  abrirLancamentoRapido() {
+    const categoriasDespesa = ['Alimentação','Transporte','Moradia','Saúde','Educação','Lazer','Vestuário','Streaming','Outros']
+    const categoriasReceita = ['Salário','Freelance','Investimentos','Aluguel','Outros']
+    this.showModal(`
+      <div style="padding:4px 0;">
+        <h3 style="margin:0 0 16px;font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+          <span style="width:32px;height:32px;background:linear-gradient(135deg,#2FBF71,#059669);border-radius:8px;display:flex;align-items:center;justify-content:center;"><i class="fas fa-bolt" style="color:#fff;font-size:0.85rem;"></i></span>
+          Lançamento Rápido
+        </h3>
+        <!-- Tipo -->
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button id="lr-tipo-despesa" onclick="VM._lrTipo('despesa')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #ff6b6b;background:rgba(255,107,107,0.15);color:#ff6b6b;font-weight:700;cursor:pointer;transition:all 0.2s;">
+            <i class="fas fa-arrow-down"></i> Despesa
+          </button>
+          <button id="lr-tipo-receita" onclick="VM._lrTipo('receita')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #374151;background:transparent;color:#888;font-weight:700;cursor:pointer;transition:all 0.2s;">
+            <i class="fas fa-arrow-up"></i> Receita
+          </button>
+        </div>
+        <!-- Valor -->
+        <div style="margin-bottom:12px;">
+          <label style="font-size:0.78rem;color:#888;font-weight:600;">VALOR (R$)</label>
+          <input type="number" id="lr-valor" placeholder="0,00" step="0.01" min="0.01"
+            style="width:100%;margin-top:4px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:1.3rem;font-weight:700;text-align:center;"
+            onkeydown="if(event.key==='Enter')VM._lrSalvar()" autofocus>
+        </div>
+        <!-- Descrição -->
+        <div style="margin-bottom:12px;">
+          <label style="font-size:0.78rem;color:#888;font-weight:600;">DESCRIÇÃO</label>
+          <input type="text" id="lr-desc" placeholder="Ex: Almoço, Uber, Salário..."
+            style="width:100%;margin-top:4px;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;"
+            onkeydown="if(event.key==='Enter')VM._lrSalvar()">
+        </div>
+        <!-- Categoria -->
+        <div style="margin-bottom:12px;">
+          <label style="font-size:0.78rem;color:#888;font-weight:600;">CATEGORIA</label>
+          <select id="lr-cat" style="width:100%;margin-top:4px;padding:10px;background:rgba(30,41,59,0.9);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;">
+            ${categoriasDespesa.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <!-- Data -->
+        <div style="margin-bottom:20px;">
+          <label style="font-size:0.78rem;color:#888;font-weight:600;">DATA</label>
+          <input type="date" id="lr-data" value="${new Date().toISOString().slice(0,10)}"
+            style="width:100%;margin-top:4px;padding:10px;background:rgba(30,41,59,0.9);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;">
+        </div>
+        <!-- Botão salvar -->
+        <button onclick="VM._lrSalvar()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <i class="fas fa-check"></i> Salvar Lançamento
+        </button>
+        <p style="text-align:center;font-size:0.72rem;color:#555;margin-top:10px;"><i class="fas fa-keyboard"></i> Pressione Enter para salvar</p>
+      </div>
+    `)
+    this._lrTipoAtual = 'despesa'
+    setTimeout(() => document.getElementById('lr-valor')?.focus(), 100)
+  },
+
+  _lrTipoAtual: 'despesa',
+
+  _lrTipo(tipo) {
+    this._lrTipoAtual = tipo
+    const catSelect = document.getElementById('lr-cat')
+    const btnDesp = document.getElementById('lr-tipo-despesa')
+    const btnRec = document.getElementById('lr-tipo-receita')
+    const categoriasDespesa = ['Alimentação','Transporte','Moradia','Saúde','Educação','Lazer','Vestuário','Streaming','Outros']
+    const categoriasReceita = ['Salário','Freelance','Investimentos','Aluguel','Outros']
+    if (tipo === 'despesa') {
+      if (btnDesp) { btnDesp.style.borderColor='#ff6b6b'; btnDesp.style.background='rgba(255,107,107,0.15)'; btnDesp.style.color='#ff6b6b' }
+      if (btnRec)  { btnRec.style.borderColor='#374151'; btnRec.style.background='transparent'; btnRec.style.color='#888' }
+      if (catSelect) catSelect.innerHTML = categoriasDespesa.map(c => `<option value="${c}">${c}</option>`).join('')
+    } else {
+      if (btnRec)  { btnRec.style.borderColor='#2FBF71'; btnRec.style.background='rgba(47,191,113,0.15)'; btnRec.style.color='#2FBF71' }
+      if (btnDesp) { btnDesp.style.borderColor='#374151'; btnDesp.style.background='transparent'; btnDesp.style.color='#888' }
+      if (catSelect) catSelect.innerHTML = categoriasReceita.map(c => `<option value="${c}">${c}</option>`).join('')
+    }
+  },
+
+  async _lrSalvar() {
+    const valor = parseFloat(document.getElementById('lr-valor')?.value || '0')
+    const desc  = (document.getElementById('lr-desc')?.value || '').trim()
+    const cat   = document.getElementById('lr-cat')?.value || 'Outros'
+    const data  = document.getElementById('lr-data')?.value || new Date().toISOString().slice(0,10)
+    if (!valor || valor <= 0) { this.toast('Informe um valor válido', 'error'); return }
+    if (!desc) { this.toast('Informe uma descrição', 'error'); return }
+    try {
+      if (this._lrTipoAtual === 'despesa') {
+        await this.api('despesas', { method:'POST', body: JSON.stringify({ descricao:desc, valor, categoria:cat, data, status:'pago', tipo:'normal' }) })
+      } else {
+        await this.api('receitas', { method:'POST', body: JSON.stringify({ descricao:desc, valor, categoria:cat, data, tipo:'outros' }) })
+      }
+      this.closeModal()
+      this.toast(`✅ ${this._lrTipoAtual === 'despesa' ? 'Despesa' : 'Receita'} lançada com sucesso!`)
+      if (this.currentPage === 'dashboard') this.renderDashboard()
+      else if (this.currentPage === 'despesas') this.carregarDespesas()
+      else if (this.currentPage === 'receitas') this.carregarReceitas()
+    } catch(e) {
+      this.toast('Erro ao salvar lançamento', 'error')
+    }
   },
 
   // ── BLOCO 6.5: Widget de Chat Flutuante ──────────────────────────────────
@@ -1517,7 +1682,8 @@ const VM = {
       'regra-503020': ['⚖️ Regra 50/30/20', 'Equilíbrio das suas finanças pessoais'],
       'desafio-52': ['🎯 Desafio 52 Semanas', 'Poupe R$ 1.378 ao longo do ano'],
       'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros'],
-      'assistente': ['🤖 Assistente VerdeMais', 'Tire dúvidas sobre suas finanças com IA']
+      'assistente': ['🤖 Assistente VerdeMais', 'Tire dúvidas sobre suas finanças com IA'],
+      'importacao': ['📥 Importar CSV', 'Importe extratos de receitas e despesas']
     }
 
     const [title, sub] = titles[page] || ['', '']
@@ -1554,7 +1720,8 @@ const VM = {
       'regra-503020': () => this.pageRegra503020(),
       'desafio-52': () => this.pageDesafio52(),
       'amortizacao': () => this.pageAmortizacao(),
-      'assistente': () => this.pageAssistente()
+      'assistente': () => this.pageAssistente(),
+      'importacao': () => this.pageImportacao()
     }
 
     if (pages[page]) pages[page]()
@@ -1685,6 +1852,37 @@ const VM = {
             <div class="stat-value positive" style="font-size:1.3rem;">${metas.ativas} ativa${metas.ativas !== 1 ? 's' : ''}</div>
             <div style="font-size:0.72rem;color:#888;margin-top:4px;">
               ${metas.ativas > 0 ? `${this.formatMoney(metas.atual_total)} de ${this.formatMoney(metas.objetivo_total)}` : 'Nenhuma meta cadastrada'}
+            </div>
+          </div>
+        </div>
+
+        <!-- BANNER PATRIMÔNIO LÍQUIDO — destaque no topo antes dos stats -->
+        <div onclick="VM.navigate('investimentos')" style="cursor:pointer;background:linear-gradient(135deg,${patrimonioLiquido>=0?'rgba(47,191,113,0.1),rgba(16,185,129,0.05)':'rgba(255,107,107,0.1),rgba(220,38,38,0.05)'});border:1px solid ${patrimonioColor}30;border-radius:16px;padding:18px 24px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${patrimonioColor}60'" onmouseout="this.style.borderColor='${patrimonioColor}30'">
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div style="width:48px;height:48px;background:${patrimonioColor}20;border-radius:14px;display:flex;align-items:center;justify-content:center;border:1px solid ${patrimonioColor}40;">
+              <i class="fas fa-${patrimonioLiquido>=0?'trending-up':'trending-down'}" style="color:${patrimonioColor};font-size:1.3rem;"></i>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Patrimônio Líquido</div>
+              <div style="font-size:1.8rem;font-weight:900;color:${patrimonioColor};line-height:1.1;">${this.formatMoney(patrimonioLiquido)}</div>
+              <div style="font-size:0.72rem;color:#555;margin-top:2px;">Investimentos + Reservas − Dívidas</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;">
+            <div style="text-align:center;">
+              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Investido</div>
+              <div style="font-size:1rem;font-weight:700;color:#74b9ff;">${this.formatMoney(resumo.total_investimentos||0)}</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Reservas</div>
+              <div style="font-size:1rem;font-weight:700;color:#2FBF71;">${this.formatMoney((reservas_esp?.total_guardado||0)+(resumo.total_reservas||0))}</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Dívidas</div>
+              <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(resumo.total_dividas||0)}</div>
+            </div>
+            <div style="text-align:center;align-self:center;">
+              <i class="fas fa-chevron-right" style="color:#555;font-size:0.9rem;"></i>
             </div>
           </div>
         </div>
@@ -2195,12 +2393,16 @@ const VM = {
     this.carregarReceitas()
   },
 
-  async carregarReceitas() {
+  async carregarReceitas(pagina = 1) {
     const mes = document.getElementById('filtro-mes')?.value || String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano')?.value || String(new Date().getFullYear())
+    const limit = 20
+    const offset = (pagina - 1) * limit
     
     try {
-      const data = await this.api('GET', `receitas?mes=${mes}&ano=${ano}`)
+      const data = await this.api('GET', `receitas?mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`)
+      const totalCount = data.total_count || data.count || 0
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit))
       
       const statsEl = document.getElementById('receitas-stats')
       if (statsEl) {
@@ -2212,14 +2414,14 @@ const VM = {
             </div>
             <div>
               <div style="color:#888;font-size:0.8rem;">Transações</div>
-              <div style="font-size:1.6rem;font-weight:800;">${data.count}</div>
+              <div style="font-size:1.6rem;font-weight:800;">${totalCount}</div>
             </div>
           </div>
         `
       }
 
       const wrapper = document.getElementById('receitas-table-wrapper')
-      if (data.receitas.length === 0) {
+      if (data.receitas.length === 0 && pagina === 1) {
         wrapper.innerHTML = `<div class="empty-state"><div class="empty-icon">💸</div><h3>Nenhuma receita</h3><p>Adicione sua primeira receita do período</p></div>`
         return
       }
@@ -2228,6 +2430,16 @@ const VM = {
         'Salário': '💼', 'Freelance': '💻', 'Investimentos': '📈', 'Aluguel': '🏠', 
         'Vendas': '🛒', 'Bônus': '🎁', 'Outros': '💰'
       }
+
+      const paginacao = totalPages > 1 ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
+          <span style="font-size:0.8rem;color:#888;">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#2FBF71;">${totalCount}</strong> registros</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="VM.carregarReceitas(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
+            <button onclick="VM.carregarReceitas(${pagina + 1})" ${pagina >= totalPages ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
+          </div>
+        </div>
+      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#2FBF71;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
         <table class="data-table">
@@ -2257,6 +2469,7 @@ const VM = {
             `).join('')}
           </tbody>
         </table>
+        ${paginacao}
       `
     } catch (e) {
       this.toast('Erro ao carregar receitas', 'error')
@@ -2397,20 +2610,23 @@ const VM = {
     this.carregarDespesas()
   },
 
-  async carregarDespesas() {
+  async carregarDespesas(pagina = 1) {
     const mes = document.getElementById('filtro-mes-d')?.value || String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano-d')?.value || String(new Date().getFullYear())
     const status = document.getElementById('filtro-status-d')?.value || ''
+    const limit = 20
+    const offset = (pagina - 1) * limit
 
     // S1: persistir filtro ativo para restaurar ao voltar à tela
     this._despesaFiltro = { mes, ano, status }
     
     try {
-      const data = await this.api('GET', `despesas?mes=${mes}&ano=${ano}${status ? '&status=' + status : ''}`)
+      const data = await this.api('GET', `despesas?mes=${mes}&ano=${ano}${status ? '&status=' + status : ''}&limit=${limit}&offset=${offset}`)
       // M-D1: usar totais reais do backend (sem depender do limit/offset da página)
       const pago     = data.total_pago     ?? data.despesas.filter(d => d.status === 'pago').reduce((s, d) => s + d.valor, 0)
       const pendente = data.total_pendente ?? data.despesas.filter(d => d.status === 'pendente').reduce((s, d) => s + d.valor, 0)
       const totalCount = data.total_count ?? data.count
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit))
 
       const statsEl = document.getElementById('despesas-stats')
       if (statsEl) {
@@ -2431,12 +2647,22 @@ const VM = {
       }
 
       const wrapper = document.getElementById('despesas-table-wrapper')
-      if (data.despesas.length === 0) {
+      if (data.despesas.length === 0 && pagina === 1) {
         wrapper.innerHTML = `<div class="empty-state"><div class="empty-icon">🎉</div><h3>Sem despesas</h3><p>Período limpo!</p></div>`
         return
       }
 
       const catIcons = { 'Alimentação': '🍔', 'Transporte': '🚗', 'Saúde': '💊', 'Educação': '📚', 'Lazer': '🎬', 'Moradia': '🏠', 'Roupas': '👕', 'Outros': '📦' }
+
+      const paginacao = totalPages > 1 ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
+          <span style="font-size:0.8rem;color:#888;">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#ff6b6b;">${totalCount}</strong> registros</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="VM.carregarDespesas(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
+            <button onclick="VM.carregarDespesas(${pagina + 1})" ${pagina >= totalPages ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
+          </div>
+        </div>
+      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
         <table class="data-table">
@@ -2482,6 +2708,7 @@ const VM = {
             `}).join('')}
           </tbody>
         </table>
+        ${paginacao}
       `
     } catch (e) {
       this.toast('Erro ao carregar despesas', 'error')
@@ -5014,6 +5241,27 @@ const VM = {
     } catch(e) {
       this.toast('Erro ao solicitar permissão', 'error')
     }
+  },
+
+  // Agenda notificações locais para lembretes via Service Worker
+  async agendarNotificacoesLembretes() {
+    if (Notification.permission !== 'granted') return
+    if (!navigator.serviceWorker?.controller) return
+    try {
+      const data = await this.api('GET', 'lembretes')
+      const lembretes = (data.lembretes || data || []).filter(l => l.status !== 'pago' && l.data_vencimento)
+      if (lembretes.length > 0) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SCHEDULE_NOTIFICATIONS',
+          lembretes: lembretes.map(l => ({
+            id: l.id,
+            titulo: l.titulo,
+            valor: l.valor,
+            data_vencimento: l.data_vencimento
+          }))
+        })
+      }
+    } catch(_) {}
   },
 
   modalAlterarSenha() {
@@ -7601,11 +7849,6 @@ const VM = {
 
   // ============== IA ==============
   async pageIA() {
-    if (this.limites !== null && !this.limites.ia_insights) {
-      this.upsellModal('ia_insights')
-      this.navigate('dashboard')
-      return
-    }
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
@@ -7629,6 +7872,63 @@ const VM = {
     const container = document.getElementById('ia-container')
     try {
       const d = await this.api('GET', 'ia/insights')
+
+      // ── SCORE TEASER para plano Free ──────────────────────────────────────
+      if (d.teaser) {
+        const sc = d.score_teaser || 0
+        const cor = sc >= 80 ? '#2FBF71' : sc >= 55 ? '#74b9ff' : sc >= 35 ? '#ffc400' : '#ff6b6b'
+        const circum = 2 * Math.PI * 48
+        const offset = circum * (1 - sc / 100)
+        container.innerHTML = `
+          <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(47,191,113,0.06),rgba(32,128,64,0.03));border:1px solid rgba(47,191,113,0.15);">
+            <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+              <!-- Score borrado com overlay -->
+              <div style="position:relative;width:110px;height:110px;flex-shrink:0;">
+                <svg viewBox="0 0 110 110" style="transform:rotate(-90deg);width:110px;height:110px;filter:blur(2px);">
+                  <circle cx="55" cy="55" r="48" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="9"/>
+                  <circle cx="55" cy="55" r="48" fill="none" stroke="${cor}" stroke-width="9"
+                    stroke-dasharray="${circum}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                  <div style="font-size:1.75rem;font-weight:900;color:${cor};line-height:1;filter:blur(4px);">${sc}</div>
+                  <div style="font-size:0.6rem;color:#555;letter-spacing:1px;">/ 100</div>
+                </div>
+                <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                  <i class="fas fa-lock" style="font-size:1.4rem;color:#fbbf24;filter:drop-shadow(0 0 6px rgba(251,191,36,0.5));"></i>
+                </div>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <div style="font-size:1.1rem;font-weight:800;color:${cor};margin-bottom:8px;">${d.veredicto}</div>
+                <div style="font-size:0.88rem;color:#aaa;line-height:1.6;margin-bottom:16px;">${d.mensagem}</div>
+                <button onclick="VM.upsellModal('ia_insights')" style="padding:10px 24px;background:linear-gradient(135deg,#2FBF71,#059669);color:#fff;border:none;border-radius:10px;font-size:0.9rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;">
+                  <i class="fas fa-unlock"></i> Desbloquear Análise Completa
+                </button>
+              </div>
+            </div>
+          </div>
+          <!-- Cards bloqueados com blur -->
+          <div style="position:relative;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;filter:blur(6px);pointer-events:none;user-select:none;opacity:0.5;">
+              ${['Fluxo de Caixa','Reserva','Dívidas','Investimentos','Metas'].map(m => `
+                <div class="card" style="text-align:center;padding:20px 12px;">
+                  <div style="font-size:2rem;font-weight:900;color:#2FBF71;">??</div>
+                  <div style="font-size:0.78rem;color:#888;margin-top:4px;">${m}</div>
+                </div>`).join('')}
+            </div>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
+              <i class="fas fa-lock" style="font-size:2rem;color:#fbbf24;"></i>
+              <div style="font-size:0.9rem;font-weight:700;color:#fff;">Desbloqueie com o Premium</div>
+              <button onclick="VM.upsellModal('ia_insights')" style="padding:8px 20px;background:rgba(47,191,113,0.2);color:#2FBF71;border:1px solid rgba(47,191,113,0.4);border-radius:8px;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                Ver planos <i class="fas fa-arrow-right"></i>
+              </button>
+            </div>
+          </div>
+          <!-- Histórico de score (pode mostrar mesmo no free) -->
+          <div id="ia-score-historico-container"></div>
+        `
+        this._carregarScoreHistorico()
+        return
+      }
 
       // Atalhos para os blocos principais
       const re   = d.resumo_executivo  || {}
@@ -7938,6 +8238,9 @@ const VM = {
           <div class="skeleton" style="height:160px;border-radius:16px;"></div>
         </div>
 
+        <!-- ALERTAS DE CATEGORIA -->
+        <div id="alertas-categoria-container" style="margin-top:0;"></div>
+
         <!-- rodapé -->
         <div style="text-align:center;font-size:0.72rem;color:#444;padding:8px 0 20px;">
           Análise gerada em ${new Date().toLocaleString('pt-BR')} • Período ${re.periodo?.mes || '—'}/${re.periodo?.ano || '—'}
@@ -7945,6 +8248,8 @@ const VM = {
       `
       // Carregar Índice de Desperdício de forma assíncrona
       this.carregarIndiceDesperdicio()
+      // Carregar alertas de categoria de forma assíncrona
+      this._carregarAlertasCategoria()
     } catch (e) {
       container.innerHTML = `
         <div class="card" style="text-align:center;padding:60px 40px;">
@@ -7962,6 +8267,67 @@ const VM = {
   async gerarInsightsIA() {
     this.toast('Atualizando diagnóstico...', 'info')
     this.carregarIA()
+  },
+
+  // ── Histórico de score de saúde financeira (gráfico de linha) ─────────────
+  async _carregarScoreHistorico() {
+    const el = document.getElementById('ia-score-historico-container')
+    if (!el) return
+    try {
+      const data = await this.api('GET', 'ia/score-historico')
+      const hist = data.historico || []
+      if (hist.length < 2) {
+        el.innerHTML = `<div class="card" style="margin-top:16px;text-align:center;padding:24px;color:#555;font-size:0.85rem;">
+          <i class="fas fa-chart-line" style="font-size:2rem;margin-bottom:8px;opacity:0.3;display:block;"></i>
+          O gráfico de evolução do score aparece após o 2º mês de uso.
+        </div>`
+        return
+      }
+      const labels = hist.map(h => h.mes.replace(/^(\d{4})-(\d{2})$/, (_, y, m) => {
+        const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+        return meses[parseInt(m)-1] + '/' + y.slice(2)
+      }))
+      const scores = hist.map(h => h.score_geral)
+      const canvasId = 'chart-score-hist-' + Date.now()
+      el.innerHTML = `
+        <div class="card" style="margin-top:16px;">
+          <div style="font-size:0.9rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-chart-line" style="color:#2FBF71;"></i> Evolução do Score de Saúde
+          </div>
+          <div style="position:relative;height:200px;">
+            <canvas id="${canvasId}"></canvas>
+          </div>
+        </div>`
+      setTimeout(() => {
+        const ctx = document.getElementById(canvasId)?.getContext('2d')
+        if (!ctx) return
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Score de Saúde',
+              data: scores,
+              borderColor: '#2FBF71',
+              backgroundColor: 'rgba(47,191,113,0.1)',
+              borderWidth: 2.5,
+              fill: true,
+              tension: 0.4,
+              pointBackgroundColor: '#2FBF71',
+              pointRadius: 4
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { min: 0, max: 100, grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#666', stepSize:25 } },
+              x: { grid: { display:false }, ticks: { color:'#666' } }
+            }
+          }
+        })
+      }, 100)
+    } catch { /* silencioso */ }
   },
 
   async carregarIndiceDesperdicio() {
@@ -8058,7 +8424,53 @@ const VM = {
     }
   },
 
-  // ============== CONQUISTAS ==============
+  async _carregarAlertasCategoria() {
+    const el = document.getElementById('alertas-categoria-container')
+    if (!el) return
+    try {
+      const now = new Date()
+      const mes = now.getMonth() + 1
+      const ano = now.getFullYear()
+      const data = await this.api('GET', `alertas-categoria?mes=${mes}&ano=${ano}`)
+      if (!data.has_alertas) { el.innerHTML = ''; return }
+
+      const rows = data.alertas.map(a => {
+        const cor = a.nivel === 'critico' ? '#ff6b6b' : '#ffc400'
+        const bg  = a.nivel === 'critico' ? 'rgba(255,107,107,0.08)' : 'rgba(255,196,0,0.08)'
+        const border = a.nivel === 'critico' ? 'rgba(255,107,107,0.25)' : 'rgba(255,196,0,0.25)'
+        const icon = a.nivel === 'critico' ? '🔴' : '🟡'
+        return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:1.1rem;">${icon}</span>
+              <div>
+                <div style="font-size:0.85rem;font-weight:600;color:${cor};">${a.categoria}</div>
+                <div style="font-size:0.75rem;color:#888;">Média 3m: ${this.formatMoney(a.media_3m)} → Atual: ${this.formatMoney(a.total_atual)}</div>
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <span style="font-size:1rem;font-weight:800;color:${cor};">+${a.variacao_pct}%</span>
+              <div style="font-size:0.7rem;color:#666;">acima da média</div>
+            </div>
+          </div>
+        `
+      }).join('')
+
+      el.innerHTML = `
+        <div style="background:rgba(42,42,42,0.6);border:1px solid rgba(255,196,0,0.2);border-radius:16px;padding:20px;margin-top:0;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+            <span style="font-size:1.1rem;">⚠️</span>
+            <span style="font-weight:700;font-size:0.95rem;">Alertas de Gasto por Categoria</span>
+            <span style="margin-left:auto;background:rgba(255,196,0,0.15);color:#ffc400;font-size:0.72rem;padding:2px 9px;border-radius:20px;font-weight:700;">${data.total_alertas} alertas</span>
+          </div>
+          ${rows}
+          <p style="font-size:0.72rem;color:#555;margin:8px 0 0;text-align:right;">Comparado à média dos últimos 3 meses</p>
+        </div>
+      `
+    } catch(_) {
+      el.innerHTML = ''
+    }
+  },
   // ============== RESERVA DE EMERGÊNCIA ==============
   async pageReserva() {
     document.getElementById('page-content').innerHTML = `
@@ -9633,6 +10045,35 @@ const VM = {
         <div style="margin-top:12px;padding:10px 14px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;">
           <p style="color:#FDE68A;font-size:0.78rem;margin:0;line-height:1.5;">⚠️ <strong>Importante:</strong> A projeção é uma estimativa baseada no seu histórico. Eventos imprevistos (promoções, despesas extraordinárias, mudanças de renda) não são considerados. Use como referência, não como certeza.</p>
         </div>
+
+        <!-- SIMULADOR DE CENÁRIOS -->
+        <div style="margin-top:20px;background:rgba(47,191,113,0.05);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:20px;">
+          <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">🎛️ Simulador de Cenários</div>
+          <p style="font-size:0.82rem;color:#aaa;margin:0 0 16px;">Ajuste os controles e veja como mudanças impactam sua projeção de 12 meses.</p>
+          
+          <div style="display:grid;gap:16px;">
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <label style="font-size:0.82rem;color:#ccc;">💰 Aumento de Receita Mensal</label>
+                <span id="slider-receita-val" style="font-size:0.82rem;color:#2FBF71;font-weight:700;">+R$ 0</span>
+              </div>
+              <input type="range" id="slider-receita" min="0" max="5000" step="100" value="0"
+                style="width:100%;accent-color:#2FBF71;"
+                oninput="VM._simularProjecao()">
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <label style="font-size:0.82rem;color:#ccc;">💸 Redução de Despesas Mensais</label>
+                <span id="slider-despesa-val" style="font-size:0.82rem;color:#ff6b6b;font-weight:700;">-R$ 0</span>
+              </div>
+              <input type="range" id="slider-despesa" min="0" max="3000" step="50" value="0"
+                style="width:100%;accent-color:#ff6b6b;"
+                oninput="VM._simularProjecao()">
+            </div>
+          </div>
+
+          <div id="simulacao-resultado" style="margin-top:16px;"></div>
+        </div>
       </div>
     `
 
@@ -9651,6 +10092,50 @@ const VM = {
       })
       renderGrafico(p)
     }
+
+    // Armazena dados para o simulador
+    this._projecaoData = data
+  },
+
+  _simularProjecao() {
+    const data = this._projecaoData
+    if (!data) return
+    const addReceita = parseInt(document.getElementById('slider-receita')?.value || '0')
+    const redDesp    = parseInt(document.getElementById('slider-despesa')?.value || '0')
+    const valRecEl   = document.getElementById('slider-receita-val')
+    const valDespEl  = document.getElementById('slider-despesa-val')
+    if (valRecEl) valRecEl.textContent = `+R$ ${addReceita.toLocaleString('pt-BR')}`
+    if (valDespEl) valDespEl.textContent = `-R$ ${redDesp.toLocaleString('pt-BR')}`
+
+    const mediaMensal = (data.media_mensal || 0) + addReceita + redDesp
+    const proj6  = mediaMensal * 6
+    const proj12 = mediaMensal * 12
+    const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const cor6  = proj6  >= 0 ? '#2FBF71' : '#ff6b6b'
+    const cor12 = proj12 >= 0 ? '#2FBF71' : '#ff6b6b'
+    const delta = addReceita + redDesp
+    const deltaStr = delta >= 0 
+      ? `+${fmt(delta)}/mês de saldo adicional`
+      : `${fmt(delta)}/mês de impacto negativo`
+
+    const el = document.getElementById('simulacao-resultado')
+    if (!el) return
+    el.innerHTML = `
+      <div style="background:rgba(0,0,0,0.3);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:0.78rem;color:#888;margin-bottom:12px;">Com essas mudanças: <strong style="color:#ddd;">${deltaStr}</strong></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.72rem;color:#888;margin-bottom:4px;">Saldo em 6 meses</div>
+            <div style="font-size:1.2rem;font-weight:800;color:${cor6};">${fmt(proj6)}</div>
+          </div>
+          <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.72rem;color:#888;margin-bottom:4px;">Saldo em 12 meses</div>
+            <div style="font-size:1.2rem;font-weight:800;color:${cor12};">${fmt(proj12)}</div>
+          </div>
+        </div>
+        ${(addReceita > 0 || redDesp > 0) ? `<p style="font-size:0.75rem;color:#64748b;margin:12px 0 0;text-align:center;">📌 Baseado na sua média atual + ajuste de cenário</p>` : ''}
+      </div>
+    `
   },
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -11307,6 +11792,254 @@ const VM = {
     
     // Focus no input
     setTimeout(() => document.getElementById('chat-input')?.focus(), 100)
+  },
+
+  // ── IMPORTAÇÃO CSV ──────────────────────────────────────────────────────────
+  async pageImportacao() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div style="max-width:720px;margin:0 auto;">
+
+        <!-- STEP 1: Upload -->
+        <div id="imp-step1">
+          <div style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;margin-bottom:20px;">
+            <h3 style="margin:0 0 8px;color:#2FBF71;font-size:1.1rem;">📥 Importar Extrato CSV</h3>
+            <p style="margin:0 0 20px;color:#aaa;font-size:0.85rem;">Importe despesas ou receitas a partir de extratos bancários, planilhas ou exportações de outros apps.</p>
+
+            <div style="margin-bottom:16px;">
+              <label style="font-size:0.82rem;color:#ccc;display:block;margin-bottom:6px;">Tipo de dados</label>
+              <div style="display:flex;gap:10px;">
+                <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;" id="tipo-desp-label">
+                  <input type="radio" name="imp-tipo" value="despesas" checked onchange="VM._impTipoChange()" style="accent-color:#2FBF71;">
+                  <span style="font-size:0.9rem;">💸 Despesas</span>
+                </label>
+                <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:all 0.2s;" id="tipo-rec-label">
+                  <input type="radio" name="imp-tipo" value="receitas" onchange="VM._impTipoChange()" style="accent-color:#2FBF71;">
+                  <span style="font-size:0.9rem;">💰 Receitas</span>
+                </label>
+              </div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+              <label style="font-size:0.82rem;color:#ccc;display:block;margin-bottom:6px;">Cole o conteúdo do CSV aqui</label>
+              <textarea id="imp-csv-input" rows="8" placeholder="data,descricao,valor&#10;15/03/2026,Supermercado,250.00&#10;16/03/2026,Conta de luz,180.50&#10;..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:12px;color:#fff;font-size:0.82rem;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+            </div>
+
+            <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:10px;padding:14px;margin-bottom:20px;">
+              <p style="margin:0 0 8px;font-size:0.8rem;color:#93c5fd;font-weight:600;">💡 Formatos aceitos</p>
+              <ul style="margin:0;padding-left:16px;font-size:0.78rem;color:#aaa;line-height:1.8;">
+                <li>Separador: <strong style="color:#ddd;">vírgula (,)</strong> ou <strong style="color:#ddd;">ponto e vírgula (;)</strong></li>
+                <li>Data: <strong style="color:#ddd;">dd/mm/aaaa</strong>, <strong style="color:#ddd;">aaaa-mm-dd</strong> ou <strong style="color:#ddd;">mm/dd/aaaa</strong></li>
+                <li>Valor: <strong style="color:#ddd;">1.234,56</strong> (BR) ou <strong style="color:#ddd;">1234.56</strong> (EN) — sem R$</li>
+                <li>Cabeçalho obrigatório na 1ª linha</li>
+              </ul>
+            </div>
+
+            <button onclick="VM._impPreview()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
+              🔍 Pré-visualizar
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 2: Preview + Mapeamento -->
+        <div id="imp-step2" style="display:none;">
+          <div style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;margin-bottom:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="margin:0;color:#2FBF71;font-size:1.05rem;">🗂️ Pré-visualização</h3>
+              <button onclick="VM._impVoltar()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#aaa;padding:6px 14px;border-radius:8px;font-size:0.8rem;cursor:pointer;">← Voltar</button>
+            </div>
+
+            <div id="imp-info-cols" style="margin-bottom:16px;font-size:0.82rem;color:#aaa;"></div>
+
+            <!-- Mapeamento de colunas -->
+            <div id="imp-mapeamento" style="margin-bottom:20px;"></div>
+
+            <!-- Tabela preview -->
+            <div id="imp-preview-table" style="overflow-x:auto;margin-bottom:16px;"></div>
+
+            <div id="imp-resumo" style="margin-bottom:16px;"></div>
+
+            <button id="imp-btn-executar" onclick="VM._impExecutar()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
+              ✅ Confirmar e Importar
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 3: Resultado -->
+        <div id="imp-step3" style="display:none;">
+          <div id="imp-resultado" style="background:rgba(42,58,42,0.5);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:28px;text-align:center;"></div>
+        </div>
+
+      </div>
+    `
+    // Bind internal state
+    this._impData = { csv: '', tipo: 'despesas', previewData: null }
+  },
+
+  _impTipoChange() {
+    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
+    this._impData = this._impData || {}
+    this._impData.tipo = tipo
+  },
+
+  async _impPreview() {
+    const csv = document.getElementById('imp-csv-input')?.value?.trim()
+    if (!csv) { this.showToast('Cole o conteúdo CSV no campo acima', 'warning'); return }
+    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
+    this._impData = { csv, tipo, previewData: null }
+
+    try {
+      this.showToast('Analisando CSV...', 'info')
+      const res = await this.api('POST', 'importacao/preview', { csv, tipo })
+
+      if (res.error) { this.showToast(res.error, 'error'); return }
+
+      this._impData.previewData = res
+      this._impData.cabecalho = res.cabecalho_original
+
+      // Montar mapeamento
+      const cols = res.cabecalho_original
+      const colsOpts = cols.map((c, i) => `<option value="${i}">${c}</option>`).join('')
+      const colsOptsNone = `<option value="-1">— Não usar —</option>` + colsOpts
+
+      const det = res.colunas_detectadas
+      const selData  = cols.findIndex((_, i) => i === cols.findIndex((_, j) => j === (det.data  !== null ? cols.indexOf(det.data)  : -1)))
+      const idxData  = det.data      !== null ? cols.map(c => c.toLowerCase()).indexOf((det.data||'').toLowerCase())      : 0
+      const idxDesc  = det.descricao !== null ? cols.map(c => c.toLowerCase()).indexOf((det.descricao||'').toLowerCase())  : Math.min(1, cols.length-1)
+      const idxValor = det.valor     !== null ? cols.map(c => c.toLowerCase()).indexOf((det.valor||'').toLowerCase())     : Math.min(2, cols.length-1)
+      const idxCat   = det.categoria !== null ? cols.map(c => c.toLowerCase()).indexOf((det.categoria||'').toLowerCase()) : -1
+
+      document.getElementById('imp-mapeamento').innerHTML = `
+        <p style="font-size:0.82rem;color:#aaa;margin:0 0 10px;">Confirme o mapeamento de colunas:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">📅 Data</label>
+            <select id="map-data" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
+              ${cols.map((c,i)=>`<option value="${i}" ${i===idxData?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">📝 Descrição</label>
+            <select id="map-desc" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
+              ${cols.map((c,i)=>`<option value="${i}" ${i===idxDesc?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">💰 Valor</label>
+            <select id="map-valor" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
+              ${cols.map((c,i)=>`<option value="${i}" ${i===idxValor?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">🏷️ Categoria (opcional)</label>
+            <select id="map-cat" style="width:100%;background:#1a2a1a;border:1px solid rgba(255,255,255,0.1);color:#fff;padding:8px;border-radius:8px;font-size:0.82rem;">
+              ${colsOptsNone.replace(`value="${idxCat}"`, `value="${idxCat}" selected`)}
+            </select>
+          </div>
+        </div>
+      `
+
+      // Tabela preview
+      const rows = res.preview.map(r => `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px;font-size:0.8rem;color:#93c5fd;">${r.data}</td>
+          <td style="padding:8px;font-size:0.8rem;color:#ddd;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.descricao}</td>
+          <td style="padding:8px;font-size:0.8rem;color:#4ade80;text-align:right;">R$ ${r.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+          <td style="padding:8px;font-size:0.8rem;color:#aaa;">${r.categoria}</td>
+        </tr>
+      `).join('')
+
+      document.getElementById('imp-preview-table').innerHTML = `
+        <p style="font-size:0.8rem;color:#aaa;margin:0 0 8px;">Primeiras linhas detectadas:</p>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(47,191,113,0.3);">
+              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Data</th>
+              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Descrição</th>
+              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:right;">Valor</th>
+              <th style="padding:8px;font-size:0.75rem;color:#2FBF71;text-align:left;">Categoria</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `
+
+      document.getElementById('imp-resumo').innerHTML = `
+        <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:14px;display:flex;gap:24px;flex-wrap:wrap;">
+          <div><span style="font-size:0.75rem;color:#888;">Total de linhas</span><br><strong style="color:#2FBF71;font-size:1.1rem;">${res.total_linhas}</strong></div>
+          <div><span style="font-size:0.75rem;color:#888;">Tipo</span><br><strong style="color:#ddd;font-size:1rem;">${tipo === 'despesas' ? '💸 Despesas' : '💰 Receitas'}</strong></div>
+          ${res.erros_preview.length ? `<div><span style="font-size:0.75rem;color:#f87171;">⚠️ Avisos preview</span><br><strong style="color:#f87171;">${res.erros_preview.length}</strong></div>` : ''}
+        </div>
+      `
+
+      document.getElementById('imp-step1').style.display = 'none'
+      document.getElementById('imp-step2').style.display = 'block'
+      document.getElementById('imp-step3').style.display = 'none'
+
+    } catch (e) {
+      this.showToast('Erro ao processar CSV: ' + (e.message || e), 'error')
+    }
+  },
+
+  _impVoltar() {
+    document.getElementById('imp-step1').style.display = 'block'
+    document.getElementById('imp-step2').style.display = 'none'
+    document.getElementById('imp-step3').style.display = 'none'
+  },
+
+  async _impExecutar() {
+    const btn = document.getElementById('imp-btn-executar')
+    btn.disabled = true
+    btn.textContent = '⏳ Importando...'
+
+    const mapeamento = {
+      data:      parseInt(document.getElementById('map-data')?.value),
+      descricao: parseInt(document.getElementById('map-desc')?.value),
+      valor:     parseInt(document.getElementById('map-valor')?.value),
+      categoria: parseInt(document.getElementById('map-cat')?.value)
+    }
+    if (mapeamento.categoria === -1) delete mapeamento.categoria
+
+    try {
+      const res = await this.api('POST', 'importacao/executar', {
+        csv: this._impData.csv,
+        tipo: this._impData.tipo,
+        mapeamento
+      })
+
+      document.getElementById('imp-step2').style.display = 'none'
+      document.getElementById('imp-step3').style.display = 'block'
+
+      const ok = res.importados > 0
+      document.getElementById('imp-resultado').innerHTML = `
+        <div style="font-size:3rem;margin-bottom:16px;">${ok ? '✅' : '⚠️'}</div>
+        <h3 style="color:${ok?'#2FBF71':'#f87171'};margin:0 0 8px;">${ok ? 'Importação concluída!' : 'Nenhum dado importado'}</h3>
+        <p style="color:#aaa;font-size:0.9rem;margin:0 0 20px;">${res.mensagem || ''}</p>
+        <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:24px;">
+          <div style="background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px 24px;">
+            <div style="font-size:1.8rem;font-weight:700;color:#2FBF71;">${res.importados}</div>
+            <div style="font-size:0.75rem;color:#888;">Importados</div>
+          </div>
+          ${res.erros > 0 ? `<div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2);border-radius:10px;padding:12px 24px;">
+            <div style="font-size:1.8rem;font-weight:700;color:#f87171;">${res.erros}</div>
+            <div style="font-size:0.75rem;color:#888;">Ignorados</div>
+          </div>` : ''}
+        </div>
+        ${res.erros_detalhes?.length ? `<div style="text-align:left;background:rgba(248,113,113,0.05);border:1px solid rgba(248,113,113,0.1);border-radius:8px;padding:12px;margin-bottom:16px;font-size:0.78rem;color:#f87171;">${res.erros_detalhes.map(e=>`<div>⚠️ ${e}</div>`).join('')}</div>` : ''}
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button onclick="VM.navigate('${this._impData.tipo}')" style="padding:10px 22px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:600;cursor:pointer;">
+            Ver ${this._impData.tipo === 'despesas' ? 'Despesas' : 'Receitas'} →
+          </button>
+          <button onclick="VM.pageImportacao()" style="padding:10px 22px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;cursor:pointer;">
+            Nova Importação
+          </button>
+        </div>
+      `
+    } catch (e) {
+      btn.disabled = false
+      btn.textContent = '✅ Confirmar e Importar'
+      this.showToast('Erro na importação: ' + (e.message || e), 'error')
+    }
   },
 
   markdownToHtml(text) {

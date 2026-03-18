@@ -34,18 +34,23 @@ receitas.get('/', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(query).bind(...params).all()
   
   // Total do período
-  let totalQuery = 'SELECT COALESCE(SUM(valor), 0) as total FROM receitas WHERE user_id = ?'
+  let totalQuery = 'SELECT COALESCE(SUM(valor), 0) as total, COUNT(*) as total_count FROM receitas WHERE user_id = ?'
   const totalParams: any[] = [user.id]
   if (mes && ano) {
     totalQuery += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
     totalParams.push(mes.padStart(2, '0'), ano)
+  }
+  if (categoria) {
+    totalQuery += ' AND categoria = ?'
+    totalParams.push(categoria)
   }
   const total = await c.env.DB.prepare(totalQuery).bind(...totalParams).first() as any
 
   return c.json({ 
     receitas: result.results, 
     total: total?.total || 0,
-    count: result.results.length 
+    count: result.results.length,
+    total_count: total?.total_count || 0
   })
 })
 

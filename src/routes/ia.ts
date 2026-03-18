@@ -87,7 +87,40 @@ ia.get('/insights', requireAuth, async (c) => {
 
   const lim = getLimites(user.plano)
   if (!lim.ia_insights) {
-    return c.json({ error: MSG_UPGRADE.ia_insights, upgrade: true, feature: 'ia_insights' }, 403)
+    // ── Score TEASER para plano free ────────────────────────────────────────
+    const uid  = user.id
+    const now  = new Date()
+    const mes  = String(now.getMonth() + 1).padStart(2, '0')
+    const ano  = String(now.getFullYear())
+
+    const [recR, despR, invR, reservaR] = await Promise.all([
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first(),
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' AND strftime('%m',COALESCE(vencimento,data))=? AND strftime('%Y',COALESCE(vencimento,data))=?`).bind(uid,mes,ano).first(),
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(uid).first(),
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM reserva_emergencia WHERE user_id=?`).bind(uid).first(),
+    ]) as any[]
+    const rec   = Number(recR?.t || 0)
+    const desp  = Number(despR?.t || 0)
+    const saldo = rec - desp
+    const inv   = Number(invR?.t || 0)
+    const resv  = Number(reservaR?.t || 0)
+    const mesesReserva = rec > 0 ? resv / (desp || rec) : 0
+
+    const teaserScore = Math.round(
+      scoreCashFlow(saldo, rec)       * 0.30 +
+      scoreEmergency(mesesReserva)    * 0.25 +
+      100                             * 0.20 + // sem dívidas conhecidas = neutro
+      scoreInvestments(inv, rec)      * 0.25
+    )
+
+    return c.json({
+      teaser: true,
+      upgrade: true,
+      feature: 'ia_insights',
+      score_teaser: teaserScore,
+      veredicto: veredicto(teaserScore),
+      mensagem: `Seu score estimado é ${teaserScore}. Faça upgrade para o Premium e desbloqueie a análise completa com detalhamento por módulo, recomendações personalizadas e histórico.`
+    }, 200)
   }
 
   const now = new Date()
@@ -600,6 +633,22 @@ ia.get('/insights', requireAuth, async (c) => {
     `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'analista', 0)`
   ).bind(uid).run().catch(() => {})
 
+  // ── Salvar score no histórico mensal (fire-and-forget) ──────────────────
+  const mesPeriodo = `${ano}-${mes}`
+  c.env.DB.prepare(
+    `INSERT OR REPLACE INTO score_historico
+     (user_id, mes, score_geral, score_fluxo, score_reserva, score_dividas, score_investimentos, score_metas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(uid, mesPeriodo, scoreGeral, sCashFlow, sEmergency, sDebt, sInvest, sGoals).run().catch(() => {})
+
+  // ── Salvar snapshot de patrimônio (fire-and-forget) ──────────────────────
+  const totalDividasSnap = (totalDivEmp?.total || 0) + (totalDivFin?.total || 0)
+  c.env.DB.prepare(
+    `INSERT OR REPLACE INTO patrimonio_historico
+     (user_id, mes, total_investimentos, total_reservas, total_dividas, patrimonio_liquido)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(uid, mesPeriodo, totalInvest, valorReserva, totalDividasSnap, totalInvest + valorReserva - totalDividasSnap).run().catch(() => {})
+
   return c.json({
     // Resumo executivo
     resumo_executivo: {
@@ -794,6 +843,34 @@ ia.get('/score-saude', requireAuth, async (c) => {
     return c.json({ score, status, veredicto, kpis: { receita, despesa, saldo, reserva, divida }, periodo: { mes, ano } })
   } catch (e: any) {
     return c.json({ score: 0, status: 'CRITICO', veredicto: '⚠️ Dados insuficientes', error: e.message }, 200)
+  }
+})
+
+// ─── GET /api/ia/score-historico — histórico mensal do score ─────────────────
+ia.get('/score-historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT mes, score_geral, score_fluxo, score_reserva, score_dividas, score_investimentos, score_metas
+       FROM score_historico WHERE user_id = ? ORDER BY mes ASC LIMIT 24`
+    ).bind(user.id).all()
+    return c.json({ historico: rows.results || [] })
+  } catch {
+    return c.json({ historico: [] })
+  }
+})
+
+// ─── GET /api/ia/patrimonio-historico — snapshots mensais de patrimônio ──────
+ia.get('/patrimonio-historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT mes, total_investimentos, total_reservas, total_dividas, patrimonio_liquido
+       FROM patrimonio_historico WHERE user_id = ? ORDER BY mes ASC LIMIT 24`
+    ).bind(user.id).all()
+    return c.json({ historico: rows.results || [] })
+  } catch {
+    return c.json({ historico: [] })
   }
 })
 

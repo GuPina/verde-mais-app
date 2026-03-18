@@ -4,7 +4,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const assistente = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -493,7 +493,46 @@ assistente.post('/chat', requireAuth, async (c) => {
 
   const intencao = detectarIntencao(mensagem)
   const ctx = await buscarContexto(c.env.DB, user.id)
-  const resposta = gerarResposta(intencao, ctx, user.nome)
+  let resposta = gerarResposta(intencao, ctx, user.nome)
+
+  // ── LLM fallback para perguntas não reconhecidas ───────────────────────────
+  if (intencao === 'desconhecido' && c.env.OPENAI_API_KEY) {
+    try {
+      const apiKey = c.env.OPENAI_API_KEY
+      const baseURL = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+      const nome = user.nome.split(' ')[0]
+      const systemPrompt = `Você é o Assistente Financeiro VerdeMais. Responda SEMPRE em português brasileiro.
+Seja direto, amigável e use emojis moderadamente.
+Contexto financeiro atual do usuário ${nome}:
+- Receitas do mês: R$ ${ctx.totalReceitas.toFixed(2)}
+- Despesas do mês: R$ ${ctx.totalDespesas.toFixed(2)}
+- Saldo: R$ ${ctx.saldo.toFixed(2)}
+- Taxa de poupança: ${ctx.taxaPoupanca.toFixed(1)}%
+- Metas ativas: ${(ctx.metas as any)?.results?.length || 0}
+- Investimentos: ${(ctx.investimentos as any)?.results?.length || 0}
+- Score financeiro: ${ctx.scoreSaude || 'N/A'}
+Responda a pergunta do usuário de forma personalizada com base nesses dados. Máximo 200 palavras.`
+
+      const llmRes = await fetch(`${baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: mensagem }
+          ],
+          max_tokens: 400,
+          temperature: 0.7
+        })
+      })
+      if (llmRes.ok) {
+        const llmData: any = await llmRes.json()
+        const llmText = llmData?.choices?.[0]?.message?.content?.trim()
+        if (llmText) resposta = llmText
+      }
+    } catch (_) { /* mantém resposta determinística em caso de falha */ }
+  }
 
   // Salvar conversa
   await c.env.DB.prepare(`
