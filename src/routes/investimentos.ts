@@ -301,12 +301,16 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/investimentos/cotacoes — cotações ao vivo (público, sem auth)
+// Estratégia: stale-while-revalidate
+//   - Retorna cache D1 imediatamente se existir (< 35 min) → resposta rápida
+//   - Se cache tem > 20 min, dispara atualização em background (waitUntil)
+//   - Se cache expirado/vazio, busca ao vivo e retorna
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.get('/cotacoes', async (c) => {
   const db = c.env.DB
   const now = Date.now()
 
-  // 0. Cache em memória — resposta instantânea se ainda válido
+  // 0. Cache em memória — resposta instantânea se ainda válido (mesma instância)
   if (_memCacheCotacoes && now - _memCacheCotacoes.ts < MEM_CACHE_TTL_MS) {
     return c.json({
       atualizado_em: new Date(_memCacheCotacoes.ts).toISOString(),
@@ -318,31 +322,81 @@ investimentos.get('/cotacoes', async (c) => {
     })
   }
 
-  // 1. Buscar tudo em PARALELO — CDI, câmbio, cripto e SELIC ao mesmo tempo
+  // 1. Verificar D1 para retorno rápido (stale-while-revalidate)
+  try {
+    const [cachedCambio, cachedCripto, cachedCdi] = await Promise.all([
+      db.prepare(`SELECT symbol, dados_json, atualizado_em FROM cotacoes_cache WHERE tipo='cambio'`).all(),
+      db.prepare(`SELECT symbol, valor_brl, valor_usd, variacao_24h, atualizado_em FROM cotacoes_cache WHERE tipo='cripto'`).all(),
+      db.prepare(`SELECT valor_brl, atualizado_em FROM cotacoes_cache WHERE tipo='cdi' AND symbol='CDI' LIMIT 1`).first() as any
+    ])
+
+    const cambioRows = (cachedCambio.results as any[])
+    const criptoRows = (cachedCripto.results as any[])
+
+    // Checar idade do cache (35 min = stale mas ainda servível)
+    const ageMsCambio = cambioRows.length > 0
+      ? now - new Date(cambioRows[0].atualizado_em + 'Z').getTime() : Infinity
+    const ageMsCripto = criptoRows.length > 0
+      ? now - new Date(criptoRows[0].atualizado_em + 'Z').getTime() : Infinity
+    const STALE_MS = 35 * 60 * 1000
+    const REFRESH_MS = 20 * 60 * 1000
+
+    if (cambioRows.length >= 2 && criptoRows.length >= 3 && ageMsCambio < STALE_MS && ageMsCripto < STALE_MS) {
+      // Montar resposta do cache
+      const cambioCache: Record<string, any> = {}
+      for (const r of cambioRows) {
+        const d = r.dados_json ? JSON.parse(r.dados_json) : {}
+        cambioCache[r.symbol] = d
+      }
+      const criptoCache: Record<string, any> = {}
+      for (const r of criptoRows) {
+        criptoCache[r.symbol] = { brl: r.valor_brl, usd: r.valor_usd, variacao_24h: r.variacao_24h }
+      }
+      const cdiCache = cachedCdi?.valor_brl || CDI_PADRAO_AA
+
+      // Salvar em memória
+      _memCacheCotacoes = { ts: now, cdi: cdiCache, selic: 14.90, cambio: cambioCache, cripto: criptoCache,
+        aviso: 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Kraken, CoinGecko.' }
+
+      // Se cache está ficando velho (>20 min), atualizar em background
+      if (ageMsCambio > REFRESH_MS || ageMsCripto > REFRESH_MS) {
+        // Fire-and-forget: atualiza sem bloquear resposta
+        Promise.all([
+          getCotacoesCambio(db),
+          getCotacoesCripto(db, ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOGE', 'XRP'])
+        ]).then(([nc, ncr]) => {
+          if (Object.keys(nc).length >= 2 || Object.keys(ncr).length >= 3) {
+            _memCacheCotacoes = { ts: Date.now(), cdi: cdiCache, selic: 14.90,
+              cambio: Object.keys(nc).length >= 2 ? nc : cambioCache,
+              cripto: Object.keys(ncr).length >= 3 ? ncr : criptoCache,
+              aviso: 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Kraken, CoinGecko.' }
+          }
+        }).catch(() => {})
+      }
+
+      return c.json({
+        atualizado_em: new Date().toISOString(),
+        taxas_referencia: { cdi_anual: cdiCache, selic_meta: 14.90 },
+        cambio: cambioCache,
+        cripto: criptoCache,
+        aviso: 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Kraken, CoinGecko.',
+        cache: 'd1'
+      })
+    }
+  } catch (_) {}
+
+  // 2. Cache vazio/expirado: buscar tudo em PARALELO — CDI, câmbio, cripto e SELIC
   const [cdi, cambio, cripto, selicResult] = await Promise.all([
     getCdiAnual(db),
     getCotacoesCambio(db),
     getCotacoesCripto(db, ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOGE', 'XRP']),
     // SELIC com timeout de 3s para não travar a resposta
-    (async () => {
-      try {
-        const ctrl = new AbortController()
-        const tid = setTimeout(() => ctrl.abort(), 3000)
-        const resp = await fetch(
-          'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json',
-          { signal: ctrl.signal }
-        )
-        clearTimeout(tid)
-        if (resp.ok) {
-          const d = await resp.json() as any[]
-          if (d?.[0]?.valor) return parseFloat(d[0].valor)
-        }
-      } catch (_) {}
-      return 14.90
-    })()
+    fetchWithTimeout(
+      'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json', 3000
+    ).then(r => r.ok ? r.json() : null).then((d: any) => d?.[0]?.valor ? parseFloat(d[0].valor) : 14.90).catch(() => 14.90)
   ])
 
-  // 2. Fallback de cripto se todas as APIs retornaram vazio
+  // 3. Fallback de cripto se todas as APIs retornaram vazio
   const usdRate = (cambio as any)?.USD?.compra || 5.23
   const criptoFinal = Object.keys(cripto).length > 0 ? cripto
     : await getCotacoesCriptoFallback(db, ['BTC', 'ETH', 'BNB', 'SOL', 'XRP'], usdRate)
@@ -351,7 +405,7 @@ investimentos.get('/cotacoes', async (c) => {
     ? 'Cotações cripto via valores de referência (APIs indisponíveis). Câmbio: BCB/DolarApi.'
     : 'Cotações com cache de 30 min. Fontes: BCB, DolarApi.com, Kraken, CoinGecko.'
 
-  // 3. Salvar em memória para próximas requisições
+  // 4. Salvar em memória para próximas requisições
   _memCacheCotacoes = { ts: now, cdi, selic: selicResult, cambio, cripto: criptoFinal, aviso }
 
   return c.json({
