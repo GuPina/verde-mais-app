@@ -11947,7 +11947,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div>
                 <label style="color:#aaa;font-size:0.8rem;display:block;margin-bottom:4px;">Vincular TODOS ao cartão:</label>
-                <select id="imp-cartao-lote" style="width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:8px;border-radius:8px;font-size:0.85rem;">
+                <select id="imp-cartao-lote" onchange="VM._impCartaoLoteChange(this.value)" style="width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:8px;border-radius:8px;font-size:0.85rem;">
                   <option value="">— Nenhum cartão (dinheiro/pix) —</option>
                 </select>
               </div>
@@ -12020,7 +12020,8 @@ const VM = {
       if (s.duplicatas_provaveis > 0) parts.push(`<span style="color:#ef4444">🔴 ${s.duplicatas_provaveis} duplicata(s)</span>`)
       if (s.duplicatas_possiveis > 0) parts.push(`<span style="color:#f59e0b">🟡 ${s.duplicatas_possiveis} possível(is)</span>`)
       if (s.parcelas_detectadas > 0) parts.push(`<span style="color:#3b82f6">📦 ${s.parcelas_detectadas} parcela(s)</span>`)
-      if (s.tags_sugeridas > 0) parts.push(`<span style="color:#8b5cf6">🏷 ${s.tags_sugeridas} tag(s) sugerida(s)</span>`)
+      if ((s.tags_novas||0) > 0) parts.push(`<span style="color:#8b5cf6">🏷✨ ${s.tags_novas} tag(s) nova(s)</span>`)
+      if ((s.tags_vinculadas||0) > 0) parts.push(`<span style="color:#8b5cf6">🏷 ${s.tags_vinculadas} tag(s) vinculada(s)</span>`)
       document.getElementById('imp-stats-badge').innerHTML = parts.join(' &nbsp;|&nbsp; ')
 
       // Alertas globais
@@ -12057,11 +12058,10 @@ const VM = {
       const parc = item.parcela
       const tagSug = item.tag_sugerida
 
-      // Cores por nível de duplicata
       let borderColor = 'rgba(255,255,255,0.06)'
       let bgColor = 'rgba(255,255,255,0.03)'
       let dupBadge = ''
-      let decisao = item.decisao !== false  // default true, exceto duplicatas com null
+      let decisao = item.decisao !== false
 
       if (dup?.nivel === 'provavel') {
         borderColor = 'rgba(239,68,68,0.4)'
@@ -12079,12 +12079,21 @@ const VM = {
         ? `<span style="background:rgba(59,130,246,0.15);color:#3b82f6;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">📦 Parcela ${parc.atual}/${parc.total}</span>`
         : ''
 
-      // Select de tag
+      const tagBadge = tagSug
+        ? tagSug.nova
+          ? `<span style="background:rgba(139,92,246,0.15);color:#8b5cf6;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #8b5cf6;">🏷✨ ${tagSug.nome} <span style="font-size:0.65rem;opacity:0.8;">(nova)</span></span>`
+          : `<span style="background:rgba(139,92,246,0.15);color:#8b5cf6;padding:2px 8px;border-radius:12px;font-size:0.72rem;">🏷 ${tagSug.nome}</span>`
+        : ''
+
+      const status = item.status_sugerido || 'pago'
+      const statusBadge = status === 'pendente'
+        ? `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:12px;font-size:0.72rem;">⏳ pendente</span>`
+        : `<span style="background:rgba(47,191,113,0.12);color:#2FBF71;padding:2px 8px;border-radius:12px;font-size:0.72rem;">✅ pago</span>`
+
       const tagOptions = tags.map(t =>
         `<option value="${t.id}" ${tagSug?.id === t.id ? 'selected' : ''}>${t.nome}</option>`
       ).join('')
 
-      // Select de cartão por linha
       const cartoes = this._impData?.cartoes || []
       const cartaoOptions = cartoes.map(c =>
         `<option value="${c.id}">${c.nome}</option>`
@@ -12094,13 +12103,15 @@ const VM = {
       const checkColor = decisao ? '#2FBF71' : '#ef4444'
       const checkLabel = decisao ? 'Importar' : 'Ignorar'
 
+      const meioMap = { dinheiro:'💵 dinheiro', pix:'⚡ pix', cartao_credito:'💳 crédito', cartao_debito:'💳 débito', transferencia:'🔄 transf.', boleto:'📄 boleto', parcelado_cartao:'💳 parcelado' }
+      const meioLabel = meioMap[item.meio_pagamento] || item.meio_pagamento
+
       return `
         <div id="imp-linha-${idx}" data-linha="${item.linha}" data-idx="${idx}"
-          style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:12px;transition:border 0.2s;">
+          style="background:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:12px;transition:all 0.2s;">
           <div style="display:flex;align-items:flex-start;gap:10px;">
-            <!-- Checkbox de decisão -->
             <div style="flex-shrink:0;margin-top:2px;">
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="Marcar para importar ou ignorar">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
                 <input type="checkbox" id="imp-chk-${idx}" ${checkedStr}
                   onchange="VM._impToggleDecisao(${idx}, this.checked)"
                   style="accent-color:#2FBF71;width:16px;height:16px;cursor:pointer;">
@@ -12108,49 +12119,52 @@ const VM = {
               </label>
             </div>
 
-            <!-- Dados principais -->
             <div style="flex:1;min-width:0;">
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:6px;">
                 <span style="color:#e0e0e0;font-size:0.88rem;font-weight:600;">${item.descricao}</span>
-                ${dupBadge}
-                ${parcBadge}
-                ${tagSug ? `<span style="background:rgba(139,92,246,0.15);color:#8b5cf6;padding:2px 8px;border-radius:12px;font-size:0.72rem;">🏷 ${tagSug.nome}</span>` : ''}
+                ${dupBadge}${parcBadge}${tagBadge}${statusBadge}
               </div>
-              <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:0.8rem;color:#aaa;margin-bottom:6px;">
+              <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:0.8rem;color:#aaa;margin-bottom:6px;">
                 <span>📅 ${item.data}</span>
                 <span style="color:#2FBF71;font-weight:600;">R$ ${item.valor?.toFixed(2)}</span>
                 <span>📂 ${item.categoria}</span>
-                <span>💳 ${item.meio_pagamento}</span>
+                <span id="imp-meio-label-${idx}">${meioLabel}</span>
               </div>
 
-              <!-- Alerta de duplicata -->
-              ${dup ? `<div style="background:rgba(${dup.nivel==='provavel'?'239,68,68':'245,158,11'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${dup.nivel==='provavel'?'#ef4444':'#f59e0b'};margin-bottom:6px;">
-                ⚠️ ${dup.motivo}
-              </div>` : ''}
+              ${dup ? `<div style="background:rgba(${dup.nivel==='provavel'?'239,68,68':'245,158,11'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${dup.nivel==='provavel'?'#ef4444':'#f59e0b'};margin-bottom:6px;">⚠️ ${dup.motivo}</div>` : ''}
 
-              <!-- Info de parcelas -->
               ${parc ? `<div style="background:rgba(59,130,246,0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:#3b82f6;margin-bottom:6px;">
-                📦 Parcela ${parc.atual} de ${parc.total} — Serão criadas <b>${parc.total}</b> parcelas (retroativas: ${parc.retroativas}, futuras: ${parc.futuras}) | Data da compra original: ${parc.dataBase}
+                📦 Parcela ${parc.atual} de ${parc.total} — Serão criadas <b>${parc.total}</b> parcelas (retroativas: ${parc.retroativas}, futuras: ${parc.futuras}) | Compra original: ${parc.dataBase}
               </div>` : ''}
 
-              <!-- Configurações por linha -->
-              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px;">
                 ${cartoes.length > 0 ? `
                 <div style="display:flex;align-items:center;gap:6px;">
                   <label style="color:#aaa;font-size:0.75rem;">Cartão:</label>
-                  <select id="imp-cartao-${idx}" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
+                  <select id="imp-cartao-${idx}"
+                    onchange="VM._impCartaoLinhaChange(${idx}, this.value)"
+                    style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
                     <option value="">Usar lote</option>
                     ${cartaoOptions}
                   </select>
                 </div>` : ''}
-                ${tags.length > 0 ? `
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <label style="color:#aaa;font-size:0.75rem;">Status:</label>
+                  <select id="imp-status-${idx}"
+                    style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
+                    <option value="pago" ${status==='pago'?'selected':''}>✅ pago</option>
+                    <option value="pendente" ${status==='pendente'?'selected':''}>⏳ pendente</option>
+                    <option value="cancelado">❌ cancelado</option>
+                  </select>
+                </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                   <label style="color:#aaa;font-size:0.75rem;">Tag:</label>
                   <select id="imp-tag-${idx}" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#e0e0e0;padding:4px 8px;border-radius:6px;font-size:0.75rem;">
-                    <option value="">Sem tag</option>
+                    <option value="">Auto (${tagSug ? tagSug.nome : 'por categoria'})</option>
+                    <option value="nenhuma">Sem tag</option>
                     ${tagOptions}
                   </select>
-                </div>` : ''}
+                </div>
               </div>
             </div>
           </div>
@@ -12158,11 +12172,34 @@ const VM = {
       `
     }).join('')
 
-    // Inicializar decisões
     this._impDecisoes = preview.map(item => {
       if (item.duplicata?.nivel === 'provavel') return false
       if (item.duplicata?.nivel === 'possivel') return false
       return true
+    })
+  },
+
+  _impCartaoLinhaChange(idx, cartaoId) {
+    const loteId = document.getElementById('imp-cartao-lote')?.value || ''
+    const temCartao = cartaoId || loteId
+    const meioEl = document.getElementById('imp-meio-label-' + idx)
+    if (meioEl) meioEl.textContent = temCartao ? '💳 crédito (cartão)' : (this._impData?.preview?.[idx]?.meio_pagamento || 'dinheiro')
+    const statusSel = document.getElementById('imp-status-' + idx)
+    if (statusSel) statusSel.value = temCartao ? 'pendente' : (this._impData?.preview?.[idx]?.status_sugerido || 'pago')
+  },
+
+  _impCartaoLoteChange(loteId) {
+    const preview = this._impData?.preview || []
+    preview.forEach((item, idx) => {
+      // Só atualiza linhas que não têm override próprio
+      const linhaCartao = document.getElementById('imp-cartao-' + idx)
+      const temOverride = linhaCartao && linhaCartao.value
+      if (!temOverride) {
+        const meioEl = document.getElementById('imp-meio-label-' + idx)
+        if (meioEl) meioEl.textContent = loteId ? '💳 crédito (cartão)' : (item.meio_pagamento || 'dinheiro')
+        const statusSel = document.getElementById('imp-status-' + idx)
+        if (statusSel) statusSel.value = loteId ? 'pendente' : (item.status_sugerido || 'pago')
+      }
     })
   },
 
@@ -12209,12 +12246,18 @@ const VM = {
       const linhas_config = preview.map((item, idx) => {
         const importar = this._impDecisoes ? this._impDecisoes[idx] : true
         const cartaoOverride = document.getElementById(`imp-cartao-${idx}`)?.value || ''
-        const tagId = document.getElementById(`imp-tag-${idx}`)?.value || ''
+        const tagRaw = document.getElementById(`imp-tag-${idx}`)?.value || ''
+        const statusOverride = document.getElementById(`imp-status-${idx}`)?.value || ''
+        // tagRaw: '' = auto por categoria, 'nenhuma' = sem tag, '123' = id da tag
+        const tagId = (tagRaw && tagRaw !== 'nenhuma') ? parseInt(tagRaw) : null
+        const semTag = tagRaw === 'nenhuma'
         return {
           linha: item.linha,
           importar,
           cartao_id_override: cartaoOverride ? parseInt(cartaoOverride) : null,
-          tag_id: tagId ? parseInt(tagId) : null,
+          tag_id: tagId,
+          sem_tag: semTag,
+          status: statusOverride || null,
         }
       })
 
@@ -12238,6 +12281,7 @@ const VM = {
             <b>${resp.importados || 0}</b> ${tipo} importadas com sucesso
           </p>
           ${temParcelas ? `<p style="color:#3b82f6;font-size:0.88rem;margin-bottom:6px;">📦 <b>${resp.parcelas_criadas}</b> parcelas geradas no histórico</p>` : ''}
+          ${(resp.tags_criadas||0) > 0 ? `<p style="color:#8b5cf6;font-size:0.88rem;margin-bottom:6px;">🏷✨ <b>${resp.tags_criadas}</b> tag(s) criada(s) automaticamente</p>` : ''}
           ${resp.ignorados > 0 ? `<p style="color:#f59e0b;font-size:0.88rem;margin-bottom:6px;">⚠️ <b>${resp.ignorados}</b> linha(s) ignoradas</p>` : ''}
           ${resp.erros_detalhes?.length > 0 ? `
             <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px;margin:12px 0;text-align:left;">
