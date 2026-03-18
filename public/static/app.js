@@ -2818,11 +2818,19 @@ const VM = {
     const today = new Date().toISOString().split('T')[0]
     const categorias = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Moradia', 'Roupas', 'Assinaturas', 'Pets', 'Outros']
 
-    // Buscar cartões cadastrados
-    let cartoes = []
+    // Buscar cartões e tags em paralelo
+    let cartoes = [], tagsDisponiveis = [], tagsDaDespesa = []
     try {
-      const cartData = await this.api('GET', 'cartoes')
+      const [cartData, tagsData] = await Promise.all([
+        this.api('GET', 'cartoes').catch(() => ({})),
+        this.api('GET', 'tags').catch(() => [])
+      ])
       cartoes = cartData.cartoes || []
+      tagsDisponiveis = tagsData || []
+      // Se edição, buscar tags já vinculadas
+      if (isEdit && despesa.id) {
+        try { tagsDaDespesa = await this.api('GET', `tags/despesa/${despesa.id}`) } catch(e) { tagsDaDespesa = [] }
+      }
     } catch(e) { cartoes = [] }
 
     const cartaoOptions = cartoes.map(c => `<option value="${c.id}" ${despesa?.cartao_id == c.id ? 'selected' : ''}>${c.nome} (${c.bandeira || 'Cartão'})</option>`).join('')
@@ -2961,6 +2969,28 @@ const VM = {
               </div>
             </div>
 
+            <!-- Seletor de Tags -->
+            ${tagsDisponiveis.length > 0 ? `
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label">🏷️ Tags</label>
+              <div id="d-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;min-height:38px;">
+                ${tagsDisponiveis.map(t => {
+                  const sel = tagsDaDespesa.some(td => td.id === t.id)
+                  return `<span data-tag-id="${t.id}" data-tag-cor="${t.cor}" data-tag-selected="${sel ? '1' : '0'}" onclick="VM._toggleTag(this)" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;border:1.5px solid ${sel ? t.cor : 'rgba(255,255,255,0.1)'};background:${sel ? t.cor+'22' : 'transparent'};color:${sel ? t.cor : '#94A3B8'};transition:all 0.15s;user-select:none;">
+                    <span style="width:7px;height:7px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>
+                    ${t.nome}
+                  </span>`
+                }).join('')}
+              </div>
+              <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Clique para selecionar. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Gerenciar tags</a></div>
+            </div>
+            ` : `
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label">🏷️ Tags</label>
+              <div style="font-size:0.8rem;color:#475569;padding:8px 0;">Nenhuma tag criada. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Criar tags</a></div>
+            </div>
+            `}
+
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
               <button type="submit" class="btn-primary" style="flex:1;" id="d-submit">
@@ -3040,8 +3070,22 @@ const VM = {
           return
         }
 
-        if (isEdit) await this.api('PUT', `despesas/${despesa.id}`, payload)
-        else await this.api('POST', 'despesas', payload)
+        let savedId = null
+        if (isEdit) {
+          await this.api('PUT', `despesas/${despesa.id}`, payload)
+          savedId = despesa.id
+        } else {
+          const res = await this.api('POST', 'despesas', payload)
+          // Backend retorna { ids: [id1, id2, ...] } para parceladas ou id único
+          savedId = Array.isArray(res?.ids) ? res.ids[0] : (res?.id || null)
+        }
+
+        // Vincular tags selecionadas (se houver)
+        const tagsSel = this._getTagsSelecionadas()
+        if (savedId && tagsSel.length > 0) {
+          try { await this.api('POST', `tags/despesa/${savedId}`, { tag_ids: tagsSel }) } catch(e) {}
+        }
+
         const msg = isEdit ? 'Despesa atualizada!'
           : parcelado ? (isRetroativa
             ? `${numParcelasRestantes} parcelas restantes criadas! 📅`
@@ -4092,6 +4136,29 @@ const VM = {
     document.getElementById('tag-cor').value = cor
   },
 
+  // Toggle visual de tag no modal de despesa
+  _toggleTag(el) {
+    const cor = el.getAttribute('data-tag-cor') || '#10B981'
+    const isOn = el.dataset.tagSelected === '1'
+    if (isOn) {
+      el.dataset.tagSelected = '0'
+      el.style.border = '1.5px solid rgba(255,255,255,0.1)'
+      el.style.background = 'transparent'
+      el.style.color = '#94A3B8'
+    } else {
+      el.dataset.tagSelected = '1'
+      el.style.background = cor + '33'
+      el.style.color = cor
+      el.style.border = '1.5px solid ' + cor
+    }
+  },
+
+  // Retorna IDs das tags selecionadas no modal de despesa
+  _getTagsSelecionadas() {
+    const chips = document.querySelectorAll('#d-tags-chips [data-tag-id][data-tag-selected="1"]')
+    return Array.from(chips).map(c => parseInt(c.dataset.tagId))
+  },
+
   async salvarTag() {
     const nome = document.getElementById('tag-nome')?.value.trim()
     const cor  = document.getElementById('tag-cor')?.value
@@ -4158,36 +4225,64 @@ const VM = {
   async buscarPorTag(tagId, tagNome) {
     const cont = document.getElementById('tag-busca-resultado')
     if (!cont) return
-    cont.innerHTML = `<div style="text-align:center;padding:20px;color:#64748B;">Carregando...</div>`
+    cont.innerHTML = `<div style="text-align:center;padding:20px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
     try {
       const rows = await this.api('GET', `tags/buscar?tag_id=${tagId}`)
       if (!rows || rows.length === 0) {
         cont.innerHTML = `
-          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:20px;text-align:center;">
+          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:24px;text-align:center;">
+            <div style="font-size:2rem;margin-bottom:10px;">🔍</div>
             <div style="color:#64748B;font-size:0.9rem;">Nenhuma despesa com a tag <strong style="color:#10B981;">${tagNome}</strong></div>
+            <div style="font-size:0.78rem;color:#475569;margin-top:8px;">Vincule esta tag ao cadastrar ou editar uma despesa</div>
           </div>`
         return
       }
+
+      // Agrupar por mês/ano
+      const grupos = {}
+      let totalGeral = 0
+      const mesesPT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      rows.forEach(r => {
+        const [ano, mes] = (r.data || '').split('-')
+        const key = `${ano}-${mes}`
+        const label = `${mesesPT[parseInt(mes)-1] || mes}/${ano}`
+        if (!grupos[key]) grupos[key] = { label, itens: [], total: 0 }
+        grupos[key].itens.push(r)
+        grupos[key].total += r.valor
+        totalGeral += r.valor
+      })
+
+      const gruposOrdenados = Object.keys(grupos).sort((a,b) => b.localeCompare(a))
+
       cont.innerHTML = `
-        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;">
-          <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;">
+        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;margin-top:8px;">
+          <!-- Header -->
+          <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
             <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">
-              🏷️ Despesas com tag <span style="color:#10B981;">${tagNome}</span> (${rows.length})
+              🏷️ Tag: <span style="color:#10B981;">${tagNome}</span> · <span style="color:#F8FAFC;">${rows.length} despesa${rows.length !== 1 ? 's' : ''}</span>
             </div>
-            <div style="font-size:0.85rem;font-weight:700;color:#F8FAFC;">
-              Total: R$ ${this.formatMoney(rows.reduce((s, r) => s + r.valor, 0))}
-            </div>
+            <div style="font-size:0.9rem;font-weight:700;color:#F43F5E;">Total: R$ ${this.formatMoney(totalGeral)}</div>
           </div>
-          ${rows.slice(0, 20).map(r => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-top:1px solid rgba(255,255,255,0.04);">
-              <div>
-                <div style="font-size:0.87rem;color:#F8FAFC;">${r.descricao}</div>
-                <div style="font-size:0.73rem;color:#64748B;">${r.data} · ${r.categoria}</div>
+          <!-- Por mês -->
+          ${gruposOrdenados.map(key => {
+            const g = grupos[key]
+            return `
+            <div style="border-top:1px solid rgba(255,255,255,0.04);">
+              <div style="padding:8px 18px 4px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:0.77rem;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;">${g.label}</span>
+                <span style="font-size:0.78rem;color:#94A3B8;">R$ ${this.formatMoney(g.total)}</span>
               </div>
-              <div style="font-size:0.88rem;font-weight:600;color:#F43F5E;">R$ ${this.formatMoney(r.valor)}</div>
-            </div>
-          `).join('')}
-          ${rows.length > 20 ? `<div style="padding:10px 18px;font-size:0.75rem;color:#475569;text-align:center;">+ ${rows.length - 20} mais...</div>` : ''}
+              ${g.itens.map(r => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-top:1px solid rgba(255,255,255,0.03);">
+                  <div>
+                    <div style="font-size:0.85rem;color:#F8FAFC;">${r.descricao}</div>
+                    <div style="font-size:0.72rem;color:#475569;">${r.data} · ${r.categoria}</div>
+                  </div>
+                  <div style="font-size:0.87rem;font-weight:600;color:#F43F5E;white-space:nowrap;">R$ ${this.formatMoney(r.valor)}</div>
+                </div>
+              `).join('')}
+            </div>`
+          }).join('')}
         </div>`
     } catch (e) {
       cont.innerHTML = `<div style="color:#F43F5E;padding:16px;">Erro ao buscar despesas</div>`

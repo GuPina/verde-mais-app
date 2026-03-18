@@ -184,19 +184,20 @@ importacao.post('/executar', requireAuth, async (c) => {
       try {
         if (tipo === 'despesas') {
           await c.env.DB.prepare(
-            `INSERT INTO despesas (user_id, descricao, valor, categoria, data, status, tipo, origem)
-             VALUES (?, ?, ?, ?, ?, 'pago', 'normal', 'importacao_csv')`
+            `INSERT INTO despesas (user_id, descricao, valor, categoria, data, status, tipo, observacoes)
+             VALUES (?, ?, ?, ?, ?, 'pago', 'normal', 'Importado via CSV')`
           ).bind(user.id, desc, valor, cat, data).run()
         } else {
           await c.env.DB.prepare(
-            `INSERT INTO receitas (user_id, descricao, valor, categoria, data, tipo)
-             VALUES (?, ?, ?, ?, ?, 'outros')`
+            `INSERT INTO receitas (user_id, descricao, valor, categoria, data, observacoes)
+             VALUES (?, ?, ?, ?, ?, 'Importado via CSV')`
           ).bind(user.id, desc, valor, cat, data).run()
         }
         importados++
-      } catch {
+      } catch (insertErr: any) {
         erros++
-        erroDetalhes.push(`Linha ${i+1}: erro ao inserir`)
+        const errMsg = insertErr?.message || insertErr?.cause?.message || JSON.stringify(insertErr) || 'erro ao inserir'
+        erroDetalhes.push(`Linha ${i+1}: ${errMsg}`)
       }
     }
 
