@@ -81,44 +81,46 @@ emprestimos.post('/', requireAuth, async (c) => {
   const diaVenc = parseInt(dia_vencimento) || dataInicio.getDate()
 
   // Referência para datas das parcelas:
-  // Se informou data_primeira_parcela, usa ela como base (parcela 1 = essa data)
-  // Senão, calcula: próximo dia de vencimento após data_inicio
   let dataPrimeiraRef: Date
   if (data_primeira_parcela) {
     dataPrimeiraRef = new Date(data_primeira_parcela + 'T12:00:00')
   } else {
-    // Próximo vencimento: mesmo mês se dia_venc > dia da contratação, senão mês seguinte
     dataPrimeiraRef = new Date(dataInicio.getFullYear(), dataInicio.getMonth(), diaVenc)
     if (dataPrimeiraRef <= dataInicio) {
       dataPrimeiraRef.setMonth(dataPrimeiraRef.getMonth() + 1)
     }
   }
 
-  for (let i = parcelasPagasN; i < totalParcelas; i++) {
-    const dataParc = new Date(dataPrimeiraRef)
-    // Adiciona (i - parcelasPagasN_offset) meses em relação à primeira parcela pendente
-    // Parcela parcelasPagasN+1 = dataPrimeiraRef, parcela parcelasPagasN+2 = +1 mês, etc.
-    dataParc.setMonth(dataPrimeiraRef.getMonth() + (i - parcelasPagasN))
-    // Garantir o dia correto mesmo em meses curtos
-    const maxDia = new Date(dataParc.getFullYear(), dataParc.getMonth() + 1, 0).getDate()
-    dataParc.setDate(Math.min(diaVenc, maxDia))
-    const dataParcStr = dataParc.toISOString().split('T')[0]
-    await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      user.id,
-      `${descricao} (${i + 1}/${totalParcelas})`,
-      dataParcStr,
-      'Empréstimo',
-      valorParc,
-      1, totalParcelas, i + 1,
-      i < parcelasPagasN ? 'pago' : 'pendente',
-      'fixa', 0,
-      dataParcStr,
-      `Empréstimo automático #${empId} — ${credor || tipo}`,
-      'transferencia'
-    ).run()
+  // Inserir despesas em batch para evitar timeout
+  const LOTE = 100
+  for (let base = parcelasPagasN; base < totalParcelas; base += LOTE) {
+    const stmts = []
+    for (let i = base; i < Math.min(base + LOTE, totalParcelas); i++) {
+      const dataParc = new Date(dataPrimeiraRef)
+      dataParc.setMonth(dataPrimeiraRef.getMonth() + (i - parcelasPagasN))
+      const maxDia = new Date(dataParc.getFullYear(), dataParc.getMonth() + 1, 0).getDate()
+      dataParc.setDate(Math.min(diaVenc, maxDia))
+      const dataParcStr = dataParc.toISOString().split('T')[0]
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          user.id,
+          `${descricao} (${i + 1}/${totalParcelas})`,
+          dataParcStr,
+          'Empréstimo',
+          valorParc,
+          1, totalParcelas, i + 1,
+          'pendente',
+          'fixa', 0,
+          dataParcStr,
+          `Empréstimo automático #${empId} — ${credor || tipo}`,
+          'transferencia'
+        )
+      )
+    }
+    await c.env.DB.batch(stmts)
   }
 
   return c.json({ success: true, id: empId, message: 'Empréstimo cadastrado e despesas criadas automaticamente!' }, 201)

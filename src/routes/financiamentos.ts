@@ -67,8 +67,9 @@ financiamentos.post('/', requireAuth, async (c) => {
   const {
     descricao, tipo_imovel = 'residencial', tipo_bem = 'imovel', valor_imovel, valor_financiado, valor_entrada = 0,
     taxa_juros_anual, numero_parcelas, parcelas_pagas = 0, valor_parcela,
-    data_inicio, banco, contrato, sistema_amortizacao = 'price', indexador = 'prefixado', observacoes
+    data_inicio, banco, contrato, sistema_amortizacao: _sa = 'price', indexador = 'prefixado', observacoes
   } = body
+  const sistema_amortizacao = (_sa as string).toLowerCase()
 
   if (!descricao || !valor_imovel || !valor_financiado || !taxa_juros_anual || !numero_parcelas || !valor_parcela || !data_inicio)
     return c.json({ error: 'Preencha todos os campos obrigatórios' }, 400)
@@ -89,31 +90,39 @@ financiamentos.post('/', requireAuth, async (c) => {
 
   const finId = result.meta.last_row_id as number
 
-  // === Criar despesas automáticas das parcelas futuras ===
+  // === Criar despesas automáticas das parcelas futuras (batch para performance) ===
   const parcelasPagasN = parseInt(parcelas_pagas)
   const totalParcelasN = parseInt(numero_parcelas)
   const valorParcelaN = parseFloat(valor_parcela)
 
-  for (let i = parcelasPagasN; i < totalParcelasN; i++) {
-    const dataParc = new Date(dataInicio)
-    dataParc.setMonth(dataParc.getMonth() + i)
-    const dataParcStr = dataParc.toISOString().split('T')[0]
-    await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      user.id,
-      `${descricao} (${i + 1}/${totalParcelasN})`,
-      dataParcStr,
-      'Financiamento',
-      valorParcelaN,
-      1, totalParcelasN, i + 1,
-      i < parcelasPagasN ? 'pago' : 'pendente',
-      'fixa', 0,
-      dataParcStr,
-      `Financiamento automático #${finId} — ${banco || tipo_imovel}`,
-      'transferencia'
-    ).run()
+  // Inserir em lotes de 100 para evitar timeout
+  const LOTE = 100
+  for (let base = parcelasPagasN; base < totalParcelasN; base += LOTE) {
+    const stmts = []
+    for (let i = base; i < Math.min(base + LOTE, totalParcelasN); i++) {
+      const dataParc = new Date(dataInicio)
+      dataParc.setMonth(dataParc.getMonth() + i)
+      const dataParcStr = dataParc.toISOString().split('T')[0]
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          user.id,
+          `${descricao} (${i + 1}/${totalParcelasN})`,
+          dataParcStr,
+          'Financiamento',
+          valorParcelaN,
+          1, totalParcelasN, i + 1,
+          'pendente',
+          'fixa', 0,
+          dataParcStr,
+          `Financiamento automático #${finId} — ${banco || tipo_imovel}`,
+          'transferencia'
+        )
+      )
+    }
+    await c.env.DB.batch(stmts)
   }
 
   await verificarConquista(c.env.DB, user.id, 'planejador')
