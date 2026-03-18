@@ -7,6 +7,164 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const financiamentos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ─── S-F1: GET /api/financiamentos/resumo ────────────────────────────────────
+financiamentos.get('/resumo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM financiamentos WHERE user_id = ? ORDER BY data_criacao DESC'
+  ).bind(user.id).all()
+
+  const list = result.results as any[]
+
+  // Agrupar por tipo_bem
+  const grupos: Record<string, any> = {}
+  for (const f of list) {
+    const tipo = f.tipo_bem || 'outros'
+    if (!grupos[tipo]) grupos[tipo] = { tipo, count: 0, saldo_total: 0, parcela_mensal: 0, quitados: 0, ativos: 0 }
+    grupos[tipo].count++
+    if (f.status === 'ativo') {
+      grupos[tipo].saldo_total += f.saldo_devedor
+      grupos[tipo].parcela_mensal += f.valor_parcela
+      grupos[tipo].ativos++
+    } else {
+      grupos[tipo].quitados++
+    }
+  }
+
+  const saldoTotal = list.filter(f => f.status === 'ativo').reduce((s, f) => s + f.saldo_devedor, 0)
+  const parcelaMensal = list.filter(f => f.status === 'ativo').reduce((s, f) => s + f.valor_parcela, 0)
+
+  return c.json({
+    resumo_por_tipo: Object.values(grupos).map(g => ({
+      ...g,
+      saldo_total: Math.round(g.saldo_total * 100) / 100,
+      parcela_mensal: Math.round(g.parcela_mensal * 100) / 100
+    })),
+    totais: {
+      total_financiamentos: list.length,
+      ativos: list.filter(f => f.status === 'ativo').length,
+      quitados: list.filter(f => f.status === 'quitado').length,
+      saldo_devedor_total: Math.round(saldoTotal * 100) / 100,
+      comprometimento_mensal: Math.round(parcelaMensal * 100) / 100
+    }
+  })
+})
+
+// ─── S-F2: GET /api/financiamentos/:id/comparativo ───────────────────────────
+// Compara sistema PRICE vs SAC para o financiamento existente
+financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare(
+    'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const saldo = fin.saldo_devedor
+  const taxaMensal = fin.taxa_juros_mensal / 100
+  const parcelasRestantes = fin.numero_parcelas - fin.parcelas_pagas
+
+  // ── PRICE: parcela fixa ──────────────────────────────────────────────────
+  let totalJurosPrice = 0
+  let saldoPrice = saldo
+  const tabelaPrice = []
+  for (let i = 1; i <= parcelasRestantes; i++) {
+    const juros = saldoPrice * taxaMensal
+    const parcela = fin.valor_parcela
+    const amort = parcela - juros
+    saldoPrice = Math.max(0, saldoPrice - amort)
+    totalJurosPrice += juros
+    if (i <= 6 || i === parcelasRestantes) {
+      tabelaPrice.push({ parcela: fin.parcelas_pagas + i, valor: Math.round(parcela * 100) / 100, juros: Math.round(juros * 100) / 100, amort: Math.round(amort * 100) / 100, saldo: Math.round(saldoPrice * 100) / 100 })
+    }
+  }
+
+  // ── SAC: amortização constante ────────────────────────────────────────────
+  let totalJurosSAC = 0
+  let saldoSAC = saldo
+  const amortSAC = saldo / parcelasRestantes
+  const tabelaSAC = []
+  for (let i = 1; i <= parcelasRestantes; i++) {
+    const juros = saldoSAC * taxaMensal
+    const parcela = amortSAC + juros
+    saldoSAC = Math.max(0, saldoSAC - amortSAC)
+    totalJurosSAC += juros
+    if (i <= 6 || i === parcelasRestantes) {
+      tabelaSAC.push({ parcela: fin.parcelas_pagas + i, valor: Math.round(parcela * 100) / 100, juros: Math.round(juros * 100) / 100, amort: Math.round(amortSAC * 100) / 100, saldo: Math.round(saldoSAC * 100) / 100 })
+    }
+  }
+
+  const economiaSAC = totalJurosPrice - totalJurosSAC
+
+  return c.json({
+    financiamento_id: fin.id,
+    descricao: fin.descricao,
+    saldo_devedor: saldo,
+    parcelas_restantes: parcelasRestantes,
+    taxa_mensal: fin.taxa_juros_mensal,
+    price: {
+      parcela_fixa: Math.round(fin.valor_parcela * 100) / 100,
+      total_juros: Math.round(totalJurosPrice * 100) / 100,
+      total_pagar: Math.round((fin.valor_parcela * parcelasRestantes) * 100) / 100,
+      primeiras_parcelas: tabelaPrice.slice(0, 6)
+    },
+    sac: {
+      primeira_parcela: tabelaSAC[0]?.valor || 0,
+      ultima_parcela: tabelaSAC[tabelaSAC.length - 1]?.valor || 0,
+      total_juros: Math.round(totalJurosSAC * 100) / 100,
+      total_pagar: Math.round((saldo + totalJurosSAC) * 100) / 100,
+      primeiras_parcelas: tabelaSAC.slice(0, 6)
+    },
+    economia_sac_vs_price: Math.round(economiaSAC * 100) / 100,
+    recomendacao: economiaSAC > 0
+      ? `SAC economiza R$ ${economiaSAC.toFixed(2)} em juros, mas exige parcelas iniciais maiores (R$ ${tabelaSAC[0]?.valor?.toFixed(2)}).`
+      : `PRICE é mais vantajoso neste cenário com parcelas menores (R$ ${fin.valor_parcela.toFixed(2)}).`
+  })
+})
+
+// ─── S-F4: GET /api/financiamentos/:id/tabela-amortizacao ────────────────────
+// Exporta tabela completa de amortização (até 480 parcelas)
+financiamentos.get('/:id/tabela-amortizacao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare(
+    'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const taxaMensal = fin.taxa_juros_mensal / 100
+  const tabela = []
+  let saldo = fin.saldo_devedor
+  let totalJuros = 0
+  let totalAmort = 0
+
+  for (let i = fin.parcelas_pagas + 1; i <= fin.numero_parcelas; i++) {
+    const juros = saldo * taxaMensal
+    const amort = fin.valor_parcela - juros
+    saldo = Math.max(0, Math.round((saldo - amort) * 100) / 100)
+    totalJuros += juros
+    totalAmort += amort
+    tabela.push({
+      numero: i,
+      valor_parcela: fin.valor_parcela,
+      juros: Math.round(juros * 100) / 100,
+      amortizacao: Math.round(amort * 100) / 100,
+      saldo_devedor: saldo
+    })
+  }
+
+  return c.json({
+    financiamento_id: fin.id,
+    descricao: fin.descricao,
+    sistema: fin.sistema_amortizacao,
+    parcelas_restantes: fin.numero_parcelas - fin.parcelas_pagas,
+    total_juros_restantes: Math.round(totalJuros * 100) / 100,
+    total_amortizacao: Math.round(totalAmort * 100) / 100,
+    total_a_pagar: Math.round((totalJuros + totalAmort) * 100) / 100,
+    tabela
+  })
+})
+
 // GET /api/financiamentos
 financiamentos.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -18,8 +176,8 @@ financiamentos.get('/', requireAuth, async (c) => {
     const percPago = f.numero_parcelas > 0 ? Math.round((f.parcelas_pagas / f.numero_parcelas) * 100) : 0
     const parcelasRestantes = f.numero_parcelas - f.parcelas_pagas
     const totalPago = f.valor_parcela * f.parcelas_pagas
-    const totalJuros = totalPago - (f.valor_financiado * (f.parcelas_pagas / f.numero_parcelas))
-    return { ...f, perc_pago: percPago, parcelas_restantes: parcelasRestantes, total_pago: totalPago }
+    const custoMensal = (f.valor_parcela || 0) + (f.seguro_mip || 0) + (f.seguro_dfi || 0)
+    return { ...f, perc_pago: percPago, parcelas_restantes: parcelasRestantes, total_pago: totalPago, custo_total_mensal: Math.round(custoMensal * 100) / 100 }
   })
 
   const totalSaldo = list.reduce((s, f) => s + (f.status === 'ativo' ? f.saldo_devedor : 0), 0)
@@ -67,7 +225,8 @@ financiamentos.post('/', requireAuth, async (c) => {
   const {
     descricao, tipo_imovel = 'residencial', tipo_bem = 'imovel', valor_imovel, valor_financiado, valor_entrada = 0,
     taxa_juros_anual, numero_parcelas, parcelas_pagas = 0, valor_parcela,
-    data_inicio, banco, contrato, sistema_amortizacao: _sa = 'price', indexador = 'prefixado', observacoes
+    data_inicio, banco, contrato, sistema_amortizacao: _sa = 'price', indexador = 'prefixado',
+    seguro_mip = 0, seguro_dfi = 0, observacoes
   } = body
   const sistema_amortizacao = (_sa as string).toLowerCase()
 
@@ -84,9 +243,9 @@ financiamentos.post('/', requireAuth, async (c) => {
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO financiamentos (user_id, descricao, tipo_imovel, tipo_bem, valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, saldo_devedor, data_inicio, data_previsao_fim, sistema_amortizacao, banco, contrato, indexador, observacoes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo_imovel, tipo_bem, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFim.toISOString().split('T')[0], sistema_amortizacao, banco || null, contrato || null, indexador, observacoes || null).run()
+    `INSERT INTO financiamentos (user_id, descricao, tipo_imovel, tipo_bem, valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, saldo_devedor, data_inicio, data_previsao_fim, sistema_amortizacao, banco, contrato, indexador, seguro_mip, seguro_dfi, observacoes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, descricao, tipo_imovel, tipo_bem, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFim.toISOString().split('T')[0], sistema_amortizacao, banco || null, contrato || null, indexador, parseFloat(seguro_mip) || 0, parseFloat(seguro_dfi) || 0, observacoes || null).run()
 
   const finId = result.meta.last_row_id as number
 
@@ -138,27 +297,50 @@ financiamentos.post('/', requireAuth, async (c) => {
 financiamentos.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const existing = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
-  if (!existing) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
   const body = await c.req.json()
-  const { descricao, tipo_imovel, valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, banco, contrato, sistema_amortizacao, indexador, status, observacoes } = body
+
+  // Merge: usa valor do body se fornecido, senão mantém o atual do banco
+  const descricao        = body.descricao        ?? fin.descricao
+  const tipo_imovel      = body.tipo_imovel      ?? fin.tipo_imovel
+  const tipo_bem         = body.tipo_bem         ?? fin.tipo_bem
+  const valor_imovel     = body.valor_imovel     ?? fin.valor_imovel
+  const valor_financiado = body.valor_financiado ?? fin.valor_financiado
+  const valor_entrada    = body.valor_entrada    ?? fin.valor_entrada
+  const taxa_juros_anual = body.taxa_juros_anual ?? fin.taxa_juros_anual
+  const numero_parcelas  = body.numero_parcelas  ?? fin.numero_parcelas
+  const parcelas_pagas   = body.parcelas_pagas   ?? fin.parcelas_pagas
+  const valor_parcela    = body.valor_parcela    ?? fin.valor_parcela
+  const data_inicio      = body.data_inicio      ?? fin.data_inicio
+  const banco            = body.banco            ?? fin.banco
+  const contrato         = body.contrato         ?? fin.contrato
+  const sistema_amortizacao = (body.sistema_amortizacao ?? fin.sistema_amortizacao)?.toLowerCase()
+  const indexador        = body.indexador        ?? fin.indexador
+  const status           = body.status           ?? fin.status
+  const observacoes      = body.observacoes      ?? fin.observacoes
+  const seguro_mip       = body.seguro_mip       ?? fin.seguro_mip
+  const seguro_dfi       = body.seguro_dfi       ?? fin.seguro_dfi
 
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
   const saldoDevedor = calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, parseInt(numero_parcelas), parseInt(parcelas_pagas))
 
   // Recalcular data_previsao_fim
   const dataInicioPut = new Date(data_inicio)
-  const dataFimPut = new Date(dataInicioPut)
-  dataFimPut.setMonth(dataFimPut.getMonth() + parseInt(numero_parcelas))
+  let dataFimStr = fin.data_previsao_fim
+  if (!isNaN(dataInicioPut.getTime())) {
+    const dataFimPut = new Date(dataInicioPut)
+    dataFimPut.setMonth(dataFimPut.getMonth() + parseInt(numero_parcelas))
+    dataFimStr = dataFimPut.toISOString().split('T')[0]
+  }
 
   await c.env.DB.prepare(
-    `UPDATE financiamentos SET descricao=?, tipo_imovel=?, valor_imovel=?, valor_financiado=?, valor_entrada=?, taxa_juros_anual=?, taxa_juros_mensal=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, saldo_devedor=?, data_inicio=?, data_previsao_fim=?, banco=?, contrato=?, sistema_amortizacao=?, indexador=?, status=?, observacoes=? WHERE id=? AND user_id=?`
-  ).bind(descricao, tipo_imovel, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada), parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFimPut.toISOString().split('T')[0], banco || null, contrato || null, sistema_amortizacao, indexador, status || 'ativo', observacoes || null, id, user.id).run()
+    `UPDATE financiamentos SET descricao=?, tipo_imovel=?, tipo_bem=?, valor_imovel=?, valor_financiado=?, valor_entrada=?, taxa_juros_anual=?, taxa_juros_mensal=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, saldo_devedor=?, data_inicio=?, data_previsao_fim=?, banco=?, contrato=?, sistema_amortizacao=?, indexador=?, status=?, observacoes=?, seguro_mip=?, seguro_dfi=? WHERE id=? AND user_id=?`
+  ).bind(descricao, tipo_imovel, tipo_bem, parseFloat(valor_imovel), parseFloat(valor_financiado), parseFloat(valor_entrada) || 0, parseFloat(taxa_juros_anual), taxaMensal * 100, parseInt(numero_parcelas), parseInt(parcelas_pagas), parseFloat(valor_parcela), saldoDevedor, data_inicio, dataFimStr, banco || null, contrato || null, sistema_amortizacao, indexador || null, status || 'ativo', observacoes || null, parseFloat(seguro_mip) || 0, parseFloat(seguro_dfi) || 0, id, user.id).run()
 
   if (status === 'quitado') {
     await verificarConquista(c.env.DB, user.id, 'sem_dividas')
-    // sem_dividas_total
     const aindaTemDividas = await c.env.DB.prepare(
       `SELECT COUNT(*) as total FROM (
         SELECT id FROM emprestimos WHERE user_id=? AND status='ativo'
@@ -226,8 +408,14 @@ financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
-  const { valor_amortizado, novo_saldo, parcelas_antecipadas = 0, observacoes } = await c.req.json()
-  if (!valor_amortizado || novo_saldo === undefined) return c.json({ error: 'valor_amortizado e novo_saldo são obrigatórios' }, 400)
+  const body = await c.req.json()
+  // Aceita 'valor' ou 'valor_amortizado' para compatibilidade
+  const valor_amortizado = body.valor_amortizado ?? body.valor
+  const parcelas_antecipadas = body.parcelas_antecipadas ?? 0
+  const observacoes = body.observacoes ?? body.descricao
+  // Se novo_saldo não for informado, calcula automaticamente
+  const novo_saldo = body.novo_saldo !== undefined ? body.novo_saldo : (fin.saldo_devedor - parseFloat(valor_amortizado))
+  if (!valor_amortizado) return c.json({ error: 'valor_amortizado (ou valor) é obrigatório' }, 400)
 
   const novasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas))
   const novasParcelas = Math.min(fin.numero_parcelas, fin.parcelas_pagas + novasPorAntecipacao)

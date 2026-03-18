@@ -17,6 +17,9 @@ projecao.get('/', requireAuth, async (c) => {
     }, 403)
   }
 
+  // S-P1: parâmetro meses (1–24, default 12)
+  const mesesParam = Math.min(24, Math.max(1, parseInt(c.req.query('meses') || '12') || 12))
+
   const hoje = new Date()
   const anoAtual = hoje.getFullYear()
   const mesAtual = hoje.getMonth() + 1
@@ -137,7 +140,7 @@ projecao.get('/', requireAuth, async (c) => {
     : 0
 
   let saldoAcum = saldoAtual
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= mesesParam; i++) {
     let m = mesAtual + i
     let a = anoAtual
     while (m > 12) { m -= 12; a += 1 }
@@ -204,6 +207,54 @@ projecao.get('/', requireAuth, async (c) => {
     insights.push(`⚠️ Em 12 meses, despesas recorrentes e inflação podem reduzir seu saldo acumulado para R$ ${proj12.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`)
   }
 
+  // ── S-P2: Projeção patrimonial com investimentos ──────────────────────────
+  const investimentosAtivos = await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(valor_atual), 0) as total_atual,
+           COALESCE(SUM(valor_investido), 0) as total_investido
+    FROM investimentos WHERE user_id = ?
+  `).bind(user.id).first() as any
+
+  const totalInvestimentos = parseFloat(investimentosAtivos?.total_atual || 0)
+  const totalInvestido = parseFloat(investimentosAtivos?.total_investido || 0)
+  const rendimentoMensal = totalInvestido > 0
+    ? (totalInvestimentos - totalInvestido) / totalInvestido / Math.max(1, 1) // retorno médio simplificado
+    : 0
+
+  // Buscar CDI atual para projeção de rendimento
+  const cdiCache = await c.env.DB.prepare(
+    `SELECT valor_brl FROM cotacoes_cache WHERE tipo='selic' ORDER BY atualizado_em DESC LIMIT 1`
+  ).bind().first() as any
+  const cdiAnual = parseFloat(cdiCache?.valor_brl || 14.9)
+  const cdiMensal = Math.pow(1 + cdiAnual / 100, 1 / 12) - 1
+
+  // S-P3: Cenários otimista / pessimista (±1 desvio padrão)
+  const cenarioOtimista: any[] = []
+  const cenarioPessimista: any[] = []
+  let saldoOtim = saldoAtual
+  let saldoPess = saldoAtual
+
+  for (let i = 1; i <= mesesParam; i++) {
+    let m = mesAtual + i
+    let a = anoAtual
+    while (m > 12) { m -= 12; a += 1 }
+    const mesesNomesC = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    const label = `${mesesNomesC[m-1]}/${a}`
+    const keyMes = `${String(a)}-${String(m).padStart(2, '0')}`
+    const detMin = parcelasMap[keyMes] || 0
+
+    // Otimista: receitas +10%, despesas -5%
+    const recOtim = avgReceitas * 1.10
+    const despOtim = (avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i) * 0.95) + recorrenciaMensal + detMin
+    saldoOtim += (recOtim - despOtim)
+    cenarioOtimista.push({ mes: m, ano: a, label, valor: Math.round(saldoOtim * 100) / 100 })
+
+    // Pessimista: receitas -10%, despesas +10%
+    const recPess = avgReceitas * 0.90
+    const despPess = (avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i) * 1.10) + recorrenciaMensal + detMin
+    saldoPess += (recPess - despPess)
+    cenarioPessimista.push({ mes: m, ano: a, label, valor: Math.round(saldoPess * 100) / 100 })
+  }
+
   // Conquista: consultou projeção (projetor + projecao_vista do Bloco 5)
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
@@ -248,6 +299,12 @@ projecao.get('/', requireAuth, async (c) => {
   return c.json({
     historico: meses,
     projecoes,
+    // S-P3: cenários otimista / pessimista
+    cenarios: {
+      base: projecoes,
+      otimista: cenarioOtimista,
+      pessimista: cenarioPessimista
+    },
     tendencia,
     media_mensal: Math.round(mediaPonderada * 100) / 100,
     media_receitas: Math.round(avgReceitas * 100) / 100,
@@ -255,7 +312,16 @@ projecao.get('/', requireAuth, async (c) => {
     saldo_atual: Math.round(saldoAtual * 100) / 100,
     confianca,
     insights,
-    // Melhoria 2.3: dados determinísticos
+    // S-P1: horizonte configurável
+    horizonte_meses: mesesParam,
+    // S-P2: projeção patrimonial com investimentos
+    patrimonio: {
+      investimentos_atual: Math.round(totalInvestimentos * 100) / 100,
+      investimentos_investido: Math.round(totalInvestido * 100) / 100,
+      rendimento_cdi_anual: cdiAnual,
+      projecao_investimentos_12m: Math.round(totalInvestimentos * Math.pow(1 + cdiMensal, Math.min(12, mesesParam)) * 100) / 100
+    },
+    // Dados determinísticos
     dados_certos: {
       recorrencias_mensais: Math.round(recorrenciaMensal * 100) / 100,
       lembretes_estimados: Math.round(lembretesTotal * 100) / 100,
@@ -265,8 +331,10 @@ projecao.get('/', requireAuth, async (c) => {
     // Bloco 6.3: análise de viabilidade das metas
     metas_analise,
     resumo: {
-      projecao_6m: Math.round((projecoes[5]?.valor || 0) * 100) / 100,
-      projecao_12m: Math.round((projecoes[11]?.valor || 0) * 100) / 100,
+      projecao_6m: Math.round((projecoes[5]?.valor || projecoes[projecoes.length - 1]?.valor || 0) * 100) / 100,
+      projecao_12m: Math.round((projecoes[11]?.valor || projecoes[projecoes.length - 1]?.valor || 0) * 100) / 100,
+      cenario_otimista_12m: Math.round((cenarioOtimista[11]?.valor || cenarioOtimista[cenarioOtimista.length - 1]?.valor || 0) * 100) / 100,
+      cenario_pessimista_12m: Math.round((cenarioPessimista[11]?.valor || cenarioPessimista[cenarioPessimista.length - 1]?.valor || 0) * 100) / 100,
     }
   })
 })

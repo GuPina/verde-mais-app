@@ -7,6 +7,110 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const emprestimos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ─── S-E1: GET /api/emprestimos/resumo ───────────────────────────────────────
+emprestimos.get('/resumo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE user_id = ? ORDER BY data_criacao DESC'
+  ).bind(user.id).all()
+
+  const list = result.results as any[]
+  const ativos = list.filter(e => e.status === 'ativo')
+  const quitados = list.filter(e => e.status === 'quitado')
+
+  // Agrupar por tipo com CET anualizado
+  const grupos: Record<string, any> = {}
+  for (const e of list) {
+    const tipo = e.tipo || 'outros'
+    if (!grupos[tipo]) grupos[tipo] = { tipo, count: 0, saldo_total: 0, parcela_mensal: 0 }
+    grupos[tipo].count++
+    if (e.status === 'ativo') {
+      grupos[tipo].saldo_total += e.saldo_devedor
+      grupos[tipo].parcela_mensal += e.valor_parcela
+    }
+  }
+
+  // CET médio ponderado dos empréstimos ativos
+  const totalSaldoAtivo = ativos.reduce((s, e) => s + e.saldo_devedor, 0)
+  let cetMedioPonderado = 0
+  if (totalSaldoAtivo > 0) {
+    cetMedioPonderado = ativos.reduce((acc, e) => {
+      const cetAnual = (Math.pow(1 + e.taxa_juros_mensal / 100, 12) - 1) * 100
+      return acc + cetAnual * (e.saldo_devedor / totalSaldoAtivo)
+    }, 0)
+  }
+
+  // Maior CET entre empréstimos ativos (candidato a quitação prioritária)
+  const maiorCet = ativos.length > 0
+    ? ativos.reduce((max, e) => e.taxa_juros_mensal > max.taxa_juros_mensal ? e : max, ativos[0])
+    : null
+
+  return c.json({
+    resumo_por_tipo: Object.values(grupos).map(g => ({
+      ...g,
+      saldo_total: Math.round(g.saldo_total * 100) / 100,
+      parcela_mensal: Math.round(g.parcela_mensal * 100) / 100
+    })),
+    totais: {
+      total_emprestimos: list.length,
+      ativos: ativos.length,
+      quitados: quitados.length,
+      saldo_devedor_total: Math.round(totalSaldoAtivo * 100) / 100,
+      comprometimento_mensal: Math.round(ativos.reduce((s, e) => s + e.valor_parcela, 0) * 100) / 100,
+      cet_medio_ponderado_anual: Math.round(cetMedioPonderado * 100) / 100
+    },
+    prioridade_quitacao: maiorCet ? {
+      id: maiorCet.id,
+      descricao: maiorCet.descricao,
+      taxa_mensal: maiorCet.taxa_juros_mensal,
+      cet_anual: Math.round((Math.pow(1 + maiorCet.taxa_juros_mensal / 100, 12) - 1) * 10000) / 100,
+      saldo_devedor: maiorCet.saldo_devedor,
+      motivo: 'Maior custo efetivo total — quitação reduz mais juros'
+    } : null
+  })
+})
+
+// ─── S-E2: PATCH /api/emprestimos/:id/quitado ────────────────────────────────
+emprestimos.patch('/:id/quitado', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const emp = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+  if (emp.status === 'quitado') return c.json({ error: 'Empréstimo já está quitado' }, 400)
+
+  const body = await c.req.json().catch(() => ({})) as any
+  const observacoes = body?.observacoes || 'Quitação antecipada'
+  const hoje = new Date().toISOString().split('T')[0]
+
+  await c.env.DB.prepare(
+    'UPDATE emprestimos SET status=?, saldo_devedor=0, parcelas_pagas=numero_parcelas, valor_pago=valor_original, observacoes=? WHERE id=? AND user_id=?'
+  ).bind('quitado', observacoes, id, user.id).run()
+
+  // Marcar todas as despesas pendentes como pagas
+  await c.env.DB.prepare(
+    `UPDATE despesas SET status='pago', data=? WHERE user_id=? AND categoria='Empréstimo' AND status='pendente' AND observacoes LIKE ?`
+  ).bind(hoje, user.id, `%Empréstimo automático #${id}%`).run()
+
+  await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+  if (emp.tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'carro_quitado')
+
+  const aindaTemDividas = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM (
+      SELECT id FROM emprestimos WHERE user_id=? AND status='ativo'
+      UNION ALL SELECT id FROM financiamentos WHERE user_id=? AND status='ativo'
+    )`
+  ).bind(user.id, user.id).first() as any
+  if ((aindaTemDividas?.total || 0) === 0) await verificarConquista(c.env.DB, user.id, 'sem_dividas_total')
+
+  return c.json({
+    success: true,
+    message: `🎉 Empréstimo "${emp.descricao}" quitado com sucesso!`,
+    economia_estimada: Math.round((emp.valor_parcela * (emp.numero_parcelas - emp.parcelas_pagas) - emp.saldo_devedor) * 100) / 100
+  })
+})
+
 // GET /api/emprestimos
 emprestimos.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -45,7 +149,7 @@ emprestimos.post('/', requireAuth, async (c) => {
     descricao, tipo = 'pessoal', valor_original, saldo_devedor: saldoInformado,
     taxa_juros_mensal, numero_parcelas,
     parcelas_pagas = 0, valor_parcela, data_inicio, data_primeira_parcela,
-    dia_vencimento, credor, observacoes
+    dia_vencimento, credor, finalidade, observacoes
   } = body
 
   if (!descricao || !valor_original || !taxa_juros_mensal || !numero_parcelas || !valor_parcela || !data_inicio)
@@ -68,9 +172,9 @@ emprestimos.post('/', requireAuth, async (c) => {
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, observacoes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
+    `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, finalidade, observacoes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, finalidade || null, observacoes || null).run()
 
   const empId = result.meta.last_row_id as number
 
