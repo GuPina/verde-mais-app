@@ -12597,7 +12597,9 @@ const VM = {
       const sel = document.getElementById('imp-cartao-lote')
       sel.innerHTML = '<option value="">— Nenhum cartão (dinheiro/pix) —</option>'
       for (const c of (resp.cartoes || [])) {
-        sel.innerHTML += `<option value="${c.id}">${c.nome} (${c.bandeira || ''}) — Limite: R$ ${(c.limite_disponivel||0).toFixed(2)}</option>`
+        const disp = (c.limite_disponivel || 0).toFixed(2)
+        const total = (c.limite_total || 0).toFixed(2)
+        sel.innerHTML += `<option value="${c.id}">${c.nome} (${c.bandeira || ''}) — Disponível: R$ ${disp} / R$ ${total}</option>`
       }
 
       // Badge de stats

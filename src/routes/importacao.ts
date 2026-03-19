@@ -391,10 +391,20 @@ importacao.post('/preview', requireAuth, async (c) => {
 
     // Buscar dados do usuário
     const [cartoesList, tagsList, despesasRec] = await Promise.all([
-      c.env.DB.prepare(`SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE user_id=? AND ativo=1 ORDER BY nome`).bind(user.id).all<any>(),
+      c.env.DB.prepare(`SELECT id, nome, bandeira, limite_total, dia_fechamento, dia_vencimento FROM cartoes WHERE user_id=? AND ativo=1 ORDER BY nome`).bind(user.id).all<any>(),
       c.env.DB.prepare(`SELECT id, nome, cor FROM tags WHERE user_id=? ORDER BY nome`).bind(user.id).all<any>(),
       c.env.DB.prepare(`SELECT id, descricao, valor, data, categoria FROM despesas WHERE user_id=? AND data >= date('now','-90 days') ORDER BY data DESC LIMIT 500`).bind(user.id).all<any>(),
     ])
+
+    // Calcular limite_disponivel dinamicamente (mesmo critério do GET /cartoes)
+    const cartoesComLimite = await Promise.all((cartoesList.results || []).map(async (c2: any) => {
+      const uso = await c.env.DB.prepare(
+        `SELECT COALESCE(SUM(valor),0) as total FROM card_charges WHERE card_id=? AND status='pendente'`
+      ).bind(c2.id).first() as any
+      const utilizado  = Math.round(Number(uso?.total || 0) * 100) / 100
+      const disponivel = Math.round(Math.max(0, c2.limite_total - utilizado) * 100) / 100
+      return { ...c2, limite_disponivel: disponivel, limite_utilizado: utilizado }
+    }))
 
     const todasDespesas = despesasRec.results || []
     const tagsDisp = tagsList.results || []
@@ -549,7 +559,7 @@ importacao.post('/preview', requireAuth, async (c) => {
       },
       cabecalho_original: cabecalho,
       erros_preview: erros,
-      cartoes: cartoesList.results || [],
+      cartoes: cartoesComLimite,
       tags: tagsList.results || [],
       stats: {
         total: preview.length,
