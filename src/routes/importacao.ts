@@ -406,9 +406,9 @@ importacao.post('/preview', requireAuth, async (c) => {
       // ── Detecção de parcelas ──────────────────────────────────────────────
       const parcela = detectarParcela(desc)
       let parcelaInfo: any = null
-      // Só gera histórico completo se for a 1ª parcela (atual === 1)
-      // Se atual > 1, é parcela de compra já existente — importar como despesa única
-      if (parcela && parcela.atual === 1) {
+      // Gera histórico completo para qualquer parcela X/Y
+      // dataBase = data do CSV - (atual-1) meses → sempre aponta para a parcela 1
+      if (parcela && parcela.total > 1) {
         const { atual, total } = parcela
         const dataBase = addMonths(data, -(atual - 1))
         parcelaInfo = { atual, total, retroativas: atual - 1, futuras: total - atual, dataBase, valorParcela: valor }
@@ -469,6 +469,9 @@ importacao.post('/preview', requireAuth, async (c) => {
       const statusSugerido = statusPorMeio(meio, data)
 
       // ── Detecção de duplicatas ────────────────────────────────────────────
+      // Regra: só marca duplicata se a descrição E valor forem idênticos
+      // (ou muito próximos) numa janela de até 3 dias (provável) ou 7 dias (possível).
+      // NÃO usa comparação fuzzy por valor para evitar falsos positivos com parcelas.
       let duplicata: any = null
       const descNorm = normDesc(desc)
       const valorArredondado = Math.round(valor * 100)
@@ -483,20 +486,12 @@ importacao.post('/preview', requireAuth, async (c) => {
           duplicata = { nivel: 'provavel', motivo: `Mesma descrição + valor + data (${d2Data})`, id: d2.id, data_existente: d2Data }
           break
         }
-        if (d2Norm === descNorm && d2Valor === valorArredondado && diasDif > 3 && diasDif <= 40) {
+        if (d2Norm === descNorm && d2Valor === valorArredondado && diasDif > 3 && diasDif <= 7) {
           duplicata = { nivel: 'possivel', motivo: `Mesma descrição + valor em data próxima (${d2Data})`, id: d2.id, data_existente: d2Data }
           break
         }
-        if (d2Valor === valorArredondado && diasDif >= 25 && diasDif <= 40) {
-          const wordsA = descNorm.split(' ').filter((w: string) => w.length > 3)
-          const wordsB = d2Norm.split(' ').filter((w: string) => w.length > 3)
-          const common = wordsA.filter((w: string) => wordsB.includes(w))
-          const similarity = wordsA.length > 0 ? common.length / wordsA.length : 0
-          if (similarity >= 0.6) {
-            duplicata = { nivel: 'possivel', motivo: `Possível parcela já cadastrada (${d2Data}, R$ ${d2.valor?.toFixed(2)})`, id: d2.id, data_existente: d2Data }
-            break
-          }
-        }
+        // Regra fuzzy desativada para evitar falsos positivos em parcelas mensais
+        // (parcelas do mesmo grupo têm valores idênticos mas são lançamentos distintos)
       }
 
       preview.push({
@@ -647,9 +642,9 @@ importacao.post('/executar', requireAuth, async (c) => {
           // ── DESPESA ──────────────────────────────────────────────────────
           const parcela = detectarParcela(desc)
 
-          if (parcela && parcela.total > 1 && parcela.atual === 1) {
-            // Gerar histórico completo APENAS quando é a 1ª parcela (compra nova)
-            // Se atual > 1, é uma parcela de uma compra já existente — importar como despesa única
+          if (parcela && parcela.total > 1) {
+            // Gerar histórico completo para qualquer parcela X/Y
+            // dataBase = data do CSV - (atual-1) meses → sempre aponta para a parcela 1
             const { atual, total } = parcela
             const dataBase     = addMonths(data, -(atual - 1))
             const valorParcela = valor
@@ -670,7 +665,12 @@ importacao.post('/executar', requireAuth, async (c) => {
                 dataParaGravar = dataVenc
               }
 
-              const descParcela = `${desc.replace(/\s*\d{1,2}\/\d{1,2}\s*/, ' ').trim()} (${p}/${total})`
+              // Remove o padrão X/Y original da descrição e adiciona (p/total)
+              const descBase = desc
+                .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ') // remove "02/12", "02/06" etc
+                .replace(/\s+/g, ' ')
+                .trim()
+              const descParcela = `${descBase} (${p}/${total})`
 
               const r = await c.env.DB.prepare(
                 `INSERT INTO despesas (user_id, descricao, data, categoria, valor,
