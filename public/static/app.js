@@ -12356,10 +12356,20 @@ const VM = {
       const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
       const mimeType = file.type || 'image/jpeg'
 
-      const data = await this.api('POST', 'importacao/ocr', { imagem_base64: base64, mime_type: mimeType, tipo })
+      let data
+      try {
+        data = await this.api('POST', 'importacao/ocr', { imagem_base64: base64, mime_type: mimeType, tipo })
+      } catch(apiErr) {
+        // Extrair mensagem de erro do corpo da resposta (axios encapsula em e.response.data)
+        const msg = apiErr?.response?.data?.error || apiErr?.message || 'Erro ao processar imagem'
+        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${msg}`
+        input.value = ''
+        return
+      }
 
       if (data.error) {
-        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${data.error || 'Erro ao processar imagem'}`
+        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${data.error}`
+        input.value = ''
         return
       }
 

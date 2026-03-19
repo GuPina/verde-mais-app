@@ -830,18 +830,27 @@ importacao.post('/executar', requireAuth, async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 importacao.post('/ocr', requireAuth, async (c) => {
   try {
-    const body = await c.req.json()
+    const body = await c.req.json().catch(() => null)
+    if (!body) return c.json({ error: 'Corpo da requisição inválido.' }, 400)
+
     const { imagem_base64, mime_type, tipo } = body
-    // imagem_base64: string base64 da imagem ou PDF (primeira página convertida)
-    // mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
-    // tipo: 'despesas' | 'receitas'
 
     if (!imagem_base64 || !mime_type) {
       return c.json({ error: 'Imagem base64 e mime_type são obrigatórios.' }, 400)
     }
 
+    // Verificar tamanho aproximado (base64 ~4/3 do tamanho original)
+    const tamanhoKB = Math.round(imagem_base64.length * 0.75 / 1024)
+    if (tamanhoKB > 4096) {
+      return c.json({ error: `Imagem muito grande (${tamanhoKB}KB). Reduza para menos de 4MB.` }, 400)
+    }
+
     const apiKey  = c.env.OPENAI_API_KEY
-    const baseUrl = c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    const baseUrl = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+
+    if (!apiKey) {
+      return c.json({ error: 'Chave de API não configurada. Contate o suporte.' }, 503)
+    }
 
     const prompt = `Você é um assistente especializado em extrair lançamentos financeiros de extratos bancários brasileiros.
 
@@ -870,7 +879,7 @@ Regras importantes:
 - Categorias sugeridas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Streaming, Telecomunicações, Seguros, Financiamentos, Transferência, Salário, Rendimentos, Investimentos, Outros
 - Retorne APENAS o JSON, sem texto adicional`
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const aiResp = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -890,23 +899,24 @@ Regras importantes:
                   detail: 'high'
                 }
               },
-              {
-                type: 'text',
-                text: prompt
-              }
+              { type: 'text', text: prompt }
             ]
           }
         ]
       })
     })
 
-    if (!response.ok) {
-      const err = await response.text()
-      return c.json({ error: 'Erro na API de visão: ' + err }, 500)
+    if (!aiResp.ok) {
+      const errText = await aiResp.text().catch(() => 'sem detalhe')
+      return c.json({ error: `Erro na IA (${aiResp.status}): ${errText.slice(0, 200)}` }, 502)
     }
 
-    const aiResponse = await response.json() as any
-    const content = aiResponse.choices?.[0]?.message?.content || ''
+    const aiData = await aiResp.json() as any
+    const content = aiData.choices?.[0]?.message?.content || ''
+
+    if (!content) {
+      return c.json({ error: 'A IA não retornou conteúdo. Tente novamente.' }, 422)
+    }
 
     // Extrair JSON da resposta (às vezes vem com markdown ```json...```)
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
@@ -916,7 +926,7 @@ Regras importantes:
     try {
       dados = JSON.parse(jsonStr)
     } catch {
-      return c.json({ error: 'Não foi possível interpretar a resposta da IA. Tente uma imagem mais nítida.', raw: content }, 422)
+      return c.json({ error: 'Não foi possível interpretar a resposta da IA. Tente uma imagem mais nítida.', raw: content.slice(0, 500) }, 422)
     }
 
     const lancamentos = dados.lancamentos || []
@@ -924,17 +934,20 @@ Regras importantes:
       return c.json({ error: 'Nenhum lançamento encontrado na imagem. Verifique se a foto está nítida e mostra um extrato bancário.', banco: dados.banco_detectado }, 422)
     }
 
-    // Converter para CSV no nosso formato padrão: Data;Descricao;Valor;Categoria
-    // Filtrar pelo tipo solicitado (ou retornar tudo se tipo não especificado)
-    const filtrado = tipo ? lancamentos.filter((l: any) => l.tipo === tipo || tipo === 'ambos') : lancamentos
+    // Converter para CSV — filtrar pelo tipo solicitado
+    const filtrado = tipo
+      ? lancamentos.filter((l: any) => l.tipo === (tipo === 'despesas' ? 'despesa' : 'receita'))
+      : lancamentos
+
+    if (filtrado.length === 0) {
+      const tipoLabel = tipo === 'despesas' ? 'despesas (débitos)' : 'receitas (créditos)'
+      return c.json({ error: `Nenhuma ${tipoLabel} encontrada na imagem. Tente importar como "${tipo === 'despesas' ? 'receitas' : 'despesas'}" ou use ambos.` }, 422)
+    }
+
     const linhasCSV = filtrado.map((l: any) => {
-      const valor = tipo === 'despesas' || l.tipo === 'despesa'
-        ? `-${l.valor}`
-        : l.valor
+      const valor = tipo === 'despesas' || l.tipo === 'despesa' ? `-${l.valor}` : l.valor
       return `${l.data};${l.descricao};${valor};${l.categoria_sugerida || 'Outros'}`
     })
-
-    const csv = linhasCSV.join('\n')
 
     return c.json({
       sucesso: true,
@@ -942,12 +955,11 @@ Regras importantes:
       periodo: dados.periodo || '',
       total_lancamentos: lancamentos.length,
       total_filtrados: filtrado.length,
-      csv,
-      lancamentos_brutos: lancamentos,
+      csv: linhasCSV.join('\n'),
     })
 
   } catch (e: any) {
-    return c.json({ error: 'Erro ao processar imagem: ' + e.message }, 500)
+    return c.json({ error: 'Erro interno: ' + (e?.message || String(e)) }, 500)
   }
 })
 
