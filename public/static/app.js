@@ -12356,14 +12356,9 @@ const VM = {
       const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
       const mimeType = file.type || 'image/jpeg'
 
-      const res = await fetch('/api/importacao/ocr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ imagem_base64: base64, mime_type: mimeType, tipo })
-      })
-      const data = await res.json()
+      const data = await this.api('POST', 'importacao/ocr', { imagem_base64: base64, mime_type: mimeType, tipo })
 
-      if (!res.ok || data.error) {
+      if (data.error) {
         statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${data.error || 'Erro ao processar imagem'}`
         return
       }
