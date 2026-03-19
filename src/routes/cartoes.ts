@@ -198,17 +198,18 @@ cartoes.delete('/:id', requireAuth, async (c) => {
   const ex = await c.env.DB.prepare('SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1').bind(id, user.id).first()
   if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  // Deletar todos os dados vinculados ao cartão (o que não tem CASCADE automático)
-  // 1. Despesas vinculadas (passadas e futuras)
-  await c.env.DB.prepare('DELETE FROM despesas WHERE cartao_id = ? AND user_id = ?').bind(id, user.id).run()
-  // 2. card_charges (tem CASCADE mas fazemos explícito por segurança)
-  await c.env.DB.prepare('DELETE FROM card_charges WHERE card_id = ?').bind(id).run()
-  // 3. cartao_lancamentos (legado, tem CASCADE mas fazemos explícito)
-  await c.env.DB.prepare('DELETE FROM cartao_lancamentos WHERE cartao_id = ?').bind(id).run()
-  // 4. alertas_cartao
-  await c.env.DB.prepare('DELETE FROM alertas_cartao WHERE cartao_id = ?').bind(id).run()
-  // 5. Por fim, deletar o cartão
-  await c.env.DB.prepare('DELETE FROM cartoes WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+  try {
+    // 1. Despesas vinculadas (passadas e futuras) — sem CASCADE automático
+    await c.env.DB.prepare('DELETE FROM despesas WHERE cartao_id = ? AND user_id = ?').bind(id, user.id).run()
+    // 2. card_charges (CASCADE declarado mas D1 não aplica sem PRAGMA)
+    await c.env.DB.prepare('DELETE FROM card_charges WHERE card_id = ?').bind(id).run()
+    // 3. alertas_cartao
+    await c.env.DB.prepare('DELETE FROM alertas_cartao WHERE cartao_id = ?').bind(id).run()
+    // 4. Por fim, deletar o cartão
+    await c.env.DB.prepare('DELETE FROM cartoes WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao excluir cartão: ' + (e?.message || String(e)) }, 500)
+  }
 
   return c.json({ success: true, message: 'Cartão e todos os lançamentos removidos!' })
 })
