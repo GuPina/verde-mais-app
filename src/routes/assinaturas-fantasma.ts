@@ -49,8 +49,12 @@ const SUBSCRIPTION_KEYWORDS: Array<{ keywords: string[]; type: string; nome: str
   { keywords: ['assinatura', 'mensalidade', 'plano mensal', 'renovacao', 'renovação'], type: 'generic', nome: 'Assinatura' },
 ]
 
+// Regex que identifica parcela X/Y na descrição (importadas via CSV)
+const PARCELA_REGEX = /[\(\s]\d{1,2}\s*\/\s*\d{2,}[\)\s]?|\bparcela\b.*\d{1,2}\s*\/\s*\d{1,2}/i
+
 // ── Padrões de descrições que NÃO são assinaturas ─────────────────────────
 const EXCLUSION_PATTERNS = [
+  PARCELA_REGEX,                                       // Parcelas X/Y — NUNCA são assinaturas
   /pagamento\s*(de\s*)?fatura/i,
   /fatura\s*(cartao|nubank|inter|itau|bradesco|santander)/i,
   /transferencia/i,
@@ -158,6 +162,7 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   const { usar_ia = true } = await c.req.json().catch(() => ({})) as any
 
   // Buscar despesas dos últimos 13 meses
+  // Excluir despesas parceladas (numero_parcelas > 1) — não são assinaturas
   const result = await c.env.DB.prepare(`
     SELECT id, descricao, valor, data, categoria, status
     FROM despesas
@@ -165,6 +170,7 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       AND data >= date('now', '-13 months')
       AND valor >= 3.0
       AND status != 'cancelado'
+      AND (numero_parcelas IS NULL OR numero_parcelas <= 1)
     ORDER BY data ASC
   `).bind(user.id).all()
 
@@ -304,6 +310,16 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     }
   }
 
+  // Sincronizar: remover assinaturas detectadas cuja última ocorrência
+  // ficou > 3 meses atrás (provavelmente despesa foi deletada ou não existe mais)
+  try {
+    await c.env.DB.prepare(`
+      DELETE FROM detected_subscriptions
+      WHERE user_id = ? AND status = 'detected'
+        AND last_occurrence < date('now', '-3 months')
+    `).bind(user.id).run()
+  } catch (_) {}
+
   // ── Upsert no banco ──────────────────────────────────────────────────────
   let insertedCount = 0
   const toInsertItems: any[] = []
@@ -417,6 +433,45 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     message: insertedCount === 0
       ? `🎉 Scan concluído! ${allDetected.results.length > 0 ? `${allDetected.results.length} assinatura(s) ativa(s) no radar.` : 'Nenhuma assinatura fantasma encontrada!'}`
       : `🕵️ Encontramos ${insertedCount} nova(s) assinatura(s)! Custo anual estimado: R$ ${Math.round(toInsertItems.reduce((s, i) => s + i.yearly_cost, 0) * 100)/100}`
+  })
+})
+
+// ── POST /api/assinaturas-fantasma/:id/reduzir-preco ─────────────────────
+// Registra redução de plano como alternativa ao cancelamento
+assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseInt(c.req.param('id'))
+  const { novo_valor, motivo } = await c.req.json() as { novo_valor: number; motivo?: string }
+
+  if (!novo_valor || parseFloat(String(novo_valor)) <= 0)
+    return c.json({ error: 'Informe o novo valor do plano reduzido' }, 400)
+
+  const sub = await c.env.DB.prepare(
+    `SELECT * FROM detected_subscriptions WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+  if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
+
+  const novoValorNum = parseFloat(String(novo_valor))
+  const valorAntigo = parseFloat(String(sub.amount))
+  const reducaoMensal = Math.max(0, valorAntigo - novoValorNum)
+  const reducaoAnual = reducaoMensal * 12
+  const novoAnual = novoValorNum * 12
+
+  await c.env.DB.prepare(`
+    UPDATE detected_subscriptions SET
+      amount = ?,
+      yearly_cost = ?,
+      status = 'confirmed',
+      user_feedback = 'reduced_plan',
+      updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).bind(novoValorNum, novoAnual, id, user.id).run()
+
+  return c.json({
+    success: true,
+    reducao_mensal: Math.round(reducaoMensal * 100) / 100,
+    reducao_anual: Math.round(reducaoAnual * 100) / 100,
+    message: `💸 Redução registrada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano com ${sub.service_nome || sub.original_description}.`
   })
 })
 

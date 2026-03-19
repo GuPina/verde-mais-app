@@ -11363,6 +11363,7 @@ const VM = {
               <p style="color:#f1f5f9;font-weight:600;text-align:center;margin:0 0 12px;font-size:0.9rem;">🤔 Você ainda usa este serviço regularmente?</p>
               <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
                 <button onclick="VM.feedbackAssinatura(${sub.id},'use_regularly')" style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">✅ Uso Sempre</button>
+                <button onclick="VM.modalReduzirPrecoAssinatura(${sub.id},'${(sub.service_nome||sub.original_description).replace(/'/g,"\\'")}',${sub.amount})" style="background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">💸 Reduzir Preço</button>
                 <button onclick="VM.feedbackAssinatura(${sub.id},'want_cancel')" style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;">❌ Quero Cancelar</button>
                 <button onclick="VM.feedbackAssinatura(${sub.id},'ignore')" style="background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.82rem;">🤐 Ignorar</button>
               </div>
@@ -11478,6 +11479,67 @@ const VM = {
       this.pageAssinaturasFantasma()
     } catch (err) {
       this.toast(err.message, 'error')
+    }
+  },
+
+  modalReduzirPrecoAssinatura(id, nome, valorAtual) {
+    const modal = document.createElement('div')
+    modal.id = 'modal-reduzir-assin'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;'
+    modal.innerHTML = `
+      <div style="background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:28px;max-width:420px;width:100%;">
+        <h3 style="color:#F59E0B;font-size:1.1rem;font-weight:700;margin:0 0 6px;">💸 Reduzir Preço</h3>
+        <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 20px;"><strong style="color:#f1f5f9;">${nome}</strong><br>Valor atual: <strong style="color:#F43F5E;">R$ ${(valorAtual||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>/mês</p>
+        <div style="margin-bottom:16px;">
+          <label style="color:#94A3B8;font-size:0.8rem;display:block;margin-bottom:6px;">Novo valor após troca de plano</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:#64748B;font-size:0.9rem;">R$</span>
+            <input id="inp-novo-valor-assin" type="number" step="0.01" min="0.01"
+              placeholder="Ex: 29.90"
+              style="flex:1;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#f1f5f9;font-size:1rem;outline:none;">
+          </div>
+        </div>
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px;margin-bottom:20px;" id="preview-reducao-assin">
+          <p style="color:#64748B;font-size:0.8rem;margin:0;">Digite o novo valor para ver a economia.</p>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-reduzir-assin').remove()" style="flex:1;padding:10px;background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);border-radius:10px;font-weight:600;cursor:pointer;">Cancelar</button>
+          <button onclick="VM.confirmarReduzirPrecoAssinatura(${id},${valorAtual})" style="flex:2;padding:10px;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;">💸 Confirmar Redução</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove() })
+
+    // Preview dinâmico
+    const inp = document.getElementById('inp-novo-valor-assin')
+    const preview = document.getElementById('preview-reducao-assin')
+    inp.addEventListener('input', () => {
+      const novo = parseFloat(inp.value)
+      if (!novo || novo <= 0 || novo >= valorAtual) {
+        preview.innerHTML = '<p style="color:#F43F5E;font-size:0.8rem;margin:0;">⚠️ Novo valor deve ser menor que o atual.</p>'
+        return
+      }
+      const redMensal = valorAtual - novo
+      const redAnual = redMensal * 12
+      preview.innerHTML = `<p style="color:#F59E0B;font-size:0.85rem;margin:0 0 4px;font-weight:700;">Economia estimada:</p>
+        <p style="color:#10B981;font-size:1rem;font-weight:800;margin:0;">R$ ${redMensal.toLocaleString('pt-BR',{minimumFractionDigits:2})}/mês · R$ ${redAnual.toLocaleString('pt-BR',{minimumFractionDigits:2})}/ano</p>`
+    })
+    inp.focus()
+  },
+
+  async confirmarReduzirPrecoAssinatura(id, valorAtual) {
+    const inp = document.getElementById('inp-novo-valor-assin')
+    const novo = parseFloat(inp?.value)
+    if (!novo || novo <= 0 || novo >= valorAtual) {
+      this.toast('Novo valor deve ser menor que o atual', 'error'); return
+    }
+    try {
+      const resp = await this.api('POST', `assinaturas-fantasma/${id}/reduzir-preco`, { novo_valor: novo })
+      this.toast(resp.message, 'success')
+      document.getElementById('modal-reduzir-assin')?.remove()
+      this.pageAssinaturasFantasma()
+    } catch (err) {
+      this.toast(err.message || 'Erro ao registrar redução', 'error')
     }
   },
 

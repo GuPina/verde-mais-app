@@ -137,6 +137,7 @@ comprasFantasma.get('/', requireAuth, async (c) => {
       AND d.data >= ?
       AND d.status != 'cancelado'
       AND d.eh_aporte_patrimonial != 1
+      AND (d.numero_parcelas IS NULL OR d.numero_parcelas <= 1)
     ORDER BY d.data DESC
   `).bind(user.id, dataInicioStr).all()
 
@@ -290,6 +291,7 @@ comprasFantasma.post('/analisar', requireAuth, async (c) => {
       AND data >= ?
       AND status != 'cancelado'
       AND eh_aporte_patrimonial != 1
+      AND (numero_parcelas IS NULL OR numero_parcelas <= 1)
     ORDER BY data ASC
   `).bind(user.id, dataInicioStr).all()
 
