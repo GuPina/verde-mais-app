@@ -970,6 +970,97 @@ Regras importantes:
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Helpers para /ocr-texto — parser e categorizador sem IA
+// ═══════════════════════════════════════════════════════════════════════════════
+function categorizarDescricao(desc: string): string {
+  const d = desc.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  if (/\b(salario|pagto salario|adiantamento|pagto adiantamento|pro.?labore|ferias|bonus|13)\b/.test(d)) return 'Salário'
+  if (/\b(pix transf|ted|doc|transferencia)\b/.test(d)) return 'Transferência'
+  if (/\b(rend pago|rendimento|aplic aut|resgate|invest|cdb|lci|lca|tesouro|fundo|acao|dividendo|jcp)\b/.test(d)) return 'Rendimentos'
+  if (/\b(fatura|cartao|credito|mastercard|visa|elo|amex|credicard|nubank|platinum)\b/.test(d)) return 'Cartão de Crédito'
+  if (/\b(boleto|pag boleto)\b/.test(d)) return 'Pagamento de Boleto'
+  if (/\b(sabesp|cedae|copasa|saneamento|agua|esgoto)\b/.test(d)) return 'Moradia'
+  if (/\b(light|cemig|cpfl|enel|coelba|energia|eletricidade)\b/.test(d)) return 'Moradia'
+  if (/\b(aluguel|condominio|iptu|imovel|casa|apartamento)\b/.test(d)) return 'Moradia'
+  if (/\b(tim|claro|vivo|oi|nextel|telefone|celular|internet|fibra|banda larga|telecom)\b/.test(d)) return 'Telecomunicações'
+  if (/\b(uber|99|cabify|onibus|metro|trem|autopass|combustivel|gasolina|posto|estacionamento|pedagio|etanol)\b/.test(d)) return 'Transporte'
+  if (/\b(ifood|rappi|uber eats|delivery|restaurante|lanchonete|pizzaria|hamburgueria|sushi|acai|padaria|cafe|bakery)\b/.test(d)) return 'Alimentação'
+  if (/\b(supermercado|mercado|carrefour|extra|atacadao|assai|pao de acucar|hortifruti|feira|sacolao|hortifrutti)\b/.test(d)) return 'Alimentação'
+  if (/\b(farmacia|drogaria|droga|remedios|medicamento|raia|ultrafarma|pacheco|drogasil|drogao)\b/.test(d)) return 'Saúde'
+  if (/\b(medico|consulta|clinica|hospital|exame|laboratorio|plano de saude|unimed|bradesco saude|sulamerica)\b/.test(d)) return 'Saúde'
+  if (/\b(escola|faculdade|universidade|curso|ensino|educacao|colegio|mensalidade|matricula|material escolar)\b/.test(d)) return 'Educação'
+  if (/\b(netflix|spotify|amazon|disney|hbo|globoplay|youtube|prime|apple|streaming|assinatura)\b/.test(d)) return 'Streaming'
+  if (/\b(cinema|teatro|show|ingresso|lazer|recreacao|parque|academia|museu|cultura)\b/.test(d)) return 'Lazer'
+  if (/\b(seguro|protecao|porto seguro|bradesco seguros|sulamerica|mapfre|tokio|vgbl|pgdl|premio)\b/.test(d)) return 'Seguros'
+  if (/\b(financiamento|prestacao|parcela|consorcio|credito pessoal|emprestimo|realize|cred)\b/.test(d)) return 'Financiamentos'
+  if (/\b(iof|tarifa|taxa|servico|manutencao|anuidade|pacote|sispag|clipping)\b/.test(d)) return 'Tarifas Bancárias'
+  return 'Outros'
+}
+
+function detectarBanco(texto: string): string {
+  const t = texto.toLowerCase()
+  if (t.includes('itau') || t.includes('itaú')) return 'Itaú'
+  if (t.includes('nubank') || t.includes('nu pagamentos')) return 'Nubank'
+  if (t.includes('bradesco')) return 'Bradesco'
+  if (t.includes('santander')) return 'Santander'
+  if (t.includes('banco do brasil') || t.includes('bb ')) return 'Banco do Brasil'
+  if (t.includes('caixa economica') || t.includes('caixa federal')) return 'Caixa Econômica Federal'
+  if (t.includes('inter ') || t.includes('banco inter')) return 'Banco Inter'
+  if (t.includes('c6 bank') || t.includes('c6bank')) return 'C6 Bank'
+  if (t.includes('mercado pago')) return 'Mercado Pago'
+  if (t.includes('xp investimentos') || t.includes('xp inc')) return 'XP'
+  if (t.includes('picpay')) return 'PicPay'
+  if (t.includes('sicoob') || t.includes('sicredi')) return 'Cooperativa'
+  return 'Não identificado'
+}
+
+function parsearExtratoBancario(texto: string, tipo: string): {
+  banco: string, periodo: string,
+  todos: any[], filtrados: any[], csv: string
+} {
+  const banco = detectarBanco(texto)
+
+  // Detectar período
+  const periodoMatch = texto.match(/per[íi]odo.*?(\d{2}\/\d{2}\/\d{4}).*?at[eé].*?(\d{2}\/\d{2}\/\d{4})/i)
+  const periodo = periodoMatch ? `${periodoMatch[1]} a ${periodoMatch[2]}` : ''
+
+  // Parser regex: DD/MM/AAAA DESCRIÇÃO -valor ou valor (saldo opcional no final)
+  const pat = /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([-]?\d{1,3}(?:\.\d{3})*,\d{2})(?:\s+[\d.,]+)?\s*$/
+
+  const ignorar = ['SALDO DO DIA', 'saldo do dia']
+
+  const linhas = texto.split('\n')
+  const todos: any[] = []
+
+  for (const linha of linhas) {
+    const l = linha.trim()
+    const m = l.match(pat)
+    if (!m) continue
+    const [, data, descRaw, valorRaw] = m
+    const desc = descRaw.trim()
+    if (ignorar.some(ig => desc.toUpperCase().includes(ig.toUpperCase()))) continue
+
+    const negativo = valorRaw.startsWith('-')
+    const valorAbs = valorRaw.replace('-', '').trim()
+    const tipoLanc = negativo ? 'despesa' : 'receita'
+    const categoria = categorizarDescricao(desc)
+
+    todos.push({ data, descricao: desc, valor: valorAbs, tipo: tipoLanc, categoria_sugerida: categoria })
+  }
+
+  const filtrados = tipo
+    ? todos.filter(l => l.tipo === (tipo === 'despesas' ? 'despesa' : 'receita'))
+    : todos
+
+  const csv = filtrados.map(l => {
+    const v = l.tipo === 'despesa' ? `-${l.valor}` : l.valor
+    return `${l.data};${l.descricao};${v};${l.categoria_sugerida}`
+  }).join('\n')
+
+  return { banco, periodo, todos, filtrados, csv }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/importacao/ocr-texto — Extrai lançamentos de texto de extrato (PDF com texto)
 // ═══════════════════════════════════════════════════════════════════════════════
 importacao.post('/ocr-texto', requireAuth, async (c) => {
@@ -983,114 +1074,32 @@ importacao.post('/ocr-texto', requireAuth, async (c) => {
       return c.json({ error: 'texto_extrato é obrigatório.' }, 400)
     }
 
-    if (texto_extrato.length > 50000) {
-      return c.json({ error: `Extrato muito longo (${texto_extrato.length} chars). Reduza para menos de 50.000 caracteres.` }, 400)
+    if (texto_extrato.length > 100000) {
+      return c.json({ error: `Extrato muito longo (${texto_extrato.length} chars). Máximo: 100.000 caracteres.` }, 400)
     }
 
-    const apiKey  = c.env.OPENAI_API_KEY
-    const baseUrl = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+    const resultado = parsearExtratoBancario(texto_extrato, tipo || '')
 
-    if (!apiKey) {
-      return c.json({ error: 'Chave de API não configurada. Contate o suporte.' }, 503)
+    if (resultado.todos.length === 0) {
+      return c.json({ error: 'Nenhum lançamento encontrado. Verifique se o PDF é um extrato bancário válido.' }, 422)
     }
 
-    const prompt = `Você é um assistente especializado em extrair lançamentos financeiros de extratos bancários brasileiros.
-
-Analise o texto abaixo de um extrato bancário (pode ser Itaú, Nubank, Bradesco, Santander, Banco do Brasil, Caixa, Mercado Pago, Inter, C6, XP ou qualquer outro banco brasileiro).
-
-IMPORTANTE:
-- Ignore linhas de "SALDO DO DIA" — não são lançamentos
-- Ignore linhas de cabeçalho (data, lançamentos, valor, saldo)
-- Débitos/saídas têm valor negativo (ex: -77,00) → tipo = "despesa"
-- Créditos/entradas têm valor positivo → tipo = "receita"
-- Mantenha os valores positivos no JSON (sem sinal negativo)
-- Se não houver data em algum lançamento, use a data mais próxima visível
-
-Extraia TODOS os lançamentos e retorne EXCLUSIVAMENTE um JSON válido:
-{
-  "banco_detectado": "nome do banco se identificado",
-  "periodo": "período do extrato se visível",
-  "lancamentos": [
-    {
-      "data": "DD/MM/AAAA",
-      "descricao": "descrição exata do lançamento",
-      "valor": "valor numérico com vírgula decimal ex: 198,55",
-      "tipo": "despesa ou receita",
-      "categoria_sugerida": "categoria mais adequada"
-    }
-  ]
-}
-
-Categorias sugeridas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Streaming, Telecomunicações, Seguros, Financiamentos, Transferência, Salário, Rendimentos, Investimentos, Outros
-
-Retorne APENAS o JSON, sem texto adicional.
-
-TEXTO DO EXTRATO:
-${texto_extrato}`
-
-    const aiResp = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-5',
-        max_tokens: 8000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    })
-
-    if (!aiResp.ok) {
-      const errText = await aiResp.text().catch(() => 'sem detalhe')
-      return c.json({ error: `Erro na IA (${aiResp.status}): ${errText.slice(0, 200)}` }, 502)
-    }
-
-    const aiData = await aiResp.json() as any
-    const content = aiData.choices?.[0]?.message?.content || ''
-
-    if (!content) {
-      return c.json({ error: 'A IA não retornou conteúdo. Tente novamente.' }, 422)
-    }
-
-    // Extrair JSON da resposta (às vezes vem com markdown ```json...```)
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
-    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
-
-    let dados: any
-    try {
-      dados = JSON.parse(jsonStr)
-    } catch {
-      return c.json({ error: 'Não foi possível interpretar a resposta da IA.', raw: content.slice(0, 500) }, 422)
-    }
-
-    const lancamentos = dados.lancamentos || []
-    if (lancamentos.length === 0) {
-      return c.json({ error: 'Nenhum lançamento encontrado no extrato.', banco: dados.banco_detectado }, 422)
-    }
-
-    // Filtrar pelo tipo solicitado
-    const filtrado = tipo
-      ? lancamentos.filter((l: any) => l.tipo === (tipo === 'despesas' ? 'despesa' : 'receita'))
-      : lancamentos
-
-    if (filtrado.length === 0) {
+    if (resultado.filtrados.length === 0) {
       const tipoLabel = tipo === 'despesas' ? 'despesas (débitos)' : 'receitas (créditos)'
-      return c.json({ error: `Nenhuma ${tipoLabel} encontrada. Tente importar como "${tipo === 'despesas' ? 'receitas' : 'despesas'}".` }, 422)
+      return c.json({
+        error: `Nenhuma ${tipoLabel} encontrada no extrato. Tente importar como "${tipo === 'despesas' ? 'receitas' : 'despesas'}".`,
+        total_lancamentos: resultado.todos.length,
+        banco: resultado.banco
+      }, 422)
     }
-
-    const linhasCSV = filtrado.map((l: any) => {
-      const valor = tipo === 'despesas' || l.tipo === 'despesa' ? `-${l.valor}` : l.valor
-      return `${l.data};${l.descricao};${valor};${l.categoria_sugerida || 'Outros'}`
-    })
 
     return c.json({
       sucesso: true,
-      banco_detectado: dados.banco_detectado || 'Não identificado',
-      periodo: dados.periodo || '',
-      total_lancamentos: lancamentos.length,
-      total_filtrados: filtrado.length,
-      csv: linhasCSV.join('\n'),
+      banco_detectado: resultado.banco,
+      periodo: resultado.periodo,
+      total_lancamentos: resultado.todos.length,
+      total_filtrados: resultado.filtrados.length,
+      csv: resultado.csv,
     })
 
   } catch (e: any) {
