@@ -478,13 +478,44 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
 // ── GET /api/assinaturas-fantasma ─────────────────────────────────────────
 assinaturas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
+
+  // Padrão X/Y — parcelas de cartão não são assinaturas
+  const PARCELA_JS = /\(\d{1,2}\/\d{1,2}\)|\s\d{1,2}\/\d{1,2}[\s\)]|parcela\s*\d/i
+
+  // Limpeza preventiva: remove obsoletos (last_occurrence > 3 meses)
+  // O filtro de X/Y é feito em JS abaixo (REGEXP não é suportado no D1)
+  try {
+    await c.env.DB.prepare(`
+      DELETE FROM detected_subscriptions
+      WHERE user_id = ?
+        AND status = 'detected'
+        AND last_occurrence < date('now', '-3 months')
+    `).bind(user.id).run()
+  } catch (_) {}
+
   const result = await c.env.DB.prepare(`
     SELECT * FROM detected_subscriptions
     WHERE user_id = ? AND status NOT IN ('cancelled','ignored')
     ORDER BY yearly_cost DESC
   `).bind(user.id).all()
 
-  const detected = result.results as any[]
+  // Filtrar em JS qualquer entrada com padrão de parcela que escapou
+  const detected = (result.results as any[]).filter(d =>
+    !PARCELA_JS.test(d.original_description || '') &&
+    !PARCELA_JS.test(d.normalized_description || '')
+  )
+
+  // Deletar do banco as entradas que foram filtradas em JS
+  const idsParaDeletar = (result.results as any[])
+    .filter(d => PARCELA_JS.test(d.original_description || '') || PARCELA_JS.test(d.normalized_description || ''))
+    .map(d => d.id)
+  if (idsParaDeletar.length > 0) {
+    const placeholders = idsParaDeletar.map(() => '?').join(',')
+    await c.env.DB.prepare(
+      `DELETE FROM detected_subscriptions WHERE id IN (${placeholders})`
+    ).bind(...idsParaDeletar).run().catch(() => {})
+  }
+
   const totalMensal = detected.reduce((s, d) => s + (d.amount || 0), 0)
   const totalAnual = detected.reduce((s, d) => s + (d.yearly_cost || 0), 0)
 
