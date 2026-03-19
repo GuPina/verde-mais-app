@@ -295,6 +295,29 @@ function calcBilling(cartao: any, dataCompra: string): { bMonth: number; bYear: 
   return { bMonth: bm, bYear: by, dataVenc }
 }
 
+/**
+ * Dado um bMonth/bYear (mês da fatura) e o cartão, retorna a data de vencimento.
+ * Usada ao gerar séries de parcelas a partir do mês de faturamento.
+ */
+function calcDueFromBilling(bMonth: number, bYear: number, cartao: any): string {
+  let vm = bMonth, vy = bYear
+  if (cartao.dia_vencimento <= cartao.dia_fechamento) {
+    vm++; if (vm > 12) { vm = 1; vy++ }
+  }
+  const lastDay = new Date(vy, vm, 0).getDate()
+  const vd = Math.min(cartao.dia_vencimento, lastDay)
+  return `${vy}-${String(vm).padStart(2,'0')}-${String(vd).padStart(2,'0')}`
+}
+
+/** Soma/subtrai N meses de um bMonth/bYear, retornando o novo par */
+function addBillingMonths(bMonth: number, bYear: number, n: number): { bm: number; by: number } {
+  let bm = bMonth + n
+  let by = bYear
+  while (bm > 12) { bm -= 12; by++ }
+  while (bm < 1)  { bm += 12; by-- }
+  return { bm, by }
+}
+
 function gerarUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = (Math.random() * 16) | 0
@@ -407,10 +430,13 @@ importacao.post('/preview', requireAuth, async (c) => {
       const parcela = detectarParcela(desc)
       let parcelaInfo: any = null
       // Gera histórico completo para qualquer parcela X/Y
-      // dataBase = data do CSV - (atual-1) meses → sempre aponta para a parcela 1
+      // A data do CSV representa o mês em que a parcela ATUAL foi lançada.
+      // dataBase = primeiro dia do mês (atual - 1 meses antes do mês do CSV)
       if (parcela && parcela.total > 1) {
         const { atual, total } = parcela
-        const dataBase = addMonths(data, -(atual - 1))
+        // bMesAtual = mês/ano do CSV (sem regra de fechamento no preview — cartão não está selecionado)
+        const [csvY, csvM] = data.split('-').map(Number)
+        const dataBase = addMonths(data, -(atual - 1))  // mantido só para exibição retroativa
         parcelaInfo = { atual, total, retroativas: atual - 1, futuras: total - atual, dataBase, valorParcela: valor }
       }
 
@@ -644,30 +670,49 @@ importacao.post('/executar', requireAuth, async (c) => {
 
           if (parcela && parcela.total > 1) {
             // Gerar histórico completo para qualquer parcela X/Y
-            // dataBase = data do CSV - (atual-1) meses → sempre aponta para a parcela 1
+            // A data do CSV representa o mês em que a parcela ATUAL foi lançada.
+            // Regra bancária: se dia do CSV >= dia_fechamento → fatura do mês seguinte.
             const { atual, total } = parcela
-            const dataBase     = addMonths(data, -(atual - 1))
             const valorParcela = valor
             const groupId      = gerarUUID()
             let primeiroId: number | null = null
 
+            // Determinar o mês de faturamento da parcela ATUAL (âncora)
+            let bMesAtual: number, bAnoAtual: number
+            if (cartaoFinal) {
+              // COM cartão: aplicar regra de fechamento sobre a data do CSV
+              const bcAtual = calcBilling(cartaoFinal, data)
+              bMesAtual = bcAtual.bMonth
+              bAnoAtual = bcAtual.bYear
+            } else {
+              // SEM cartão: data do CSV representa diretamente o mês da parcela atual
+              bMesAtual = parseInt(data.split('-')[1])
+              bAnoAtual = parseInt(data.split('-')[0])
+            }
+
             for (let p = 1; p <= total; p++) {
-              const dataParcela   = addMonths(dataBase, p - 1)
-              const statusParc    = cfg.status || statusParcela(dataParcela, meio)
-              let bMonth: number | null = null
-              let bYear:  number | null = null
+              // bMonth(p) = bMesAtual + (p - atual)
+              const { bm: bm_p, by: by_p } = addBillingMonths(bMesAtual, bAnoAtual, p - atual)
+
+              let bMonth: number | null = bm_p
+              let bYear:  number | null = by_p
               let dataVenc: string | null = null
-              let dataParaGravar = dataParcela
+              let dataParaGravar: string
 
               if (cartaoFinal) {
-                const bc = calcBilling(cartaoFinal, dataParcela)
-                bMonth = bc.bMonth; bYear = bc.bYear; dataVenc = bc.dataVenc
+                // Com cartão: data de vencimento calculada a partir do mês de fatura
+                dataVenc = calcDueFromBilling(bm_p, by_p, cartaoFinal)
                 dataParaGravar = dataVenc
+              } else {
+                // Sem cartão: data da parcela = mesmo dia do CSV, avançando meses
+                dataParaGravar = addMonths(data, p - atual)
               }
+
+              const statusParc = cfg.status || statusParcela(dataParaGravar, meio)
 
               // Remove o padrão X/Y original da descrição e adiciona (p/total)
               const descBase = desc
-                .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ') // remove "02/12", "02/06" etc
+                .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ')
                 .replace(/\s+/g, ' ')
                 .trim()
               const descParcela = `${descBase} (${p}/${total})`
@@ -698,7 +743,7 @@ importacao.post('/executar', requireAuth, async (c) => {
                    purchase_group_id, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
                 ).bind(
                   cIdFinal, newId, descParcela, valorParcela,
-                  dataParcela, dataVenc, bMonth, bYear, p, total, groupId, statusParc
+                  dataParaGravar, dataVenc, bMonth, bYear, p, total, groupId, statusParc
                 ).run().catch(() => {})
               }
             }
@@ -708,8 +753,9 @@ importacao.post('/executar', requireAuth, async (c) => {
               const hoje = new Date().toISOString().slice(0, 10)
               let pendentesCount = 0
               for (let p = 1; p <= total; p++) {
-                const dp = addMonths(dataBase, p - 1)
-                if (dp >= hoje) pendentesCount++
+                const { bm: bm_p, by: by_p } = addBillingMonths(bMesAtual, bAnoAtual, p - atual)
+                const dvp = calcDueFromBilling(bm_p, by_p, cartaoFinal)
+                if (dvp >= hoje) pendentesCount++
               }
               if (pendentesCount > 0) {
                 await c.env.DB.prepare(
