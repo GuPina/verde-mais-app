@@ -970,6 +970,135 @@ Regras importantes:
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/importacao/ocr-texto — Extrai lançamentos de texto de extrato (PDF com texto)
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/ocr-texto', requireAuth, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => null)
+    if (!body) return c.json({ error: 'Corpo da requisição inválido.' }, 400)
+
+    const { texto_extrato, tipo } = body
+
+    if (!texto_extrato || typeof texto_extrato !== 'string') {
+      return c.json({ error: 'texto_extrato é obrigatório.' }, 400)
+    }
+
+    if (texto_extrato.length > 50000) {
+      return c.json({ error: `Extrato muito longo (${texto_extrato.length} chars). Reduza para menos de 50.000 caracteres.` }, 400)
+    }
+
+    const apiKey  = c.env.OPENAI_API_KEY
+    const baseUrl = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+
+    if (!apiKey) {
+      return c.json({ error: 'Chave de API não configurada. Contate o suporte.' }, 503)
+    }
+
+    const prompt = `Você é um assistente especializado em extrair lançamentos financeiros de extratos bancários brasileiros.
+
+Analise o texto abaixo de um extrato bancário (pode ser Itaú, Nubank, Bradesco, Santander, Banco do Brasil, Caixa, Mercado Pago, Inter, C6, XP ou qualquer outro banco brasileiro).
+
+IMPORTANTE:
+- Ignore linhas de "SALDO DO DIA" — não são lançamentos
+- Ignore linhas de cabeçalho (data, lançamentos, valor, saldo)
+- Débitos/saídas têm valor negativo (ex: -77,00) → tipo = "despesa"
+- Créditos/entradas têm valor positivo → tipo = "receita"
+- Mantenha os valores positivos no JSON (sem sinal negativo)
+- Se não houver data em algum lançamento, use a data mais próxima visível
+
+Extraia TODOS os lançamentos e retorne EXCLUSIVAMENTE um JSON válido:
+{
+  "banco_detectado": "nome do banco se identificado",
+  "periodo": "período do extrato se visível",
+  "lancamentos": [
+    {
+      "data": "DD/MM/AAAA",
+      "descricao": "descrição exata do lançamento",
+      "valor": "valor numérico com vírgula decimal ex: 198,55",
+      "tipo": "despesa ou receita",
+      "categoria_sugerida": "categoria mais adequada"
+    }
+  ]
+}
+
+Categorias sugeridas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Streaming, Telecomunicações, Seguros, Financiamentos, Transferência, Salário, Rendimentos, Investimentos, Outros
+
+Retorne APENAS o JSON, sem texto adicional.
+
+TEXTO DO EXTRATO:
+${texto_extrato}`
+
+    const aiResp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    })
+
+    if (!aiResp.ok) {
+      const errText = await aiResp.text().catch(() => 'sem detalhe')
+      return c.json({ error: `Erro na IA (${aiResp.status}): ${errText.slice(0, 200)}` }, 502)
+    }
+
+    const aiData = await aiResp.json() as any
+    const content = aiData.choices?.[0]?.message?.content || ''
+
+    if (!content) {
+      return c.json({ error: 'A IA não retornou conteúdo. Tente novamente.' }, 422)
+    }
+
+    // Extrair JSON da resposta (às vezes vem com markdown ```json...```)
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
+    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
+
+    let dados: any
+    try {
+      dados = JSON.parse(jsonStr)
+    } catch {
+      return c.json({ error: 'Não foi possível interpretar a resposta da IA.', raw: content.slice(0, 500) }, 422)
+    }
+
+    const lancamentos = dados.lancamentos || []
+    if (lancamentos.length === 0) {
+      return c.json({ error: 'Nenhum lançamento encontrado no extrato.', banco: dados.banco_detectado }, 422)
+    }
+
+    // Filtrar pelo tipo solicitado
+    const filtrado = tipo
+      ? lancamentos.filter((l: any) => l.tipo === (tipo === 'despesas' ? 'despesa' : 'receita'))
+      : lancamentos
+
+    if (filtrado.length === 0) {
+      const tipoLabel = tipo === 'despesas' ? 'despesas (débitos)' : 'receitas (créditos)'
+      return c.json({ error: `Nenhuma ${tipoLabel} encontrada. Tente importar como "${tipo === 'despesas' ? 'receitas' : 'despesas'}".` }, 422)
+    }
+
+    const linhasCSV = filtrado.map((l: any) => {
+      const valor = tipo === 'despesas' || l.tipo === 'despesa' ? `-${l.valor}` : l.valor
+      return `${l.data};${l.descricao};${valor};${l.categoria_sugerida || 'Outros'}`
+    })
+
+    return c.json({
+      sucesso: true,
+      banco_detectado: dados.banco_detectado || 'Não identificado',
+      periodo: dados.periodo || '',
+      total_lancamentos: lancamentos.length,
+      total_filtrados: filtrado.length,
+      csv: linhasCSV.join('\n'),
+    })
+
+  } catch (e: any) {
+    return c.json({ error: 'Erro interno: ' + (e?.message || String(e)) }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/importacao/criar-recorrencia — Cria recorrência a partir do preview
 // ═══════════════════════════════════════════════════════════════════════════════
 importacao.post('/criar-recorrencia', requireAuth, async (c) => {

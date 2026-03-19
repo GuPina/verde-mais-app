@@ -12335,7 +12335,6 @@ const VM = {
   // Carrega pdf.js CDN de forma lazy (UMD build — expõe window.pdfjsLib)
   async _loadPdfJs() {
     if (window.pdfjsLib) return window.pdfjsLib
-    // Usar versão UMD estável que expõe window.pdfjsLib
     await new Promise((resolve, reject) => {
       const s = document.createElement('script')
       s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
@@ -12344,27 +12343,23 @@ const VM = {
       document.head.appendChild(s)
     })
     if (!window.pdfjsLib) throw new Error('pdf.js não carregou')
-    // Worker inline via blob para evitar CORS com CDN worker externo
-    const workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
     return window.pdfjsLib
   },
 
-  // Converte PDF (File) para base64 JPEG da 1ª página
-  async _pdfParaImagemBase64(file) {
+  // Extrai texto de todas as páginas de um PDF (File)
+  async _pdfExtrairTexto(file) {
     const pdfjsLib = await this._loadPdfJs()
     const arrayBuffer = await file.arrayBuffer()
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
-    const pdf = await loadingTask.promise
-    const page = await pdf.getPage(1)
-    const viewport = page.getViewport({ scale: 2.0 })
-    const canvas = document.createElement('canvas')
-    canvas.width = viewport.width
-    canvas.height = viewport.height
-    const ctx = canvas.getContext('2d')
-    await page.render({ canvasContext: ctx, viewport }).promise
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-    return dataUrl.split(',')[1]
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+    let textoTotal = ''
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      const linhas = content.items.map((item) => item.str).join(' ')
+      textoTotal += linhas + '\n'
+    }
+    return textoTotal.trim()
   },
 
   async _impOCR(input) {
@@ -12374,44 +12369,57 @@ const VM = {
     statusEl.style.display = 'block'
 
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
 
     try {
-      let base64, mimeType
+      let data
 
       if (isPdf) {
-        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Convertendo PDF para imagem... aguarde'
+        // PDF com texto: extrair texto e enviar para endpoint de texto
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Lendo PDF... aguarde'
+        let textoExtrato
         try {
-          base64 = await this._pdfParaImagemBase64(file)
-          mimeType = 'image/jpeg'
+          textoExtrato = await this._pdfExtrairTexto(file)
         } catch(pdfErr) {
-          statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>Erro ao converter PDF: ${pdfErr.message}. Tente tirar uma foto/screenshot do extrato e enviar como imagem.`
+          statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>Erro ao ler PDF: ${pdfErr.message}. Tente tirar uma foto/screenshot do extrato.`
           input.value = ''
           return
         }
+
+        if (!textoExtrato || textoExtrato.length < 50) {
+          statusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>Não foi possível extrair texto do PDF. Tente enviar uma foto/screenshot do extrato.'
+          input.value = ''
+          return
+        }
+
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando extrato com IA... aguarde'
+        try {
+          data = await this.api('POST', 'importacao/ocr-texto', { texto_extrato: textoExtrato, tipo })
+        } catch(apiErr) {
+          const msg = apiErr?.response?.data?.error || apiErr?.message || 'Erro ao processar extrato'
+          statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${msg}`
+          input.value = ''
+          return
+        }
+
       } else {
+        // Imagem: converter para base64 e enviar para endpoint de imagem
         statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando imagem com IA... aguarde'
-        base64 = await new Promise((resolve, reject) => {
+        const base64 = await new Promise((resolve, reject) => {
           const reader = new FileReader()
           reader.onload = e => resolve(e.target.result.split(',')[1])
           reader.onerror = reject
           reader.readAsDataURL(file)
         })
-        mimeType = file.type || 'image/jpeg'
-      }
-
-      statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando com IA... aguarde'
-
-      const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
-
-      let data
-      try {
-        data = await this.api('POST', 'importacao/ocr', { imagem_base64: base64, mime_type: mimeType, tipo })
-      } catch(apiErr) {
-        // Extrair mensagem de erro do corpo da resposta (axios encapsula em e.response.data)
-        const msg = apiErr?.response?.data?.error || apiErr?.message || 'Erro ao processar imagem'
-        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${msg}`
-        input.value = ''
-        return
+        const mimeType = file.type || 'image/jpeg'
+        try {
+          data = await this.api('POST', 'importacao/ocr', { imagem_base64: base64, mime_type: mimeType, tipo })
+        } catch(apiErr) {
+          const msg = apiErr?.response?.data?.error || apiErr?.message || 'Erro ao processar imagem'
+          statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${msg}`
+          input.value = ''
+          return
+        }
       }
 
       if (data.error) {
