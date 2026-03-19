@@ -12422,7 +12422,7 @@ const VM = {
     } catch(e) { this.toast('Erro: ' + e.message, 'error') }
   },
 
-
+  async _impPreview() {
     const btn = document.getElementById('imp-btn-preview')
     const csv = document.getElementById('imp-csv').value.trim()
     const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
@@ -12518,17 +12518,19 @@ const VM = {
 
       // Badge de investimento sugerido
       const inv = item.investimento_sugerido
+      const invNomeSafe = inv ? (inv.nome||'').replace(/'/g, '&#39;') : ''
       const invBadge = inv
         ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #10b981;cursor:pointer;"
-            onclick="VM._impSugerirInvestimento(${item.linha-1}, '${(inv.nome||'').replace(/'/g,'\\'')}', '${inv.tipo}', ${item.valor}, '${item.data}')"
+            onclick="VM._impSugerirInvestimento(${item.linha-1}, '${invNomeSafe}', '${inv.tipo}', ${item.valor}, '${item.data}')"
             title="Clique para criar como investimento">💰 Investimento? <span style="font-size:0.65rem;opacity:0.8;">(clique para criar)</span></span>`
         : ''
 
       // Badge de recorrência sugerida
       const rec = item.recorrencia_sugerida
+      const recDescSafe = rec ? (rec.descricao||'').replace(/'/g, '&#39;') : ''
       const recBadge = rec
         ? `<span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #fb923c;cursor:pointer;"
-            onclick="VM._impSugerirRecorrencia(${item.linha-1}, '${(rec.descricao||'').replace(/'/g,'\\'')}', '${rec.categoria}', ${item.valor}, '${rec.tipo_rec}', '${item.meio_pagamento||'outros'}')"
+            onclick="VM._impSugerirRecorrencia(${item.linha-1}, '${recDescSafe}', '${rec.categoria}', ${item.valor}, '${rec.tipo_rec}', '${item.meio_pagamento||'outros'}')"
             title="Clique para criar recorrência">🔄 Recorrente? <span style="font-size:0.65rem;opacity:0.8;">(clique para criar)</span></span>`
         : ''
 
