@@ -1325,7 +1325,7 @@ const VM = {
             <i class="fas fa-times" style="font-size:0.8rem;"></i>
           </button>
         </div>
-        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:300px;min-height:200px;background:var(--bg-main,#f8fafc);">
+        <div id="chat-widget-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:300px;min-height:200px;background:var(--bg-main,#f8fafc);">
           <div id="chat-welcome" style="text-align:center;padding:16px 8px;">
             <div style="font-size:2rem;margin-bottom:8px;">🤖</div>
             <div style="font-weight:600;font-size:0.88rem;color:var(--text-main,#1e293b);margin-bottom:4px;">Olá! Sou seu assistente financeiro.</div>
@@ -1338,7 +1338,7 @@ const VM = {
           <button onclick="VM.chatEnviar('Como estão minhas metas?')" class="chat-sugestao-btn">🎯 Metas</button>
         </div>
         <div style="padding:10px 12px;border-top:1px solid var(--border-color,#e2e8f0);display:flex;gap:8px;background:var(--bg-card,#fff);flex-shrink:0;">
-          <input id="chat-input" type="text" placeholder="Digite sua pergunta..." maxlength="500"
+          <input id="chat-widget-input" type="text" placeholder="Digite sua pergunta..." maxlength="500"
             style="flex:1;border:1px solid var(--border-color,#e2e8f0);border-radius:20px;padding:8px 14px;font-size:0.83rem;outline:none;background:var(--bg-main,#f8fafc);color:var(--text-main,#1e293b);"
             onkeydown="if(event.key==='Enter')VM.chatEnviarInput()" />
           <button onclick="VM.chatEnviarInput()" style="width:36px;height:36px;border-radius:50%;background:#10B981;border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1542,7 +1542,7 @@ const VM = {
     if (this._chatAberto) {
       this.chatCarregarHistorico()
       setTimeout(() => {
-        const input = document.getElementById('chat-input')
+        const input = document.getElementById('chat-widget-input')
         if (input) input.focus()
       }, 200)
     }
@@ -1553,7 +1553,7 @@ const VM = {
       const data = await this.api('GET', 'chat/historico')
       const msgs = data.historico || []
       if (msgs.length === 0) return
-      const container = document.getElementById('chat-messages')
+      const container = document.getElementById('chat-widget-messages')
       if (!container) return
       const welcome = document.getElementById('chat-welcome')
       if (welcome) welcome.style.display = 'none'
@@ -1565,7 +1565,7 @@ const VM = {
   },
 
   _chatAdicionarMsg(sender, text) {
-    const container = document.getElementById('chat-messages')
+    const container = document.getElementById('chat-widget-messages')
     if (!container) return
     const welcome = document.getElementById('chat-welcome')
     if (welcome) welcome.style.display = 'none'
@@ -1595,7 +1595,7 @@ const VM = {
     if (!msg) return
     this._chatAdicionarMsg('user', msg)
     // Mostrar loading
-    const container = document.getElementById('chat-messages')
+    const container = document.getElementById('chat-widget-messages')
     const loadDiv = document.createElement('div')
     loadDiv.id = 'chat-loading'
     loadDiv.className = 'chat-msg'
@@ -1619,7 +1619,7 @@ const VM = {
   },
 
   chatEnviarInput() {
-    const input = document.getElementById('chat-input')
+    const input = document.getElementById('chat-widget-input')
     if (!input) return
     const msg = input.value?.trim()
     if (!msg) return
@@ -12381,45 +12381,58 @@ const VM = {
 
   // ── Criar investimento a partir de sugestão do preview ────────────────────
   async _impSugerirInvestimento(idx, nome, tipo, valor, data) {
-    if (!confirm(`Criar "${nome}" como investimento de R$ ${Number(valor).toFixed(2)}?`)) return
+    const ok = await this._confirmar(`Criar <b>${nome}</b> como investimento de <b>R$ ${Number(valor).toFixed(2)}</b>?`)
+    if (!ok) return
     try {
-      const res = await fetch('/api/importacao/criar-investimento', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ nome, tipo, valor_investido: valor, data_inicio: data })
-      })
-      const data2 = await res.json()
-      if (res.ok && data2.sucesso) {
-        this.toast(`✅ ${data2.mensagem}`, 'success')
-        // Remover badge para não criar duplicado
+      const resp = await this.api('POST', 'importacao/criar-investimento', { nome, tipo, valor_investido: valor, data_inicio: data })
+      if (resp.sucesso) {
+        this.toast(`✅ ${resp.mensagem}`, 'success')
         const el = document.querySelector(`#imp-linha-${idx} [onclick*="_impSugerirInvestimento"]`)
         if (el) el.remove()
       } else {
-        this.toast(data2.error || 'Erro ao criar investimento', 'error')
+        this.toast(resp.error || 'Erro ao criar investimento', 'error')
       }
     } catch(e) { this.toast('Erro: ' + e.message, 'error') }
   },
 
   // ── Criar recorrência a partir de sugestão do preview ─────────────────────
   async _impSugerirRecorrencia(idx, descricao, categoria, valor, tipo_rec, meio) {
-    if (!confirm(`Criar recorrência "${descricao}" (${tipo_rec}) de R$ ${Number(valor).toFixed(2)}/mês?`)) return
+    const ok = await this._confirmar(`Criar recorrência <b>${descricao}</b> (${tipo_rec}) de <b>R$ ${Number(valor).toFixed(2)}/mês</b>?`)
+    if (!ok) return
     try {
-      const res = await fetch('/api/importacao/criar-recorrencia', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ descricao, categoria, valor, tipo: tipo_rec, meio_pagamento: meio })
-      })
-      const data = await res.json()
-      if (res.ok && data.sucesso) {
-        this.toast(`✅ ${data.mensagem}`, 'success')
+      const resp = await this.api('POST', 'importacao/criar-recorrencia', { descricao, categoria, valor, tipo: tipo_rec, meio_pagamento: meio })
+      if (resp.sucesso) {
+        this.toast(`✅ ${resp.mensagem}`, 'success')
         const el = document.querySelector(`#imp-linha-${idx} [onclick*="_impSugerirRecorrencia"]`)
         if (el) el.remove()
-      } else if (data.error?.includes('Já existe')) {
-        this.toast(`ℹ️ ${data.error}`, 'info')
+      } else if (resp.error?.includes('Já existe')) {
+        this.toast(`ℹ️ ${resp.error}`, 'info')
       } else {
-        this.toast(data.error || 'Erro ao criar recorrência', 'error')
+        this.toast(resp.error || 'Erro ao criar recorrência', 'error')
       }
     } catch(e) { this.toast('Erro: ' + e.message, 'error') }
+  },
+
+  // ── Modal de confirmação customizado (substitui confirm() nativo) ──────────
+  _confirmar(html) {
+    return new Promise(resolve => {
+      const old = document.getElementById('vm-confirm-modal')
+      if (old) old.remove()
+      const d = document.createElement('div')
+      d.id = 'vm-confirm-modal'
+      d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;'
+      d.innerHTML = `
+        <div style="background:#111827;border:1px solid #2FBF71;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;text-align:center;">
+          <div style="font-size:0.95rem;color:#e2e8f0;line-height:1.6;margin-bottom:20px;">${html}</div>
+          <div style="display:flex;gap:10px;justify-content:center;">
+            <button id="vm-confirm-ok" style="padding:10px 28px;background:#2FBF71;border:none;border-radius:10px;color:#000;font-weight:700;cursor:pointer;">✅ Confirmar</button>
+            <button id="vm-confirm-cancel" style="padding:10px 22px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:10px;color:#aaa;cursor:pointer;">Cancelar</button>
+          </div>
+        </div>`
+      document.body.appendChild(d)
+      document.getElementById('vm-confirm-ok').onclick = () => { d.remove(); resolve(true) }
+      document.getElementById('vm-confirm-cancel').onclick = () => { d.remove(); resolve(false) }
+    })
   },
 
   async _impPreview() {
@@ -12744,8 +12757,8 @@ const VM = {
               ${resp.erros_detalhes.map(e => `<p style="color:#ef4444;font-size:0.78rem;margin:2px 0;">${e}</p>`).join('')}
             </div>` : ''}
           <div style="display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap;">
-            <button onclick="VM.navigate('despesas')" style="padding:10px 22px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:600;cursor:pointer;">
-              <i class="fas fa-list" style="margin-right:6px;"></i>Ver Despesas
+            <button onclick="VM.navigate(VM._impData?.tipo === 'receitas' ? 'receitas' : 'despesas')" style="padding:10px 22px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:600;cursor:pointer;">
+              <i class="fas fa-list" style="margin-right:6px;"></i>Ver ${tipo === 'receitas' ? 'Receitas' : 'Despesas'}
             </button>
             <button onclick="VM.pageImportacao()" style="padding:10px 22px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;cursor:pointer;">
               <i class="fas fa-redo" style="margin-right:6px;"></i>Nova Importação

@@ -19,16 +19,15 @@ const CATEGORIAS_IMPULSO: Record<string, { peso: number; label: string; emoji: s
   'Outros':      { peso: 0.6, label: 'Outros / Indefinido',    emoji: '❓' },
 }
 
-// Palavras-chave de compras impulsivas
+// Palavras-chave de compras impulsivas (evitar falsos positivos com espaço/prefixo)
 const IMPULSO_KEYWORDS = [
-  { keywords: ['amazon', 'mercado livre', 'mercadolivre', 'shopee', 'aliexpress', 'magazine', 'americanas', 'casas bahia'], label: 'Compra Online', emoji: '🛒', peso: 0.8 },
-  { keywords: ['shopping', 'loja', 'store', 'outlet'], label: 'Shopping / Loja', emoji: '🏬', peso: 0.7 },
-  { keywords: ['ifood', 'rappi', 'delivery', 'uber eats', 'aiqfome'], label: 'Delivery', emoji: '🍔', peso: 0.6 },
-  { keywords: ['bar', 'boteco', 'cerveja', 'happy hour'], label: 'Bar / Cerveja', emoji: '🍺', peso: 0.7 },
-  { keywords: ['farmacia', 'farmácia', 'drogaria'], label: 'Farmácia', emoji: '💊', peso: 0.3 },
-  { keywords: ['cinema', 'teatro', 'show', 'ingresso', 'evento'], label: 'Entretenimento', emoji: '🎬', peso: 0.7 },
-  { keywords: ['steam', 'playstation store', 'xbox store', 'nintendo eshop', 'jogo', 'game'], label: 'Jogos Digitais', emoji: '🎮', peso: 0.9 },
-  { keywords: ['cosmetico', 'cosmético', 'perfume', 'maquiagem', 'sephora', 'boticario', 'o boticario', 'natura'], label: 'Cosméticos', emoji: '💄', peso: 0.7 },
+  { keywords: ['amazon', 'mercado livre', 'mercadolivre', 'shopee', 'aliexpress', 'magazine luiza', 'americanas', 'casas bahia'], label: 'Compra Online', emoji: '🛒', peso: 0.8 },
+  { keywords: ['ifood', 'rappi', 'uber eats', 'aiqfome'], label: 'Delivery', emoji: '🍔', peso: 0.6 },
+  { keywords: ['farmacia ', 'drogaria ', 'droga raia', 'ultrafarma', 'pacheco'], label: 'Farmácia', emoji: '💊', peso: 0.3 },
+  { keywords: ['cinema', 'teatro', 'ingresso', 'bilheteria', 'showticket', 'ingressocom'], label: 'Entretenimento', emoji: '🎬', peso: 0.7 },
+  { keywords: ['steam ', 'playstation store', 'xbox store', 'nintendo eshop', 'nuuvem', ' jogo ', 'game pass', 'xbox game', 'psn store'], label: 'Jogos Digitais', emoji: '🎮', peso: 0.9 },
+  { keywords: ['sephora', 'boticario', 'o boticario', 'natura ', 'avon ', 'perfumaria'], label: 'Cosméticos', emoji: '💄', peso: 0.7 },
+  { keywords: [' bar ', 'boteco', 'cervejaria', 'happy hour'], label: 'Bar / Cerveja', emoji: '🍺', peso: 0.7 },
 ]
 
 // Padrões que indicam compra recorrente habitual (NÃO assinatura)
@@ -44,10 +43,11 @@ const RECORRENTE_PATTERNS = [
 ]
 
 function normalizeDesc(desc: string): string {
-  return desc.toLowerCase()
+  // Adiciona espaço nas bordas para facilitar match de palavras completas (ex: ' bar ', ' jogo ')
+  return ' ' + desc.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ').trim()
+    .replace(/\s+/g, ' ').trim() + ' '
 }
 
 // ── Helper: IA para classificar compras recorrentes ───────────────────────
