@@ -11624,43 +11624,69 @@ const VM = {
   async modalReduzirPrecoAssinatura(id, nome, valorAtual) {
     const modal = document.createElement('div')
     modal.id = 'modal-reduzir-assin'
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;'
     modal.innerHTML = `
-      <div style="background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:28px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;">
-        <h3 style="color:#F59E0B;font-size:1.1rem;font-weight:700;margin:0 0 6px;">💸 Reduzir Preço</h3>
-        <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 20px;"><strong style="color:#f1f5f9;">${nome}</strong><br>Valor atual: <strong style="color:#F43F5E;">R$ ${(valorAtual||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>/mês</p>
-        <div style="margin-bottom:16px;">
-          <label style="color:#94A3B8;font-size:0.8rem;display:block;margin-bottom:6px;">Novo valor após troca de plano / desconto</label>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="color:#64748B;font-size:0.9rem;">R$</span>
+      <div style="background:#0f172a;border:1px solid rgba(245,158,11,0.35);border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <h3 style="color:#F59E0B;font-size:1rem;font-weight:800;margin:0 0 3px;">💸 Reduzir Preço</h3>
+            <p style="color:#94A3B8;font-size:0.82rem;margin:0;">
+              <strong style="color:#f1f5f9;">${nome}</strong>
+              &nbsp;·&nbsp;
+              Atual: <strong style="color:#F43F5E;">R$ ${(valorAtual||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}/mês</strong>
+            </p>
+          </div>
+          <button onclick="document.getElementById('modal-reduzir-assin').remove()" style="background:rgba(255,255,255,0.06);border:none;color:#64748B;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>
+        </div>
+
+        <!-- Novo valor -->
+        <div style="margin-bottom:12px;">
+          <label style="color:#94A3B8;font-size:0.78rem;display:block;margin-bottom:6px;font-weight:600;">Novo valor após troca de plano / desconto</label>
+          <div style="display:flex;align-items:center;gap:8px;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:4px 12px;">
+            <span style="color:#64748B;font-size:0.9rem;font-weight:600;">R$</span>
             <input id="inp-novo-valor-assin" type="number" step="0.01" min="0.01"
-              placeholder="Ex: 29.90"
-              style="flex:1;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#f1f5f9;font-size:1rem;outline:none;">
+              placeholder="Ex: 19.90"
+              style="flex:1;background:transparent;border:none;color:#f1f5f9;font-size:1rem;outline:none;padding:8px 0;">
           </div>
         </div>
-        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px;margin-bottom:20px;" id="preview-reducao-assin">
-          <p style="color:#64748B;font-size:0.8rem;margin:0;">Digite o novo valor para ver a economia.</p>
+
+        <!-- Preview economia -->
+        <div style="border-radius:10px;padding:12px;margin-bottom:16px;min-height:44px;" id="preview-reducao-assin">
+          <p style="color:#64748B;font-size:0.78rem;margin:0;">👆 Digite o novo valor para ver a economia estimada.</p>
         </div>
 
         <!-- Seção de recorrências (carregada ao clicar em "Buscar") -->
-        <div id="secao-recorrencias-assin" style="display:none;margin-bottom:20px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-            <p style="color:#93C5FD;font-size:0.85rem;font-weight:700;margin:0;">🔗 Recorrências encontradas</p>
-            <span style="color:#64748B;font-size:0.75rem;">Escolha qual atualizar (opcional)</span>
+        <div id="secao-recorrencias-assin" style="display:none;margin-bottom:16px;background:rgba(59,130,246,0.04);border:1px solid rgba(59,130,246,0.15);border-radius:12px;padding:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <p style="color:#93C5FD;font-size:0.82rem;font-weight:700;margin:0;">🔗 Recorrências encontradas</p>
+            <span style="color:#475569;font-size:0.7rem;">Escolha qual atualizar</span>
           </div>
-          <div id="lista-recorrencias-assin" style="max-height:200px;overflow-y:auto;"></div>
-          <div style="margin-top:8px;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="radio" name="recorrencia-choice" value="none" checked style="accent-color:#F59E0B;">
-              <span style="color:#94A3B8;font-size:0.82rem;">Não vincular nenhuma recorrência</span>
-            </label>
-          </div>
+          <div id="lista-recorrencias-assin" style="max-height:180px;overflow-y:auto;"></div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;">
+            <input type="radio" name="recorrencia-choice" value="none" checked style="accent-color:#F59E0B;">
+            <span style="color:#94A3B8;font-size:0.8rem;">Não vincular nenhuma recorrência</span>
+          </label>
         </div>
 
-        <div style="display:flex;gap:10px;">
-          <button onclick="document.getElementById('modal-reduzir-assin').remove()" style="flex:1;padding:10px;background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);border-radius:10px;font-weight:600;cursor:pointer;">Cancelar</button>
-          <button id="btn-buscar-rec-assin" onclick="VM.buscarRecorrenciasParaReducao(${id})" style="flex:1;padding:10px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid rgba(59,130,246,0.3);border-radius:10px;font-weight:700;cursor:pointer;">🔗 Buscar Recorrências</button>
-          <button onclick="VM.confirmarReduzirPrecoAssinatura(${id},${valorAtual})" style="flex:2;padding:10px;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;">💸 Confirmar Redução</button>
+        <!-- Botões — empilhados verticalmente para evitar overflow -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button id="btn-buscar-rec-assin" onclick="VM.buscarRecorrenciasParaReducao(${id})"
+            style="width:100%;padding:11px;background:rgba(59,130,246,0.12);color:#93C5FD;border:1px solid rgba(59,130,246,0.3);border-radius:10px;font-weight:700;cursor:pointer;font-size:0.85rem;transition:background 0.2s;"
+            onmouseover="this.style.background='rgba(59,130,246,0.22)'" onmouseout="this.style.background='rgba(59,130,246,0.12)'">
+            🔗 Buscar Recorrências para Vincular
+          </button>
+          <div style="display:flex;gap:8px;">
+            <button onclick="document.getElementById('modal-reduzir-assin').remove()"
+              style="flex:1;padding:11px;background:rgba(100,116,139,0.12);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);border-radius:10px;font-weight:600;cursor:pointer;font-size:0.85rem;">
+              Cancelar
+            </button>
+            <button onclick="VM.confirmarReduzirPrecoAssinatura(${id},${valorAtual})"
+              style="flex:2;padding:11px;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;font-size:0.85rem;box-shadow:0 4px 14px rgba(245,158,11,0.3);">
+              💸 Confirmar Redução
+            </button>
+          </div>
         </div>
       </div>`
     document.body.appendChild(modal)
@@ -11672,13 +11698,21 @@ const VM = {
     inp.addEventListener('input', () => {
       const novo = parseFloat(inp.value)
       if (!novo || novo <= 0 || novo >= valorAtual) {
-        preview.innerHTML = '<p style="color:#F43F5E;font-size:0.8rem;margin:0;">⚠️ Novo valor deve ser menor que o atual.</p>'
+        preview.innerHTML = '<p style="color:#F43F5E;font-size:0.78rem;margin:0;background:rgba(244,63,94,0.08);padding:10px;border-radius:8px;border:1px solid rgba(244,63,94,0.2);">⚠️ Novo valor deve ser menor que o atual.</p>'
         return
       }
       const redMensal = valorAtual - novo
-      const redAnual = redMensal * 12
-      preview.innerHTML = `<p style="color:#F59E0B;font-size:0.85rem;margin:0 0 4px;font-weight:700;">Economia estimada:</p>
-        <p style="color:#10B981;font-size:1rem;font-weight:800;margin:0;">R$ ${redMensal.toLocaleString('pt-BR',{minimumFractionDigits:2})}/mês · R$ ${redAnual.toLocaleString('pt-BR',{minimumFractionDigits:2})}/ano</p>`
+      const redAnual  = redMensal * 12
+      const pctDesc   = Math.round((redMensal / valorAtual) * 100)
+      preview.innerHTML = `
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px;">
+          <div style="font-size:0.72rem;color:#6EE7B7;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Economia estimada</div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="color:#10B981;font-size:1.05rem;font-weight:800;font-family:'JetBrains Mono',monospace;">R$ ${redMensal.toLocaleString('pt-BR',{minimumFractionDigits:2})}/mês</span>
+            <span style="color:#6EE7B7;font-size:0.85rem;">· R$ ${redAnual.toLocaleString('pt-BR',{minimumFractionDigits:2})}/ano</span>
+            <span style="background:rgba(16,185,129,0.2);color:#10B981;font-size:0.72rem;padding:2px 8px;border-radius:20px;font-weight:700;">-${pctDesc}%</span>
+          </div>
+        </div>`
     })
     inp.focus()
   },

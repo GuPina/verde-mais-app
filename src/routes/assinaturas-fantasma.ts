@@ -610,7 +610,7 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
     if (rec) {
       await c.env.DB.prepare(`
         UPDATE recorrencias
-        SET valor = ?, ultimo_valor = ?, updated_at = datetime('now')
+        SET valor = ?, ultimo_valor = ?
         WHERE id = ? AND user_id = ?
       `).bind(novoValorNum, novoValorNum, recorrencia_id, user.id).run()
         .catch(() => {})
@@ -619,8 +619,7 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
       const hoje = new Date().toISOString().split('T')[0]
       const updateFut = await c.env.DB.prepare(`
         UPDATE despesas
-        SET valor = ?,
-            updated_at = datetime('now')
+        SET valor = ?
         WHERE user_id = ?
           AND status = 'pendente'
           AND date(data) >= date(?)
