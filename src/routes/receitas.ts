@@ -121,6 +121,27 @@ receitas.put('/:id', requireAuth, async (c) => {
   return c.json({ success: true, message: 'Receita atualizada!' })
 })
 
+// DELETE /api/receitas/bulk — excluir múltiplas receitas de uma vez
+receitas.delete('/bulk', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => null)
+  const ids: number[] = body?.ids || []
+  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
+  if (ids.length > 200) return c.json({ error: 'Máximo 200 itens por vez.' }, 400)
+
+  let excluidas = 0
+  for (const id of ids) {
+    const existing = await c.env.DB.prepare(
+      'SELECT id FROM receitas WHERE id = ? AND user_id = ?'
+    ).bind(id, user.id).first()
+    if (!existing) continue
+    await c.env.DB.prepare('DELETE FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+    excluidas++
+  }
+
+  return c.json({ success: true, excluidas, message: `${excluidas} receita(s) excluída(s).` })
+})
+
 // DELETE /api/receitas/:id
 receitas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')

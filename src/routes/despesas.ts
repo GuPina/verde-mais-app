@@ -406,6 +406,41 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
 })
 
+// DELETE /api/despesas/bulk — excluir múltiplas despesas de uma vez
+despesas.delete('/bulk', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => null)
+  const ids: number[] = body?.ids || []
+  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
+  if (ids.length > 200) return c.json({ error: 'Máximo 200 itens por vez.' }, 400)
+
+  let excluidas = 0
+  for (const id of ids) {
+    const existing = await c.env.DB.prepare(
+      'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
+    ).bind(id, user.id).first() as any
+    if (!existing) continue
+
+    // Devolver limite ao cartão se pendente
+    if (existing.cartao_id && existing.status === 'pendente') {
+      const meioPagCartao = ['cartao_credito', 'parcelado_cartao']
+      if (meioPagCartao.includes(existing.meio_pagamento)) {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
+        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
+      }
+    }
+    // Remover card_charge vinculado
+    if (existing.cartao_id) {
+      await c.env.DB.prepare('DELETE FROM card_charges WHERE expense_id = ?').bind(id).run()
+    }
+    await c.env.DB.prepare('DELETE FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+    excluidas++
+  }
+
+  return c.json({ success: true, excluidas, message: `${excluidas} despesa(s) excluída(s).` })
+})
+
 // DELETE /api/despesas/:id
 despesas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')

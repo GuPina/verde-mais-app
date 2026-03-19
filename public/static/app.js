@@ -2527,10 +2527,17 @@ const VM = {
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#2FBF71;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
+        <div id="receitas-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;">
+          <span id="receitas-sel-count" style="color:#f87171;font-weight:600;font-size:0.88rem;">0 selecionadas</span>
+          <button onclick="VM._selTodosReceitas(true)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.8rem;cursor:pointer;">Selecionar tudo</button>
+          <button onclick="VM._selTodosReceitas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.8rem;cursor:pointer;">Limpar</button>
+          <button onclick="VM._excluirSelecionadasReceitas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash" style="margin-right:5px;"></i>Excluir selecionadas</button>
+        </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-          <table class="data-table" style="min-width:640px;">
+          <table class="data-table" style="min-width:660px;">
             <thead>
               <tr>
+                <th style="width:36px;"><input type="checkbox" id="rec-chk-all" onchange="VM._selTodosReceitas(this.checked)" style="cursor:pointer;width:16px;height:16px;"></th>
                 <th>Descrição</th>
                 <th>Categoria</th>
                 <th>Data</th>
@@ -2541,7 +2548,8 @@ const VM = {
             </thead>
             <tbody>
               ${data.receitas.map(r => `
-                <tr>
+                <tr id="rec-row-${r.id}">
+                  <td><input type="checkbox" class="rec-chk" data-id="${r.id}" onchange="VM._onSelReceita()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td style="font-weight:500;">${r.descricao}</td>
                   <td><span class="badge badge-green">${cats[r.categoria] || '💰'} ${r.categoria}</span></td>
                   <td style="color:#888;">${this.formatDate(r.data)}</td>
@@ -2704,6 +2712,36 @@ const VM = {
     }
   },
 
+  // ── Seleção múltipla Receitas ──────────────────────────────────────────────
+  _onSelReceita() {
+    const chks = document.querySelectorAll('.rec-chk')
+    const sel  = document.querySelectorAll('.rec-chk:checked')
+    const bar  = document.getElementById('receitas-sel-bar')
+    const cnt  = document.getElementById('receitas-sel-count')
+    const all  = document.getElementById('rec-chk-all')
+    if (bar)  bar.style.display  = sel.length > 0 ? 'flex' : 'none'
+    if (cnt)  cnt.textContent    = `${sel.length} selecionada${sel.length !== 1 ? 's' : ''}`
+    if (all)  all.indeterminate  = sel.length > 0 && sel.length < chks.length
+    if (all)  all.checked        = sel.length > 0 && sel.length === chks.length
+  },
+  _selTodosReceitas(val) {
+    document.querySelectorAll('.rec-chk').forEach(c => { c.checked = val })
+    this._onSelReceita()
+  },
+  async _excluirSelecionadasReceitas() {
+    const ids = [...document.querySelectorAll('.rec-chk:checked')].map(c => Number(c.dataset.id))
+    if (!ids.length) return
+    const ok = await this.vmConfirm(`Excluir ${ids.length} receita${ids.length !== 1 ? 's' : ''} permanentemente?`, { titulo: 'Excluir Receitas', corBotao: '#ef4444', textoBotao: `Excluir ${ids.length}`, icone: '🗑️' })
+    if (!ok) return
+    try {
+      const res = await this.api('DELETE', 'receitas/bulk', { ids })
+      this.toast(`✅ ${res.excluidas} receita${res.excluidas !== 1 ? 's' : ''} excluída${res.excluidas !== 1 ? 's' : ''}!`)
+      this.carregarReceitas()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
   // ============== DESPESAS ==============
   async pageDespesas() {
     const now = new Date()
@@ -2803,10 +2841,17 @@ const VM = {
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
+        <div id="desp-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;">
+          <span id="desp-sel-count" style="color:#f87171;font-weight:600;font-size:0.88rem;">0 selecionadas</span>
+          <button onclick="VM._selTodosDespesas(true)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.8rem;cursor:pointer;">Selecionar tudo</button>
+          <button onclick="VM._selTodosDespesas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.8rem;cursor:pointer;">Limpar</button>
+          <button onclick="VM._excluirSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash" style="margin-right:5px;"></i>Excluir selecionadas</button>
+        </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-          <table class="data-table" style="min-width:780px;">
+          <table class="data-table" style="min-width:820px;">
             <thead>
               <tr>
+                <th style="width:36px;"><input type="checkbox" id="desp-chk-all" onchange="VM._selTodosDespesas(this.checked)" style="cursor:pointer;width:16px;height:16px;"></th>
                 <th>Descrição</th>
                 <th>Categoria</th>
                 <th>Data</th>
@@ -2827,7 +2872,8 @@ const VM = {
                      </span>`
                   : ''
                 return `
-                <tr>
+                <tr id="desp-row-${d.id}">
+                  <td><input type="checkbox" class="desp-chk" data-id="${d.id}" onchange="VM._onSelDespesa()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td style="font-weight:500;">${d.descricao}${parcelaBadge}</td>
                   <td><span class="badge badge-red">${catIcons[d.categoria] || '📦'} ${d.categoria}</span></td>
                   <td style="color:#888;">${this.formatDate(d.data)}</td>
@@ -3280,6 +3326,36 @@ const VM = {
     try {
       await this.api('DELETE', `despesas/${id}`)
       this.toast('Despesa excluída!')
+      this.carregarDespesas()
+    } catch (e) {
+      this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ── Seleção múltipla Despesas ──────────────────────────────────────────────
+  _onSelDespesa() {
+    const chks = document.querySelectorAll('.desp-chk')
+    const sel  = document.querySelectorAll('.desp-chk:checked')
+    const bar  = document.getElementById('desp-sel-bar')
+    const cnt  = document.getElementById('desp-sel-count')
+    const all  = document.getElementById('desp-chk-all')
+    if (bar)  bar.style.display  = sel.length > 0 ? 'flex' : 'none'
+    if (cnt)  cnt.textContent    = `${sel.length} selecionada${sel.length !== 1 ? 's' : ''}`
+    if (all)  all.indeterminate  = sel.length > 0 && sel.length < chks.length
+    if (all)  all.checked        = sel.length > 0 && sel.length === chks.length
+  },
+  _selTodosDespesas(val) {
+    document.querySelectorAll('.desp-chk').forEach(c => { c.checked = val })
+    this._onSelDespesa()
+  },
+  async _excluirSelecionadasDespesas() {
+    const ids = [...document.querySelectorAll('.desp-chk:checked')].map(c => Number(c.dataset.id))
+    if (!ids.length) return
+    const ok = await this.vmConfirm(`Excluir ${ids.length} despesa${ids.length !== 1 ? 's' : ''} permanentemente?`, { titulo: 'Excluir Despesas', corBotao: '#ef4444', textoBotao: `Excluir ${ids.length}`, icone: '🗑️' })
+    if (!ok) return
+    try {
+      const res = await this.api('DELETE', 'despesas/bulk', { ids })
+      this.toast(`✅ ${res.excluidas} despesa${res.excluidas !== 1 ? 's' : ''} excluída${res.excluidas !== 1 ? 's' : ''}!`)
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')
