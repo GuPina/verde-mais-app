@@ -678,17 +678,12 @@ importacao.post('/executar', requireAuth, async (c) => {
             let primeiroId: number | null = null
 
             // Determinar o mês de faturamento da parcela ATUAL (âncora)
-            let bMesAtual: number, bAnoAtual: number
-            if (cartaoFinal) {
-              // COM cartão: aplicar regra de fechamento sobre a data do CSV
-              const bcAtual = calcBilling(cartaoFinal, data)
-              bMesAtual = bcAtual.bMonth
-              bAnoAtual = bcAtual.bYear
-            } else {
-              // SEM cartão: data do CSV representa diretamente o mês da parcela atual
-              bMesAtual = parseInt(data.split('-')[1])
-              bAnoAtual = parseInt(data.split('-')[0])
-            }
+            // IMPORTANTE: no CSV de extrato, a data já é a data do lançamento/débito.
+            // Portanto usamos o mês do CSV diretamente como bMesAtual, sem calcBilling.
+            // calcBilling é para COMPRAS NOVAS (data de compra → qual fatura vai cair).
+            // Aqui a parcela JÁ está na fatura do mês da data do CSV.
+            const bMesAtual = parseInt(data.split('-')[1])
+            const bAnoAtual = parseInt(data.split('-')[0])
 
             for (let p = 1; p <= total; p++) {
               // bMonth(p) = bMesAtual + (p - atual)
