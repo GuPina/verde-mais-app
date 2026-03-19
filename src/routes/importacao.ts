@@ -132,16 +132,13 @@ function statusPorMeio(meio: string, dataISO: string): string {
   return 'pago'
 }
 
-// Para parcelas: passadas → pago, atual/futuras → pendente (sempre, independente do meio)
-function statusParcela(dataParcela: string, meio: string): string {
+// Para parcelas retroativas:
+// - data < hoje → 'pago' (já foi cobrado, independente do meio)
+// - data >= hoje → 'pendente' (ainda vai cobrar / cair na fatura)
+// Isso garante que parcelas passadas não consumam limite do cartão e apareçam como pagas.
+function statusParcela(dataParcela: string, _meio: string): string {
   const hoje = new Date().toISOString().slice(0, 10)
-  if (meio === 'dinheiro' || meio === 'pix' || meio === 'cartao_debito' ||
-      meio === 'transferencia' || meio === 'boleto') {
-    // Débito imediato: só parcelas passadas ficam pagas
-    return dataParcela < hoje ? 'pago' : 'pendente'
-  }
-  // Cartão de crédito: todas pendentes (fatura)
-  return 'pendente'
+  return dataParcela < hoje ? 'pago' : 'pendente'
 }
 
 function detectarParcela(desc: string): { atual: number; total: number } | null {
@@ -662,8 +659,13 @@ importacao.post('/executar', requireAuth, async (c) => {
       // Meio de pagamento: cartão selecionado → cartao_credito
       const meio = cartaoFinal ? 'cartao_credito' : detectarMeioPagamento(desc)
 
-      // Status: override do usuário (cfg.status) ou regra automática
-      const statusBase = cfg.status || statusPorMeio(meio, data)
+      // Status: override do usuário (cfg.status) ou regra automática.
+      // Para importação de CSV (dados históricos), se a data já passou → 'pago',
+      // independente do meio. Isso evita que compras retroativas consumam limite do cartão.
+      const hoje0 = new Date().toISOString().slice(0, 10)
+      const statusBase = data < hoje0
+        ? 'pago'
+        : (cfg.status || statusPorMeio(meio, data))
 
       try {
         if (tipo === 'receitas') {
@@ -713,7 +715,12 @@ importacao.post('/executar', requireAuth, async (c) => {
                 dataParaGravar = addMonths(data, p - atual)
               }
 
-              const statusParc = cfg.status || statusParcela(dataParaGravar, meio)
+              // Parcelas retroativas (data já passou) SEMPRE são 'pago',
+              // mesmo que o usuário tenha selecionado outro status no CSV.
+              // Apenas parcelas futuras/hoje respeitam o cfg.status do usuário.
+              const statusParc = statusParcela(dataParaGravar, meio) === 'pago'
+                ? 'pago'
+                : (cfg.status || 'pendente')
 
               // Remove o padrão X/Y original da descrição e adiciona (p/total)
               const descBase = desc
@@ -829,9 +836,13 @@ importacao.post('/executar', requireAuth, async (c) => {
                 dataVenc, bMonth, bYear, null, null, null, statusBase
               ).run().catch(() => {})
 
-              await c.env.DB.prepare(
-                `UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?`
-              ).bind(valor, cIdFinal, user.id).run().catch(() => {})
+              // Só decrementa limite para despesas pendentes (futuras/hoje).
+              // Despesas passadas já foram cobradas e não consomem limite disponível.
+              if (statusBase !== 'pago') {
+                await c.env.DB.prepare(
+                  `UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?`
+                ).bind(valor, cIdFinal, user.id).run().catch(() => {})
+              }
             }
 
             importados++
