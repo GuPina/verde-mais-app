@@ -436,12 +436,136 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   })
 })
 
+// ── GET /api/assinaturas-fantasma/precos-reduzidos ───────────────────────
+// Lista SOMENTE assinaturas onde usuário clicou "Reduzir Preço"
+// Mostra valor antigo, novo valor e economia acumulada desde a redução
+assinaturas.get('/precos-reduzidos', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const result = await c.env.DB.prepare(`
+    SELECT * FROM detected_subscriptions
+    WHERE user_id = ? AND user_feedback = 'reduced_plan'
+    ORDER BY reduced_at DESC, updated_at DESC
+  `).bind(user.id).all()
+
+  const hoje = new Date()
+  let totalEconomiaMensal = 0
+  let totalEconomiaAcumulada = 0
+
+  const reduzidas = (result.results as any[]).map(sub => {
+    const valorAntigo = parseFloat(String(sub.valor_antigo || 0))
+    const novoValor   = parseFloat(String(sub.amount || 0))
+    const reducaoMensal = Math.max(0, valorAntigo - novoValor)
+
+    // Calcular economia acumulada desde a data de redução
+    const reducedAt = sub.reduced_at ? new Date(sub.reduced_at) : new Date(sub.updated_at)
+    const diasDesde = Math.max(0, Math.floor((hoje.getTime() - reducedAt.getTime()) / (1000 * 60 * 60 * 24)))
+    const mesesDesde = Math.floor(diasDesde / 30)
+
+    let economiaAcumulada = 0
+    const label = sub.frequency_label || 'mensal'
+    if (label === 'mensal')      economiaAcumulada = mesesDesde * reducaoMensal
+    else if (label === 'quinzenal') economiaAcumulada = Math.floor(diasDesde / 15) * reducaoMensal
+    else if (label === 'semanal')   economiaAcumulada = Math.floor(diasDesde / 7) * reducaoMensal
+    else if (label === 'trimestral') economiaAcumulada = Math.floor(mesesDesde / 3) * reducaoMensal
+    else if (label === 'anual')     economiaAcumulada = Math.floor(mesesDesde / 12) * reducaoMensal
+    else                            economiaAcumulada = mesesDesde * reducaoMensal
+
+    totalEconomiaMensal   += reducaoMensal
+    totalEconomiaAcumulada += economiaAcumulada
+
+    return {
+      ...sub,
+      valor_antigo:        Math.round(valorAntigo * 100) / 100,
+      novo_valor:          Math.round(novoValor * 100) / 100,
+      reducao_mensal:      Math.round(reducaoMensal * 100) / 100,
+      reducao_anual:       Math.round(reducaoMensal * 12 * 100) / 100,
+      economia_acumulada:  Math.round(economiaAcumulada * 100) / 100,
+      dias_desde_reducao:  diasDesde,
+      meses_desde_reducao: mesesDesde,
+    }
+  })
+
+  return c.json({
+    reduzidas,
+    total_reduzidas: reduzidas.length,
+    economia_mensal_total:    Math.round(totalEconomiaMensal * 100) / 100,
+    economia_anual_total:     Math.round(totalEconomiaMensal * 12 * 100) / 100,
+    economia_acumulada_total: Math.round(totalEconomiaAcumulada * 100) / 100,
+  })
+})
+
+// ── GET /api/assinaturas-fantasma/:id/buscar-recorrencias ─────────────────
+// Lista recorrências candidatas para vincular ANTES de confirmar redução
+assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseInt(c.req.param('id'))
+
+  const sub = await c.env.DB.prepare(
+    `SELECT * FROM detected_subscriptions WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
+  if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
+
+  const nome = (sub.service_nome || sub.original_description || '').toLowerCase()
+  const normalizado = (sub.normalized_description || '').toLowerCase()
+
+  // Buscar recorrências por similaridade de nome
+  const recorrencias = await c.env.DB.prepare(`
+    SELECT id, descricao, valor, categoria, frequency_label,
+           dia_vencimento, meio_pagamento, ativa
+    FROM recorrencias
+    WHERE user_id = ? AND ativa = 1
+    ORDER BY descricao ASC
+  `).bind(user.id).all()
+
+  // Pontuação de similaridade por palavras em comum
+  const candidatos = (recorrencias.results as any[])
+    .map(r => {
+      const descLower = (r.descricao || '').toLowerCase()
+      // Tokenizar e calcular intersecção
+      const tokensA = nome.split(/\s+/).filter(t => t.length > 2)
+      const tokensB = descLower.split(/\s+/).filter(t => t.length > 2)
+      const intersec = tokensA.filter(t => tokensB.some(b => b.includes(t) || t.includes(b)))
+      const score = intersec.length / Math.max(1, Math.max(tokensA.length, tokensB.length))
+
+      // Também considera similaridade com normalizado
+      const tokensN = normalizado.split(/\s+/).filter(t => t.length > 2)
+      const intersecN = tokensN.filter(t => tokensB.some(b => b.includes(t) || t.includes(b)))
+      const scoreN = intersecN.length / Math.max(1, Math.max(tokensN.length, tokensB.length))
+
+      return { ...r, similaridade: Math.max(score, scoreN) }
+    })
+    .filter(r => r.similaridade > 0.2)
+    .sort((a, b) => b.similaridade - a.similaridade)
+    .slice(0, 5)
+
+  return c.json({
+    assinatura: {
+      id: sub.id,
+      nome: sub.service_nome || sub.original_description,
+      valor_atual: sub.amount,
+    },
+    recorrencias_candidatas: candidatos,
+    total_candidatas: candidatos.length,
+    mensagem: candidatos.length === 0
+      ? 'Nenhuma recorrência similar encontrada. A redução será salva sem vincular recorrência.'
+      : `Encontramos ${candidatos.length} recorrência(s) que podem ser esta assinatura. Escolha qual atualizar ou confirme sem vincular.`
+  })
+})
+
 // ── POST /api/assinaturas-fantasma/:id/reduzir-preco ─────────────────────
-// Registra redução de plano como alternativa ao cancelamento
+// Confirma redução de preço. Opcionalmente atualiza recorrência vinculada.
+// Body: { novo_valor, motivo?, recorrencia_id? (null = não vincular) }
 assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
-  const { novo_valor, motivo } = await c.req.json() as { novo_valor: number; motivo?: string }
+  const body = await c.req.json() as {
+    novo_valor: number
+    motivo?: string
+    recorrencia_id?: number | null  // null = confirmado sem vincular
+  }
+
+  const { novo_valor, motivo, recorrencia_id } = body
 
   if (!novo_valor || parseFloat(String(novo_valor)) <= 0)
     return c.json({ error: 'Informe o novo valor do plano reduzido' }, 400)
@@ -451,27 +575,81 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
 
-  const novoValorNum = parseFloat(String(novo_valor))
-  const valorAntigo = parseFloat(String(sub.amount))
+  const novoValorNum  = parseFloat(String(novo_valor))
+  // Preserva o valor antigo: se já houve redução antes, usa valor_antigo original; senão usa amount atual
+  const valorAntigo   = sub.valor_antigo
+    ? parseFloat(String(sub.valor_antigo))
+    : parseFloat(String(sub.amount))
   const reducaoMensal = Math.max(0, valorAntigo - novoValorNum)
-  const reducaoAnual = reducaoMensal * 12
-  const novoAnual = novoValorNum * 12
+  const reducaoAnual  = reducaoMensal * 12
+  const novoAnual     = novoValorNum * 12
 
+  // Atualizar detected_subscriptions
   await c.env.DB.prepare(`
     UPDATE detected_subscriptions SET
-      amount = ?,
-      yearly_cost = ?,
-      status = 'confirmed',
-      user_feedback = 'reduced_plan',
-      updated_at = datetime('now')
+      amount                  = ?,
+      yearly_cost             = ?,
+      valor_antigo            = ?,
+      reduced_at              = datetime('now'),
+      recorrencia_id          = ?,
+      status                  = 'confirmed',
+      user_feedback           = 'reduced_plan',
+      updated_at              = datetime('now')
     WHERE id = ? AND user_id = ?
-  `).bind(novoValorNum, novoAnual, id, user.id).run()
+  `).bind(novoValorNum, novoAnual, valorAntigo, recorrencia_id ?? null, id, user.id).run()
+
+  let recorrenciaAtualizada = false
+  let recorrenciaInfo: any = null
+
+  // Se vinculou recorrência: atualizar o valor dela + gerar despesas futuras com novo valor
+  if (recorrencia_id) {
+    const rec = await c.env.DB.prepare(
+      `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
+    ).bind(recorrencia_id, user.id).first() as any
+
+    if (rec) {
+      await c.env.DB.prepare(`
+        UPDATE recorrencias
+        SET valor = ?, ultimo_valor = ?, updated_at = datetime('now')
+        WHERE id = ? AND user_id = ?
+      `).bind(novoValorNum, novoValorNum, recorrencia_id, user.id).run()
+        .catch(() => {})
+
+      // Atualizar despesas futuras geradas por essa recorrência que ainda estão pendentes
+      const hoje = new Date().toISOString().split('T')[0]
+      const updateFut = await c.env.DB.prepare(`
+        UPDATE despesas
+        SET valor = ?,
+            updated_at = datetime('now')
+        WHERE user_id = ?
+          AND status = 'pendente'
+          AND date(data) >= date(?)
+          AND LOWER(descricao) = LOWER(?)
+      `).bind(novoValorNum, user.id, hoje, rec.descricao).run()
+        .catch(() => ({ meta: { changes: 0 } }))
+
+      recorrenciaAtualizada = true
+      recorrenciaInfo = {
+        id: rec.id,
+        descricao: rec.descricao,
+        valor_anterior: parseFloat(String(rec.valor)),
+        novo_valor: novoValorNum,
+        despesas_futuras_atualizadas: (updateFut as any)?.meta?.changes ?? 0,
+      }
+    }
+  }
 
   return c.json({
     success: true,
-    reducao_mensal: Math.round(reducaoMensal * 100) / 100,
-    reducao_anual: Math.round(reducaoAnual * 100) / 100,
-    message: `💸 Redução registrada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano com ${sub.service_nome || sub.original_description}.`
+    reducao_mensal:       Math.round(reducaoMensal * 100) / 100,
+    reducao_anual:        Math.round(reducaoAnual * 100) / 100,
+    valor_antigo:         Math.round(valorAntigo * 100) / 100,
+    novo_valor:           Math.round(novoValorNum * 100) / 100,
+    recorrencia_atualizada: recorrenciaAtualizada,
+    recorrencia:          recorrenciaInfo,
+    message: recorrenciaAtualizada
+      ? `💸 Redução aplicada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano. Recorrência "${recorrenciaInfo.descricao}" e ${recorrenciaInfo.despesas_futuras_atualizadas} despesa(s) futura(s) atualizadas.`
+      : `💸 Redução registrada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano com ${sub.service_nome || sub.original_description}.`
   })
 })
 

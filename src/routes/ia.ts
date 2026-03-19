@@ -141,7 +141,8 @@ ia.get('/insights', requireAuth, async (c) => {
     financiamentos,
     emprestimos,
     projecao,
-    userPerfil
+    userPerfil,
+    assinaturasRaw
   ] = await Promise.all([
     // M1 – Receitas do mês
     c.env.DB.prepare(
@@ -273,6 +274,18 @@ ia.get('/insights', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT perfil_investidor, nome FROM users WHERE id=?`
     ).bind(uid).first() as any,
+
+    // M12 – Assinaturas detectadas (ativas, reduzidas, canceladas)
+    c.env.DB.prepare(
+      `SELECT status, user_feedback,
+              COALESCE(amount,0) as amount,
+              COALESCE(yearly_cost,0) as yearly_cost,
+              COALESCE(valor_antigo,0) as valor_antigo,
+              service_nome, original_description, reduced_at
+       FROM detected_subscriptions
+       WHERE user_id = ? AND status NOT IN ('ignored')
+       ORDER BY yearly_cost DESC`
+    ).bind(uid).all(),
   ])
 
   // ── Normalizar dados ───────────────────────────────────────────────────
@@ -640,6 +653,49 @@ ia.get('/insights', requireAuth, async (c) => {
   ).bind(uid).run().catch(() => {})
 
   // ── Salvar score no histórico mensal (fire-and-forget) ──────────────────
+  // M12: Assinaturas ─────────────────────────────────────────────────────────
+  const todasSubs      = (assinaturasRaw.results as any[])
+  const subsAtivas     = todasSubs.filter(s => s.status !== 'cancelled' && s.user_feedback !== 'reduced_plan')
+  const subsReduzidas  = todasSubs.filter(s => s.user_feedback === 'reduced_plan')
+  const subsCanceladas = todasSubs.filter(s => s.status === 'cancelled')
+
+  const custoMensalAtivo = subsAtivas.reduce((s, d) => s + (d.amount || 0), 0)
+  const custoAnualAtivo  = subsAtivas.reduce((s, d) => s + (d.yearly_cost || 0), 0)
+
+  const economiaMensalReducao = subsReduzidas.reduce((s, d) =>
+    s + Math.max(0, (d.valor_antigo || 0) - (d.amount || 0)), 0)
+  const economiaAnualReducao = economiaMensalReducao * 12
+
+  const economiaMensalCanc = subsCanceladas.reduce((s, d) => s + (d.amount || 0), 0)
+  const economiaAnualCanc  = subsCanceladas.reduce((s, d) => s + (d.yearly_cost || 0), 0)
+
+  const hoje360 = new Date()
+  const economiaAcumReduc = subsReduzidas.reduce((s, d) => {
+    const dt = d.reduced_at ? new Date(d.reduced_at) : hoje360
+    const meses = Math.max(0, Math.floor((hoje360.getTime() - dt.getTime()) / (1000 * 60 * 60 * 24 * 30)))
+    return s + meses * Math.max(0, (d.valor_antigo || 0) - (d.amount || 0))
+  }, 0)
+
+  const assinaturasBloco = {
+    total_ativas:          subsAtivas.length,
+    total_reduzidas:       subsReduzidas.length,
+    total_canceladas:      subsCanceladas.length,
+    custo_mensal_ativo:    Math.round(custoMensalAtivo * 100) / 100,
+    custo_anual_ativo:     Math.round(custoAnualAtivo * 100) / 100,
+    economia_mensal_reducoes:     Math.round(economiaMensalReducao * 100) / 100,
+    economia_anual_reducoes:      Math.round(economiaAnualReducao * 100) / 100,
+    economia_acumulada_reducoes:  Math.round(economiaAcumReduc * 100) / 100,
+    economia_mensal_cancelamentos: Math.round(economiaMensalCanc * 100) / 100,
+    economia_anual_cancelamentos:  Math.round(economiaAnualCanc * 100) / 100,
+    economia_total_mensal: Math.round((economiaMensalReducao + economiaMensalCanc) * 100) / 100,
+    economia_total_anual:  Math.round((economiaAnualReducao + economiaAnualCanc) * 100) / 100,
+    top_3: subsAtivas.slice(0, 3).map(d => ({
+      nome: d.service_nome || d.original_description,
+      valor: d.amount,
+      yearly: d.yearly_cost,
+    }))
+  }
+  // ── Salvar score no histórico mensal (continua) ───────────────────────────
   const mesPeriodo = `${ano}-${mes}`
   c.env.DB.prepare(
     `INSERT OR REPLACE INTO score_historico
@@ -775,6 +831,9 @@ ia.get('/insights', requireAuth, async (c) => {
         }
       }
     },
+
+    // M12 – Assinaturas
+    assinaturas_resumo: assinaturasBloco,
 
     // Plano de ação 90 dias priorizado
     plano_acao: plano,

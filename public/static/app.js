@@ -8583,6 +8583,53 @@ const VM = {
           </div>
         </div>
 
+        <!-- ═══ CARD 4b — ASSINATURAS ═══ -->
+        ${(() => {
+          const as = d.assinaturas_resumo
+          if (!as || (as.total_ativas + as.total_reduzidas + as.total_canceladas) === 0) return ''
+          const fmtAS = v => (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+          return `
+        <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(139,92,246,0.05),rgba(245,158,11,0.04));border:1px solid rgba(139,92,246,0.18);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:0.95rem;font-weight:700;">👻 Assinaturas Detectadas</div>
+            <button onclick="VM.navigate('assinaturas-fantasma')" style="background:rgba(139,92,246,0.15);color:#A78BFA;border:1px solid rgba(139,92,246,0.3);padding:5px 12px;border-radius:8px;font-size:0.75rem;font-weight:700;cursor:pointer;">Ver detalhes →</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
+            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.15);border-radius:12px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#FDA4AF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Custo Mensal</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtAS(as.custo_mensal_ativo)}</div>
+              <div style="font-size:0.65rem;color:#64748B;">${as.total_ativas} ativa(s)</div>
+            </div>
+            ${as.total_reduzidas > 0 ? `
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#FDE68A;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Economia/mês (Redução)</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtAS(as.economia_mensal_reducoes)}</div>
+              <div style="font-size:0.65rem;color:#64748B;">${as.total_reduzidas} reduzida(s)</div>
+            </div>` : ''}
+            ${as.total_canceladas > 0 ? `
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.18);border-radius:12px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Economia/mês (Canceladas)</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtAS(as.economia_mensal_cancelamentos)}</div>
+              <div style="font-size:0.65rem;color:#64748B;">${as.total_canceladas} cancelada(s)</div>
+            </div>` : ''}
+            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:12px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🏆 Economia Acumulada</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtAS(as.economia_acumulada_reducoes)}</div>
+              <div style="font-size:0.65rem;color:#64748B;">reduções de plano</div>
+            </div>
+          </div>
+          ${as.top_3 && as.top_3.length > 0 ? `
+          <div>
+            <div style="font-size:0.72rem;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Top Assinaturas Ativas</div>
+            ${as.top_3.map((s, i) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:8px;margin-bottom:4px;">
+              <span style="font-size:0.8rem;color:#94A3B8;">${['🥇','🥈','🥉'][i]||'📌'} ${s.nome}</span>
+              <span style="font-size:0.8rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtAS(s.valor)}/mês</span>
+            </div>`).join('')}
+          </div>` : ''}
+        </div>`
+        })()}
+
         <!-- ═══ CARD 4 — PLANO DE AÇÃO 90 DIAS ═══ -->
         ${pa.length > 0 ? `
         <div class="card" style="margin-bottom:20px;">
@@ -11278,12 +11325,14 @@ const VM = {
     const abaAtiva = aba || 'ativas'
     
     try {
-      const [dataAtivas, dataCanceladas] = await Promise.all([
+      const [dataAtivas, dataCanceladas, dataReduzidas] = await Promise.all([
         this.api('GET', 'assinaturas-fantasma'),
-        this.api('GET', 'assinaturas-fantasma/canceladas').catch(() => ({ canceladas: [], total_canceladas: 0, economia_acumulada: 0, projecao_12m: 0 }))
+        this.api('GET', 'assinaturas-fantasma/canceladas').catch(() => ({ canceladas: [], total_canceladas: 0, economia_acumulada: 0, projecao_12m: 0 })),
+        this.api('GET', 'assinaturas-fantasma/precos-reduzidos').catch(() => ({ reduzidas: [], total_reduzidas: 0, economia_mensal_total: 0, economia_acumulada_total: 0 }))
       ])
       const { detected = [], totalMensal = 0, totalAnual = 0 } = dataAtivas
       const { canceladas = [], total_canceladas = 0, economia_acumulada = 0, projecao_12m = 0 } = dataCanceladas
+      const { reduzidas = [], total_reduzidas = 0, economia_mensal_total = 0, economia_acumulada_total = 0, economia_anual_total = 0 } = dataReduzidas
       
       const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
       const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'
@@ -11379,6 +11428,95 @@ const VM = {
           </div>
         </div>`
 
+      // ── ABA: PREÇOS REDUZIDOS ──────────────────────────────────────────────
+      const htmlReduzidas = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#FDE68A;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💸 Planos Reduzidos</div>
+            <div style="font-size:2.2rem;font-weight:800;color:#F59E0B;">${total_reduzidas}</div>
+            <div style="color:#64748B;font-size:0.75rem;">assinaturas com preço menor</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Economia Mensal</div>
+            <div style="font-size:2rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_mensal_total)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">todos os planos reduzidos</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#6EE7B7;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🏆 Economia Acumulada</div>
+            <div style="font-size:2rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_acumulada_total)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">desde as reduções</div>
+          </div>
+          <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:14px;padding:18px;">
+            <div style="color:#93C5FD;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📅 Projeção Anual</div>
+            <div style="font-size:2rem;font-weight:800;color:#3B82F6;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(economia_anual_total)}</div>
+            <div style="color:#64748B;font-size:0.75rem;">economia nos próximos 12m</div>
+          </div>
+        </div>
+        ${reduzidas.length === 0 ? `
+        <div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+          <div style="font-size:4rem;margin-bottom:16px;">💸</div>
+          <h2 style="color:#f1f5f9;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhum preço reduzido ainda</h2>
+          <p style="color:#64748B;margin:0 0 20px;">Quando você clicar em <strong style="color:#F59E0B;">💸 Reduzir Preço</strong> em uma assinatura, ela aparecerá aqui com o histórico de economia.</p>
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:16px;max-width:480px;margin:0 auto;text-align:left;">
+            <p style="color:#FDE68A;font-weight:700;margin:0 0 8px;">💡 Como usar?</p>
+            <p style="color:#94A3B8;font-size:0.82rem;margin:0;line-height:1.6;">
+              Na aba <strong style="color:#A78BFA;">Ativas</strong>, clique em <strong style="color:#F59E0B;">💸 Reduzir Preço</strong> em qualquer assinatura. 
+              O sistema vai buscar recorrências vinculadas e atualizar automaticamente o valor delas.
+            </p>
+          </div>
+        </div>` : `
+        <div>
+          <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">💸 Assinaturas com Preço Reduzido</h2>
+          ${reduzidas.map(sub => {
+            const pctEconomia = sub.valor_antigo > 0 ? Math.round((sub.reducao_mensal / sub.valor_antigo) * 100) : 0
+            return `
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(245,158,11,0.2);border-radius:16px;padding:20px;margin-bottom:12px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:14px;flex:1;">
+                <div style="width:48px;height:48px;background:rgba(245,158,11,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">${serviceIcons[sub.service_type]||'💸'}</div>
+                <div style="flex:1;">
+                  <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:4px;">${sub.service_nome || sub.original_description}</div>
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="background:rgba(245,158,11,0.2);color:#F59E0B;font-size:0.72rem;padding:2px 8px;border-radius:50px;font-weight:700;">💸 Preço Reduzido</span>
+                    <span style="color:#64748B;font-size:0.75rem;">📅 Reduzido em ${fmtDate(sub.reduced_at || sub.updated_at)}</span>
+                    <span style="color:#64748B;font-size:0.75rem;">${sub.meses_desde_reducao} mês(es) atrás</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;min-width:280px;">
+                <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.15);border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#FDA4AF;margin-bottom:2px;">Valor Antigo</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#F43F5E;font-family:'JetBrains Mono',monospace;text-decoration:line-through;">R$ ${fmtBRL(sub.valor_antigo)}</div>
+                </div>
+                <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#6EE7B7;margin-bottom:2px;">Novo Valor</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#10B981;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(sub.novo_valor)}</div>
+                </div>
+                <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:10px;text-align:center;">
+                  <div style="font-size:0.65rem;color:#FDE68A;margin-bottom:2px;">Economia/mês</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#F59E0B;font-family:'JetBrains Mono',monospace;">-R$ ${fmtBRL(sub.reducao_mensal)}</div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:14px;background:#0f172a;border-radius:10px;padding:12px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+                <div style="font-size:0.8rem;color:#94A3B8;">
+                  🏆 Economia acumulada desde a redução:
+                  <strong style="color:#10B981;font-family:'JetBrains Mono',monospace;"> R$ ${fmtBRL(sub.economia_acumulada)}</strong>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <span style="background:rgba(16,185,129,0.15);color:#10B981;font-size:0.75rem;padding:3px 10px;border-radius:50px;font-weight:700;">-${pctEconomia}% desconto</span>
+                  <span style="color:#64748B;font-size:0.75rem;">· Proj. anual: R$ ${fmtBRL(sub.reducao_anual)}</span>
+                </div>
+              </div>
+              <div style="background:rgba(255,255,255,0.04);border-radius:6px;overflow:hidden;height:6px;">
+                <div style="height:6px;width:${Math.min(100,pctEconomia)}%;background:linear-gradient(90deg,#10B981,#059669);border-radius:6px;"></div>
+              </div>
+            </div>
+          </div>`}).join('')}
+        </div>`}
+      `
+
       const htmlCanceladas = `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
           <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:18px;">
@@ -11447,11 +11585,12 @@ const VM = {
             </div>
             <button onclick="VM.scanAssinaturas()" id="btn-scan-assin" style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Escanear Gastos</button>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;">
+          <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;flex-wrap:wrap;">
             ${tabBtn('ativas','🔍 Ativas ('+detected.length+')', abaAtiva==='ativas')}
+            ${tabBtn('reduzidas','💸 Preços Reduzidos ('+total_reduzidas+')', abaAtiva==='reduzidas')}
             ${tabBtn('canceladas','✂️ Canceladas ('+total_canceladas+')', abaAtiva==='canceladas')}
           </div>
-          ${abaAtiva === 'ativas' ? htmlAtivas : htmlCanceladas}
+          ${abaAtiva === 'ativas' ? htmlAtivas : abaAtiva === 'reduzidas' ? htmlReduzidas : htmlCanceladas}
         </div>
       `
     } catch (e) {
@@ -11482,16 +11621,16 @@ const VM = {
     }
   },
 
-  modalReduzirPrecoAssinatura(id, nome, valorAtual) {
+  async modalReduzirPrecoAssinatura(id, nome, valorAtual) {
     const modal = document.createElement('div')
     modal.id = 'modal-reduzir-assin'
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;'
     modal.innerHTML = `
-      <div style="background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:28px;max-width:420px;width:100%;">
+      <div style="background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:28px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;">
         <h3 style="color:#F59E0B;font-size:1.1rem;font-weight:700;margin:0 0 6px;">💸 Reduzir Preço</h3>
         <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 20px;"><strong style="color:#f1f5f9;">${nome}</strong><br>Valor atual: <strong style="color:#F43F5E;">R$ ${(valorAtual||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>/mês</p>
         <div style="margin-bottom:16px;">
-          <label style="color:#94A3B8;font-size:0.8rem;display:block;margin-bottom:6px;">Novo valor após troca de plano</label>
+          <label style="color:#94A3B8;font-size:0.8rem;display:block;margin-bottom:6px;">Novo valor após troca de plano / desconto</label>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="color:#64748B;font-size:0.9rem;">R$</span>
             <input id="inp-novo-valor-assin" type="number" step="0.01" min="0.01"
@@ -11502,8 +11641,25 @@ const VM = {
         <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px;margin-bottom:20px;" id="preview-reducao-assin">
           <p style="color:#64748B;font-size:0.8rem;margin:0;">Digite o novo valor para ver a economia.</p>
         </div>
+
+        <!-- Seção de recorrências (carregada ao clicar em "Buscar") -->
+        <div id="secao-recorrencias-assin" style="display:none;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <p style="color:#93C5FD;font-size:0.85rem;font-weight:700;margin:0;">🔗 Recorrências encontradas</p>
+            <span style="color:#64748B;font-size:0.75rem;">Escolha qual atualizar (opcional)</span>
+          </div>
+          <div id="lista-recorrencias-assin" style="max-height:200px;overflow-y:auto;"></div>
+          <div style="margin-top:8px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="radio" name="recorrencia-choice" value="none" checked style="accent-color:#F59E0B;">
+              <span style="color:#94A3B8;font-size:0.82rem;">Não vincular nenhuma recorrência</span>
+            </label>
+          </div>
+        </div>
+
         <div style="display:flex;gap:10px;">
           <button onclick="document.getElementById('modal-reduzir-assin').remove()" style="flex:1;padding:10px;background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid rgba(100,116,139,0.2);border-radius:10px;font-weight:600;cursor:pointer;">Cancelar</button>
+          <button id="btn-buscar-rec-assin" onclick="VM.buscarRecorrenciasParaReducao(${id})" style="flex:1;padding:10px;background:rgba(59,130,246,0.15);color:#93C5FD;border:1px solid rgba(59,130,246,0.3);border-radius:10px;font-weight:700;cursor:pointer;">🔗 Buscar Recorrências</button>
           <button onclick="VM.confirmarReduzirPrecoAssinatura(${id},${valorAtual})" style="flex:2;padding:10px;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;">💸 Confirmar Redução</button>
         </div>
       </div>`
@@ -11527,17 +11683,57 @@ const VM = {
     inp.focus()
   },
 
+  async buscarRecorrenciasParaReducao(id) {
+    const btn = document.getElementById('btn-buscar-rec-assin')
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Buscando...' }
+    try {
+      const resp = await this.api('GET', `assinaturas-fantasma/${id}/buscar-recorrencias`)
+      const { recorrencias_candidatas = [], mensagem = '' } = resp
+      const secao = document.getElementById('secao-recorrencias-assin')
+      const lista = document.getElementById('lista-recorrencias-assin')
+      if (!secao || !lista) return
+
+      if (recorrencias_candidatas.length === 0) {
+        lista.innerHTML = `<p style="color:#64748B;font-size:0.82rem;padding:10px 0;margin:0;">Nenhuma recorrência similar encontrada. A redução será salva sem vincular.</p>`
+      } else {
+        lista.innerHTML = recorrencias_candidatas.map(r => `
+          <label style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:6px;cursor:pointer;" onmouseover="this.style.borderColor='rgba(245,158,11,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+            <input type="radio" name="recorrencia-choice" value="${r.id}" style="accent-color:#F59E0B;flex-shrink:0;">
+            <div style="flex:1;">
+              <div style="font-weight:700;color:#f1f5f9;font-size:0.85rem;">${r.descricao}</div>
+              <div style="font-size:0.72rem;color:#64748B;">Valor atual: R$ ${(r.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})} · ${r.categoria || 'Sem categoria'}</div>
+            </div>
+            <span style="background:rgba(245,158,11,0.15);color:#F59E0B;font-size:0.68rem;padding:2px 6px;border-radius:50px;font-weight:700;">${Math.round((r.similaridade||0)*100)}% similar</span>
+          </label>`).join('')
+      }
+      secao.style.display = 'block'
+      this.toast(mensagem || `${recorrencias_candidatas.length} recorrência(s) encontrada(s)`, 'info')
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔄 Rebuscar' }
+    } catch (err) {
+      this.toast(err.message || 'Erro ao buscar recorrências', 'error')
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Buscar Recorrências' }
+    }
+  },
+
   async confirmarReduzirPrecoAssinatura(id, valorAtual) {
     const inp = document.getElementById('inp-novo-valor-assin')
     const novo = parseFloat(inp?.value)
     if (!novo || novo <= 0 || novo >= valorAtual) {
       this.toast('Novo valor deve ser menor que o atual', 'error'); return
     }
+    // Pegar recorrência selecionada (null se "Não vincular")
+    const radioSelecionado = document.querySelector('input[name="recorrencia-choice"]:checked')
+    const recorrenciaId = radioSelecionado && radioSelecionado.value !== 'none'
+      ? parseInt(radioSelecionado.value) : null
+
     try {
-      const resp = await this.api('POST', `assinaturas-fantasma/${id}/reduzir-preco`, { novo_valor: novo })
+      const resp = await this.api('POST', `assinaturas-fantasma/${id}/reduzir-preco`, {
+        novo_valor: novo,
+        recorrencia_id: recorrenciaId
+      })
       this.toast(resp.message, 'success')
       document.getElementById('modal-reduzir-assin')?.remove()
-      this.pageAssinaturasFantasma()
+      this.pageAssinaturasFantasma('reduzidas')
     } catch (err) {
       this.toast(err.message || 'Erro ao registrar redução', 'error')
     }
