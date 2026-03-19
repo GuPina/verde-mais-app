@@ -4278,14 +4278,16 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">🏷️ Tags & Filtros</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Organize suas despesas com etiquetas personalizadas</div>
+          <div style="color:#64748B;font-size:0.85rem;margin-top:2px;">Organize suas despesas com etiquetas personalizadas</div>
         </div>
         <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Nova Tag
         </button>
       </div>
       <div id="tags-container">
-        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+          ${[1,2,3,4,5,6].map(() => `<div class="skeleton" style="height:72px;border-radius:14px;"></div>`).join('')}
+        </div>
       </div>
     `
     await this.carregarTags()
@@ -4309,33 +4311,77 @@ const VM = {
         return
       }
 
-      cont.innerHTML = `
-        <!-- Grid de tags -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:24px;">
-          ${tags.map(tag => `
-            <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 18px;transition:all 0.2s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                <div style="display:flex;align-items:center;gap:10px;">
-                  <div style="width:14px;height:14px;border-radius:4px;background:${tag.cor};flex-shrink:0;"></div>
-                  <span style="font-weight:600;color:#F8FAFC;font-size:0.9rem;">${tag.nome}</span>
-                </div>
-                <div style="display:flex;gap:6px;">
-                  <button onclick="VM.buscarPorTag(${tag.id},'${tag.nome}')" title="Ver despesas" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10B981;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
-                    <i class="fas fa-search"></i>
-                  </button>
-                  <button onclick="VM.modalEditarTag(${tag.id},'${tag.nome}','${tag.cor}')" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
-                    <i class="fas fa-pen"></i>
-                  </button>
-                  <button onclick="VM.excluirTag(${tag.id},'${tag.nome}')" title="Excluir" style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.72rem;">
-                    <i class="fas fa-trash"></i>
-                  </button>
-                </div>
-              </div>
-              <div style="font-size:0.77rem;color:#64748B;">${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} vinculada${tag.usos !== 1 ? 's' : ''}</div>
+      // Separar tags com uso e sem uso
+      const comUso = tags.filter(t => t.usos > 0).sort((a,b) => b.usos - a.usos)
+      const semUso = tags.filter(t => t.usos === 0)
+
+      const renderCard = (tag) => `
+        <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;transition:border-color 0.2s,background 0.2s;cursor:default;"
+          onmouseover="this.style.borderColor='rgba(255,255,255,0.15)';this.style.background='rgba(30,41,59,0.95)'"
+          onmouseout="this.style.borderColor='rgba(255,255,255,0.07)';this.style.background='rgba(30,41,59,0.7)'">
+
+          <!-- Dot colorido -->
+          <div style="width:38px;height:38px;border-radius:10px;background:${tag.cor}22;border:2px solid ${tag.cor};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <div style="width:12px;height:12px;border-radius:3px;background:${tag.cor};"></div>
+          </div>
+
+          <!-- Nome + contagem -->
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#F1F5F9;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${tag.nome}">${tag.nome}</div>
+            <div style="font-size:0.75rem;color:${tag.usos > 0 ? '#10B981' : '#475569'};margin-top:2px;">
+              ${tag.usos > 0
+                ? `<i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} vinculada${tag.usos !== 1 ? 's' : ''}`
+                : `<i class="fas fa-unlink" style="font-size:0.65rem;margin-right:3px;"></i>Sem despesas vinculadas`}
             </div>
-          `).join('')}
+          </div>
+
+          <!-- Ações -->
+          <div style="display:flex;gap:5px;flex-shrink:0;">
+            <button onclick="VM.buscarPorTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}');event.stopPropagation()" title="Ver despesas"
+              style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:#10B981;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+              onmouseover="this.style.background='rgba(16,185,129,0.22)'" onmouseout="this.style.background='rgba(16,185,129,0.1)'">
+              <i class="fas fa-search"></i>
+            </button>
+            <button onclick="VM.modalEditarTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}','${tag.cor}');event.stopPropagation()" title="Editar"
+              style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.18);color:#94A3B8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+              onmouseover="this.style.background='rgba(148,163,184,0.18)'" onmouseout="this.style.background='rgba(148,163,184,0.08)'">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button onclick="VM.excluirTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}');event.stopPropagation()" title="Excluir"
+              style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+              onmouseover="this.style.background='rgba(244,63,94,0.18)'" onmouseout="this.style.background='rgba(244,63,94,0.07)'">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
         </div>
-        <div id="tag-busca-resultado"></div>
+      `
+
+      cont.innerHTML = `
+        <!-- Tags em uso -->
+        ${comUso.length > 0 ? `
+          <div style="margin-bottom:6px;">
+            <div style="font-size:0.72rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">
+              Em uso · ${comUso.length}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">
+              ${comUso.map(renderCard).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Tags sem uso -->
+        ${semUso.length > 0 ? `
+          <div style="margin-top:${comUso.length > 0 ? '24px' : '0'};">
+            <div style="font-size:0.72rem;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">
+              Sem uso · ${semUso.length}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;opacity:0.7;">
+              ${semUso.map(renderCard).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div id="tag-busca-resultado" style="margin-top:24px;"></div>
       `
     } catch (err) {
       cont.innerHTML = `<div class="empty-state"><p>Erro ao carregar tags</p></div>`
@@ -4429,20 +4475,32 @@ const VM = {
   },
 
   modalEditarTag(id, nome, cor) {
+    const cores = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#F43F5E','#06B6D4','#84CC16','#EC4899','#F97316','#64748B']
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
         <div class="modal" style="max-width:380px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">✏️ Editar Tag</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:1.1rem;">✕</button>
           </div>
           <div class="form-group">
             <label class="form-label">Nome</label>
-            <input type="text" id="edit-tag-nome" class="form-input" value="${nome}" maxlength="30">
+            <input type="text" id="edit-tag-nome" class="form-input" value="${nome}" maxlength="30" autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cor</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="edit-tag-cores">
+              ${cores.map(c =>
+                `<div onclick="VM.selecionarCorTag('${c}',this)" data-cor="${c}"
+                  style="width:26px;height:26px;border-radius:6px;background:${c};cursor:pointer;border:2px solid ${c === cor ? '#fff' : 'transparent'};transition:all 0.15s;"
+                  onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'"></div>`
+              ).join('')}
+            </div>
+            <input type="hidden" id="tag-cor" value="${cor}">
           </div>
           <div style="display:flex;gap:10px;margin-top:20px;">
             <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
-            <button onclick="VM.atualizarTag(${id})" class="btn-primary" style="flex:1;justify-content:center;">Salvar</button>
+            <button onclick="VM.atualizarTag(${id})" class="btn-primary" style="flex:1;justify-content:center;"><i class="fas fa-check"></i> Salvar</button>
           </div>
         </div>
       </div>
@@ -4451,9 +4509,10 @@ const VM = {
 
   async atualizarTag(id) {
     const nome = document.getElementById('edit-tag-nome')?.value.trim()
+    const cor  = document.getElementById('tag-cor')?.value
     if (!nome) { this.toast('Nome é obrigatório', 'warning'); return }
     try {
-      await this.api('PATCH', `tags/${id}`, { nome })
+      await this.api('PATCH', `tags/${id}`, { nome, cor })
       this.toast('Tag atualizada!')
       this.closeModal()
       this.carregarTags()
