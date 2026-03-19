@@ -839,6 +839,12 @@ importacao.post('/ocr', requireAuth, async (c) => {
       return c.json({ error: 'Imagem base64 e mime_type são obrigatórios.' }, 400)
     }
 
+    // Validar que é uma imagem (não PDF — o frontend deve converter PDF para imagem antes)
+    const mimesPermitidos = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+    if (!mimesPermitidos.includes(mime_type.toLowerCase())) {
+      return c.json({ error: `Formato não suportado: ${mime_type}. Envie uma imagem (JPEG, PNG, WEBP). PDFs devem ser convertidos para imagem antes do envio.` }, 400)
+    }
+
     // Verificar tamanho aproximado (base64 ~4/3 do tamanho original)
     const tamanhoKB = Math.round(imagem_base64.length * 0.75 / 1024)
     if (tamanhoKB > 4096) {

@@ -12332,29 +12332,86 @@ const VM = {
   },
 
   // ── OCR: foto ou PDF de extrato ───────────────────────────────────────────
+  // Carrega pdf.js CDN de forma lazy (apenas quando necessário)
+  async _loadPdfJs() {
+    if (window.pdfjsLib) return window.pdfjsLib
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script')
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
+      s.type = 'module'
+      s.onload = resolve
+      s.onerror = reject
+      document.head.appendChild(s)
+    })
+    // fallback: usar UMD build
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script')
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+        s.onload = resolve
+        s.onerror = reject
+        document.head.appendChild(s)
+      })
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      }
+    }
+    return window.pdfjsLib
+  },
+
+  // Converte PDF (File) para base64 JPEG da 1ª página
+  async _pdfParaImagemBase64(file) {
+    const arrayBuffer = await file.arrayBuffer()
+    const pdfjsLib = await this._loadPdfJs()
+    if (!pdfjsLib) throw new Error('Não foi possível carregar pdf.js')
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const page = await pdf.getPage(1)
+    const viewport = page.getViewport({ scale: 2.0 }) // 2x para melhor resolução
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d')
+    await page.render({ canvasContext: ctx, viewport }).promise
+    // Exportar como JPEG com qualidade 0.92
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+    return dataUrl.split(',')[1] // apenas o base64 sem prefixo
+  },
+
   async _impOCR(input) {
     const file = input.files[0]
     if (!file) return
     const statusEl = document.getElementById('imp-ocr-status')
     statusEl.style.display = 'block'
-    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando imagem com IA... aguarde'
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 
     try {
-      // Converter para base64
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = e => {
-          const result = e.target.result
-          // Remover o prefixo data:...;base64,
-          const b64 = result.split(',')[1]
-          resolve(b64)
+      let base64, mimeType
+
+      if (isPdf) {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Convertendo PDF para imagem... aguarde'
+        try {
+          base64 = await this._pdfParaImagemBase64(file)
+          mimeType = 'image/jpeg'
+        } catch(pdfErr) {
+          statusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>Não foi possível converter o PDF. Tente tirar uma foto/screenshot do extrato e enviar como imagem.'
+          input.value = ''
+          return
         }
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      } else {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando imagem com IA... aguarde'
+        base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = e => resolve(e.target.result.split(',')[1])
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+        mimeType = file.type || 'image/jpeg'
+      }
+
+      statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando com IA... aguarde'
 
       const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
-      const mimeType = file.type || 'image/jpeg'
 
       let data
       try {
