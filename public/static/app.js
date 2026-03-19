@@ -109,6 +109,38 @@ const VM = {
     }
   },
 
+  // ======= MODAL DE CONFIRMAÇÃO CUSTOMIZADO (substitui confirm() nativo) =======
+  vmConfirm(mensagem, { titulo = 'Confirmar ação', corBotao = '#ef4444', textoBotao = 'Confirmar', icone = '⚠️' } = {}) {
+    return new Promise((resolve) => {
+      const id = 'vm-confirm-' + Date.now()
+      const overlay = document.createElement('div')
+      overlay.id = id
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:fadeIn 0.15s ease;'
+      overlay.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px 28px 24px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:slideUp 0.2s ease;">
+          <div style="text-align:center;margin-bottom:18px;">
+            <div style="font-size:2.2rem;margin-bottom:10px;">${icone}</div>
+            <div style="font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:8px;">${titulo}</div>
+            <div style="font-size:0.88rem;color:#94a3b8;line-height:1.5;">${mensagem}</div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button id="${id}-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#cbd5e1;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s;">
+              Cancelar
+            </button>
+            <button id="${id}-ok" style="flex:1;padding:10px;border-radius:10px;border:none;background:${corBotao};color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;transition:all 0.2s;">
+              ${textoBotao}
+            </button>
+          </div>
+        </div>
+      `
+      document.body.appendChild(overlay)
+      const close = (val) => { overlay.remove(); resolve(val) }
+      document.getElementById(`${id}-ok`).onclick = () => close(true)
+      document.getElementById(`${id}-cancel`).onclick = () => close(false)
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false) })
+    })
+  },
+
   api(method, endpoint, data) {
     // Cache front-end para endpoints públicos pesados (CDI e cotações)
     const CACHE_ENDPOINTS = { 'cdi/atual': 10 * 60 * 1000, 'investimentos/cotacoes': 15 * 60 * 1000 }
@@ -348,37 +380,69 @@ const VM = {
   // ======= AUTH PAGES =======
   renderLogin() {
     document.getElementById('app').innerHTML = `
-      <div class="auth-page">
-        <div class="auth-card">
-          <div class="auth-logo">
-            <div class="logo-icon">💚</div>
-            <div style="font-size:1.6rem;font-weight:800;" class="gradient-text">VerdeMais</div>
-            <div style="color:#666;font-size:0.85rem;margin-top:4px;">Organize hoje. Conquiste amanhã.</div>
-          </div>
-          
-          <h2 style="font-size:1.3rem;font-weight:700;margin-bottom:24px;text-align:center;">Entrar na sua conta</h2>
-          
-          <div id="auth-error" style="display:none;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#ff6b6b;font-size:0.88rem;"></div>
-          
-          <form id="login-form">
-            <div class="form-group">
-              <label class="form-label">Email</label>
-              <input type="email" id="login-email" class="form-input" placeholder="seu@email.com" required>
+      <div style="min-height:100vh;background:linear-gradient(135deg,#0a0f0a 0%,#0d1f12 40%,#0a2a14 100%);display:flex;align-items:center;justify-content:center;padding:20px;position:relative;overflow:hidden;">
+        
+        <!-- Decoração de fundo -->
+        <div style="position:absolute;top:-120px;right:-120px;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(47,191,113,0.12) 0%,transparent 70%);pointer-events:none;"></div>
+        <div style="position:absolute;bottom:-80px;left:-80px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(16,185,129,0.08) 0%,transparent 70%);pointer-events:none;"></div>
+        
+        <div style="width:100%;max-width:420px;position:relative;z-index:1;">
+          <!-- Logo e slogan -->
+          <div style="text-align:center;margin-bottom:36px;">
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:68px;height:68px;background:linear-gradient(135deg,#2FBF71,#10B981);border-radius:20px;margin-bottom:16px;box-shadow:0 8px 32px rgba(47,191,113,0.35);">
+              <span style="font-size:2rem;">🌱</span>
             </div>
-            <div class="form-group">
-              <label class="form-label">Senha</label>
-              <input type="password" id="login-senha" class="form-input" placeholder="••••••••" required>
-            </div>
-            <button type="submit" class="btn-primary" id="login-btn">
-              <i class="fas fa-sign-in-alt"></i> Entrar
-            </button>
-          </form>
-          
-          <div style="text-align:center;margin-top:24px;color:#666;font-size:0.88rem;">
-            Não tem conta? <a href="/cadastro" style="color:#2FBF71;text-decoration:none;font-weight:600;">Criar gratuitamente</a>
+            <div style="font-size:2rem;font-weight:900;color:#f8fafc;letter-spacing:-1px;margin-bottom:6px;">VerdeMais</div>
+            <div style="font-size:0.95rem;color:#94a3b8;font-weight:400;">Controle total das suas finanças pessoais</div>
           </div>
-          <div style="text-align:center;margin-top:16px;">
-            <a href="/" style="color:#555;text-decoration:none;font-size:0.82rem;">← Voltar ao site</a>
+
+          <!-- Card do formulário -->
+          <div style="background:rgba(255,255,255,0.04);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:36px 32px;box-shadow:0 24px 64px rgba(0,0,0,0.4);">
+            <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;text-align:center;margin-bottom:24px;">Entrar na sua conta</div>
+
+            <div id="auth-error" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#fca5a5;font-size:0.88rem;text-align:center;"></div>
+
+            <form id="login-form">
+              <div style="margin-bottom:16px;">
+                <label style="display:block;font-size:0.82rem;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">E-mail</label>
+                <div style="position:relative;">
+                  <i class="fas fa-envelope" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#64748b;font-size:0.85rem;pointer-events:none;"></i>
+                  <input type="email" id="login-email" 
+                    style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 14px 13px 40px;color:#f1f5f9;font-size:0.95rem;outline:none;transition:border-color 0.2s;font-family:inherit;"
+                    placeholder="seu@email.com" required
+                    onfocus="this.style.borderColor='#2FBF71'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                </div>
+              </div>
+              <div style="margin-bottom:24px;">
+                <label style="display:block;font-size:0.82rem;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Senha</label>
+                <div style="position:relative;">
+                  <i class="fas fa-lock" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#64748b;font-size:0.85rem;pointer-events:none;"></i>
+                  <input type="password" id="login-senha"
+                    style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 44px 13px 40px;color:#f1f5f9;font-size:0.95rem;outline:none;transition:border-color 0.2s;font-family:inherit;"
+                    placeholder="••••••••" required
+                    onfocus="this.style.borderColor='#2FBF71'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                  <button type="button" onclick="VM.toggleSenha('login-senha','login-eye')" 
+                    style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;cursor:pointer;padding:4px;font-size:0.85rem;">
+                    <i id="login-eye" class="fas fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+              <button type="submit" id="login-btn"
+                style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#10B981);border:none;border-radius:12px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 20px rgba(47,191,113,0.35);display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;"
+                onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 28px rgba(47,191,113,0.45)'"
+                onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(47,191,113,0.35)'">
+                <i class="fas fa-sign-in-alt"></i> Entrar
+              </button>
+            </form>
+
+            <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.06);">
+              <span style="color:#64748b;font-size:0.88rem;">Não tem conta? </span>
+              <a href="/cadastro" style="color:#2FBF71;text-decoration:none;font-weight:700;font-size:0.88rem;">Criar gratuitamente →</a>
+            </div>
+          </div>
+
+          <div style="text-align:center;margin-top:20px;">
+            <a href="/" style="color:#475569;text-decoration:none;font-size:0.8rem;">← Voltar ao site</a>
           </div>
         </div>
       </div>
@@ -390,6 +454,7 @@ const VM = {
       const errEl = document.getElementById('auth-error')
       btn.disabled = true
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Entrando...'
+      btn.style.opacity = '0.8'
       errEl.style.display = 'none'
 
       try {
@@ -402,10 +467,11 @@ const VM = {
         localStorage.setItem('vm_login_at', Date.now().toString())
         window.location.href = '/app'
       } catch (e) {
-        errEl.textContent = e.response?.data?.error || 'Erro ao fazer login'
+        errEl.textContent = e.response?.data?.error || 'E-mail ou senha inválidos. Tente novamente.'
         errEl.style.display = 'block'
         btn.disabled = false
         btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar'
+        btn.style.opacity = '1'
       }
     })
   },
@@ -1244,7 +1310,7 @@ const VM = {
       <div id="modal-container"></div>
 
       <!-- BLOCO 6.5: Widget de Chat Flutuante -->
-      <div id="chat-widget" style="display:none;position:fixed;bottom:90px;right:20px;z-index:1000;width:340px;max-height:480px;background:var(--bg-card,#fff);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);display:flex;flex-direction:column;overflow:hidden;">
+      <div id="chat-widget" style="display:none;position:fixed;bottom:90px;right:20px;z-index:1000;width:340px;max-height:480px;background:var(--bg-card,#fff);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);flex-direction:column;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#10B981,#059669);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
           <div style="display:flex;align-items:center;gap:10px;">
             <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;">
@@ -1563,19 +1629,10 @@ const VM = {
 
   async carregarBadges() {
     try {
-      const [lembretes, conquistas] = await Promise.all([
-        this.api('GET', 'lembretes').catch(() => ({ urgentes: 0 })),
-        this.api('GET', 'conquistas/novas').catch(() => ({ novas: [] }))
-      ])
+      const lembretes = await this.api('GET', 'lembretes').catch(() => ({ urgentes: 0 }))
       const badgeLemb = document.getElementById('badge-lembretes')
-      const badgeConq = document.getElementById('badge-conquistas')
       if (badgeLemb && lembretes.urgentes > 0) { badgeLemb.textContent = lembretes.urgentes; badgeLemb.style.display = 'inline'; }
-      if (badgeConq && conquistas.novas?.length > 0) { badgeConq.textContent = conquistas.novas.length; badgeConq.style.display = 'inline'; }
-      
-      // Mostrar alerta chamativo de conquista nova
-      if (conquistas.novas?.length > 0) {
-        this.mostrarAlertaConquista(conquistas.novas)
-      }
+      // Badge de conquistas é atualizado pelo checkNovasConquistas — sem duplicidade
     } catch { }
   },
 
@@ -1608,12 +1665,12 @@ const VM = {
           ${conquista.raridade && conquista.raridade !== 'comum' ? `<span style="margin-left:12px;color:#FFD700;font-size:0.8rem;">⭐ ${conquista.raridade.toUpperCase()}</span>` : ''}
         </div>
         ${novas.length > 1 ? `<div style="color:#888;font-size:0.8rem;margin-bottom:16px;">+${novas.length - 1} mais conquista(s)!</div>` : ''}
-        <button onclick="VM.fecharAlertaConquista()" style="
+        <button id="btn-fechar-conquista" onclick="VM.fecharAlertaConquista()" style="
           background:#2FBF71;color:#000;border:none;padding:12px 32px;
           border-radius:50px;font-weight:700;font-size:1rem;cursor:pointer;
           width:100%;transition:all 0.2s;
         " onmouseover="this.style.background='#26a060'" onmouseout="this.style.background='#2FBF71'">
-          🎊 Incrível! Ver todas as conquistas
+          🎊 Incrível! Ver conquistas (6s)
         </button>
       </div>
     `
@@ -1631,17 +1688,42 @@ const VM = {
     document.body.appendChild(overlay)
     // Marcar como visualizadas
     this.api('PATCH', 'conquistas/visualizar').catch(() => {})
+    // Auto-fechar em 6s com contagem regressiva
+    let secsLeft = 6
+    const updateBtn = () => {
+      const btnFechar = document.getElementById('btn-fechar-conquista')
+      if (btnFechar && secsLeft > 0) {
+        btnFechar.textContent = `🎊 Incrível! Ver conquistas (${secsLeft}s)`
+      }
+    }
+    updateBtn()
+    const countInterval = setInterval(() => {
+      secsLeft--
+      updateBtn()
+      if (secsLeft <= 0) {
+        clearInterval(countInterval)
+        this.fecharAlertaConquista()
+      }
+    }, 1000)
+    overlay._countInterval = countInterval
   },
 
   fecharAlertaConquista() {
     const overlay = document.getElementById('conquista-overlay')
-    if (overlay) overlay.remove()
+    if (overlay) {
+      if (overlay._countInterval) clearInterval(overlay._countInterval)
+      overlay.remove()
+    }
     const badgeConq = document.getElementById('badge-conquistas')
     if (badgeConq) { badgeConq.style.display = 'none'; badgeConq.textContent = ''; }
     this.navigate('conquistas')
   },
 
   navigate(page) {
+    // ── Limpar overlay de conquista ao navegar ──────────────────────────────
+    const conqOverlay = document.getElementById('conquista-overlay')
+    if (conqOverlay) conqOverlay.remove()
+    // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
@@ -2445,33 +2527,35 @@ const VM = {
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#2FBF71;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Descrição</th>
-              <th>Categoria</th>
-              <th>Data</th>
-              <th>Recorrente</th>
-              <th style="text-align:right;">Valor</th>
-              <th style="text-align:right;">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.receitas.map(r => `
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+          <table class="data-table" style="min-width:640px;">
+            <thead>
               <tr>
-                <td style="font-weight:500;">${r.descricao}</td>
-                <td><span class="badge badge-green">${cats[r.categoria] || '💰'} ${r.categoria}</span></td>
-                <td style="color:#888;">${this.formatDate(r.data)}</td>
-                <td>${r.recorrente ? '<span class="badge badge-blue">🔄 Recorrente</span>' : '<span style="color:#555;">-</span>'}</td>
-                <td style="text-align:right;font-weight:700;color:#2FBF71;">${this.formatMoney(r.valor)}</td>
-                <td style="text-align:right;">
-                  <button onclick="VM.modalReceita(${JSON.stringify(r).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;"><i class="fas fa-edit"></i></button>
-                  <button onclick="VM.deleteReceita(${r.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
-                </td>
+                <th>Descrição</th>
+                <th>Categoria</th>
+                <th>Data</th>
+                <th>Recorrente</th>
+                <th style="text-align:right;">Valor</th>
+                <th style="text-align:right;">Ações</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.receitas.map(r => `
+                <tr>
+                  <td style="font-weight:500;">${r.descricao}</td>
+                  <td><span class="badge badge-green">${cats[r.categoria] || '💰'} ${r.categoria}</span></td>
+                  <td style="color:#888;">${this.formatDate(r.data)}</td>
+                  <td>${r.recorrente ? '<span class="badge badge-blue">🔄 Recorrente</span>' : '<span style="color:#555;">-</span>'}</td>
+                  <td style="text-align:right;font-weight:700;color:#2FBF71;">${this.formatMoney(r.valor)}</td>
+                  <td style="text-align:right;white-space:nowrap;">
+                    <button onclick="VM.modalReceita(${JSON.stringify(r).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteReceita(${r.id})" class="btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
         ${paginacao}
       `
     } catch (e) {
@@ -2483,10 +2567,18 @@ const VM = {
     const isEdit = !!receita
     const today = new Date().toISOString().split('T')[0]
     const categorias = ['Salário', 'Freelance', 'Investimentos', 'Aluguel', 'Vendas', 'Bônus', 'Outros']
+    const meiosPagamento = [
+      { value: 'dinheiro', label: '💵 Dinheiro / À vista' },
+      { value: 'pix', label: '⚡ PIX' },
+      { value: 'transferencia', label: '🏦 Transferência Bancária' },
+      { value: 'deposito', label: '📥 Depósito' },
+      { value: 'cheque', label: '📝 Cheque' },
+      { value: 'outros', label: '📦 Outros' },
+    ]
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal">
+        <div class="modal" style="max-width:500px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💰 Nova'} Receita</h3>
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
@@ -2499,7 +2591,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Categoria *</label>
-                <select id="r-cat" class="form-select">
+                <select id="r-cat" class="form-select" onchange="VM._carregarUltimasReceitasPorCategoria(this.value)">
                   ${categorias.map(c => `<option value="${c}" ${receita?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
                 </select>
               </div>
@@ -2508,9 +2600,24 @@ const VM = {
                 <input type="date" id="r-data" class="form-input" value="${receita?.data || today}" required>
               </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Valor (R$) *</label>
-              <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${receita?.valor || ''}" required>
+            <!-- Últimas receitas da categoria -->
+            <div id="r-ultimas-cat" style="display:none;margin-bottom:14px;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:10px 12px;">
+              <div style="font-size:0.75rem;color:#2FBF71;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">
+                <i class="fas fa-history"></i> Últimas desta categoria
+              </div>
+              <div id="r-ultimas-cat-lista" style="font-size:0.82rem;"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Valor (R$) *</label>
+                <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${receita?.valor || ''}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Meio de Recebimento</label>
+                <select id="r-meio" class="form-select">
+                  ${meiosPagamento.map(m => `<option value="${m.value}" ${receita?.meio_pagamento === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}
+                </select>
+              </div>
             </div>
             <div class="form-group" style="display:flex;align-items:center;gap:10px;">
               <input type="checkbox" id="r-recorrente" ${receita?.recorrente ? 'checked' : ''} style="width:16px;height:16px;accent-color:#2FBF71;">
@@ -2521,7 +2628,9 @@ const VM = {
               <input type="text" id="r-obs" class="form-input" placeholder="Opcional..." value="${receita?.observacoes || ''}">
             </div>
             <div style="display:flex;gap:12px;margin-top:8px;">
-              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">
+                <i class="fas fa-times"></i> Cancelar
+              </button>
               <button type="submit" class="btn-primary" style="flex:1;" id="r-submit">
                 <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
               </button>
@@ -2530,6 +2639,9 @@ const VM = {
         </div>
       </div>
     `
+
+    // Carregar últimas receitas da categoria inicial
+    this._carregarUltimasReceitasPorCategoria(receita?.categoria || categorias[0])
 
     document.getElementById('receita-form').addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -2542,12 +2654,13 @@ const VM = {
           categoria: document.getElementById('r-cat').value,
           data: document.getElementById('r-data').value,
           valor: parseFloat(document.getElementById('r-valor').value),
+          meio_pagamento: document.getElementById('r-meio').value,
           recorrente: document.getElementById('r-recorrente').checked,
           observacoes: document.getElementById('r-obs').value
         }
         if (isEdit) await this.api('PUT', `receitas/${receita.id}`, payload)
         else await this.api('POST', 'receitas', payload)
-        this.toast(isEdit ? 'Receita atualizada!' : 'Receita adicionada! 💰')
+        this.toast(isEdit ? 'Receita atualizada! ✅' : 'Receita adicionada! 💰')
         this.closeModal()
         this.carregarReceitas()
       } catch (err) {
@@ -2558,8 +2671,30 @@ const VM = {
     })
   },
 
+  async _carregarUltimasReceitasPorCategoria(categoria) {
+    const container = document.getElementById('r-ultimas-cat')
+    const lista = document.getElementById('r-ultimas-cat-lista')
+    if (!container || !lista || !categoria) return
+    try {
+      const data = await this.api('GET', `receitas?categoria=${encodeURIComponent(categoria)}&limit=5`)
+      const itens = data.receitas || []
+      if (itens.length === 0) { container.style.display = 'none'; return }
+      container.style.display = 'block'
+      lista.innerHTML = itens.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div>
+            <span style="color:#e2e8f0;font-weight:500;">${r.descricao}</span>
+            <span style="color:#64748b;font-size:0.75rem;margin-left:6px;">${this.formatDate(r.data)}</span>
+          </div>
+          <span style="color:#2FBF71;font-weight:700;">${this.formatMoney(r.valor)}</span>
+        </div>
+      `).join('')
+    } catch(e) { container.style.display = 'none' }
+  },
+
   async deleteReceita(id) {
-    if (!confirm('Excluir esta receita?')) return
+    const ok = await this.vmConfirm('Deseja excluir esta receita permanentemente?', { titulo: 'Excluir Receita', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `receitas/${id}`)
       this.toast('Receita excluída!')
@@ -2668,49 +2803,51 @@ const VM = {
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Descrição</th>
-              <th>Categoria</th>
-              <th>Data</th>
-              <th>Tipo</th>
-              <th>Status</th>
-              <th style="text-align:right;">Valor</th>
-              <th style="text-align:right;">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.despesas.map(d => {
-              // S3: badge de parcelas com link para filtrar grupo
-              const parcelaBadge = d.parcelado && d.numero_parcelas > 1
-                ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo" 
-                     onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '')}')"
-                     style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.72rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
-                     💳 ${d.parcela_atual}/${d.numero_parcelas}
-                   </span>`
-                : ''
-              return `
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+          <table class="data-table" style="min-width:780px;">
+            <thead>
               <tr>
-                <td style="font-weight:500;">${d.descricao}${parcelaBadge}</td>
-                <td><span class="badge badge-red">${catIcons[d.categoria] || '📦'} ${d.categoria}</span></td>
-                <td style="color:#888;">${this.formatDate(d.data)}</td>
-                <td><span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span></td>
-                <td>
-                  <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}" 
-                    onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;" title="Clique para alterar">
-                    ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
-                  </span>
-                </td>
-                <td style="text-align:right;font-weight:700;color:#ff6b6b;">${this.formatMoney(d.valor)}</td>
-                <td style="text-align:right;">
-                  <button onclick="VM.modalDespesa(${JSON.stringify(d).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;"><i class="fas fa-edit"></i></button>
-                  <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
-                </td>
+                <th>Descrição</th>
+                <th>Categoria</th>
+                <th>Data</th>
+                <th>Tipo</th>
+                <th>Status</th>
+                <th style="text-align:right;">Valor</th>
+                <th style="text-align:right;">Ações</th>
               </tr>
-            `}).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.despesas.map(d => {
+                // S3: badge de parcelas com link para filtrar grupo
+                const parcelaBadge = d.parcelado && d.numero_parcelas > 1
+                  ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo" 
+                       onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '')}')"
+                       style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.72rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
+                       💳 ${d.parcela_atual}/${d.numero_parcelas}
+                     </span>`
+                  : ''
+                return `
+                <tr>
+                  <td style="font-weight:500;">${d.descricao}${parcelaBadge}</td>
+                  <td><span class="badge badge-red">${catIcons[d.categoria] || '📦'} ${d.categoria}</span></td>
+                  <td style="color:#888;">${this.formatDate(d.data)}</td>
+                  <td><span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span></td>
+                  <td>
+                    <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}" 
+                      onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;" title="Clique para alterar">
+                      ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
+                    </span>
+                  </td>
+                  <td style="text-align:right;font-weight:700;color:#ff6b6b;">${this.formatMoney(d.valor)}</td>
+                  <td style="text-align:right;white-space:nowrap;">
+                    <button onclick="VM.modalDespesa(${JSON.stringify(d).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                  </td>
+                </tr>
+              `}).join('')}
+            </tbody>
+          </table>
+        </div>
         ${paginacao}
       `
     } catch (e) {
@@ -2735,7 +2872,7 @@ const VM = {
 
   // S2 – Marcar todas as despesas pendentes do período como pagas em lote
   async marcarTodasPagas(mes, ano) {
-    const ok = confirm(`Marcar TODAS as despesas pendentes de ${mes}/${ano} como pagas?`)
+    const ok = await this.vmConfirm(`Marcar <strong>TODAS</strong> as despesas pendentes de ${mes}/${ano} como pagas? Essa ação não pode ser desfeita.`, { titulo: 'Marcar Todas como Pagas', corBotao: '#2FBF71', textoBotao: 'Confirmar', icone: '✅' })
     if (!ok) return
     try {
       const r = await this.api('PATCH', 'despesas/batch-status', { mes, ano, status: 'pago' })
@@ -2880,7 +3017,7 @@ const VM = {
             <!-- Forma de pagamento -->
             <div class="form-group">
               <label class="form-label">💳 Forma de Pagamento</label>
-              <select id="d-meio" class="form-select" onchange="VM.onChangeMeioPagamento(this.value)">
+              <select id="d-meio" class="form-select" onchange="VM.onChangeMeioPagamento(this.value);VM._carregarUltimasDespesasPorMeio(this.value)">
                 <option value="dinheiro" ${(despesa?.meio_pagamento||'dinheiro')==='dinheiro'?'selected':''}>💵 Dinheiro / À vista</option>
                 <option value="pix" ${despesa?.meio_pagamento==='pix'?'selected':''}>⚡ PIX</option>
                 <option value="cartao_debito" ${despesa?.meio_pagamento==='cartao_debito'?'selected':''}>💳 Cartão de Débito</option>
@@ -2889,6 +3026,14 @@ const VM = {
                 <option value="transferencia" ${despesa?.meio_pagamento==='transferencia'?'selected':''}>🏦 Transferência</option>
                 ${!isEdit ? `<option value="parcelado_cartao" ${despesa?.parcelado?'selected':''}>💳 Cartão de Crédito Parcelado</option>` : ''}
               </select>
+            </div>
+
+            <!-- Últimas despesas desta forma de pagamento -->
+            <div id="d-ultimas-meio" style="display:none;margin-bottom:14px;background:rgba(255,107,107,0.06);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:10px 12px;">
+              <div style="font-size:0.75rem;color:#ff6b6b;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">
+                <i class="fas fa-history"></i> Últimas com este método
+              </div>
+              <div id="d-ultimas-meio-lista" style="font-size:0.82rem;"></div>
             </div>
 
             <!-- Cartão (aparece quando meio = cartao_credito ou parcelado_cartao) -->
@@ -3004,6 +3149,8 @@ const VM = {
 
     // Inicializar estado do form
     VM.onChangeMeioPagamento(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
+    // Carregar últimas despesas do meio de pagamento inicial
+    this._carregarUltimasDespesasPorMeio(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
 
     // Quando alterar a data, recalcular billing se cartão estiver selecionado
     const dataInput = document.getElementById('d-data')
@@ -3102,8 +3249,34 @@ const VM = {
     })
   },
 
+  async _carregarUltimasDespesasPorMeio(meio) {
+    const container = document.getElementById('d-ultimas-meio')
+    const lista = document.getElementById('d-ultimas-meio-lista')
+    if (!container || !lista || !meio || meio === 'parcelado_cartao') {
+      if (container) container.style.display = 'none'
+      return
+    }
+    try {
+      const data = await this.api('GET', `despesas?meio_pagamento=${encodeURIComponent(meio)}&limit=5`)
+      const itens = data.despesas || []
+      if (itens.length === 0) { container.style.display = 'none'; return }
+      container.style.display = 'block'
+      const meioLabel = { dinheiro: '💵 Dinheiro', pix: '⚡ PIX', cartao_debito: '💳 Débito', cartao_credito: '💳 Crédito', boleto: '📄 Boleto', transferencia: '🏦 Transf.' }
+      lista.innerHTML = itens.map(d => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div>
+            <span style="color:#e2e8f0;font-weight:500;">${d.descricao}</span>
+            <span style="color:#64748b;font-size:0.75rem;margin-left:6px;">${this.formatDate(d.data)}</span>
+          </div>
+          <span style="color:#ff6b6b;font-weight:700;">${this.formatMoney(d.valor)}</span>
+        </div>
+      `).join('')
+    } catch(e) { container.style.display = 'none' }
+  },
+
   async deleteDespesa(id) {
-    if (!confirm('Excluir esta despesa?')) return
+    const ok = await this.vmConfirm('Deseja excluir esta despesa permanentemente?', { titulo: 'Excluir Despesa', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `despesas/${id}`)
       this.toast('Despesa excluída!')
@@ -3518,7 +3691,8 @@ const VM = {
   },
 
   async deleteMeta(id) {
-    if (!confirm('Excluir esta meta?')) return
+    const ok = await this.vmConfirm('Deseja excluir esta meta permanentemente?', { titulo: 'Excluir Meta', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `metas/${id}`)
       this.toast('Meta excluída!')
@@ -3839,7 +4013,8 @@ const VM = {
   },
 
   async deleteInvestimento(id) {
-    if (!confirm('Excluir este investimento?')) return
+    const ok = await this.vmConfirm('Deseja excluir este investimento permanentemente?', { titulo: 'Excluir Investimento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `investimentos/${id}`)
       this.toast('Investimento excluído!')
@@ -3902,7 +4077,7 @@ const VM = {
       const { historico } = hist
 
       // KPIs de comparação
-      const kpiCard = (label, atual, anterior, prefixo = 'R$ ') => {
+      const kpiCard = (label, atual, anterior) => {
         const diff    = atual - anterior
         const varPct  = anterior > 0 ? (diff / anterior * 100).toFixed(1) : (atual > 0 ? '100' : '0')
         const positivo = diff >= 0
@@ -3911,7 +4086,7 @@ const VM = {
         return `
           <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:18px 20px;">
             <div style="font-size:0.78rem;color:#64748B;margin-bottom:8px;">${label}</div>
-            <div style="font-size:1.35rem;font-weight:800;color:#F8FAFC;">${prefixo}${this.formatMoney(atual)}</div>
+            <div style="font-size:1.35rem;font-weight:800;color:#F8FAFC;">${this.formatMoney(atual)}</div>
             <div style="font-size:0.8rem;color:${cor};margin-top:5px;">
               ${icon} ${Math.abs(parseFloat(varPct))}% vs ${periodo.label_ant}
             </div>
@@ -4212,7 +4387,8 @@ const VM = {
   },
 
   async excluirTag(id, nome) {
-    if (!confirm(`Excluir tag "${nome}"? As despesas vinculadas não serão apagadas.`)) return
+    const ok = await this.vmConfirm(`Excluir a tag <strong>"${nome}"</strong>? As despesas vinculadas não serão apagadas.`, { titulo: 'Excluir Tag', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🏷️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `tags/${id}`)
       this.toast(`Tag "${nome}" removida`)
@@ -6024,6 +6200,7 @@ const VM = {
 
   // ============== CARTÕES ==============
   async pageCartoes() {
+    this._faturaAutoAberta = false  // reset para auto-abrir fatura ao entrar na página
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
@@ -6154,7 +6331,8 @@ const VM = {
       this.toast('Esta compra não possui grupo — use o botão de excluir na fatura.', 'error')
       return
     }
-    if (!confirm(`Excluir a compra "${descricao}" e TODAS as suas parcelas (passadas, presente e futuras)?\n\nEssa ação não pode ser desfeita.`)) return
+    const ok = await this.vmConfirm(`Excluir a compra <strong>"${descricao}"</strong> e <strong>TODAS</strong> as suas parcelas (passadas, presentes e futuras)?<br><br>Essa ação não pode ser desfeita.`, { titulo: 'Excluir Compra Parcelada', corBotao: '#ef4444', textoBotao: 'Excluir Tudo', icone: '⛔' })
+    if (!ok) return
     try {
       await this.api('DELETE', `cartoes/compras/${groupId}`)
       this.toast(`✅ Compra "${descricao}" e todas as parcelas foram excluídas!`)
@@ -6284,6 +6462,16 @@ const VM = {
           ${cartoesHtml}
         </div>
       `
+
+      // Item 5: auto-abrir fatura do mês atual se há apenas 1 cartão
+      // e a fatura não está já visível (não é chamada de refresh)
+      if (data.cartoes.length === 1 && !this._faturaAutoAberta) {
+        this._faturaAutoAberta = true
+        const c = data.cartoes[0]
+        const nomeSeguro = c.nome.replace(/'/g, "\\'")
+        const corCartao = c.cor || '#2FBF71'
+        setTimeout(() => this.abrirFaturaCartao(c.id, c.nome, corCartao, c.dia_fechamento || 0), 200)
+      }
     } catch (e) {
       this.toast('Erro ao carregar cartões', 'error')
     }
@@ -6522,7 +6710,8 @@ const VM = {
   },
 
   async _pagarFaturaCompleta(cartaoId, mes, ano) {
-    if (!confirm(`Pagar toda a fatura de ${mes}/${ano}?`)) return
+    const ok = await this.vmConfirm(`Confirmar pagamento de <strong>toda a fatura</strong> de ${mes}/${ano}? Todos os lançamentos pendentes serão marcados como pagos.`, { titulo: 'Pagar Fatura Completa', corBotao: '#2FBF71', textoBotao: 'Pagar Fatura', icone: '💳' })
+    if (!ok) return
     try {
       const r = await this.api('PATCH', `cartoes/${cartaoId}/pagar-fatura`, { mes, ano })
       this.toast(r.message || 'Fatura paga! 🎉', 'success')
@@ -6534,7 +6723,8 @@ const VM = {
   },
 
   async _excluirCharge(chargeId) {
-    if (!confirm('Excluir este lançamento?')) return
+    const ok = await this.vmConfirm('Deseja excluir este lançamento da fatura permanentemente?', { titulo: 'Excluir Lançamento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `cartoes/lancamentos/${chargeId}`)
       this.toast('Lançamento excluído!')
@@ -6887,7 +7077,8 @@ const VM = {
   },
 
   async deleteCartao(id) {
-    if (!confirm('Excluir este cartão?')) return
+    const ok = await this.vmConfirm('Deseja excluir este cartão e todos os seus lançamentos permanentemente?', { titulo: 'Excluir Cartão', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '💳' })
+    if (!ok) return
     try {
       await this.api('DELETE', `cartoes/${id}`)
       this.toast('Cartão excluído!')
@@ -7171,7 +7362,8 @@ const VM = {
   },
 
   async deleteLembrete(id) {
-    if (!confirm('Excluir este lembrete?')) return
+    const ok = await this.vmConfirm('Deseja excluir este lembrete permanentemente?', { titulo: 'Excluir Lembrete', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `lembretes/${id}`)
       this.toast('Lembrete excluído!')
@@ -7647,7 +7839,8 @@ const VM = {
   },
 
   async pagarParcelaFinanciamento(id) {
-    if (!confirm('Confirmar pagamento desta parcela de financiamento?')) return
+    const ok = await this.vmConfirm('Confirmar o pagamento desta parcela de financiamento?', { titulo: 'Pagar Parcela', corBotao: '#2FBF71', textoBotao: 'Confirmar Pagamento', icone: '💰' })
+    if (!ok) return
     try {
       const d = await this.api('PATCH', `financiamentos/${id}/parcela`)
       const msg = d.status === 'quitado'
@@ -7661,7 +7854,8 @@ const VM = {
   },
 
   async deleteFinanciamento(id) {
-    if (!confirm('Excluir este financiamento? Todas as parcelas vinculadas também serão removidas.')) return
+    const ok = await this.vmConfirm('Excluir este financiamento? <strong>Todas as parcelas vinculadas também serão removidas.</strong>', { titulo: 'Excluir Financiamento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '⛔' })
+    if (!ok) return
     try {
       await this.api('DELETE', `financiamentos/${id}`)
       this.toast('Financiamento e parcelas excluídos!')
@@ -7921,7 +8115,8 @@ const VM = {
   },
 
   async pagarParcelaEmprestimo(id) {
-    if (!confirm('Confirmar pagamento desta parcela de empréstimo?')) return
+    const ok = await this.vmConfirm('Confirmar o pagamento desta parcela de empréstimo?', { titulo: 'Pagar Parcela', corBotao: '#2FBF71', textoBotao: 'Confirmar Pagamento', icone: '💰' })
+    if (!ok) return
     try {
       const d = await this.api('PATCH', `emprestimos/${id}/parcela`)
       const msg = d.status === 'quitado'
@@ -7935,7 +8130,8 @@ const VM = {
   },
 
   async deleteEmprestimo(id) {
-    if (!confirm('Excluir este empréstimo? Todas as parcelas vinculadas também serão removidas.')) return
+    const ok = await this.vmConfirm('Excluir este empréstimo? <strong>Todas as parcelas vinculadas também serão removidas.</strong>', { titulo: 'Excluir Empréstimo', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '⛔' })
+    if (!ok) return
     try {
       await this.api('DELETE', `emprestimos/${id}`)
       this.toast('Empréstimo e parcelas excluídos!')
@@ -7954,9 +8150,10 @@ const VM = {
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Análise completa baseada em 5 módulos • Hierarquia CFP®</div>
         </div>
         <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-sync"></i> Atualizar
+          <i class="fas fa-robot" style="margin-right:6px;"></i>Gerar Insights com IA
         </button>
       </div>
+      <div id="ia-insights-container" style="margin-bottom:16px;"></div>
       <div id="ia-container">
         <div style="display:flex;flex-direction:column;gap:16px;">
           ${[1,2,3].map(() => `<div class="skeleton" style="height:120px;border-radius:16px;"></div>`).join('')}
@@ -8363,8 +8560,51 @@ const VM = {
   },
 
   async gerarInsightsIA() {
-    this.toast('Atualizando diagnóstico...', 'info')
-    this.carregarIA()
+    const btn = document.querySelector('[onclick="VM.gerarInsightsIA()"]')
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Gerando insights...' }
+
+    try {
+      // Gerar novos insights via OpenAI
+      const data = await this.api('POST', 'ia/insights')
+      const insights = data.insights || []
+      const perfil = data.perfil_investidor || 'moderado'
+
+      const container = document.getElementById('ia-insights-container')
+      if (!container) { this.toast('Seção de insights não encontrada', 'error'); return }
+
+      const perfilLabel = { conservador: '🛡️ Conservador', moderado: '⚖️ Moderado', arrojado: '🚀 Arrojado' }
+      const tipoIcon = { alerta:'⚠️', dica:'💡', conquista:'🏆', investimento:'📈', economia:'💰' }
+      const priorCor = { alta:'#ef4444', media:'#f59e0b', baixa:'#6b7280' }
+
+      if (insights.length === 0) {
+        container.innerHTML = `<div style="text-align:center;padding:24px;color:#555;font-size:0.85rem;">
+          <i class="fas fa-robot" style="font-size:2rem;margin-bottom:8px;opacity:0.3;display:block;"></i>
+          Adicione mais lançamentos para eu gerar insights personalizados.
+        </div>`
+      } else {
+        container.innerHTML = `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+            <span style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;">💡 Insights Personalizados — IA</span>
+            <span style="background:rgba(47,191,113,0.1);color:#2FBF71;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;">${perfilLabel[perfil] || perfil}</span>
+          </div>
+          ${insights.map(ins => `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(${ins.prioridade==='alta'?'239,68,68':ins.prioridade==='media'?'245,158,11':'107,114,128'},0.25);border-left:3px solid ${priorCor[ins.prioridade]||'#6b7280'};border-radius:10px;padding:14px;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="font-size:1rem;">${tipoIcon[ins.tipo]||'💡'}</span>
+                <span style="color:#e0e0e0;font-weight:700;font-size:0.88rem;">${ins.titulo}</span>
+                <span style="margin-left:auto;font-size:0.7rem;color:${priorCor[ins.prioridade]||'#6b7280'};background:rgba(${ins.prioridade==='alta'?'239,68,68':ins.prioridade==='media'?'245,158,11':'107,114,128'},0.1);padding:1px 7px;border-radius:8px;">${ins.prioridade}</span>
+              </div>
+              <p style="color:#aaa;font-size:0.82rem;margin:0;line-height:1.5;">${ins.conteudo}</p>
+            </div>
+          `).join('')}
+        `
+      }
+      this.toast(`✅ ${insights.length} insights gerados para o perfil ${perfilLabel[perfil]||perfil}`, 'success')
+    } catch(e) {
+      this.toast('Erro ao gerar insights: ' + e.message, 'error')
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-robot" style="margin-right:6px;"></i>Gerar Insights com IA' }
+    }
   },
 
   // ── Histórico de score de saúde financeira (gráfico de linha) ─────────────
@@ -8898,7 +9138,8 @@ const VM = {
   },
 
   async deletarReserva(id) {
-    if (!confirm('Tem certeza que deseja excluir sua reserva de emergência?')) return
+    const ok = await this.vmConfirm('Tem certeza que deseja excluir sua reserva de emergência? Esta ação não pode ser desfeita.', { titulo: 'Excluir Reserva', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '⛔' })
+    if (!ok) return
     try {
       await this.api('DELETE', `reserva/${id}`)
       this.toast('Reserva removida.')
@@ -8986,7 +9227,9 @@ const VM = {
         reserva_iniciada: 'Crie sua reserva de emergência.',
         reserva_1_mes: 'Acumule 1 mês de despesas na reserva.',
         reserva_3_meses: 'Acumule 3 meses de despesas na reserva.',
-        reserva_6_meses: 'Acumule 6 meses de despesas na reserva.',
+        reserva_6_meses:  'Acumule 6 meses de despesas na reserva.',
+        reserva_9_meses:  'Acumule 9 meses de despesas na reserva de emergência.',
+        reserva_12_meses: 'Acumule 12 meses de despesas na reserva — nível máximo!',
         reserva_completa: 'Atinja 100% da meta da sua reserva.',
       }
 
@@ -9318,7 +9561,8 @@ const VM = {
     }
 
     this._deletarOrcamento = async (id, label) => {
-      if (!confirm(`Excluir o orçamento "${label}"?`)) return
+      const ok = await this.vmConfirm(`Deseja excluir o orçamento <strong>"${label}"</strong>?`, { titulo: 'Excluir Orçamento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+      if (!ok) return
       const r = await this.api('DELETE', `orcamentos/${id}`)
       if (r.success) { this.toast('✅ Orçamento removido'); renderPage() }
       else this.toast('Erro ao remover', 'error')
@@ -9332,8 +9576,10 @@ const VM = {
   // ══════════════════════════════════════════════════════════════════════════
   startConqPoll() {
     if (this._conqPollTimer) return
+    // Verificar imediatamente no login, depois a cada 30s
+    this.checkNovasConquistas()
     this._conqPollTimer = setInterval(() => this.checkNovasConquistas(), 30000)
-    // Verificar alertas de cartão na inicialização (sem polling agressivo)
+    // Verificar alertas de cartão na inicialização
     setTimeout(() => this.atualizarBadgeAlertasCartao(), 5000)
   },
 
@@ -9351,21 +9597,28 @@ const VM = {
   },
 
   async checkNovasConquistas() {
+    // Não disparar se já há overlay visível
+    if (document.getElementById('conquista-overlay')) return
     try {
       const data = await this.api('GET', 'conquistas/novas')
       const novas = data.novas || []
-      if (novas.length === 0) return
 
-      // Marcar como visualizadas
-      await this.api('PATCH', 'conquistas/visualizar')
+      // Atualizar badge na sidebar
+      const badge = document.getElementById('badge-conquistas')
+      if (novas.length === 0) {
+        if (badge) { badge.textContent = ''; badge.style.display = 'none' }
+        return
+      }
+      if (badge) { badge.textContent = novas.length; badge.style.display = 'inline' }
 
-      // Mostrar toast para cada conquista nova
+      // Marcar como visualizadas imediatamente (antes de mostrar)
+      await this.api('PATCH', 'conquistas/visualizar').catch(() => {})
+
+      // Mostrar toast para cada conquista (único sistema de notificação)
       novas.forEach((c, i) => {
         setTimeout(() => this.showConqToast(c), i * 1500)
       })
 
-      // Atualizar badge na sidebar
-      const badge = document.getElementById('badge-conquistas')
       if (badge) { badge.textContent = ''; badge.style.display = 'none' }
     } catch(e) {}
   },
@@ -9498,8 +9751,8 @@ const VM = {
             <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:10px 24px;"><i class="fas fa-plus"></i> Criar Primeira Recorrência</button>
           </div>
         ` : `
-          <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;overflow:hidden;">
-            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+          <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+            <table style="width:100%;min-width:640px;border-collapse:collapse;font-size:0.82rem;">
               <thead><tr style="border-bottom:1px solid #1f2937;">
                 <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Descrição</th>
                 <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Tipo</th>
@@ -9793,7 +10046,8 @@ const VM = {
     }
 
     this._deletarRecorrencia = async (id, desc) => {
-      if (!confirm(`Excluir a recorrência "${desc}"?`)) return
+      const ok = await this.vmConfirm(`Deseja excluir a recorrência <strong>"${desc}"</strong>? Ela não gerará mais lançamentos futuros.`, { titulo: 'Excluir Recorrência', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🔄' })
+      if (!ok) return
       await this.api('DELETE', `recorrencias/${id}`)
       this.toast('✅ Recorrência removida'); renderRec()
     }
@@ -10866,7 +11120,11 @@ const VM = {
   
   async deletarReservaEsp(id, name, currentAmount) {
     const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})
-    if (!confirm(`Excluir a reserva "${name}"?${currentAmount > 0 ? `\n\n⚠️ Você possui R$ ${fmtBRL(currentAmount)} nesta reserva. Certifique-se de transferir esse valor antes de excluir.` : ''}`)) return
+    const msgReserva = currentAmount > 0
+      ? `Deseja excluir a reserva <strong>"${name}"</strong>?<br><br>⚠️ Você possui <strong>R$ ${fmtBRL(currentAmount)}</strong> nesta reserva. Certifique-se de transferir esse valor antes de excluir.`
+      : `Deseja excluir a reserva <strong>"${name}"</strong>?`
+    const ok = await this.vmConfirm(msgReserva, { titulo: 'Excluir Reserva', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', `reservas-esp/${id}`)
       this.toast('🗑️ Reserva removida', 'success')
@@ -11729,8 +11987,8 @@ const VM = {
           title="Semana ${w.week_number}: R$ ${(w.target_amount||0).toFixed(2)} — ${w.status}"
           style="background:${bgColor};border:1px solid ${borderColor};border-radius:8px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s;user-select:none;"
           onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-          <div style="font-size:${w.status === 'completed' || w.status === 'skipped' ? '0.9' : '0.65'}rem;color:${textColor};font-weight:${isCurrent ? '700' : '600'};">${icon}</div>
-          ${w.status === 'completed' ? '' : `<div style="font-size:0.55rem;color:#64748B;margin-top:1px;">R$${w.target_amount}</div>`}
+          <div style="font-size:${w.status === 'completed' || w.status === 'skipped' ? '1rem' : '0.85'}rem;color:${textColor};font-weight:${isCurrent ? '800' : '700'};">${icon}</div>
+          ${w.status === 'completed' ? '' : `<div style="font-size:0.6rem;color:#64748B;margin-top:2px;font-weight:600;">R$${w.target_amount}</div>`}
         </div>`
       }).join('')
       
@@ -11772,8 +12030,10 @@ const VM = {
                 <span>✅ Concluída</span><span style="color:#F59E0B;">⭐ Atual</span><span>↩️ Pulada</span><span>número Pendente</span>
               </div>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(13,1fr);gap:6px;">
+            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+            <div style="display:grid;grid-template-columns:repeat(13,minmax(44px,1fr));gap:6px;min-width:580px;">
               ${weekGrid}
+            </div>
             </div>
           </div>
           
@@ -11901,6 +12161,82 @@ const VM = {
           <i class="fas fa-file-import" style="color:#2FBF71;margin-right:8px;"></i>Importar CSV
         </h2>
 
+        <!-- PASSO A PASSO -->
+        <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:14px;margin-bottom:20px;">
+          <button onclick="(function(el){el.style.display=el.style.display==='none'?'block':'none'})(document.getElementById('imp-guia'))"
+            style="width:100%;background:none;border:none;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+            <span style="color:#2FBF71;font-weight:700;font-size:0.92rem;"><i class="fas fa-info-circle" style="margin-right:8px;"></i>Como usar o Importar CSV — Passo a Passo</span>
+            <i class="fas fa-chevron-down" style="color:#2FBF71;font-size:0.8rem;"></i>
+          </button>
+          <div id="imp-guia" style="display:none;padding:0 20px 20px;">
+
+            <!-- Passo 1 -->
+            <div style="border-left:3px solid #2FBF71;padding-left:14px;margin-bottom:18px;">
+              <div style="color:#2FBF71;font-weight:700;font-size:0.88rem;margin-bottom:6px;">① Escolha o tipo de importação</div>
+              <p style="color:#cbd5e1;font-size:0.83rem;margin:0;">Selecione <strong style="color:#fff;">Despesas</strong> para importar gastos e faturas, ou <strong style="color:#fff;">Receitas</strong> para importar salários e entradas.</p>
+            </div>
+
+            <!-- Passo 2 -->
+            <div style="border-left:3px solid #38bdf8;padding-left:14px;margin-bottom:18px;">
+              <div style="color:#38bdf8;font-weight:700;font-size:0.88rem;margin-bottom:6px;">② Prepare o arquivo CSV</div>
+              <p style="color:#cbd5e1;font-size:0.83rem;margin:0 0 10px;">O CSV precisa ter as seguintes colunas (a ordem pode variar, o sistema detecta automaticamente):</p>
+              <div style="background:rgba(0,0,0,0.35);border-radius:10px;padding:12px;font-family:monospace;font-size:0.78rem;color:#a5f3fc;overflow-x:auto;">
+                <div style="color:#94a3b8;margin-bottom:6px;"># Formato mínimo (separado por ; ou ,)</div>
+                <div>data;descricao;valor</div>
+                <div style="color:#94a3b8;margin:6px 0 4px;"># Formato completo (com categoria)</div>
+                <div>data;descricao;valor;categoria</div>
+                <div style="color:#94a3b8;margin:8px 0 4px;"># Exemplos de linhas</div>
+                <div>15/03/2026;Supermercado Extra;-150,00;Alimentação</div>
+                <div>10/03/2026;Salário empresa;4500.00;Salário</div>
+                <div>05/03/2026;Netflix;45,90;Lazer</div>
+              </div>
+            </div>
+
+            <!-- Passo 3 -->
+            <div style="border-left:3px solid #f59e0b;padding-left:14px;margin-bottom:18px;">
+              <div style="color:#f59e0b;font-weight:700;font-size:0.88rem;margin-bottom:6px;">③ Regras importantes dos dados</div>
+              <ul style="color:#cbd5e1;font-size:0.83rem;margin:0;padding-left:16px;line-height:1.8;">
+                <li><strong style="color:#fff;">Data:</strong> aceita <code style="color:#a5f3fc;">DD/MM/AAAA</code>, <code style="color:#a5f3fc;">AAAA-MM-DD</code> ou <code style="color:#a5f3fc;">DD-MM-AAAA</code></li>
+                <li><strong style="color:#fff;">Valor:</strong> use <code style="color:#a5f3fc;">150,00</code> ou <code style="color:#a5f3fc;">150.00</code> — negativos são aceitos para despesas</li>
+                <li><strong style="color:#fff;">Separador:</strong> vírgula <code style="color:#a5f3fc;">,</code> ou ponto-e-vírgula <code style="color:#a5f3fc;">;</code> — detectado automaticamente</li>
+                <li><strong style="color:#fff;">Categoria:</strong> coluna opcional; se ausente, o sistema sugere pela descrição</li>
+                <li><strong style="color:#fff;">Cabeçalho:</strong> a primeira linha deve conter os nomes das colunas</li>
+                <li><strong style="color:#fff;">Encoding:</strong> salve o arquivo como <code style="color:#a5f3fc;">UTF-8</code> para evitar caracteres estranhos</li>
+              </ul>
+            </div>
+
+            <!-- Passo 4 -->
+            <div style="border-left:3px solid #a78bfa;padding-left:14px;margin-bottom:18px;">
+              <div style="color:#a78bfa;font-weight:700;font-size:0.88rem;margin-bottom:6px;">④ Exportando do seu banco</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;">
+                  <div style="color:#e2e8f0;font-size:0.8rem;font-weight:600;margin-bottom:4px;">🏦 Nubank</div>
+                  <div style="color:#94a3b8;font-size:0.75rem;">App → Meu Perfil → Exportar fatura (CSV)</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;">
+                  <div style="color:#e2e8f0;font-size:0.8rem;font-weight:600;margin-bottom:4px;">🏦 Itaú / C6</div>
+                  <div style="color:#94a3b8;font-size:0.75rem;">Internet Banking → Extrato → Exportar CSV</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;">
+                  <div style="color:#e2e8f0;font-size:0.8rem;font-weight:600;margin-bottom:4px;">🏦 Inter / PicPay</div>
+                  <div style="color:#94a3b8;font-size:0.75rem;">App → Extrato → Exportar → CSV</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;">
+                  <div style="color:#e2e8f0;font-size:0.8rem;font-weight:600;margin-bottom:4px;">📊 Planilha Excel</div>
+                  <div style="color:#94a3b8;font-size:0.75rem;">Arquivo → Salvar como → CSV UTF-8</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Passo 5 -->
+            <div style="border-left:3px solid #f43f5e;padding-left:14px;">
+              <div style="color:#f43f5e;font-weight:700;font-size:0.88rem;margin-bottom:6px;">⑤ Cole ou carregue, revise e confirme</div>
+              <p style="color:#cbd5e1;font-size:0.83rem;margin:0;">Após colar/carregar o CSV clique em <strong style="color:#fff;">Pré-visualizar e Analisar</strong>. O sistema mostrará cada linha para revisão — você pode ajustar categorias, ignorar linhas duplicadas e vincular a um cartão antes de confirmar a importação.</p>
+            </div>
+
+          </div>
+        </div>
+
         <!-- STEP 1: Upload -->
         <div id="imp-step1">
           <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px;">
@@ -11928,6 +12264,16 @@ const VM = {
             <button id="imp-btn-preview" onclick="VM._impPreview()" style="width:100%;margin-top:16px;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;">
               <i class="fas fa-search" style="margin-right:6px;"></i>Pré-visualizar e Analisar
             </button>
+            <!-- Botão OCR -->
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+              <label style="flex:1;cursor:pointer;">
+                <input type="file" id="imp-ocr-file" accept="image/*,.pdf" style="display:none;" onchange="VM._impOCR(this)">
+                <div style="width:100%;padding:11px;background:rgba(139,92,246,0.12);border:1px dashed rgba(139,92,246,0.4);border-radius:10px;color:#a78bfa;font-weight:600;font-size:0.85rem;cursor:pointer;text-align:center;">
+                  <i class="fas fa-camera" style="margin-right:6px;"></i>Importar por Foto ou PDF de Extrato (OCR com IA)
+                </div>
+              </label>
+            </div>
+            <div id="imp-ocr-status" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(139,92,246,0.1);border-radius:8px;color:#c4b5fd;font-size:0.82rem;"></div>
           </div>
         </div>
 
@@ -11985,7 +12331,98 @@ const VM = {
     reader.readAsText(file, 'UTF-8')
   },
 
-  async _impPreview() {
+  // ── OCR: foto ou PDF de extrato ───────────────────────────────────────────
+  async _impOCR(input) {
+    const file = input.files[0]
+    if (!file) return
+    const statusEl = document.getElementById('imp-ocr-status')
+    statusEl.style.display = 'block'
+    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Analisando imagem com IA... aguarde'
+
+    try {
+      // Converter para base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => {
+          const result = e.target.result
+          // Remover o prefixo data:...;base64,
+          const b64 = result.split(',')[1]
+          resolve(b64)
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
+      const mimeType = file.type || 'image/jpeg'
+
+      const res = await fetch('/api/importacao/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ imagem_base64: base64, mime_type: mimeType, tipo })
+      })
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>${data.error || 'Erro ao processar imagem'}`
+        return
+      }
+
+      // Preencher o textarea com o CSV gerado
+      document.getElementById('imp-csv').value = data.csv
+      statusEl.innerHTML = `<i class="fas fa-check-circle" style="margin-right:6px;color:#2FBF71;"></i>✅ ${data.total_filtrados} lançamentos extraídos — <strong>${data.banco_detectado}</strong>${data.periodo ? ' · ' + data.periodo : ''}. Revise e clique em Pré-visualizar.`
+
+    } catch(e) {
+      statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="margin-right:6px;color:#ef4444;"></i>Erro: ${e.message}`
+    }
+    // Reset o input para permitir novo upload
+    input.value = ''
+  },
+
+  // ── Criar investimento a partir de sugestão do preview ────────────────────
+  async _impSugerirInvestimento(idx, nome, tipo, valor, data) {
+    if (!confirm(`Criar "${nome}" como investimento de R$ ${Number(valor).toFixed(2)}?`)) return
+    try {
+      const res = await fetch('/api/importacao/criar-investimento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ nome, tipo, valor_investido: valor, data_inicio: data })
+      })
+      const data2 = await res.json()
+      if (res.ok && data2.sucesso) {
+        this.toast(`✅ ${data2.mensagem}`, 'success')
+        // Remover badge para não criar duplicado
+        const el = document.querySelector(`#imp-linha-${idx} [onclick*="_impSugerirInvestimento"]`)
+        if (el) el.remove()
+      } else {
+        this.toast(data2.error || 'Erro ao criar investimento', 'error')
+      }
+    } catch(e) { this.toast('Erro: ' + e.message, 'error') }
+  },
+
+  // ── Criar recorrência a partir de sugestão do preview ─────────────────────
+  async _impSugerirRecorrencia(idx, descricao, categoria, valor, tipo_rec, meio) {
+    if (!confirm(`Criar recorrência "${descricao}" (${tipo_rec}) de R$ ${Number(valor).toFixed(2)}/mês?`)) return
+    try {
+      const res = await fetch('/api/importacao/criar-recorrencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ descricao, categoria, valor, tipo: tipo_rec, meio_pagamento: meio })
+      })
+      const data = await res.json()
+      if (res.ok && data.sucesso) {
+        this.toast(`✅ ${data.mensagem}`, 'success')
+        const el = document.querySelector(`#imp-linha-${idx} [onclick*="_impSugerirRecorrencia"]`)
+        if (el) el.remove()
+      } else if (data.error?.includes('Já existe')) {
+        this.toast(`ℹ️ ${data.error}`, 'info')
+      } else {
+        this.toast(data.error || 'Erro ao criar recorrência', 'error')
+      }
+    } catch(e) { this.toast('Erro: ' + e.message, 'error') }
+  },
+
+
     const btn = document.getElementById('imp-btn-preview')
     const csv = document.getElementById('imp-csv').value.trim()
     const tipo = document.querySelector('input[name="imp-tipo"]:checked')?.value || 'despesas'
@@ -12079,6 +12516,22 @@ const VM = {
         ? `<span style="background:rgba(59,130,246,0.15);color:#3b82f6;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">📦 Parcela ${parc.atual}/${parc.total}</span>`
         : ''
 
+      // Badge de investimento sugerido
+      const inv = item.investimento_sugerido
+      const invBadge = inv
+        ? `<span style="background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #10b981;cursor:pointer;"
+            onclick="VM._impSugerirInvestimento(${item.linha-1}, '${(inv.nome||'').replace(/'/g,'\\'')}', '${inv.tipo}', ${item.valor}, '${item.data}')"
+            title="Clique para criar como investimento">💰 Investimento? <span style="font-size:0.65rem;opacity:0.8;">(clique para criar)</span></span>`
+        : ''
+
+      // Badge de recorrência sugerida
+      const rec = item.recorrencia_sugerida
+      const recBadge = rec
+        ? `<span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #fb923c;cursor:pointer;"
+            onclick="VM._impSugerirRecorrencia(${item.linha-1}, '${(rec.descricao||'').replace(/'/g,'\\'')}', '${rec.categoria}', ${item.valor}, '${rec.tipo_rec}', '${item.meio_pagamento||'outros'}')"
+            title="Clique para criar recorrência">🔄 Recorrente? <span style="font-size:0.65rem;opacity:0.8;">(clique para criar)</span></span>`
+        : ''
+
       const tagBadge = tagSug
         ? tagSug.nova
           ? `<span style="background:rgba(139,92,246,0.15);color:#8b5cf6;padding:2px 8px;border-radius:12px;font-size:0.72rem;border:1px dashed #8b5cf6;">🏷✨ ${tagSug.nome} <span style="font-size:0.65rem;opacity:0.8;">(nova)</span></span>`
@@ -12122,7 +12575,7 @@ const VM = {
             <div style="flex:1;min-width:0;">
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:6px;">
                 <span style="color:#e0e0e0;font-size:0.88rem;font-weight:600;">${item.descricao}</span>
-                ${dupBadge}${parcBadge}${tagBadge}${statusBadge}
+                ${dupBadge}${parcBadge}${tagBadge}${statusBadge}${invBadge}${recBadge}
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:0.8rem;color:#aaa;margin-bottom:6px;">
                 <span>📅 ${item.data}</span>
@@ -12421,7 +12874,8 @@ const VM = {
   },
 
   async assistenteLimpar() {
-    if (!confirm('Limpar todo o histórico de conversa?')) return
+    const ok = await this.vmConfirm('Deseja limpar todo o histórico de conversa com o assistente?', { titulo: 'Limpar Histórico', corBotao: '#ef4444', textoBotao: 'Limpar', icone: '🗑️' })
+    if (!ok) return
     try {
       await this.api('DELETE', 'assistente/historico')
       this.toast('Histórico limpo!', 'success')

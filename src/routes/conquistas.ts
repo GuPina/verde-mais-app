@@ -218,9 +218,11 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     const media = mediaDesp?.media || 0
     if (media > 0) {
       const mesesCobertos = reservaRow.valor_atual / media
-      if (mesesCobertos >= 1) await ganhar('reserva_1_mes')
-      if (mesesCobertos >= 3) await ganhar('reserva_3_meses')
-      if (mesesCobertos >= 6) await ganhar('reserva_6_meses')
+      if (mesesCobertos >= 1)  await ganhar('reserva_1_mes')
+      if (mesesCobertos >= 3)  await ganhar('reserva_3_meses')
+      if (mesesCobertos >= 6)  await ganhar('reserva_6_meses')
+      if (mesesCobertos >= 9)  await ganhar('reserva_9_meses')
+      if (mesesCobertos >= 12) await ganhar('reserva_12_meses')
     }
   }
 

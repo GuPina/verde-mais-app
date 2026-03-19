@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const ia = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -877,6 +877,134 @@ ia.get('/patrimonio-historico', requireAuth, async (c) => {
     return c.json({ historico: rows.results || [] })
   } catch {
     return c.json({ historico: [] })
+  }
+})
+
+// ─── POST /api/ia/insights — Gera insights personalizados com IA ──────────────────────
+// Analisa os dados financeiros e retorna insights acionáveis via OpenAI
+ia.post('/insights', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const now  = new Date()
+    const mes  = String(now.getMonth() + 1).padStart(2, '0')
+    const ano  = String(now.getFullYear())
+    const uid  = user.id
+
+    // Buscar dados financeiros completos
+    const [recRow, despRow, topCats, investRow, reservaRow, dividaRow, metasRow, recorRow, perfilRow] = await Promise.all([
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total, COUNT(*) as cnt FROM investimentos WHERE user_id=?`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(current_amount),0) as total FROM specialized_reserves WHERE user_id=? AND status!='cancelled'`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as obj, COALESCE(SUM(valor_atual),0) as atual FROM metas WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as desp FROM recorrencias WHERE user_id=? AND ativa=1`).bind(uid).first() as any,
+      c.env.DB.prepare(`SELECT perfil_investidor, salario_mensal, situacao_emprego FROM users WHERE id=?`).bind(uid).first() as any,
+    ])
+
+    const receita  = Number(recRow?.total || 0)
+    const despesa  = Number(despRow?.total || 0)
+    const saldo    = receita - despesa
+    const poupanca = receita > 0 ? (saldo / receita * 100).toFixed(1) : '0'
+    const topCatsStr = (topCats.results || []).map((c: any) => `${c.categoria}: R$${Number(c.total).toFixed(2)}`).join(', ')
+    const perfil   = perfilRow?.perfil_investidor || 'moderado'
+
+    const sugestoesInv: Record<string, string> = {
+      conservador: 'Tesouro Selic, CDB diário, LCI/LCA, Poupança. Priorize liquidez e segurança.',
+      moderado: 'CDB 100%+ CDI, Tesouro IPCA+, fundos multimercado. Até 20% em FII ou ações blue chips.',
+      arrojado: 'Ações (IBOV/ETFs), FIIs, até 10% cripto. Horizonte longo, diversifique globalmente.',
+    }
+
+    const prompt = `Você é um consultor financeiro pessoal especializado em finanças brasileiras.
+
+Dados financeiros do usuário ${user.nome} (mês ${mes}/${ano}):
+- Receitas: R$ ${receita.toFixed(2)}
+- Despesas: R$ ${despesa.toFixed(2)}
+- Saldo: R$ ${saldo.toFixed(2)} (poupança: ${poupanca}%)
+- Top categorias de gasto: ${topCatsStr || 'nenhuma registrada'}
+- Investimentos: R$ ${Number(investRow?.total || 0).toFixed(2)} (${investRow?.cnt || 0} ativos)
+- Reserva de emergência: R$ ${Number(reservaRow?.total || 0).toFixed(2)}
+- Dívidas ativas: R$ ${Number(dividaRow?.total || 0).toFixed(2)}
+- Metas ativas: ${metasRow?.cnt || 0} (objetivo: R$ ${Number(metasRow?.obj || 0).toFixed(2)}, atual: R$ ${Number(metasRow?.atual || 0).toFixed(2)})
+- Recorrências: ${recorRow?.cnt || 0} ativas (R$ ${Number(recorRow?.desp || 0).toFixed(2)}/mês)
+- Perfil investidor: ${perfil}
+- Sugestões de investimento para esse perfil: ${sugestoesInv[perfil] || sugestoesInv.moderado}
+
+Gere exatamente 5 insights financeiros personalizados e acionáveis. Cada insight deve:
+1. Ser baseado nos dados reais acima (não invente dados)
+2. Ter uma ação concreta que o usuário pode fazer HOJE
+3. Ser específico para o perfil investidor ${perfil}
+
+Retorne EXCLUSIVAMENTE um JSON válido:
+{
+  "insights": [
+    {
+      "titulo": "Título curto (máx 50 chars)",
+      "conteudo": "Explicação + ação concreta (máx 150 chars)",
+      "tipo": "alerta|dica|conquista|investimento|economia",
+      "prioridade": "alta|media|baixa",
+      "categoria": "fluxo_caixa|investimentos|economia|dividas|metas|reserva"
+    }
+  ]
+}`
+
+    const apiKey  = c.env.OPENAI_API_KEY
+    const baseUrl = (c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+
+    const aiRes = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-5-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1000,
+        temperature: 0.6,
+      })
+    })
+
+    if (!aiRes.ok) {
+      return c.json({ error: 'Erro na API de IA', insights: [] }, 500)
+    }
+
+    const aiData: any = await aiRes.json()
+    const content = aiData?.choices?.[0]?.message?.content || ''
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
+    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
+
+    let parsed: any
+    try { parsed = JSON.parse(jsonStr) } catch { parsed = { insights: [] } }
+
+    const insights = (parsed.insights || []).slice(0, 5)
+
+    // Salvar insights no banco (substituindo os do dia)
+    await c.env.DB.prepare(`DELETE FROM ia_insights WHERE user_id=? AND date(data_criacao)=date('now')`).bind(uid).run().catch(() => {})
+    for (const ins of insights) {
+      await c.env.DB.prepare(`
+        INSERT INTO ia_insights (user_id, tipo, titulo, conteudo, prioridade, categoria, lido, valido_ate)
+        VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now', '+7 days'))
+      `).bind(uid, ins.tipo || 'dica', ins.titulo || '', ins.conteudo || '', ins.prioridade || 'media', ins.categoria || 'geral').run().catch(() => {})
+    }
+
+    return c.json({ insights, perfil_investidor: perfil, periodo: { mes, ano }, total: insights.length })
+
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao gerar insights: ' + e.message, insights: [] }, 500)
+  }
+})
+
+// ─── GET /api/ia/insights — Retorna insights salvos no banco ─────────────────────
+ia.get('/insights', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const rows = await c.env.DB.prepare(`
+      SELECT * FROM ia_insights WHERE user_id=? ORDER BY
+        CASE prioridade WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,
+        data_criacao DESC LIMIT 10
+    `).bind(user.id).all()
+    return c.json({ insights: rows.results || [] })
+  } catch (e: any) {
+    return c.json({ insights: [], error: e.message })
   }
 })
 

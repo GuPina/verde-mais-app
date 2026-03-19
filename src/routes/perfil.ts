@@ -11,10 +11,10 @@ perfil.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const data = await c.env.DB.prepare(
     `SELECT id, nome, email, plano, perfil_investidor, avatar_color, profissao, situacao_emprego, 
-     salario_mensal, outras_rendas, dependentes, estado_civil, cidade, estado, 
+     salario_mensal, salario_mensal as renda_mensal, outras_rendas, dependentes, estado_civil, cidade, estado, 
      perfil_completo, onboarding_step, data_criacao FROM users WHERE id = ?`
   ).bind(user.id).first()
-  return c.json({ perfil: data })
+  return c.json({ ...data, perfil: data, usuario: data })
 })
 
 // PUT /api/perfil — Atualizar perfil completo
@@ -22,16 +22,41 @@ perfil.put('/', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json()
   const {
-    nome, profissao, situacao_emprego, salario_mensal, outras_rendas,
+    nome, profissao, situacao_emprego,
+    // aceitar tanto salario_mensal quanto renda_mensal (alias do frontend)
+    salario_mensal, renda_mensal,
+    outras_rendas,
     dependentes, estado_civil, cidade, estado, perfil_investidor
   } = body
 
-  const perfilCompleto = (nome && profissao && situacao_emprego && salario_mensal !== undefined) ? 1 : 0
+  // renda_mensal é alias de salario_mensal no frontend
+  const salarioFinal = salario_mensal ?? renda_mensal
+
+  const perfilCompleto = (nome && profissao && situacao_emprego && salarioFinal !== undefined) ? 1 : 0
+
+  // Montar update dinâmico para não sobrescrever campos não enviados
+  const fields: string[] = []
+  const values: any[] = []
+  if (nome !== undefined)             { fields.push('nome=?');              values.push(nome) }
+  if (profissao !== undefined)        { fields.push('profissao=?');         values.push(profissao || null) }
+  if (situacao_emprego !== undefined) { fields.push('situacao_emprego=?');  values.push(situacao_emprego) }
+  if (salarioFinal !== undefined)     { fields.push('salario_mensal=?');    values.push(parseFloat(salarioFinal) || 0) }
+  if (outras_rendas !== undefined)    { fields.push('outras_rendas=?');     values.push(parseFloat(outras_rendas) || 0) }
+  if (dependentes !== undefined)      { fields.push('dependentes=?');       values.push(parseInt(dependentes) || 0) }
+  if (estado_civil !== undefined)     { fields.push('estado_civil=?');      values.push(estado_civil) }
+  if (cidade !== undefined)           { fields.push('cidade=?');            values.push(cidade || null) }
+  if (estado !== undefined)           { fields.push('estado=?');            values.push(estado || null) }
+  if (perfil_investidor !== undefined){ fields.push('perfil_investidor=?'); values.push(perfil_investidor) }
+
+  if (fields.length === 0) return c.json({ success: true, message: 'Nada a atualizar.' })
+
+  fields.push('perfil_completo=?')
+  values.push(perfilCompleto)
+  values.push(user.id)
 
   await c.env.DB.prepare(
-    `UPDATE users SET nome=?, profissao=?, situacao_emprego=?, salario_mensal=?, outras_rendas=?,
-     dependentes=?, estado_civil=?, cidade=?, estado=?, perfil_investidor=?, perfil_completo=? WHERE id=?`
-  ).bind(nome, profissao || null, situacao_emprego || 'empregado', parseFloat(salario_mensal) || 0, parseFloat(outras_rendas) || 0, parseInt(dependentes) || 0, estado_civil || 'solteiro', cidade || null, estado || null, perfil_investidor || 'moderado', perfilCompleto, user.id).run()
+    `UPDATE users SET ${fields.join(', ')} WHERE id=?`
+  ).bind(...values).run()
 
   if (perfilCompleto) {
     await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'planejador').run().catch(() => {})

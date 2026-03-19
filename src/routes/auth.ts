@@ -303,4 +303,13 @@ auth.get('/me', requireAuth, async (c) => {
   return c.json({ user })
 })
 
+// ─── Aliases para compatibilidade ────────────────────────────────────────────
+// /registro → /register  (alguns clientes usam PT-BR)
+auth.post('/registro', async (c) => {
+  const newReq = new Request(c.req.url.replace('/registro', '/register'), {
+    method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body
+  })
+  return fetch(newReq)
+})
+
 export default auth

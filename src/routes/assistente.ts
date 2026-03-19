@@ -1,11 +1,11 @@
 // src/routes/assistente.ts
-// Assistente IA Conversacional VerdeMais — v2.0 — Lógica determinística avançada
+// Assistente IA Conversacional VerdeMais — v3.0 — OpenAI gpt-5-mini + perfil investidor
 
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 
-type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
-type Variables = { user: { id: number; nome: string; email: string; plano: string } }
+type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
+type Variables = { user: { id: number; nome: string; email: string; plano: string; perfil_investidor?: string } }
 
 const assistente = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -147,8 +147,8 @@ async function buscarContexto(db: D1Database, userId: number) {
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as total_desp, COALESCE(SUM(CASE WHEN tipo='receita' THEN valor ELSE 0 END),0) as total_rec FROM recorrencias WHERE user_id=? AND ativa=1`).bind(userId).first() as Promise<any>,
     // Orçamentos do mês
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite),0) as total_limite FROM orcamentos WHERE user_id=? AND mes=? AND ano=?`).bind(userId, mes, ano).first() as Promise<any>,
-    // Score saúde (do dashboard)
-    db.prepare(`SELECT score_saude FROM users WHERE id=?`).bind(userId).first() as Promise<any>,
+    // Score saúde + perfil investidor (do users)
+    db.prepare(`SELECT score_saude, perfil_investidor, salario_mensal, situacao_emprego FROM users WHERE id=?`).bind(userId).first() as Promise<any>,
   ])
 
   const totalReceitas  = parseFloat(receitasMes?.total  || 0)
@@ -175,6 +175,9 @@ async function buscarContexto(db: D1Database, userId: number) {
     recorrencias: recorrencias as any,
     orcamentos: orcamentos as any,
     scoreSaude: (score as any)?.score_saude || null,
+    perfilInvestidor: (score as any)?.perfil_investidor || 'moderado',
+    salarioMensal: parseFloat((score as any)?.salario_mensal || 0),
+    situacaoEmprego: (score as any)?.situacao_emprego || 'empregado',
     mes, ano, mesAntInt, anoAntInt,
     qtdDespesasMes: despesasMes?.cnt || 0,
   }
@@ -510,35 +513,59 @@ assistente.post('/chat', requireAuth, async (c) => {
       const topCats = (ctx.topCategorias as any[])
         .slice(0,3).map((c:any) => `${c.categoria}: R$${parseFloat(c.total).toFixed(0)}`).join(', ')
 
-      const systemPrompt = `Você é o Assistente Financeiro VerdeMais — amigável, direto, sem jargão excessivo.
-Responda SEMPRE em português brasileiro. Use emojis com moderação (2-3 por resposta no máximo).
-Não use frases genéricas de template. Seja pessoal e específico para a situação do ${primeiro}.
+      // Sugestões de investimento por perfil
+      const sugestoesInv: Record<string, string> = {
+        conservador: 'Tesouro Selic, CDB de liquidez diária, LCI/LCA, poupança. Evite renda variável.',
+        moderado: 'CDB 100%+ CDI, Tesouro IPCA+, fundos multimercado conservadores. Até 20% em FII ou ações.',
+        arrojado: 'Ações (IBOV), FIIs, ETFs, cripto até 5-10%. Diversifique em renda fixa e variável.',
+      }
+      const perfilLabel: Record<string, string> = {
+        conservador: '🛡️ Conservador — prefere segurança e liquidez',
+        moderado: '⚖️ Moderado — equilibra risco e retorno',
+        arrojado: '🚀 Arrojado — aceita risco por maior retorno',
+      }
+      const perfil = ctx.perfilInvestidor || 'moderado'
+      const sugestaoInv = sugestoesInv[perfil] || sugestoesInv.moderado
+      const labelPerfil = perfilLabel[perfil] || perfilLabel.moderado
 
-Dados financeiros REAIS do ${primeiro} (mês atual):
+      const systemPrompt = `Você é o Assistente Financeiro VerdeMais — especialista em finanças pessoais brasileiras.
+Responda SEMPRE em português brasileiro. Tom: amigável, direto, concreto. Use 2-3 emojis no máximo.
+Nunca use frases genéricas. Seja específico para os dados REAIS do ${primeiro}.
+
+👤 PERFIL DO USUÁRIO: ${primeiro}
+📊 Perfil Investidor: ${labelPerfil}
+💼 Situação: ${ctx.situacaoEmprego}
+
+📈 DADOS FINANCEIROS REAIS (mês atual):
 - Receitas: R$ ${ctx.totalReceitas.toFixed(2)}
-- Despesas: R$ ${ctx.totalDespesas.toFixed(2)} (${(ctx.topCategorias as any[]).length > 0 ? 'top: ' + topCats : 'sem detalhes'})
+- Despesas: R$ ${ctx.totalDespesas.toFixed(2)}${(ctx.topCategorias as any[]).length > 0 ? ' (top: ' + topCats + ')' : ''}
 - Saldo: R$ ${ctx.saldo.toFixed(2)} | Taxa poupança: ${ctx.taxaPoupanca.toFixed(1)}%
 - Dívidas: R$ ${totalDivida.toFixed(2)} | Investimentos: R$ ${parseFloat(inv?.total||0).toFixed(2)}
 - Reservas: R$ ${parseFloat((ctx.reservas as any)?.total||0).toFixed(2)}
-- Score saúde: ${ctx.scoreSaude || 'não calculado'}
+- Score saúde financeira: ${ctx.scoreSaude || 'não calculado'}/100
 - Metas ativas: ${(ctx.metas as any)?.cnt || 0}
 
-Dados de referência do assistente (use como base, mas reescreva de forma mais natural e personalizada):
+💡 SUGESTÕES DE INVESTIMENTO PARA O PERFIL ${perfil.toUpperCase()}:
+${sugestaoInv}
+
+Resposta de referência (reescreva de forma mais natural, pessoal e com conselhos práticos baseados no perfil):
 ${resposta}
 
-Responda em no máximo 180 palavras. Seja direto, concreto e pessoal. Não repita os dados acima literalmente.`
+IMPORTANTE: Se a pergunta for sobre investimentos, cite produtos específicos adequados ao perfil ${perfil}.
+Se a pergunta for sobre economia, dê dicas concretas baseadas nos gastos reais.
+Responda em no máximo 200 palavras.`
 
       const llmRes = await fetch(`${baseURL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5',
+          model: 'gpt-5-mini',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: mensagem }
           ],
-          max_tokens: 350,
-          temperature: 0.75
+          max_tokens: 400,
+          temperature: 0.7
         })
       })
       if (llmRes.ok) {

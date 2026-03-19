@@ -1,9 +1,9 @@
-// src/routes/importacao.ts — v4.0
-// Melhorias: tag automática por categoria, meio_pagamento por cartão, status correto por meio
+// src/routes/importacao.ts — v5.0
+// Melhorias v5: detecção de investimentos, recorrências, OCR via OpenAI Vision
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const importacao = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -36,16 +36,31 @@ function detectarCategoria(desc: string): string {
 
 // Cor padrão por categoria para criação automática de tags
 const COR_CATEGORIA: Record<string, string> = {
-  'Alimentação': '#10B981',
-  'Transporte':  '#3B82F6',
-  'Streaming':   '#8B5CF6',
-  'Saúde':       '#EF4444',
-  'Moradia':     '#F59E0B',
-  'Educação':    '#F97316',
-  'Lazer':       '#EC4899',
-  'Vestuário':   '#92400E',
-  'Pets':        '#78716C',
-  'Outros':      '#6B7280',
+  'Alimentação':      '#10B981',
+  'Transporte':       '#3B82F6',
+  'Streaming':        '#8B5CF6',
+  'Saúde':            '#EF4444',
+  'Saúde/Farmácia':   '#EF4444',
+  'Moradia':          '#F59E0B',
+  'Educação':         '#F97316',
+  'Lazer':            '#EC4899',
+  'Vestuário':        '#92400E',
+  'Pets':             '#78716C',
+  'Telecomunicações': '#06B6D4',
+  'Taxas Bancárias':  '#DC2626',
+  'Previdência':      '#7C3AED',
+  'Seguros':          '#0EA5E9',
+  'Financiamentos':   '#B45309',
+  'Cartão de Crédito':'#6366F1',
+  'Transferência':    '#64748B',
+  'Receitas Extras':  '#34D399',
+  'Rendimentos':      '#A3E635',
+  'Salário':          '#22C55E',
+  'Empréstimos':      '#F87171',
+  'Compras':          '#FB923C',
+  'Doações':          '#E879F9',
+  'Contas Básicas':   '#FBBF24',
+  'Outros':           '#6B7280',
 }
 
 function detectarMeioPagamento(desc: string): string {
@@ -54,8 +69,59 @@ function detectarMeioPagamento(desc: string): string {
   if (/ted\b|doc\b|transfer[eê]ncia|transf\b/.test(d)) return 'transferencia'
   if (/boleto|compensacao|comp\./.test(d)) return 'boleto'
   if (/d[eé]bito|deb\./.test(d)) return 'cartao_debito'
-  if (/cr[eé]dito|cred\./.test(d)) return 'cartao_credito'
+  // Só cartão de crédito se vier junto de "cartão" ou "fatura" — evitar falso-positivo em "crédito consignado"
+  if (/cart[aã]o.*cr[eé]d|cr[eé]d.*cart[aã]o|fatura.*cr[eé]d|cr[eé]d.*fatura|\bcred\.\b/.test(d)) return 'cartao_credito'
+  if (/pagto salario|adiantamento|consignado|salario|rendimento|rend pago/.test(d)) return 'transferencia'
   return 'dinheiro'
+}
+
+// ── Detecção de investimento ──────────────────────────────────────────────────
+// Retorna o tipo de investimento se reconhecido, ou null
+function detectarInvestimento(desc: string, cat: string): { tipo: string; nome: string } | null {
+  const d = norm(desc)
+  const c = norm(cat)
+  // Aplicações automáticas de banco
+  if (/aplic\s*aut|aplicacao\s*aut|rend\s*pago\s*aplic|aplic\s*financ/.test(d)) return { tipo: 'caixinha', nome: 'Aplicação Automática' }
+  // Tesouro Direto
+  if (/tesouro\s*direto|tesouro\s*selic|tesouro\s*ipca|ntnb|ntnf|lft\b/.test(d)) return { tipo: 'tesouro_direto', nome: 'Tesouro Direto' }
+  // CDB / RDB
+  if (/\bcdb\b|\brdb\b|certif.*deposito/.test(d)) return { tipo: 'cdb', nome: 'CDB' }
+  // LCI / LCA
+  if (/\blci\b|\blca\b/.test(d)) return { tipo: /lci/.test(d) ? 'lci' : 'lca', nome: /lci/.test(d) ? 'LCI' : 'LCA' }
+  // Ações / FII
+  if (/\bbovespa\b|b3\b|acao\b|acoes\b|\bfii\b|fundo\s*imob/.test(d)) return { tipo: /fii/.test(d) ? 'fii' : 'acoes', nome: 'Renda Variável' }
+  // Cripto
+  if (/bitcoin|ethereum|cripto|crypto|btc\b|eth\b|binance|coinbase/.test(d)) return { tipo: 'cripto', nome: 'Criptoativo' }
+  // Poupança
+  if (/poupanca|caderneta/.test(d)) return { tipo: 'poupanca', nome: 'Poupança' }
+  // Previdência
+  if (/previdencia|pgbl|vgbl|fundo\s*prev/.test(d)) return { tipo: 'outros', nome: 'Previdência' }
+  // Categoria explícita
+  if (/investimento|rendimento|aplica/.test(c)) return { tipo: 'outros', nome: desc.slice(0, 60) }
+  return null
+}
+
+// ── Detecção de recorrência ───────────────────────────────────────────────────
+// Retorna sugestão de recorrência se o lançamento parece ser fixo
+function detectarRecorrencia(desc: string, cat: string, tipo: 'despesa' | 'receita'): { descricao: string; categoria: string; tipo_rec: string } | null {
+  const d = norm(desc)
+  const c = norm(cat)
+  // Salário / renda fixa
+  if (/pagto\s*salario|salario|adiantamento\s*sal|13\s*salario/.test(d)) return { descricao: 'Salário', categoria: 'Salário', tipo_rec: 'receita' }
+  if (/rend\s*pago|rendimento|dividendo|aluguel\s*receb/.test(d)) return { descricao: desc.slice(0, 60), categoria: 'Rendimentos', tipo_rec: 'receita' }
+  // Contas fixas
+  if (/energia|luz\b|enel|cemig|copel|coelba|celpe/.test(d)) return { descricao: 'Conta de Luz', categoria: 'Moradia', tipo_rec: 'despesa' }
+  if (/agua\b|saneamento|sabesp|cedae|cagece/.test(d)) return { descricao: 'Conta de Água', categoria: 'Moradia', tipo_rec: 'despesa' }
+  if (/internet|fibra|net\b|claro\b|vivo\b|oi\b|tim\b|celular/.test(d)) return { descricao: 'Internet / Telefone', categoria: 'Telecomunicações', tipo_rec: 'despesa' }
+  if (/aluguel/.test(d)) return { descricao: 'Aluguel', categoria: 'Moradia', tipo_rec: 'despesa' }
+  if (/condominio/.test(d)) return { descricao: 'Condomínio', categoria: 'Moradia', tipo_rec: 'despesa' }
+  if (/netflix|spotify|amazon\s*prime|youtube\s*premium|disney|hbo|globoplay|deezer/.test(d)) return { descricao: desc.slice(0, 60), categoria: 'Streaming', tipo_rec: 'despesa' }
+  if (/plano\s*saude|unimed|amil|bradesco\s*saude|sulamerica|hapvida/.test(d)) return { descricao: 'Plano de Saúde', categoria: 'Saúde', tipo_rec: 'despesa' }
+  if (/academia|smartfit|bluefit/.test(d)) return { descricao: 'Academia', categoria: 'Saúde', tipo_rec: 'despesa' }
+  if (/seguro\s*(auto|vida|resid|imovel)|porto\s*seg|tokio\s*mar|zurich/.test(d)) return { descricao: 'Seguro', categoria: 'Seguros', tipo_rec: 'despesa' }
+  if (/financiamento|prestacao|credito\s*consignado|emprestimo/.test(d)) return { descricao: desc.slice(0, 60), categoria: 'Financiamentos', tipo_rec: 'despesa' }
+  if (/iptu|ipva/.test(d)) return { descricao: /iptu/.test(d) ? 'IPTU' : 'IPVA', categoria: 'Contas Básicas', tipo_rec: 'despesa' }
+  return null
 }
 
 // Regra de status por meio de pagamento
@@ -80,7 +146,9 @@ function statusParcela(dataParcela: string, meio: string): string {
 
 function detectarParcela(desc: string): { atual: number; total: number } | null {
   const d = desc.toUpperCase()
-  const m1 = d.match(/\b(\d{1,2})\s*[\/]\s*(\d{1,2})\b/)
+  // Padrão X/Y: só considerar parcela se vier após espaço ou separador explícito
+  // Evita confundir datas (17/03) e outros números com padrão de parcela
+  const m1 = d.match(/(?:PARC(?:ELA)?|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/)
   if (m1) {
     const atual = parseInt(m1[1]), total = parseInt(m1[2])
     if (total > 1 && atual >= 1 && atual <= total && total <= 72) return { atual, total }
@@ -101,13 +169,30 @@ function detectarParcela(desc: string): { atual: number; total: number } | null 
 function parseValor(raw: string): number | null {
   if (!raw) return null
   let s = raw.replace(/[R$\s"']/g, '').trim()
-  if (/^\d{1,3}(\.\d{3})*(,\d+)?$/.test(s)) {
+
+  // Guardar sinal negativo (despesas exportadas com - no início)
+  const negativo = s.startsWith('-')
+  if (negativo) s = s.slice(1).trim()
+
+  // Formato brasileiro com ponto separador de milhar: 1.044,28
+  if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(s)) {
     s = s.replace(/\./g, '').replace(',', '.')
+  // Formato com apenas vírgula decimal sem ponto de milhar: 1044,28
+  } else if (/^\d+(,\d{1,2})$/.test(s)) {
+    s = s.replace(',', '.')
+  // Formato americano com ponto decimal: 1044.28
+  } else if (/^\d+(\.\d{1,2})?$/.test(s)) {
+    // já está correto
   } else {
+    // último recurso: remover vírgulas (pode ser separador de milhar no padrão americano)
     s = s.replace(/,/g, '')
   }
+
   const v = parseFloat(s)
-  return isNaN(v) || v <= 0 ? null : v
+  // Aceitar zero e negativos — zero é valor válido (ex: rendimentos de R$ 0,00)
+  // Retorna sempre positivo; o tipo (despesa/receita) é definido pelo contexto da importação
+  if (isNaN(v)) return null
+  return Math.abs(v) === 0 ? 0.01 : Math.abs(v)  // centavos mínimos viram 0.01 se zerado pelo parse
 }
 
 function parseData(raw: string): string | null {
@@ -120,7 +205,18 @@ function parseData(raw: string): string | null {
   return null
 }
 
-function parseCsvLine(line: string): string[] {
+// Detecta o delimitador dominante de um CSV analisando as primeiras linhas
+function detectarDelimitador(linhas: string[]): ',' | ';' | '\t' {
+  const amostra = linhas.slice(0, Math.min(5, linhas.length)).join('\n')
+  const pontoVirgulas = (amostra.match(/;/g) || []).length
+  const virgulas      = (amostra.match(/,/g) || []).length
+  const tabs          = (amostra.match(/\t/g) || []).length
+  if (tabs > pontoVirgulas && tabs > virgulas) return '\t'
+  if (pontoVirgulas >= virgulas) return ';'
+  return ','
+}
+
+function parseCsvLine(line: string, delimitador: string = ','): string[] {
   const result: string[] = []
   let current = ''
   let inQuotes = false
@@ -129,7 +225,7 @@ function parseCsvLine(line: string): string[] {
     if (ch === '"') {
       if (inQuotes && line[i+1] === '"') { current += '"'; i++ }
       else inQuotes = !inQuotes
-    } else if ((ch === ',' || ch === ';') && !inQuotes) {
+    } else if (ch === delimitador && !inQuotes) {
       result.push(current.trim())
       current = ''
     } else {
@@ -138,6 +234,41 @@ function parseCsvLine(line: string): string[] {
   }
   result.push(current.trim())
   return result
+}
+
+// Detecção de colunas por conteúdo (fallback quando não há cabeçalho nomeado)
+// Inspeciona as primeiras linhas de dados para inferir os índices
+function detectarColunasPorConteudo(linhas: string[], delimitador: string): { idxData: number, idxDesc: number, idxValor: number, idxCat: number } {
+  // Tenta 3 linhas de dados para votar nos tipos de cada coluna
+  const votos: Record<number, { data: number, valor: number, texto: number }> = {}
+  const amostras = linhas.slice(0, Math.min(4, linhas.length))
+  for (const linha of amostras) {
+    const cols = parseCsvLine(linha, delimitador)
+    for (let c = 0; c < cols.length; c++) {
+      if (!votos[c]) votos[c] = { data: 0, valor: 0, texto: 0 }
+      const v = cols[c].trim()
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(v) || /^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(v)) votos[c].data++
+      else if (/^-?\d+[,.]?\d*$/.test(v.replace(/[R$\s.]/g, '').trim())) votos[c].valor++
+      else if (v.length > 5) votos[c].texto++
+    }
+  }
+  const numCols = Math.max(...Object.keys(votos).map(Number)) + 1
+  let idxData = -1, idxValor = -1, idxDesc = -1
+  let melhorData = -1, melhorValor = -1, melhorTexto = -1
+  for (let c = 0; c < numCols; c++) {
+    const v = votos[c] || { data: 0, valor: 0, texto: 0 }
+    if (v.data > melhorData)   { melhorData   = v.data;   idxData  = c }
+    if (v.valor > melhorValor) { melhorValor  = v.valor;  idxValor = c }
+    if (v.texto > melhorTexto) { melhorTexto  = v.texto;  idxDesc  = c }
+  }
+  // Se data e valor caíram no mesmo índice, desempatar
+  if (idxData === idxValor) idxValor = idxData + 2
+  if (idxDesc === idxData || idxDesc === idxValor) {
+    for (let c = 0; c < numCols; c++) {
+      if (c !== idxData && c !== idxValor) { idxDesc = c; break }
+    }
+  }
+  return { idxData, idxDesc, idxValor, idxCat: -1 }
 }
 
 function addMonths(isoDate: string, months: number): string {
@@ -209,17 +340,31 @@ importacao.post('/preview', requireAuth, async (c) => {
     if (!csv || typeof csv !== 'string') return c.json({ error: 'CSV inválido' }, 400)
 
     const linhas = csv.split('\n').filter((l: string) => l.trim())
-    if (linhas.length < 2) return c.json({ error: 'CSV precisa ter cabeçalho + ao menos 1 linha' }, 400)
+    if (linhas.length < 2) return c.json({ error: 'CSV precisa ter ao menos 1 linha de dados' }, 400)
 
-    const cabecalho = parseCsvLine(linhas[0]).map(h => norm(h))
+    // Detectar delimitador correto ANTES de parsear qualquer linha
+    const delimitador = detectarDelimitador(linhas)
 
-    const idxData  = cabecalho.findIndex(h => /^(data|date|dt|data_compra|data_lancamento)$/.test(h) || /data|date/.test(h))
-    const idxDesc  = cabecalho.findIndex(h => /^(descricao|descr|desc|historico|nome|titulo|estabelecimento)$/.test(h) || /descr|historico|estabelec/.test(h))
-    const idxValor = cabecalho.findIndex(h => /^(valor|value|amount|total|montante|debito|debit)$/.test(h) || /valor|amount|total/.test(h))
-    const idxCat   = cabecalho.findIndex(h => /^(categoria|categ|category|tipo|grupo)$/.test(h))
+    const cabecalho = parseCsvLine(linhas[0], delimitador).map(h => norm(h))
+
+    let idxData  = cabecalho.findIndex(h => /^(data|date|dt|data_compra|data_lancamento)$/.test(h) || /data|date/.test(h))
+    let idxDesc  = cabecalho.findIndex(h => /^(descricao|descr|desc|historico|nome|titulo|estabelecimento)$/.test(h) || /descr|historico|estabelec/.test(h))
+    let idxValor = cabecalho.findIndex(h => /^(valor|value|amount|total|montante|debito|debit|credito)$/.test(h) || /valor|amount|total/.test(h))
+    let idxCat   = cabecalho.findIndex(h => /^(categoria|categ|category|tipo|grupo)$/.test(h))
     const idxMeio  = cabecalho.findIndex(h => /^(meio|pagamento|forma|tipo_pagamento|payment)$/.test(h))
 
-    if (idxValor === -1) return c.json({ error: 'Coluna de valor não encontrada.' }, 400)
+    // Se cabeçalho não reconhecido (CSV sem header), detectar colunas pelo conteúdo
+    const semCabecalhoNomeado = idxValor === -1 && idxData === -1 && idxDesc === -1
+    if (semCabecalhoNomeado) {
+      // Usar todas as linhas como dados (nenhuma linha é cabeçalho)
+      const inf = detectarColunasPorConteudo(linhas, delimitador)
+      idxData  = inf.idxData
+      idxDesc  = inf.idxDesc
+      idxValor = inf.idxValor
+      idxCat   = inf.idxCat
+    }
+
+    if (idxValor === -1) return c.json({ error: 'Coluna de valor não encontrada. Verifique se o CSV tem cabeçalho (ex: Data;Descricao;Valor;Categoria).' }, 400)
 
     // Buscar dados do usuário
     const [cartoesList, tagsList, despesasRec] = await Promise.all([
@@ -236,10 +381,12 @@ importacao.post('/preview', requireAuth, async (c) => {
 
     const preview: any[] = []
     const erros: string[] = []
-    const totalLinhas = linhas.length - 1
+    // Início do loop de dados: se CSV sem cabeçalho nomeado, começar da linha 0
+    const inicioLoop = semCabecalhoNomeado ? 0 : 1
+    const totalLinhas = linhas.length - inicioLoop
 
-    for (let i = 1; i < linhas.length; i++) {
-      const cols = parseCsvLine(linhas[i])
+    for (let i = inicioLoop; i < linhas.length; i++) {
+      const cols = parseCsvLine(linhas[i], delimitador)
       if (cols.length < 2 || cols.every((c: string) => !c.trim())) continue
 
       const valorRaw = idxValor >= 0 ? cols[idxValor] : ''
@@ -310,6 +457,12 @@ importacao.post('/preview', requireAuth, async (c) => {
         }
       }
 
+      // ── Detecção de investimento sugerido ────────────────────────────────
+      const investimentoSugerido = detectarInvestimento(desc, cat)
+
+      // ── Detecção de recorrência sugerida ─────────────────────────────────
+      const recorrenciaSugerida = detectarRecorrencia(desc, cat, tipo as 'despesa' | 'receita')
+
       // ── Status sugerido ───────────────────────────────────────────────────
       const statusSugerido = statusPorMeio(meio, data)
 
@@ -355,6 +508,8 @@ importacao.post('/preview', requireAuth, async (c) => {
         parcela: parcelaInfo,
         tag_sugerida: tagAuto,
         duplicata,
+        investimento_sugerido: investimentoSugerido,
+        recorrencia_sugerida: recorrenciaSugerida,
         decisao: duplicata ? null : true,
       })
     }
@@ -406,6 +561,9 @@ importacao.post('/executar', requireAuth, async (c) => {
     const linhasCsv = csv.split('\n').filter((l: string) => l.trim())
     if (linhasCsv.length < 2) return c.json({ error: 'CSV vazio' }, 400)
 
+    // Detectar delimitador consistente com o preview
+    const delimitadorExec = detectarDelimitador(linhasCsv)
+
     const { data: idxData, descricao: idxDesc, valor: idxValor, categoria: idxCat } = mapeamento
 
     // Cartão do lote
@@ -438,7 +596,7 @@ importacao.post('/executar', requireAuth, async (c) => {
 
     for (let i = 1; i < linhasCsv.length; i++) {
       const numLinha = i + 1
-      const cols = parseCsvLine(linhasCsv[i])
+      const cols = parseCsvLine(linhasCsv[i], delimitadorExec)
       if (cols.length < 2 || cols.every((c: string) => !c.trim())) continue
 
       const cfg = configPorLinha[numLinha] || {}
@@ -664,6 +822,198 @@ importacao.post('/executar', requireAuth, async (c) => {
     })
   } catch (e: any) {
     return c.json({ error: 'Erro na importação: ' + e.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/importacao/ocr — Extrai dados de foto/PDF de extrato via OpenAI Vision
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/ocr', requireAuth, async (c) => {
+  try {
+    const body = await c.req.json()
+    const { imagem_base64, mime_type, tipo } = body
+    // imagem_base64: string base64 da imagem ou PDF (primeira página convertida)
+    // mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+    // tipo: 'despesas' | 'receitas'
+
+    if (!imagem_base64 || !mime_type) {
+      return c.json({ error: 'Imagem base64 e mime_type são obrigatórios.' }, 400)
+    }
+
+    const apiKey  = c.env.OPENAI_API_KEY
+    const baseUrl = c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+
+    const prompt = `Você é um assistente especializado em extrair lançamentos financeiros de extratos bancários brasileiros.
+
+Analise esta imagem de extrato bancário (pode ser Itaú, Nubank, Bradesco, Santander, Banco do Brasil, Caixa, Mercado Pago, Inter, C6, XP ou qualquer outro banco brasileiro).
+
+Extraia TODOS os lançamentos visíveis e retorne EXCLUSIVAMENTE um JSON válido no seguinte formato:
+{
+  "banco_detectado": "nome do banco se identificado",
+  "periodo": "período do extrato se visível",
+  "lancamentos": [
+    {
+      "data": "DD/MM/AAAA",
+      "descricao": "descrição exata do lançamento",
+      "valor": "valor numérico com vírgula decimal ex: 198,55",
+      "tipo": "despesa ou receita (débito=despesa, crédito=receita)",
+      "categoria_sugerida": "categoria mais adequada"
+    }
+  ]
+}
+
+Regras importantes:
+- Valores de débito/saída: tipo = "despesa"  
+- Valores de crédito/entrada: tipo = "receita"
+- Mantenha os valores positivos, sem sinal negativo
+- Se a data não aparecer em algum lançamento, use a data mais próxima visível
+- Categorias sugeridas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Streaming, Telecomunicações, Seguros, Financiamentos, Transferência, Salário, Rendimentos, Investimentos, Outros
+- Retorne APENAS o JSON, sem texto adicional`
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5',
+        max_tokens: 4000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mime_type};base64,${imagem_base64}`,
+                  detail: 'high'
+                }
+              },
+              {
+                type: 'text',
+                text: prompt
+              }
+            ]
+          }
+        ]
+      })
+    })
+
+    if (!response.ok) {
+      const err = await response.text()
+      return c.json({ error: 'Erro na API de visão: ' + err }, 500)
+    }
+
+    const aiResponse = await response.json() as any
+    const content = aiResponse.choices?.[0]?.message?.content || ''
+
+    // Extrair JSON da resposta (às vezes vem com markdown ```json...```)
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
+    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
+
+    let dados: any
+    try {
+      dados = JSON.parse(jsonStr)
+    } catch {
+      return c.json({ error: 'Não foi possível interpretar a resposta da IA. Tente uma imagem mais nítida.', raw: content }, 422)
+    }
+
+    const lancamentos = dados.lancamentos || []
+    if (lancamentos.length === 0) {
+      return c.json({ error: 'Nenhum lançamento encontrado na imagem. Verifique se a foto está nítida e mostra um extrato bancário.', banco: dados.banco_detectado }, 422)
+    }
+
+    // Converter para CSV no nosso formato padrão: Data;Descricao;Valor;Categoria
+    // Filtrar pelo tipo solicitado (ou retornar tudo se tipo não especificado)
+    const filtrado = tipo ? lancamentos.filter((l: any) => l.tipo === tipo || tipo === 'ambos') : lancamentos
+    const linhasCSV = filtrado.map((l: any) => {
+      const valor = tipo === 'despesas' || l.tipo === 'despesa'
+        ? `-${l.valor}`
+        : l.valor
+      return `${l.data};${l.descricao};${valor};${l.categoria_sugerida || 'Outros'}`
+    })
+
+    const csv = linhasCSV.join('\n')
+
+    return c.json({
+      sucesso: true,
+      banco_detectado: dados.banco_detectado || 'Não identificado',
+      periodo: dados.periodo || '',
+      total_lancamentos: lancamentos.length,
+      total_filtrados: filtrado.length,
+      csv,
+      lancamentos_brutos: lancamentos,
+    })
+
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao processar imagem: ' + e.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/importacao/criar-recorrencia — Cria recorrência a partir do preview
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/criar-recorrencia', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const body = await c.req.json()
+    const { descricao, valor, categoria, dia_vencimento, tipo, meio_pagamento, notas } = body
+
+    if (!descricao || !valor || !tipo) {
+      return c.json({ error: 'descricao, valor e tipo são obrigatórios.' }, 400)
+    }
+
+    // Verificar se já existe recorrência com mesmo nome para evitar duplicata
+    const existente = await c.env.DB.prepare(
+      `SELECT id FROM recorrencias WHERE user_id=? AND lower(descricao)=lower(?) AND ativa=1 LIMIT 1`
+    ).bind(user.id, descricao).first<any>()
+
+    if (existente) {
+      return c.json({ error: 'Já existe uma recorrência ativa com esse nome.', id_existente: existente.id }, 409)
+    }
+
+    const dia = dia_vencimento || new Date().getDate()
+    const result = await c.env.DB.prepare(`
+      INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento, ativa, notas)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `).bind(user.id, tipo, descricao, valor, categoria || 'Outros', dia, meio_pagamento || 'outros', notas || null).run()
+
+    return c.json({ sucesso: true, id: result.meta.last_row_id, mensagem: `Recorrência "${descricao}" criada com sucesso.` })
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao criar recorrência: ' + e.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/importacao/criar-investimento — Cria investimento a partir do preview
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/criar-investimento', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const body = await c.req.json()
+    const { nome, tipo, valor_investido, data_inicio, instituicao, observacoes } = body
+
+    if (!nome || !tipo || !valor_investido) {
+      return c.json({ error: 'nome, tipo e valor_investido são obrigatórios.' }, 400)
+    }
+
+    const tiposValidos = ['tesouro_direto','cdb','lci','lca','acoes','fii','cripto','poupanca','caixinha','outros']
+    const tipoFinal = tiposValidos.includes(tipo) ? tipo : 'outros'
+
+    const result = await c.env.DB.prepare(`
+      INSERT INTO investimentos (user_id, nome, tipo, valor_investido, valor_atual, data_inicio, instituicao, observacoes, risco)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      user.id, nome, tipoFinal, valor_investido, valor_investido,
+      data_inicio || new Date().toISOString().slice(0, 10),
+      instituicao || null, observacoes || null,
+      ['acoes','fii','cripto'].includes(tipoFinal) ? 'alto' : tipoFinal === 'caixinha' ? 'baixo' : 'medio'
+    ).run()
+
+    return c.json({ sucesso: true, id: result.meta.last_row_id, mensagem: `Investimento "${nome}" criado com sucesso.` })
+  } catch (e: any) {
+    return c.json({ error: 'Erro ao criar investimento: ' + e.message }, 500)
   }
 })
 

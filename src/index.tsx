@@ -73,6 +73,7 @@ app.route('/api/relatorio', relatorioRoutes)
 app.route('/api/alertas-cartao', alertasCartaoRoutes)
 // ── v3.0 — Novas Funcionalidades ──
 app.route('/api/reservas-esp', reservasEspRoutes)
+app.route('/api/reservas-especializadas', reservasEspRoutes) // alias
 app.route('/api/assinaturas-fantasma', assinaturasFantasmaRoutes)
 app.route('/api/compras-fantasma', comprasFantasmaRoutes)
 app.route('/api/regra-503020', regra503020Routes)

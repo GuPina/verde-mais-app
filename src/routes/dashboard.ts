@@ -160,16 +160,16 @@ dashboard.get('/', requireAuth, async (c) => {
   const ultimasTransacoes  = ultimasTransacoesR
   const proximosVencimentos = proximosVencimentosR
 
-  const totalReceitas = receitasMes?.total || 0
-  const totalDespesas = despesasMes?.total || 0
-  const saldoLiquido = totalReceitas - totalDespesas
-  const totalInvest = totalInvestimentos?.total || 0
-  const totalInvestido = totalInvestimentos?.investido || 0
+  const totalReceitas = Math.round((receitasMes?.total || 0) * 100) / 100
+  const totalDespesas = Math.round((despesasMes?.total || 0) * 100) / 100
+  const saldoLiquido = Math.round((totalReceitas - totalDespesas) * 100) / 100
+  const totalInvest = Math.round((totalInvestimentos?.total || 0) * 100) / 100
+  const totalInvestido = Math.round((totalInvestimentos?.investido || 0) * 100) / 100
 
   // Totais de dívidas
-  const totalSaldoEmprestimos = parseFloat(emprestimosAtivos?.total_saldo_devedor || 0)
-  const totalSaldoFinanciamentos = parseFloat(financiamentosAtivos?.total_saldo_devedor || 0)
-  const totalDevedor = totalSaldoEmprestimos + totalSaldoFinanciamentos
+  const totalSaldoEmprestimos = Math.round(parseFloat(emprestimosAtivos?.total_saldo_devedor || 0) * 100) / 100
+  const totalSaldoFinanciamentos = Math.round(parseFloat(financiamentosAtivos?.total_saldo_devedor || 0) * 100) / 100
+  const totalDevedor = Math.round((totalSaldoEmprestimos + totalSaldoFinanciamentos) * 100) / 100
 
   // === 2.1: Cálculo de Patrimônio Bruto e Líquido ===
   const totalReservasEsp = parseFloat(reservasEspTotal?.total || 0)
@@ -212,9 +212,9 @@ dashboard.get('/', requireAuth, async (c) => {
   const progressoReservas = metaReservasEsp > 0 ? Math.round((totalReservasEsp / metaReservasEsp) * 100) : 0
 
   const evolucao = evolucaoMeses.map((item, i) => {
-    const rec  = (evolucaoBatch[1 + i * 2].results?.[0] as any)?.total || 0
-    const desp = (evolucaoBatch[2 + i * 2].results?.[0] as any)?.total || 0
-    return { mes: item.label, ano: item.a, receitas: rec, despesas: desp, saldo: rec - desp }
+    const rec  = Math.round(((evolucaoBatch[1 + i * 2].results?.[0] as any)?.total || 0) * 100) / 100
+    const desp = Math.round(((evolucaoBatch[2 + i * 2].results?.[0] as any)?.total || 0) * 100) / 100
+    return { mes: item.label, ano: item.a, receitas: rec, despesas: desp, saldo: Math.round((rec - desp) * 100) / 100 }
   })
 
   // Patrimônio Bruto = investimentos (a valor de mercado) + reservas

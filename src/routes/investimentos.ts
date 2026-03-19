@@ -604,21 +604,34 @@ investimentos.post('/', requireAuth, async (c) => {
   if (!nome || !tipo || !valor_investido || !data_inicio)
     return c.json({ error: 'Campos obrigatórios: nome, tipo, valor_investido, data_inicio' }, 400)
 
+  // Mapa de aliases para compatibilidade
+  const tipoAliases: Record<string,string> = {
+    renda_fixa: 'cdb', renda_variavel: 'acoes', fundo: 'outros',
+    acao: 'acoes', bitcoin: 'cripto', etf: 'outros'
+  }
+  const tipoNorm = tipoAliases[tipo.toLowerCase()] || tipo.toLowerCase()
+  const tiposValidos = ['tesouro_direto','cdb','lci','lca','acoes','fii','cripto','poupanca','caixinha','outros']
+  if (!tiposValidos.includes(tipoNorm))
+    return c.json({ error: `Tipo inválido. Use: ${tiposValidos.join(', ')}`, aliases: tipoAliases }, 400)
+
+  // usar tipoNorm daqui em diante
+  const tipoFinal = tipoNorm
+
   // Buscar CDI atualizado se necessário
-  const cdiAnual = tipo === 'caixinha' ? await getCdiAnual(c.env.DB) : CDI_PADRAO_AA
+  const cdiAnual = tipoFinal === 'caixinha' ? await getCdiAnual(c.env.DB) : CDI_PADRAO_AA
   const cdiEfetivo = cdiBody ? parseFloat(cdiBody) : cdiAnual
 
   let valor_atual = parseFloat(valor_investido)
   let rentab = parseFloat(rentabilidade_percentual)
 
-  if (tipo === 'caixinha' && percentual_cdi) {
+  if (tipoFinal === 'caixinha' && percentual_cdi) {
     const dataInicio = new Date(data_inicio + 'T00:00:00')
     const diasDecorridos = Math.max(0, Math.floor((Date.now() - dataInicio.getTime()) / 86400000))
     if (diasDecorridos > 0) {
       valor_atual = calcularCaixinha(parseFloat(valor_investido), parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
       rentab = ((valor_atual - parseFloat(valor_investido)) / parseFloat(valor_investido)) * 100
     }
-  } else if (tipo !== 'caixinha') {
+  } else if (tipoFinal !== 'caixinha') {
     valor_atual = parseFloat(valor_investido) * (1 + parseFloat(rentabilidade_percentual) / 100)
   }
 
@@ -632,12 +645,12 @@ investimentos.post('/', requireAuth, async (c) => {
         data_ultimo_calculo, registra_saida_saldo, meta_valor, tags, symbol)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    user.id, nome, tipo, parseFloat(valor_investido), Math.round(rentab * 100) / 100,
+    user.id, nome, tipoFinal, parseFloat(valor_investido), Math.round(rentab * 100) / 100,
     Math.round(valor_atual * 100) / 100, risco, data_inicio,
     data_vencimento || null, instituicao || null, observacoes || null,
     percentual_cdi ? parseFloat(percentual_cdi) : null,
-    tipo === 'caixinha' ? cdiEfetivo : null,
-    tipo === 'caixinha' ? new Date().toISOString().split('T')[0] : null,
+    tipoFinal === 'caixinha' ? cdiEfetivo : null,
+    tipoFinal === 'caixinha' ? new Date().toISOString().split('T')[0] : null,
     registraSaidaFinal ? 1 : 0,
     meta_valor ? parseFloat(meta_valor) : null,
     tagsStr,
@@ -648,7 +661,7 @@ investimentos.post('/', requireAuth, async (c) => {
     await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, eh_aporte_patrimonial, observacoes)
        VALUES (?, ?, ?, 'Aporte Patrimonial', 'Investimento', ?, 'pago', 'transferencia', 'aporte', 1, ?)`
-    ).bind(user.id, `Aporte: ${nome}`, data_inicio, parseFloat(valor_investido), `Aporte em ${tipo.toUpperCase()} — ${nome}`).run()
+    ).bind(user.id, `Aporte: ${nome}`, data_inicio, parseFloat(valor_investido), `Aporte em ${tipoFinal.toUpperCase()} — ${nome}`).run()
   }
 
   // Conquistas
@@ -656,7 +669,7 @@ investimentos.post('/', requireAuth, async (c) => {
     caixinha: 'investidor_cdi', acoes: 'investidor_acoes', fii: 'investidor_fii',
     cripto: 'investidor_cripto', tesouro_direto: 'investidor_tesouro', cdb: 'investidor_cdb'
   }
-  if (tipoConquistas[tipo]) await verificarConquista(c.env.DB, user.id, tipoConquistas[tipo])
+  if (tipoConquistas[tipoFinal]) await verificarConquista(c.env.DB, user.id, tipoConquistas[tipoFinal])
   await verificarConquista(c.env.DB, user.id, 'investidor')
 
   const [totalInv, tiposDistintos] = await Promise.all([

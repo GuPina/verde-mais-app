@@ -284,7 +284,12 @@ despesas.put('/:id', requireAuth, async (c) => {
   const existing = await c.env.DB.prepare('SELECT id FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
-  const { descricao, data, categoria, subcategoria, valor, status, fixa_ou_variavel, vencimento, observacoes } = body
+  const { descricao, data, categoria, subcategoria, valor, status,
+    fixa_ou_variavel, tipo: tipoEdit, meio_pagamento: meioPagEdit,
+    vencimento, observacoes } = body
+
+  // aceitar 'tipo' como alias de 'fixa_ou_variavel'
+  const fixaOuVariavelFinal = fixa_ou_variavel ?? tipoEdit ?? null
 
   // B7: validar campos obrigatórios e valor
   if (!descricao || !data || !categoria || valor === undefined) {
@@ -300,9 +305,21 @@ despesas.put('/:id', requireAuth, async (c) => {
     return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
   }
 
+  // Montar update dinâmico para campos opcionais
+  const updateFields = ['descricao=?','data=?','categoria=?','subcategoria=?','valor=?']
+  const updateVals: any[] = [descricao, data, categoria, subcategoria || null, valorEditNum]
+
+  if (status !== undefined)           { updateFields.push('status=?');          updateVals.push(status) }
+  if (fixaOuVariavelFinal !== null)   { updateFields.push('fixa_ou_variavel=?'); updateVals.push(fixaOuVariavelFinal) }
+  if (meioPagEdit !== undefined)      { updateFields.push('meio_pagamento=?');  updateVals.push(meioPagEdit) }
+  if (vencimento !== undefined)       { updateFields.push('vencimento=?');       updateVals.push(vencimento || null) }
+  if (observacoes !== undefined)      { updateFields.push('observacoes=?');      updateVals.push(observacoes || null) }
+
+  updateVals.push(id, user.id)
+
   await c.env.DB.prepare(
-    'UPDATE despesas SET descricao = ?, data = ?, categoria = ?, subcategoria = ?, valor = ?, status = ?, fixa_ou_variavel = ?, vencimento = ?, observacoes = ? WHERE id = ? AND user_id = ?'
-  ).bind(descricao, data, categoria, subcategoria || null, valorEditNum, status, fixa_ou_variavel, vencimento || null, observacoes || null, id, user.id).run()
+    `UPDATE despesas SET ${updateFields.join(', ')} WHERE id=? AND user_id=?`
+  ).bind(...updateVals).run()
 
   return c.json({ success: true, message: 'Despesa atualizada!' })
 })

@@ -156,14 +156,35 @@ cartoes.put('/:id', requireAuth, async (c) => {
   if (bandeiraEdit && !bandeirasValidasEdit.includes(bandeiraEdit))
     return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidasEdit.join(', ')}` }, 400)
 
+  // montar update dinâmico para não causar NaN com campos ausentes
+  const updFields: string[] = []
+  const updVals: any[] = []
+
+  if (nome !== undefined)           { updFields.push('nome=?');           updVals.push(nome) }
+  if (bandeiraEdit !== undefined)   { updFields.push('bandeira=?');       updVals.push(bandeiraEdit) }
+  if (banco !== undefined)          { updFields.push('banco=?');          updVals.push(banco) }
+  if (apelidoEdit !== undefined)    { updFields.push('apelido=?');        updVals.push(apelidoEdit || null) }
+  if (limite_total !== undefined) {
+    const limNum = parseFloat(limite_total)
+    if (!isNaN(limNum)) { updFields.push('limite_total=?'); updVals.push(limNum) }
+  }
+  if (dia_vencimento !== undefined) {
+    const dv = parseInt(dia_vencimento)
+    if (!isNaN(dv)) { updFields.push('dia_vencimento=?'); updVals.push(dv) }
+  }
+  if (dia_fechamento !== undefined) {
+    const df = parseInt(dia_fechamento)
+    if (!isNaN(df)) { updFields.push('dia_fechamento=?'); updVals.push(df) }
+  }
+  if (cor !== undefined)            { updFields.push('cor=?');            updVals.push(cor || null) }
+  if (ultimos_digitos !== undefined){ updFields.push('ultimos_digitos=?');updVals.push(ultimos_digitos || null) }
+
+  if (updFields.length === 0) return c.json({ success: true, message: 'Nada a atualizar.' })
+
+  updVals.push(id, user.id)
   await c.env.DB.prepare(
-    `UPDATE cartoes SET nome=?, bandeira=?, banco=?, apelido=?, limite_total=?,
-     dia_vencimento=?, dia_fechamento=?, cor=?, ultimos_digitos=?
-     WHERE id=? AND user_id=?`
-  ).bind(nome, bandeiraEdit || bandeiraBrutaEdit, banco, apelidoEdit || null, parseFloat(limite_total),
-    parseInt(dia_vencimento), parseInt(dia_fechamento),
-    cor, ultimos_digitos || null, id, user.id
-  ).run()
+    `UPDATE cartoes SET ${updFields.join(', ')} WHERE id=? AND user_id=?`
+  ).bind(...updVals).run()
   return c.json({ success: true, message: 'Cartão atualizado!' })
 })
 
