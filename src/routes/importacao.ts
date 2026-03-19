@@ -368,7 +368,7 @@ importacao.post('/preview', requireAuth, async (c) => {
 
     // Buscar dados do usuário
     const [cartoesList, tagsList, despesasRec] = await Promise.all([
-      c.env.DB.prepare(`SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE user_id=? ORDER BY nome`).bind(user.id).all<any>(),
+      c.env.DB.prepare(`SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE user_id=? AND ativo=1 ORDER BY nome`).bind(user.id).all<any>(),
       c.env.DB.prepare(`SELECT id, nome, cor FROM tags WHERE user_id=? ORDER BY nome`).bind(user.id).all<any>(),
       c.env.DB.prepare(`SELECT id, descricao, valor, data, categoria FROM despesas WHERE user_id=? AND data >= date('now','-90 days') ORDER BY data DESC LIMIT 500`).bind(user.id).all<any>(),
     ])
@@ -406,7 +406,9 @@ importacao.post('/preview', requireAuth, async (c) => {
       // ── Detecção de parcelas ──────────────────────────────────────────────
       const parcela = detectarParcela(desc)
       let parcelaInfo: any = null
-      if (parcela) {
+      // Só gera histórico completo se for a 1ª parcela (atual === 1)
+      // Se atual > 1, é parcela de compra já existente — importar como despesa única
+      if (parcela && parcela.atual === 1) {
         const { atual, total } = parcela
         const dataBase = addMonths(data, -(atual - 1))
         parcelaInfo = { atual, total, retroativas: atual - 1, futuras: total - atual, dataBase, valorParcela: valor }
@@ -645,8 +647,9 @@ importacao.post('/executar', requireAuth, async (c) => {
           // ── DESPESA ──────────────────────────────────────────────────────
           const parcela = detectarParcela(desc)
 
-          if (parcela && parcela.total > 1) {
-            // Criar histórico completo de parcelas
+          if (parcela && parcela.total > 1 && parcela.atual === 1) {
+            // Gerar histórico completo APENAS quando é a 1ª parcela (compra nova)
+            // Se atual > 1, é uma parcela de uma compra já existente — importar como despesa única
             const { atual, total } = parcela
             const dataBase     = addMonths(data, -(atual - 1))
             const valorParcela = valor
