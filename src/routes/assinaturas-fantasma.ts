@@ -498,74 +498,93 @@ assinaturas.get('/precos-reduzidos', requireAuth, async (c) => {
 // ── GET /api/assinaturas-fantasma/:id/buscar-recorrencias ─────────────────
 // Lista recorrências candidatas para vincular ANTES de confirmar redução
 assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
-  const user = c.get('user')
-  const id = parseInt(c.req.param('id'))
+  try {
+    const user = c.get('user')
+    const id = parseInt(c.req.param('id'))
 
-  const sub = await c.env.DB.prepare(
-    `SELECT * FROM detected_subscriptions WHERE id = ? AND user_id = ?`
-  ).bind(id, user.id).first() as any
-  if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
+    if (isNaN(id)) return c.json({ error: 'ID inválido' }, 400)
 
-  const nome = (sub.service_nome || sub.original_description || '').toLowerCase()
-  const normalizado = (sub.normalized_description || '').toLowerCase()
+    const sub = await c.env.DB.prepare(
+      `SELECT id, service_nome, original_description, normalized_description, amount FROM detected_subscriptions WHERE id = ? AND user_id = ?`
+    ).bind(id, user.id).first() as any
+    if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
 
-  // Buscar recorrências por similaridade de nome
-  const recorrencias = await c.env.DB.prepare(`
-    SELECT id, descricao, valor, categoria, frequency_label,
-           dia_vencimento, meio_pagamento, ativa
-    FROM recorrencias
-    WHERE user_id = ? AND ativa = 1
-    ORDER BY descricao ASC
-  `).bind(user.id).all()
+    const nome = (sub.service_nome || sub.original_description || '').toLowerCase()
+    const normalizado = (sub.normalized_description || '').toLowerCase()
 
-  // Pontuação de similaridade por palavras em comum
-  const candidatos = (recorrencias.results as any[])
-    .map(r => {
-      const descLower = (r.descricao || '').toLowerCase()
-      // Tokenizar e calcular intersecção
-      const tokensA = nome.split(/\s+/).filter(t => t.length > 2)
-      const tokensB = descLower.split(/\s+/).filter(t => t.length > 2)
-      const intersec = tokensA.filter(t => tokensB.some(b => b.includes(t) || t.includes(b)))
-      const score = intersec.length / Math.max(1, Math.max(tokensA.length, tokensB.length))
+    // Buscar recorrências por similaridade de nome
+    const recorrencias = await c.env.DB.prepare(`
+      SELECT id, descricao, valor, categoria,
+             dia_vencimento, meio_pagamento, ativa
+      FROM recorrencias
+      WHERE user_id = ? AND ativa = 1
+      ORDER BY descricao ASC
+    `).bind(user.id).all()
 
-      // Também considera similaridade com normalizado
-      const tokensN = normalizado.split(/\s+/).filter(t => t.length > 2)
-      const intersecN = tokensN.filter(t => tokensB.some(b => b.includes(t) || t.includes(b)))
-      const scoreN = intersecN.length / Math.max(1, Math.max(tokensN.length, tokensB.length))
+    // Pontuação de similaridade por palavras em comum
+    const candidatos = (recorrencias.results as any[])
+      .map(r => {
+        const descLower = (r.descricao || '').toLowerCase()
+        const tokensA = nome.split(/\s+/).filter((t: string) => t.length > 2)
+        const tokensB = descLower.split(/\s+/).filter((t: string) => t.length > 2)
+        const intersec = tokensA.filter((t: string) => tokensB.some((b: string) => b.includes(t) || t.includes(b)))
+        const score = intersec.length / Math.max(1, Math.max(tokensA.length, tokensB.length))
 
-      return { ...r, similaridade: Math.max(score, scoreN) }
+        const tokensN = normalizado.split(/\s+/).filter((t: string) => t.length > 2)
+        const intersecN = tokensN.filter((t: string) => tokensB.some((b: string) => b.includes(t) || t.includes(b)))
+        const scoreN = intersecN.length / Math.max(1, Math.max(tokensN.length, tokensB.length))
+
+        return {
+          id: r.id,
+          descricao: r.descricao,
+          valor: r.valor,
+          categoria: r.categoria,
+          dia_vencimento: r.dia_vencimento,
+          meio_pagamento: r.meio_pagamento,
+          ativa: r.ativa,
+          frequency_label: 'mensal',
+          similaridade: Math.max(score, scoreN)
+        }
+      })
+      .filter(r => r.similaridade > 0.2)
+      .sort((a, b) => b.similaridade - a.similaridade)
+      .slice(0, 5)
+
+    return c.json({
+      assinatura: {
+        id: sub.id,
+        nome: sub.service_nome || sub.original_description,
+        valor_atual: sub.amount,
+      },
+      recorrencias_candidatas: candidatos,
+      total_candidatas: candidatos.length,
+      mensagem: candidatos.length === 0
+        ? 'Nenhuma recorrência similar encontrada. A redução será salva sem vincular recorrência.'
+        : `Encontramos ${candidatos.length} recorrência(s) que podem ser esta assinatura. Escolha qual atualizar ou confirme sem vincular.`
     })
-    .filter(r => r.similaridade > 0.2)
-    .sort((a, b) => b.similaridade - a.similaridade)
-    .slice(0, 5)
-
-  return c.json({
-    assinatura: {
-      id: sub.id,
-      nome: sub.service_nome || sub.original_description,
-      valor_atual: sub.amount,
-    },
-    recorrencias_candidatas: candidatos,
-    total_candidatas: candidatos.length,
-    mensagem: candidatos.length === 0
-      ? 'Nenhuma recorrência similar encontrada. A redução será salva sem vincular recorrência.'
-      : `Encontramos ${candidatos.length} recorrência(s) que podem ser esta assinatura. Escolha qual atualizar ou confirme sem vincular.`
-  })
+  } catch (err: any) {
+    console.error('[buscar-recorrencias] ERRO:', err?.message, err?.stack)
+    return c.json({ error: 'Erro interno', detail: err?.message ?? String(err) }, 500)
+  }
 })
 
 // ── POST /api/assinaturas-fantasma/:id/reduzir-preco ─────────────────────
 // Confirma redução de preço. Opcionalmente atualiza recorrência vinculada.
 // Body: { novo_valor, motivo?, recorrencia_id? (null = não vincular) }
 assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
+  try {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
-  const body = await c.req.json() as {
+  if (isNaN(id)) return c.json({ error: 'ID inválido' }, 400)
+  let body: any
+  try { body = await c.req.json() } catch { return c.json({ error: 'JSON inválido no body' }, 400) }
+  const _bodyTyped = body as {
     novo_valor: number
     motivo?: string
     recorrencia_id?: number | null  // null = confirmado sem vincular
   }
 
-  const { novo_valor, motivo, recorrencia_id } = body
+  const { novo_valor, motivo, recorrencia_id } = _bodyTyped
 
   if (!novo_valor || parseFloat(String(novo_valor)) <= 0)
     return c.json({ error: 'Informe o novo valor do plano reduzido' }, 400)
@@ -650,6 +669,10 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
       ? `💸 Redução aplicada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano. Recorrência "${recorrenciaInfo.descricao}" e ${recorrenciaInfo.despesas_futuras_atualizadas} despesa(s) futura(s) atualizadas.`
       : `💸 Redução registrada! Economia de R$ ${reducaoAnual.toFixed(2)}/ano com ${sub.service_nome || sub.original_description}.`
   })
+  } catch (err: any) {
+    console.error('[reduzir-preco] ERRO:', err?.message, err?.stack)
+    return c.json({ error: 'Erro interno', detail: err?.message ?? String(err) }, 500)
+  }
 })
 
 // ── GET /api/assinaturas-fantasma ─────────────────────────────────────────
@@ -853,7 +876,7 @@ assinaturas.patch('/:id/feedback', requireAuth, async (c) => {
 
     if (!recExist) {
       await c.env.DB.prepare(`
-        INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativo)
+        INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, ativa)
         VALUES (?, 'despesa', ?, ?, 'Assinaturas', 1, 1)
       `).bind(user.id, sub.service_nome || sub.original_description, parseFloat(sub.amount)).run()
         .catch(() => {})
