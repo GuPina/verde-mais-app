@@ -387,11 +387,25 @@ importacao.post('/preview', requireAuth, async (c) => {
     if (idxValor === -1) return c.json({ error: 'Coluna de valor não encontrada. Verifique se o CSV tem cabeçalho (ex: Data;Descricao;Valor;Categoria).' }, 400)
 
     // Buscar dados do usuário
-    const [cartoesList, tagsList, despesasRec] = await Promise.all([
+    const [cartoesList, tagsList, despesasRec, parcelasExistRec] = await Promise.all([
       c.env.DB.prepare(`SELECT id, nome, bandeira, limite_total, dia_fechamento, dia_vencimento FROM cartoes WHERE user_id=? AND ativo=1 ORDER BY nome`).bind(user.id).all<any>(),
       c.env.DB.prepare(`SELECT id, nome, cor FROM tags WHERE user_id=? ORDER BY nome`).bind(user.id).all<any>(),
-      c.env.DB.prepare(`SELECT id, descricao, valor, data, categoria FROM despesas WHERE user_id=? AND data >= date('now','-90 days') ORDER BY data DESC LIMIT 500`).bind(user.id).all<any>(),
+      // Janela ampliada para 18 meses para cobrir parcelas retroativas de longas séries
+      c.env.DB.prepare(`SELECT id, descricao, valor, data, categoria FROM despesas WHERE user_id=? AND data >= date('now','-548 days') ORDER BY data DESC LIMIT 2000`).bind(user.id).all<any>(),
+      // Busca grupos de parcelas existentes para detectar series já importadas
+      c.env.DB.prepare(`SELECT descricao, numero_parcelas, parcela_atual, purchase_group_id FROM despesas WHERE user_id=? AND parcelado=1 AND purchase_group_id IS NOT NULL AND data >= date('now','-548 days') ORDER BY data DESC LIMIT 2000`).bind(user.id).all<any>(),
     ])
+
+    // Mapa de grupos de parcelas existentes: chave = descBase normalizada + '/' + total
+    // para detectar se uma série de parcelas X/Y já foi importada
+    const gruposParcelasExist = new Map<string, Set<number>>()
+    for (const p of (parcelasExistRec.results || []) as any[]) {
+      // Extrair descrição base (remover padrão X/Y)
+      const descBase = normDesc((p.descricao || '').replace(/\s*\(\d{1,2}\/\d{1,2}\)\s*/g, ' ').replace(/\s+/g,' ').trim())
+      const chave = `${descBase}/${p.numero_parcelas}`
+      if (!gruposParcelasExist.has(chave)) gruposParcelasExist.set(chave, new Set())
+      gruposParcelasExist.get(chave)!.add(p.parcela_atual)
+    }
 
     // Calcular limite_disponivel dinamicamente (mesmo critério do GET /cartoes)
     const cartoesComLimite = await Promise.all((cartoesList.results || []).map(async (c2: any) => {
@@ -438,13 +452,35 @@ importacao.post('/preview', requireAuth, async (c) => {
       let parcelaInfo: any = null
       // Gera histórico completo para qualquer parcela X/Y
       // A data do CSV representa o mês em que a parcela ATUAL foi lançada.
-      // dataBase = primeiro dia do mês (atual - 1 meses antes do mês do CSV)
       if (parcela && parcela.total > 1) {
         const { atual, total } = parcela
-        // bMesAtual = mês/ano do CSV (sem regra de fechamento no preview — cartão não está selecionado)
-        const [csvY, csvM] = data.split('-').map(Number)
-        const dataBase = addMonths(data, -(atual - 1))  // mantido só para exibição retroativa
-        parcelaInfo = { atual, total, retroativas: atual - 1, futuras: total - atual, dataBase, valorParcela: valor }
+        const dataBase = addMonths(data, -(atual - 1))
+
+        // Verificar se série de parcelas já existe no banco
+        // Chave: descricao base (sem X/Y) + '/' + total
+        const descBase = normDesc(desc
+          .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ')
+          .replace(/\s+/g, ' ').trim())
+        const chaveGrupo = `${descBase}/${total}`
+        const parcelasJaExist = gruposParcelasExist.get(chaveGrupo)
+
+        // Quantas parcelas da série já estão no banco
+        const parcelasJaImportadas = parcelasJaExist ? parcelasJaExist.size : 0
+        // Quais parcelas específicas seriam criadas retroativamente e já existem
+        const parcelasNovas = total - parcelasJaImportadas
+
+        parcelaInfo = {
+          atual, total,
+          retroativas: atual - 1,
+          futuras: total - atual,
+          dataBase,
+          valorParcela: valor,
+          // Info de duplicidade de série
+          serie_ja_existe: parcelasJaImportadas > 0,
+          parcelas_ja_importadas: parcelasJaImportadas,
+          parcelas_novas: Math.max(0, parcelasNovas),
+          parcelas_existentes: parcelasJaExist ? Array.from(parcelasJaExist).sort((a,b)=>a-b) : [],
+        }
       }
 
       // ── Tag automática por categoria ──────────────────────────────────────
@@ -502,12 +538,16 @@ importacao.post('/preview', requireAuth, async (c) => {
       const statusSugerido = statusPorMeio(meio, data)
 
       // ── Detecção de duplicatas ────────────────────────────────────────────
-      // Regra: só marca duplicata se a descrição E valor forem idênticos
-      // (ou muito próximos) numa janela de até 3 dias (provável) ou 7 dias (possível).
-      // NÃO usa comparação fuzzy por valor para evitar falsos positivos com parcelas.
+      // Regra 1: descrição + valor idênticos na mesma data (±3 dias) = provável
+      // Regra 2: descrição + valor idênticos em data próxima (±7 dias) = possível
+      // Regra 3: recorrente mensal (mesmo desc+valor em outro mês, ±5 dias do dia) = alerta recorrente
+      // NÃO aplica Regra 3 para parcelas (série X/Y) — cada parcela é um lançamento distinto.
       let duplicata: any = null
       const descNorm = normDesc(desc)
+      // Para duplicata em parcelas, usar desc SEM o X/Y para comparar a série
+      const descNormBase = normDesc(desc.replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ').replace(/\s+/g,' ').trim())
       const valorArredondado = Math.round(valor * 100)
+      const ehParcela = !!parcelaInfo
 
       for (const d2 of todasDespesas) {
         const d2Norm  = normDesc(d2.descricao || '')
@@ -515,16 +555,33 @@ importacao.post('/preview', requireAuth, async (c) => {
         const d2Data  = d2.data || ''
         const diasDif = Math.abs(new Date(data).getTime() - new Date(d2Data).getTime()) / 86400000
 
+        // Regra 1 — duplicata exata (mesmo lançamento importado duas vezes)
         if (d2Norm === descNorm && d2Valor === valorArredondado && diasDif <= 3) {
           duplicata = { nivel: 'provavel', motivo: `Mesma descrição + valor + data (${d2Data})`, id: d2.id, data_existente: d2Data }
           break
         }
+        // Regra 2 — possível duplicata (datas muito próximas)
         if (d2Norm === descNorm && d2Valor === valorArredondado && diasDif > 3 && diasDif <= 7) {
           duplicata = { nivel: 'possivel', motivo: `Mesma descrição + valor em data próxima (${d2Data})`, id: d2.id, data_existente: d2Data }
           break
         }
-        // Regra fuzzy desativada para evitar falsos positivos em parcelas mensais
-        // (parcelas do mesmo grupo têm valores idênticos mas são lançamentos distintos)
+        // Regra 3 — recorrente mensal: mesmo nome+valor em mês diferente (não é parcela)
+        // Detecta cobranças mensais repetidas (Amazon Prime, Spotify etc.) já cadastradas
+        if (!ehParcela && d2Norm === descNorm && d2Valor === valorArredondado
+            && diasDif > 7 && diasDif <= 40) {
+          // Mesmo dia do mês ±5 dias → recorrência já cadastrada
+          const diaCSV = new Date(data).getUTCDate()
+          const diaExist = new Date(d2Data).getUTCDate()
+          if (Math.abs(diaCSV - diaExist) <= 5) {
+            duplicata = {
+              nivel: 'recorrente',
+              motivo: `Cobrança recorrente já cadastrada (${d2Data}) — verifique se é o mesmo mês`,
+              id: d2.id,
+              data_existente: d2Data
+            }
+            break
+          }
+        }
       }
 
       preview.push({
@@ -617,6 +674,21 @@ importacao.post('/executar', requireAuth, async (c) => {
     const tagsExist = await c.env.DB.prepare(`SELECT id, nome, cor FROM tags WHERE user_id=?`).bind(user.id).all<any>()
     for (const t of (tagsExist.results || [])) tagsCache.set(norm(t.nome), t)
 
+    // Carregar grupos de parcelas já existentes para evitar duplicação entre CSVs
+    // Chave: descBase_norm/total → Set<parcela_atual>
+    const parcelasExistExec = await c.env.DB.prepare(
+      `SELECT descricao, numero_parcelas, parcela_atual FROM despesas
+       WHERE user_id=? AND parcelado=1 AND purchase_group_id IS NOT NULL
+       AND data >= date('now','-548 days')`
+    ).bind(user.id).all<any>()
+    const gruposExecExist = new Map<string, Set<number>>()
+    for (const p of (parcelasExistExec.results || []) as any[]) {
+      const descBase = normDesc((p.descricao || '').replace(/\s*\(\d{1,2}\/\d{1,2}\)\s*/g, ' ').replace(/\s+/g,' ').trim())
+      const chave = `${descBase}/${p.numero_parcelas}`
+      if (!gruposExecExist.has(chave)) gruposExecExist.set(chave, new Set())
+      gruposExecExist.get(chave)!.add(p.parcela_atual)
+    }
+
     let importados = 0
     let ignorados  = 0
     let parcelas_criadas = 0
@@ -682,22 +754,34 @@ importacao.post('/executar', requireAuth, async (c) => {
 
           if (parcela && parcela.total > 1) {
             // Gerar histórico completo para qualquer parcela X/Y
-            // A data do CSV representa o mês em que a parcela ATUAL foi lançada.
-            // Regra bancária: se dia do CSV >= dia_fechamento → fatura do mês seguinte.
             const { atual, total } = parcela
             const valorParcela = valor
-            const groupId      = gerarUUID()
+
+            // Verificar se esse grupo de parcelas já existe no banco
+            // Chave: descricao base (sem X/Y) + '/' + total
+            const descBaseParcela = normDesc(desc
+              .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*/g, ' ')
+              .replace(/\s+/g, ' ').trim())
+            const chaveGrupoExec = `${descBaseParcela}/${total}`
+            const parcelasDoGrupo = gruposExecExist.get(chaveGrupoExec) || new Set<number>()
+
+            // Se TODAS as parcelas já existem → pular completamente (série já importada)
+            if (parcelasDoGrupo.size >= total) {
+              ignorados++
+              erroDetalhes.push(`Linha ${numLinha}: série "${desc}" (${total} parcelas) já importada — ignorado`)
+              continue
+            }
+
+            const groupId  = gerarUUID()
             let primeiroId: number | null = null
 
-            // Determinar o mês de faturamento da parcela ATUAL (âncora)
-            // IMPORTANTE: no CSV de extrato, a data já é a data do lançamento/débito.
-            // Portanto usamos o mês do CSV diretamente como bMesAtual, sem calcBilling.
-            // calcBilling é para COMPRAS NOVAS (data de compra → qual fatura vai cair).
-            // Aqui a parcela JÁ está na fatura do mês da data do CSV.
             const bMesAtual = parseInt(data.split('-')[1])
             const bAnoAtual = parseInt(data.split('-')[0])
 
             for (let p = 1; p <= total; p++) {
+              // Pular parcelas que já existem no banco para este grupo
+              if (parcelasDoGrupo.has(p)) continue
+
               // bMonth(p) = bMesAtual + (p - atual)
               const { bm: bm_p, by: by_p } = addBillingMonths(bMesAtual, bAnoAtual, p - atual)
 
@@ -747,6 +831,9 @@ importacao.post('/executar', requireAuth, async (c) => {
               if (p === 1) primeiroId = newId
               idsImportados.push(newId)
               parcelas_criadas++
+              // Atualizar mapa local para evitar duplicação dentro do mesmo executar
+              if (!gruposExecExist.has(chaveGrupoExec)) gruposExecExist.set(chaveGrupoExec, new Set())
+              gruposExecExist.get(chaveGrupoExec)!.add(p)
 
               if (cartaoFinal && bMonth && bYear && dataVenc) {
                 await c.env.DB.prepare(

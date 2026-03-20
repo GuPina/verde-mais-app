@@ -13012,10 +13012,15 @@ const VM = {
         bgColor = 'rgba(245,158,11,0.06)'
         dupBadge = `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🟡 Possível Duplicata</span>`
         decisao = false
+      } else if (dup?.nivel === 'recorrente') {
+        borderColor = 'rgba(168,85,247,0.4)'
+        bgColor = 'rgba(168,85,247,0.06)'
+        dupBadge = `<span style="background:rgba(168,85,247,0.15);color:#a855f7;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🔄 Recorrente Existente</span>`
+        decisao = false
       }
 
       const parcBadge = parc
-        ? `<span style="background:rgba(59,130,246,0.15);color:#3b82f6;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">📦 Parcela ${parc.atual}/${parc.total}</span>`
+        ? `<span style="background:rgba(${parc.serie_ja_existe?'245,158,11':'59,130,246'},0.15);color:${parc.serie_ja_existe?'#f59e0b':'#3b82f6'};padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">${parc.serie_ja_existe?'⚠️':'📦'} Parcela ${parc.atual}/${parc.total}${parc.serie_ja_existe?' (série parcial)':''}</span>`
         : ''
 
       // Badge de investimento sugerido
@@ -13088,10 +13093,13 @@ const VM = {
                 <span id="imp-meio-label-${idx}">${meioLabel}</span>
               </div>
 
-              ${dup ? `<div style="background:rgba(${dup.nivel==='provavel'?'239,68,68':'245,158,11'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${dup.nivel==='provavel'?'#ef4444':'#f59e0b'};margin-bottom:6px;">⚠️ ${dup.motivo}</div>` : ''}
+              ${dup ? `<div style="background:rgba(${dup.nivel==='provavel'?'239,68,68':dup.nivel==='recorrente'?'168,85,247':'245,158,11'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${dup.nivel==='provavel'?'#ef4444':dup.nivel==='recorrente'?'#a855f7':'#f59e0b'};margin-bottom:6px;">⚠️ ${dup.motivo}</div>` : ''}
 
-              ${parc ? `<div style="background:rgba(59,130,246,0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:#3b82f6;margin-bottom:6px;">
-                📦 Parcela ${parc.atual} de ${parc.total} — Serão criadas <b>${parc.total}</b> parcelas (retroativas: ${parc.retroativas}, futuras: ${parc.futuras}) | Compra original: ${parc.dataBase}
+              ${parc ? `<div style="background:rgba(${parc.serie_ja_existe?'245,158,11':'59,130,246'},0.1);border-radius:6px;padding:6px 10px;font-size:0.78rem;color:${parc.serie_ja_existe?'#f59e0b':'#3b82f6'};margin-bottom:6px;">
+                ${parc.serie_ja_existe
+                  ? `⚠️ Parcela ${parc.atual}/${parc.total} — Série <b>parcialmente importada</b>: ${parc.parcelas_ja_importadas}/${parc.total} parcelas já existem no banco (parcelas ${parc.parcelas_existentes.join(', ')}). Serão criadas apenas as <b>${parc.parcelas_novas}</b> novas.`
+                  : `📦 Parcela ${parc.atual} de ${parc.total} — Serão criadas <b>${parc.total}</b> parcelas (retroativas: ${parc.retroativas}, futuras: ${parc.futuras}) | Compra original: ${parc.dataBase}`
+                }
               </div>` : ''}
 
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px;">
@@ -13132,6 +13140,9 @@ const VM = {
     this._impDecisoes = preview.map(item => {
       if (item.duplicata?.nivel === 'provavel') return false
       if (item.duplicata?.nivel === 'possivel') return false
+      if (item.duplicata?.nivel === 'recorrente') return false
+      // Série totalmente já importada → não aceitar automaticamente
+      if (item.parcela?.serie_ja_existe && item.parcela?.parcelas_novas === 0) return false
       return true
     })
   },
