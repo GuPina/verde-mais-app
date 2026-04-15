@@ -272,7 +272,24 @@ recorrencias.put('/:id', requireAuth, async (c) => {
     diFinal, notasFinal, tagsFinal, id, user.id
   ).run()
 
-  return c.json({ success: true })
+  // Propagar alterações para despesas/receitas futuras vinculadas a esta recorrência
+  const propagarPara = body.propagar_futuras ?? false
+  if (propagarPara) {
+    const hoje = new Date().toISOString().split('T')[0]
+    if (recAtual.tipo === 'receita') {
+      await c.env.DB.prepare(
+        `UPDATE receitas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+         WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
+      ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE despesas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+         WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
+      ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
+    }
+  }
+
+  return c.json({ success: true, propagadas: propagarPara })
 })
 
 // ─── PATCH /api/recorrencias/:id/toggle ──────────────────────────────────────
@@ -301,11 +318,25 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   ).bind(id, user.id).first()
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
+  // Verificar se deve excluir também os lançamentos futuros pendentes
+  const body = await c.req.json().catch(() => ({})) as any
+  const excluirFuturos = body?.excluir_futuros ?? false
+
+  if (excluirFuturos) {
+    const hoje = new Date().toISOString().split('T')[0]
+    const recInfo = await c.env.DB.prepare(`SELECT tipo FROM recorrencias WHERE id=?`).bind(id).first() as any
+    if (recInfo?.tipo === 'receita') {
+      await c.env.DB.prepare(`DELETE FROM receitas WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`).bind(id, user.id, hoje).run()
+    } else {
+      await c.env.DB.prepare(`DELETE FROM despesas WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`).bind(id, user.id, hoje).run()
+    }
+  }
+
   await c.env.DB.prepare(
     `DELETE FROM recorrencias WHERE id = ? AND user_id = ?`
   ).bind(id, user.id).run()
 
-  return c.json({ success: true })
+  return c.json({ success: true, futuros_excluidos: excluirFuturos })
 })
 
 // ─── POST /api/recorrencias/:id/lancar ───────────────────────────────────────

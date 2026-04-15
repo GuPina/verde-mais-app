@@ -695,6 +695,30 @@ ia.get('/insights', requireAuth, async (c) => {
       yearly: d.yearly_cost,
     }))
   }
+  // ── Antecipação de Contas ─────────────────────────────────────────────────
+  let antecipacaoBloco = { total_antecipadas: 0, total_economizado: 0, pendentes: 0 }
+  try {
+    const ants = await c.env.DB.prepare(
+      `SELECT status, SUM(economia_juros) as economia FROM antecipacoes WHERE user_id=? GROUP BY status`
+    ).bind(uid).all<any>()
+    const rowsAnt = ants.results || []
+    antecipacaoBloco = {
+      total_antecipadas: rowsAnt.find(r => r.status === 'antecipada')?.count || (rowsAnt.find(r => r.status === 'antecipada') ? 1 : 0),
+      total_economizado: Math.round((rowsAnt.find(r => r.status === 'antecipada')?.economia || 0) * 100) / 100,
+      pendentes: rowsAnt.find(r => r.status === 'pendente')?.count || 0
+    }
+    // Contar separadamente
+    const cntAnt = await c.env.DB.prepare(
+      `SELECT status, COUNT(*) as cnt, SUM(economia_juros) as eco FROM antecipacoes WHERE user_id=? GROUP BY status`
+    ).bind(uid).all<any>()
+    const cntRows = cntAnt.results || []
+    antecipacaoBloco = {
+      total_antecipadas: Number(cntRows.find(r => r.status === 'antecipada')?.cnt || 0),
+      total_economizado: Math.round(Number(cntRows.find(r => r.status === 'antecipada')?.eco || 0) * 100) / 100,
+      pendentes: Number(cntRows.find(r => r.status === 'pendente')?.cnt || 0)
+    }
+  } catch { /* tabela pode não existir */ }
+
   // ── Salvar score no histórico mensal (continua) ───────────────────────────
   const mesPeriodo = `${ano}-${mes}`
   c.env.DB.prepare(
@@ -834,6 +858,9 @@ ia.get('/insights', requireAuth, async (c) => {
 
     // M12 – Assinaturas
     assinaturas_resumo: assinaturasBloco,
+
+    // M13 – Antecipações
+    antecipacao_resumo: antecipacaoBloco,
 
     // Plano de ação 90 dias priorizado
     plano_acao: plano,
@@ -1065,6 +1092,36 @@ ia.get('/insights', requireAuth, async (c) => {
   } catch (e: any) {
     return c.json({ insights: [], error: e.message })
   }
+})
+
+// ─── POST /api/ia/tag-sugestao — Sugere a melhor tag para uma despesa ─────────
+ia.post('/tag-sugestao', requireAuth, async (c) => {
+  const { descricao, categoria, tags } = await c.req.json().catch(() => ({} as any))
+  if (!descricao) return c.json({ error: 'Descricao obrigatoria' }, 400)
+
+  const tagsLista: Array<{ id: string; nome: string }> = tags || []
+  if (tagsLista.length === 0) return c.json({ tag_sugerida: null, sugestao: 'nenhuma' })
+
+  // Correspondencia local sem IA: normaliza descricao e compara com nomes de tags
+  const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim()
+  const descNorm = normalizar(descricao)
+  const catNorm = normalizar(categoria || '')
+
+  let melhorTag: string | null = null
+  let melhorScore = 0
+
+  for (const t of tagsLista) {
+    const tagNorm = normalizar(t.nome)
+    const tagTokens = tagNorm.split(/\s+/).filter(w => w.length > 2)
+    let score = 0
+    for (const token of tagTokens) {
+      if (descNorm.includes(token)) score += 2
+      if (catNorm.includes(token)) score += 1
+    }
+    if (score > melhorScore) { melhorScore = score; melhorTag = t.nome }
+  }
+
+  return c.json({ tag_sugerida: melhorScore > 0 ? melhorTag : null, sugestao: melhorScore > 0 ? melhorTag : 'nenhuma' })
 })
 
 export default ia

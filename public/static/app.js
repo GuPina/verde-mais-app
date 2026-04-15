@@ -1156,6 +1156,12 @@ const VM = {
               <a class="nav-item" id="nav-emprestimos" onclick="VM.navigate('emprestimos')">
                 <span class="nav-icon"><i class="fas fa-hand-holding-usd" style="color:#f87171;"></i></span> Empréstimos
               </a>
+              <a class="nav-item" id="nav-antecipacao" onclick="VM.navigate('antecipacao')">
+                <span class="nav-icon"><i class="fas fa-bolt" style="color:#fbbf24;"></i></span> Antecipação de Contas
+              </a>
+              <a class="nav-item" id="nav-recebimentos-parcelados" onclick="VM.navigate('recebimentos-parcelados')">
+                <span class="nav-icon"><i class="fas fa-receipt" style="color:#34d399;"></i></span> Recebimentos Parcelados
+              </a>
             </div>
 
             <!-- ── GRUPO 4: ANÁLISES ───────────────────────── -->
@@ -1803,7 +1809,9 @@ const VM = {
       'desafio-52': () => this.pageDesafio52(),
       'amortizacao': () => this.pageAmortizacao(),
       'assistente': () => this.pageAssistente(),
-      'importacao': () => this.pageImportacao()
+      'importacao': () => this.pageImportacao(),
+      'antecipacao': () => this.pageAntecipacao(),
+      'recebimentos-parcelados': () => this.pageRecebimentosParcelados()
     }
 
     if (pages[page]) pages[page]()
@@ -1817,7 +1825,7 @@ const VM = {
 
     try {
       const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52 } = data
+      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52, top_tags = [] } = data
 
       // Salvar limites do plano para uso no frontend
       if (limites) this.limites = limites
@@ -2007,6 +2015,22 @@ const VM = {
             </div>
           </div>
         </div>
+
+        <!-- TOP TAGS ROW -->
+        ${top_tags.length > 0 ? `
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
+          <div style="font-size:0.8rem;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Tags com Maior Gasto no Mes</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            ${top_tags.map((t, i) => `
+              <div onclick="VM.navigate('despesas')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 14px;background:${t.cor}18;border:1px solid ${t.cor}44;border-radius:20px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>
+                <span style="font-size:0.8rem;font-weight:600;color:${t.cor};">${t.nome}</span>
+                <span style="font-size:0.78rem;color:#94A3B8;">${this.formatMoney(t.total)}</span>
+                <span style="font-size:0.7rem;color:#475569;">(${t.qtd} lanc.)</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
 
         <!-- MAIN ROW -->
         <div style="display:grid;grid-template-columns:1fr 1fr 320px;gap:20px;margin-bottom:24px;">
@@ -2841,11 +2865,12 @@ const VM = {
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
-        <div id="desp-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;">
+        <div id="desp-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;flex-wrap:wrap;">
           <span id="desp-sel-count" style="color:#f87171;font-weight:600;font-size:0.88rem;">0 selecionadas</span>
           <button onclick="VM._selTodosDespesas(true)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.8rem;cursor:pointer;">Selecionar tudo</button>
           <button onclick="VM._selTodosDespesas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.8rem;cursor:pointer;">Limpar</button>
-          <button onclick="VM._excluirSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash" style="margin-right:5px;"></i>Excluir selecionadas</button>
+          <button onclick="VM._pagarSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#10B981;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;">Pagar selecionadas</button>
+          <button onclick="VM._excluirSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;">Excluir selecionadas</button>
         </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
           <table class="data-table" style="min-width:820px;">
@@ -3163,7 +3188,10 @@ const VM = {
             <!-- Seletor de Tags -->
             ${tagsDisponiveis.length > 0 ? `
             <div class="form-group" style="margin-bottom:12px;">
-              <label class="form-label">🏷️ Tags</label>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <label class="form-label" style="margin-bottom:0;">Tags</label>
+                <button type="button" id="btn-ia-tag" onclick="VM._sugerirTagIA()" style="padding:3px 10px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.3);border-radius:6px;font-size:0.72rem;cursor:pointer;font-weight:600;">IA Sugerir</button>
+              </div>
               <div id="d-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;min-height:38px;">
                 ${tagsDisponiveis.map(t => {
                   const sel = tagsDaDespesa.some(td => td.id === t.id)
@@ -3173,6 +3201,7 @@ const VM = {
                   </span>`
                 }).join('')}
               </div>
+              <div id="ia-tag-resultado" style="font-size:0.78rem;color:#818CF8;margin-top:4px;display:none;"></div>
               <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Clique para selecionar. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Gerenciar tags</a></div>
             </div>
             ` : `
@@ -3348,6 +3377,20 @@ const VM = {
     document.querySelectorAll('.desp-chk').forEach(c => { c.checked = val })
     this._onSelDespesa()
   },
+  async _pagarSelecionadasDespesas() {
+    const ids = [...document.querySelectorAll('.desp-chk:checked')].map(c => Number(c.dataset.id))
+    if (!ids.length) return
+    const ok = await this.vmConfirm(`Marcar ${ids.length} despesa${ids.length !== 1 ? 's' : ''} como pagas?`, { titulo: 'Pagar Despesas', corBotao: '#10B981', textoBotao: `Pagar ${ids.length}`, icone: 'check' })
+    if (!ok) return
+    try {
+      const res = await this.api('PATCH', 'despesas/bulk-pagar', { ids })
+      this.toast(`${res.atualizadas || ids.length} despesa${ids.length !== 1 ? 's' : ''} marcada${ids.length !== 1 ? 's' : ''} como paga${ids.length !== 1 ? 's' : ''}!`, 'success')
+      this.carregarDespesas()
+    } catch (e) {
+      this.toast('Erro ao pagar despesas', 'error')
+    }
+  },
+
   async _excluirSelecionadasDespesas() {
     const ids = [...document.querySelectorAll('.desp-chk:checked')].map(c => Number(c.dataset.id))
     if (!ids.length) return
@@ -3355,7 +3398,7 @@ const VM = {
     if (!ok) return
     try {
       const res = await this.api('DELETE', 'despesas/bulk', { ids })
-      this.toast(`✅ ${res.excluidas} despesa${res.excluidas !== 1 ? 's' : ''} excluída${res.excluidas !== 1 ? 's' : ''}!`)
+      this.toast(`${res.excluidas} despesa${res.excluidas !== 1 ? 's' : ''} excluida${res.excluidas !== 1 ? 's' : ''}!`)
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')
@@ -3524,14 +3567,24 @@ const VM = {
     const cores = ['#2FBF71', '#208040', '#74b9ff', '#a29bfe', '#fd79a8', '#ffc400', '#ff8c42', '#00cec9']
 
     // Pré-carregar dívidas para o bloco debt_payoff
-    let financiamentos = [], emprestimos = []
+    let financiamentos = [], emprestimos = [], cartoesDevedor = []
     try {
-      const [fd, ed] = await Promise.all([
+      const [fd, ed, cd] = await Promise.all([
         this.api('GET', 'financiamentos'),
-        this.api('GET', 'emprestimos')
+        this.api('GET', 'emprestimos'),
+        this.api('GET', 'cartoes').catch(() => ({ cartoes: [] }))
       ])
       financiamentos = (fd.financiamentos || []).filter(f => f.status === 'ativo')
       emprestimos = (ed.emprestimos || []).filter(e => e.status === 'ativo')
+      // Incluir cartões com saldo devedor (limite_total - limite_disponivel > 0)
+      cartoesDevedor = (cd.cartoes || []).filter(c => {
+        const usado = (c.limite_total || 0) - (c.limite_disponivel || 0)
+        return usado > 0
+      }).map(c => ({
+        id: c.id,
+        nome: c.nome,
+        saldo_devedor: (c.limite_total || 0) - (c.limite_disponivel || 0)
+      }))
     } catch(e) {}
 
     const categoriasMeta = [
@@ -3583,8 +3636,9 @@ const VM = {
                   <label class="form-label">Selecionar Dívida Específica</label>
                   <select id="m-specific-debt-id" class="form-select" onchange="VM._onSpecificDebtChange()">
                     <option value="">— Selecione —</option>
-                    ${financiamentos.map(f => `<option value="fin_${f.id}" ${meta?.linked_debt_id===f.id&&meta?.linked_debt_type==='specific'?'selected':''}>🏠 ${f.descricao} (${this.formatMoney(f.saldo_devedor)})</option>`).join('')}
-                    ${emprestimos.map(e => `<option value="emp_${e.id}" ${meta?.linked_debt_id===e.id&&meta?.linked_debt_type==='specific'?'selected':''}>💰 ${e.descricao} (${this.formatMoney(e.saldo_devedor)})</option>`).join('')}
+                    ${financiamentos.length > 0 ? `<optgroup label="🏠 Financiamentos">${financiamentos.map(f => `<option value="fin_${f.id}" ${meta?.linked_debt_id===f.id&&meta?.linked_debt_type==='specific'?'selected':''}>🏠 ${f.descricao} (${this.formatMoney(f.saldo_devedor)})</option>`).join('')}</optgroup>` : ''}
+                    ${emprestimos.length > 0 ? `<optgroup label="💰 Empréstimos">${emprestimos.map(e => `<option value="emp_${e.id}" ${meta?.linked_debt_id===e.id&&meta?.linked_debt_type==='specific'?'selected':''}>💰 ${e.descricao} (${this.formatMoney(e.saldo_devedor)})</option>`).join('')}</optgroup>` : ''}
+                    ${cartoesDevedor.length > 0 ? `<optgroup label="💳 Cartões com Saldo">${cartoesDevedor.map(c => `<option value="cart_${c.id}">💳 ${c.nome} (${this.formatMoney(c.saldo_devedor)})</option>`).join('')}</optgroup>` : ''}
                   </select>
                 </div>
               </div>
@@ -3926,6 +3980,7 @@ const VM = {
                     <td style="text-align:right;font-weight:600;color:#2FBF71;">${this.formatMoney(inv.valor_atual || inv.valor_investido)}</td>
                     <td style="text-align:right;font-weight:600;${inv.rentabilidade_percentual >= 0 ? 'color:#2FBF71' : 'color:#ff6b6b'};">${rentLabel}</td>
                     <td style="text-align:right;">
+                      <button onclick="VM.modalAporteInvestimento(${inv.id}, '${(inv.nome||'').replace(/'/g,"&#39;")}')" title="Adicionar Aporte" class="btn-primary" style="margin-right:4px;padding:5px 10px;font-size:0.78rem;"><i class="fas fa-plus-circle"></i></button>
                       <button onclick="VM.modalInvestimento(${JSON.stringify(inv).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;"><i class="fas fa-edit"></i></button>
                       <button onclick="VM.deleteInvestimento(${inv.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                     </td>
@@ -4086,6 +4141,62 @@ const VM = {
     const rentW = document.getElementById('i-rent-wrapper')
     if (caixinhaW) caixinhaW.style.display = tipo === 'caixinha' ? 'block' : 'none'
     if (rentW) rentW.style.display = tipo === 'caixinha' ? 'none' : 'block'
+  },
+
+  async modalAporteInvestimento(id, nome) {
+    const modal = document.createElement('div')
+    modal.id = 'modal-aporte-inv'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:400px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1.1rem;font-weight:700;margin:0;">💰 Adicionar Aporte</h2>
+          <button onclick="document.getElementById('modal-aporte-inv').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+        </div>
+        <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 16px;">${nome}</p>
+        <div style="margin-bottom:16px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Valor do Aporte (R$)</label>
+          <input id="aporte-valor" type="number" min="0.01" step="0.01" placeholder="0,00"
+            style="width:100%;padding:12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:1rem;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:20px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Descrição (opcional)</label>
+          <input id="aporte-desc" type="text" placeholder="Ex: Aporte mensal"
+            style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:20px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="aporte-registrar-desp" checked style="width:16px;height:16px;accent-color:#818cf8;">
+            <span style="color:#94A3B8;font-size:0.82rem;">Registrar como despesa (aporte patrimonial)</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-aporte-inv').remove()" style="flex:1;padding:12px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-confirmar-aporte" onclick="VM._confirmarAporteInvestimento(${id})" style="flex:2;padding:12px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Confirmar Aporte</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+    document.getElementById('aporte-valor').focus()
+  },
+
+  async _confirmarAporteInvestimento(id) {
+    const btn = document.getElementById('btn-confirmar-aporte')
+    const valor = parseFloat(document.getElementById('aporte-valor').value)
+    if (!valor || valor <= 0) { this.toast('Informe um valor válido', 'error'); return }
+    btn.disabled = true; btn.textContent = 'Processando...'
+    try {
+      const res = await this.api('PATCH', `investimentos/${id}/rebalancear`, {
+        valor,
+        descricao: document.getElementById('aporte-desc').value || undefined,
+        registrar_despesa: document.getElementById('aporte-registrar-desp').checked
+      })
+      this.toast(res.message || 'Aporte registrado!', 'success')
+      document.getElementById('modal-aporte-inv').remove()
+      this.carregarInvestimentos()
+    } catch (e) {
+      this.toast('Erro ao registrar aporte', 'error')
+      btn.disabled = false; btn.textContent = 'Confirmar Aporte'
+    }
   },
 
   async deleteInvestimento(id) {
@@ -4433,6 +4544,45 @@ const VM = {
     document.getElementById('tag-cor').value = cor
   },
 
+  // Botao IA para sugerir tag com base na descricao e categoria da despesa
+  async _sugerirTagIA() {
+    const desc = document.getElementById('d-desc')?.value?.trim()
+    const cat = document.getElementById('d-cat')?.value?.trim()
+    if (!desc) { this.toast('Preencha a descricao antes de usar a IA', 'warning'); return }
+    const btn = document.getElementById('btn-ia-tag')
+    const resultEl = document.getElementById('ia-tag-resultado')
+    if (!btn || !resultEl) return
+    btn.disabled = true; btn.textContent = 'Buscando...'
+    resultEl.style.display = 'none'
+    try {
+      const chips = document.querySelectorAll('#d-tags-chips [data-tag-id]')
+      const tagsExistentes = Array.from(chips).map(c => ({ id: c.dataset.tagId, nome: c.textContent.trim() }))
+      const nomes = tagsExistentes.map(t => t.nome).join(', ')
+      const prompt = `Despesa: "${desc}", Categoria: "${cat}". Tags disponiveis: ${nomes || 'nenhuma'}. Qual tag se encaixa melhor? Responda apenas com o nome exato da tag ou "nenhuma".`
+      const resp = await this.api('POST', 'ia/tag-sugestao', { descricao: desc, categoria: cat, tags: tagsExistentes })
+      const sugerida = resp.tag_sugerida || resp.sugestao || ''
+      if (sugerida && sugerida !== 'nenhuma') {
+        const chip = Array.from(chips).find(c => c.textContent.trim().toLowerCase() === sugerida.toLowerCase())
+        if (chip) {
+          if (chip.dataset.tagSelected !== '1') this._toggleTag(chip)
+          resultEl.textContent = 'Tag sugerida pela IA: ' + sugerida
+          resultEl.style.display = 'block'
+        } else {
+          resultEl.textContent = 'IA sugeriu: ' + sugerida + ' (nao encontrada nas suas tags)'
+          resultEl.style.display = 'block'
+        }
+      } else {
+        resultEl.textContent = 'IA nao encontrou uma tag adequada.'
+        resultEl.style.display = 'block'
+      }
+    } catch(e) {
+      resultEl.textContent = 'Erro ao consultar IA: ' + (e.message || 'tente novamente')
+      resultEl.style.display = 'block'
+    } finally {
+      btn.disabled = false; btn.textContent = 'IA Sugerir'
+    }
+  },
+
   // Toggle visual de tag no modal de despesa
   _toggleTag(el) {
     const cor = el.getAttribute('data-tag-cor') || '#10B981'
@@ -4724,6 +4874,14 @@ const VM = {
       await this.api('PATCH', `alertas-cartao/${id}/lido`, {})
       this.toast('Alerta marcado como lido', 'success')
       await this.carregarAlertasCartao()
+      const r = await this.api('GET', 'alertas-cartao').catch(() => null)
+      if (r) {
+        const badge = document.getElementById('badge-alertas-cartao')
+        const topBadge = document.getElementById('topbar-badge-alertas')
+        const total = r.total_nao_lidos || 0
+        if (badge) { badge.textContent = total; badge.style.display = total > 0 ? 'inline-block' : 'none' }
+        if (topBadge) { topBadge.textContent = total; topBadge.style.display = total > 0 ? 'inline-block' : 'none' }
+      }
     } catch (e) {
       this.toast('Erro ao atualizar alerta', 'error')
     }
@@ -5223,6 +5381,11 @@ const VM = {
           </div>
           
           <div class="form-group">
+            <label class="form-label">Aporte Mensal (R$)</label>
+            <input type="number" id="sim-aporte" class="form-input" placeholder="0 (sem aporte)" value="0" min="0" step="50">
+          </div>
+
+          <div class="form-group">
             <label class="form-label">Prazo</label>
             <select id="sim-prazo" class="form-select">
               <option value="6">6 meses</option>
@@ -5258,14 +5421,15 @@ const VM = {
     const valor = document.getElementById('sim-valor').value
     const tipo = document.getElementById('sim-tipo').value
     const prazo = document.getElementById('sim-prazo').value
+    const aporte = parseFloat(document.getElementById('sim-aporte')?.value || '0') || 0
 
-    if (!valor || parseFloat(valor) <= 0) { this.toast('Informe um valor válido', 'warning'); return }
+    if (!valor || parseFloat(valor) <= 0) { this.toast('Informe um valor valido', 'warning'); return }
 
     const resultEl = document.getElementById('sim-resultado')
     resultEl.innerHTML = `<div class="card" style="text-align:center;padding:40px;"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>`
 
     try {
-      const data = await this.api('GET', `investimentos/simulacao?valor=${valor}&tipo=${tipo}&prazo_meses=${prazo}`)
+      const data = await this.api('GET', `investimentos/simulacao?valor=${valor}&tipo=${tipo}&prazo_meses=${prazo}&aporte_mensal=${aporte}`)
       const s = data.simulacao
       const tipoNames = { poupanca: 'Poupança', cdb: 'CDB', lci: 'LCI/LCA', tesouro_direto: 'Tesouro Direto', fii: 'FII', acoes: 'Ações', cripto: 'Cripto' }
 
@@ -5273,18 +5437,29 @@ const VM = {
         <div style="display:flex;flex-direction:column;gap:20px;">
           <div class="grid-3">
             <div class="stat-card">
-              <div class="stat-label" style="margin-bottom:8px;">💰 Valor Final</div>
+              <div class="stat-label" style="margin-bottom:8px;">Valor Final</div>
               <div class="stat-value positive">${this.formatMoney(s.valor_final)}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label" style="margin-bottom:8px;">📈 Lucro</div>
+              <div class="stat-label" style="margin-bottom:8px;">Lucro</div>
               <div class="stat-value positive">+ ${this.formatMoney(s.lucro_total)}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label" style="margin-bottom:8px;">📊 Rentabilidade</div>
+              <div class="stat-label" style="margin-bottom:8px;">Rentabilidade</div>
               <div class="stat-value positive">+${s.rentabilidade_total.toFixed(2)}%</div>
             </div>
           </div>
+          ${aporte > 0 ? `
+          <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="text-align:center;">
+              <div style="color:#A5B4FC;font-size:0.75rem;font-weight:600;margin-bottom:4px;">Total Aportado</div>
+              <div style="color:#818CF8;font-size:1.1rem;font-weight:700;">${this.formatMoney(s.total_aportado || (aporte * parseInt(prazo)))}</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="color:#A5B4FC;font-size:0.75rem;font-weight:600;margin-bottom:4px;">Capital Inicial + Aportes</div>
+              <div style="color:#818CF8;font-size:1.1rem;font-weight:700;">${this.formatMoney((s.total_aportado || (aporte * parseInt(prazo))) + s.valor_inicial)}</div>
+            </div>
+          </div>` : ''}
           
           <div class="card">
             <div style="font-weight:700;margin-bottom:20px;">📊 Projeção de Crescimento — ${tipoNames[tipo]}</div>
@@ -6395,14 +6570,18 @@ const VM = {
       const data = await this.api('GET', 'cartoes')
       const sel = document.getElementById('gc-cartao-select')
       if (!sel) return
-      data.cartoes.forEach(c => {
+      ;(data.cartoes || []).forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.id
-        opt.textContent = `${c.nome} (${c.banco})`
+        opt.style.background = '#1e293b'
+        opt.style.color = '#f1f5f9'
+        opt.textContent = `${c.nome} (${c.bandeira || c.banco || 'Cartao'})`
         sel.appendChild(opt)
       })
+      sel.style.background = '#0f172a'
+      sel.style.color = '#f1f5f9'
     } catch(e) {
-      this.toast('Erro ao carregar cartões', 'error')
+      this.toast('Erro ao carregar cartoes', 'error')
     }
   },
 
@@ -6447,10 +6626,16 @@ const VM = {
                   <div style="font-size:0.9rem;font-weight:700;">${this.formatMoney(cp.valor_parcela)}${isParcelada ? '/parc.' : ''}</div>
                   ${isParcelada ? `<div style="font-size:0.7rem;color:#888;">Total: ${this.formatMoney(cp.valor_total_compra)}</div>` : ''}
                 </div>
-                <button onclick="VM._confirmarExcluirGrupo(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
-                  style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:0.78rem;white-space:nowrap;flex-shrink:0;">
-                  <i class="fas fa-trash"></i> Excluir
-                </button>
+                <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+                  <button onclick="VM._editarTagsCompra(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
+                    style="background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.25);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">
+                    Tags
+                  </button>
+                  <button onclick="VM._confirmarExcluirGrupo(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
+                    style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">
+                    Excluir
+                  </button>
+                </div>
               </div>
             `
           }).join('')}
@@ -6458,6 +6643,61 @@ const VM = {
       `
     } catch(e) {
       div.innerHTML = `<div style="text-align:center;padding:32px;color:#ff6b6b;font-size:0.85rem;">Erro ao carregar compras.</div>`
+    }
+  },
+
+  async _editarTagsCompra(groupId, descricao) {
+    if (!groupId) { this.toast('Compra sem grupo identificado', 'error'); return }
+    let tagsDisponiveis = []
+    let tagsAtuais = []
+    try {
+      const [tagsResp, despesasResp] = await Promise.all([
+        this.api('GET', 'tags').catch(() => []),
+        this.api('GET', `despesas?purchase_group_id=${groupId}`).catch(() => ({ despesas: [] }))
+      ])
+      tagsDisponiveis = tagsResp || []
+      const despesas = despesasResp.despesas || []
+      if (despesas.length > 0) {
+        tagsAtuais = await this.api('GET', `tags/despesa/${despesas[0].id}`).catch(() => [])
+      }
+    } catch(e) {}
+
+    const modal = document.createElement('div')
+    modal.id = 'modal-tags-compra'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:24px;width:100%;max-width:420px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0;">Tags: ${descricao}</h3>
+          <button onclick="document.getElementById('modal-tags-compra').remove()" style="background:none;border:none;color:#64748B;font-size:1.3rem;cursor:pointer;">x</button>
+        </div>
+        <div id="tags-compra-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;min-height:40px;margin-bottom:16px;">
+          ${tagsDisponiveis.map(t => {
+            const sel = tagsAtuais.some(ta => ta.id === t.id)
+            return `<span data-tag-id="${t.id}" data-tag-cor="${t.cor}" data-tag-selected="${sel ? '1' : '0'}" onclick="VM._toggleTag(this)" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;border:1.5px solid ${sel ? t.cor : 'rgba(255,255,255,0.1)'};background:${sel ? t.cor+'22' : 'transparent'};color:${sel ? t.cor : '#94A3B8'};transition:all 0.15s;user-select:none;"><span style="width:7px;height:7px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>${t.nome}</span>`
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-tags-compra').remove()" style="flex:1;padding:10px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-salvar-tags-compra" onclick="VM._salvarTagsCompra('${groupId}')" style="flex:2;padding:10px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Salvar Tags</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(modal)
+  },
+
+  async _salvarTagsCompra(groupId) {
+    const chips = document.querySelectorAll('#tags-compra-chips [data-tag-id][data-tag-selected="1"]')
+    const tagIds = Array.from(chips).map(c => parseInt(c.dataset.tagId))
+    const btn = document.getElementById('btn-salvar-tags-compra')
+    btn.disabled = true; btn.textContent = 'Salvando...'
+    try {
+      await this.api('POST', `cartoes/compras/${groupId}/tags`, { tag_ids: tagIds })
+      this.toast('Tags atualizadas em todas as parcelas!', 'success')
+      document.getElementById('modal-tags-compra').remove()
+    } catch(e) {
+      this.toast('Erro ao salvar tags: ' + e.message, 'error')
+      btn.disabled = false; btn.textContent = 'Salvar Tags'
     }
   },
 
@@ -7866,7 +8106,7 @@ const VM = {
         const payload = {
           descricao: document.getElementById('f-desc').value,
           tipo_bem: tipoBem,
-          tipo_imovel: tipoBem === 'imovel' ? 'residencial' : tipoBem === 'imovel_comercial' ? 'comercial' : tipoBem,
+          tipo_imovel: tipoBem === 'imovel' ? 'residencial' : tipoBem === 'imovel_comercial' ? 'comercial' : tipoBem === 'rural' ? 'rural' : tipoBem === 'veiculo' ? 'veiculo' : 'outros',
           valor_imovel: parseFloat(document.getElementById('f-imovel').value),
           valor_financiado: parseFloat(document.getElementById('f-financiado').value),
           taxa_juros_anual: jurosAnual,
@@ -9979,6 +10219,7 @@ const VM = {
                           <i class="fas fa-paper-plane"></i>${jaGerada ? ' ✓' : ''}
                         </button>
                         <button onclick="VM._toggleRecorrencia(${r.id},${r.ativa})" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
+                        <button onclick="VM._editarRecorrencia(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Editar" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
                         <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                       </div>
                     </td>
@@ -10228,10 +10469,108 @@ const VM = {
     }
 
     this._deletarRecorrencia = async (id, desc) => {
-      const ok = await this.vmConfirm(`Deseja excluir a recorrência <strong>"${desc}"</strong>? Ela não gerará mais lançamentos futuros.`, { titulo: 'Excluir Recorrência', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🔄' })
-      if (!ok) return
-      await this.api('DELETE', `recorrencias/${id}`)
-      this.toast('✅ Recorrência removida'); renderRec()
+      // Modal com opção de excluir futuros
+      const modalId = 'modal-del-rec-' + id
+      const modal = document.createElement('div')
+      modal.id = modalId
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+      modal.innerHTML = `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:24px;width:100%;max-width:420px;">
+          <div style="font-size:1.05rem;font-weight:700;color:#F8FAFC;margin-bottom:8px;">🗑️ Excluir Recorrência</div>
+          <div style="color:#94A3B8;font-size:0.85rem;margin-bottom:18px;">Excluir <strong style="color:#F8FAFC;">"${desc}"</strong>?</div>
+          <label style="display:flex;align-items:center;gap:10px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px;cursor:pointer;margin-bottom:18px;">
+            <input type="checkbox" id="cb-excluir-futuros-${id}" style="width:16px;height:16px;accent-color:#ef4444;">
+            <div>
+              <div style="font-size:0.83rem;font-weight:600;color:#F8FAFC;">Excluir também lançamentos futuros pendentes</div>
+              <div style="font-size:0.73rem;color:#64748B;margin-top:2px;">Remove despesas/receitas futuras vinculadas a esta recorrência</div>
+            </div>
+          </label>
+          <div style="display:flex;gap:10px;">
+            <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+            <button id="btn-confirmar-del-rec-${id}" onclick="VM._confirmarDeleteRecorrencia(${id},'${modalId}')" style="flex:1;padding:11px;background:#ef4444;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Excluir</button>
+          </div>
+        </div>`
+      document.body.appendChild(modal)
+    }
+
+    this._confirmarDeleteRecorrencia = async (id, modalId) => {
+      const excluirFuturos = document.getElementById('cb-excluir-futuros-' + id)?.checked || false
+      const btn = document.getElementById('btn-confirmar-del-rec-' + id)
+      if (btn) { btn.disabled = true; btn.textContent = 'Excluindo...' }
+      try {
+        await this.api('DELETE', `recorrencias/${id}`, { excluir_futuros: excluirFuturos })
+        document.getElementById(modalId)?.remove()
+        this.toast(excluirFuturos ? '✅ Recorrência e lançamentos futuros removidos' : '✅ Recorrência removida')
+        renderRec()
+      } catch(e) { this.toast('Erro ao excluir', 'error'); if(btn){btn.disabled=false;btn.textContent='Excluir'} }
+    }
+
+    this._editarRecorrencia = async (rec) => {
+      const modalId = 'modal-edit-rec-' + rec.id
+      const modal = document.createElement('div')
+      modal.id = modalId
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+      const inp = (id, label, val, type='text') => `
+        <div style="margin-bottom:12px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">${label}</label>
+          <input id="${id}" type="${type}" value="${val ?? ''}" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+        </div>`
+      const isVar = rec.valor_variavel == 1
+      modal.innerHTML = `
+        <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:24px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <div style="font-size:1.05rem;font-weight:700;color:#F8FAFC;">✏️ Editar Recorrência</div>
+            <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;color:#64748B;font-size:1.3rem;cursor:pointer;">×</button>
+          </div>
+          ${inp('er-desc-'+rec.id, 'Descrição *', rec.descricao)}
+          ${inp('er-cat-'+rec.id, 'Categoria', rec.categoria)}
+          ${!isVar ? inp('er-valor-'+rec.id, 'Valor (R$)', rec.valor, 'number') : ''}
+          ${inp('er-dia-'+rec.id, 'Dia do Vencimento (1-31)', rec.dia_vencimento, 'number')}
+          <div style="margin-bottom:12px;">
+            <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Meio de Pagamento</label>
+            <select id="er-mp-${rec.id}" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;">
+              ${['dinheiro','pix','debito','credito','ted','boleto','outros'].map(m=>`<option value="${m}" ${rec.meio_pagamento===m?'selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px;cursor:pointer;margin-bottom:18px;">
+            <input type="checkbox" id="er-propagar-${rec.id}" style="width:16px;height:16px;accent-color:#6366F1;">
+            <div>
+              <div style="font-size:0.83rem;font-weight:600;color:#F8FAFC;">Propagar para lançamentos futuros pendentes</div>
+              <div style="font-size:0.73rem;color:#64748B;margin-top:2px;">Atualiza despesas/receitas futuras vinculadas a esta recorrência</div>
+            </div>
+          </label>
+          <div style="display:flex;gap:10px;">
+            <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+            <button id="btn-salvar-edit-rec-${rec.id}" onclick="VM._salvarEdicaoRecorrencia(${rec.id},'${modalId}')" style="flex:1;padding:11px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">💾 Salvar</button>
+          </div>
+        </div>`
+      document.body.appendChild(modal)
+    }
+
+    this._salvarEdicaoRecorrencia = async (id, modalId) => {
+      const btn = document.getElementById('btn-salvar-edit-rec-' + id)
+      const descEl = document.getElementById('er-desc-' + id)
+      const catEl  = document.getElementById('er-cat-'  + id)
+      const valorEl= document.getElementById('er-valor-'+ id)
+      const diaEl  = document.getElementById('er-dia-'  + id)
+      const mpEl   = document.getElementById('er-mp-'   + id)
+      const propEl = document.getElementById('er-propagar-' + id)
+      if (!descEl?.value?.trim()) { this.toast('Descrição obrigatória', 'error'); return }
+      if (btn) { btn.disabled = true; btn.textContent = 'Salvando...' }
+      try {
+        const body = {
+          descricao: descEl.value.trim(),
+          categoria: catEl?.value || '',
+          dia_vencimento: parseInt(diaEl?.value) || undefined,
+          meio_pagamento: mpEl?.value || undefined,
+          propagar_futuras: propEl?.checked || false
+        }
+        if (valorEl) body.valor = parseFloat(valorEl.value) || 0
+        await this.api('PUT', `recorrencias/${id}`, body)
+        document.getElementById(modalId)?.remove()
+        this.toast(body.propagar_futuras ? '✅ Recorrência e lançamentos futuros atualizados!' : '✅ Recorrência atualizada!')
+        renderRec()
+      } catch(e) { this.toast('Erro ao salvar', 'error'); if(btn){btn.disabled=false;btn.textContent='💾 Salvar'} }
     }
 
     this._processarRecorrencias = async () => {
@@ -12464,14 +12803,18 @@ const VM = {
             </div>
           </div>
           
-          <!-- Dica motivacional -->
-          <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(245,158,11,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:20px;">
-            <h3 style="color:#f1f5f9;font-size:0.9rem;font-weight:700;margin:0 0 10px;">💡 Como Funciona</h3>
-            <p style="color:#94A3B8;font-size:0.82rem;line-height:1.6;margin:0;">
-              Na semana 1, guarde R$ 1,00. Na semana 2, R$ 2,00. Assim por diante até R$ 52,00 na semana 52.
-              Clique em qualquer semana para marcá-la como concluída ou pular. Ao final do ano você terá acumulado <b style="color:#10B981;">R$ 1.378,00</b>!
-              Dica: invista em uma conta remunerada e o rendimento será ainda maior.
-            </p>
+          <!-- Configuracao e dica -->
+          <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;">
+            <div style="background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(245,158,11,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:20px;">
+              <h3 style="color:#f1f5f9;font-size:0.9rem;font-weight:700;margin:0 0 10px;">Como Funciona</h3>
+              <p style="color:#94A3B8;font-size:0.82rem;line-height:1.6;margin:0;">
+                Na semana 1, guarde R$ 1,00. Na semana 2, R$ 2,00. Assim por diante até R$ 52,00 na semana 52.
+                Clique em qualquer semana para marcar como concluida ou pular.
+              </p>
+            </div>
+            <button onclick="VM.modalConfigDesafio52()" style="padding:12px 18px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.3);border-radius:12px;cursor:pointer;font-size:0.82rem;font-weight:600;white-space:nowrap;">
+              Personalizar Desafio
+            </button>
           </div>
         </div>
       `
@@ -12479,7 +12822,117 @@ const VM = {
       document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro: ${e.message}</p></div>`
     }
   },
-  
+
+  async modalConfigDesafio52() {
+    let config = {}
+    let investimentos = []
+    let metas = []
+    try {
+      config = await this.api('GET', 'desafio-52/config')
+      const invResp = await this.api('GET', 'investimentos').catch(() => ({ investimentos: [] }))
+      investimentos = invResp.investimentos || []
+      const metResp = await this.api('GET', 'metas').catch(() => ({ metas: [] }))
+      metas = (metResp.metas || []).filter(m => m.status === 'ativa')
+    } catch(e) {}
+
+    const modal = document.createElement('div')
+    modal.id = 'modal-config-desafio52'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1.1rem;font-weight:700;margin:0;">Personalizar Desafio 52</h2>
+          <button onclick="document.getElementById('modal-config-desafio52').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Modo</label>
+          <select id="d52-modo" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
+            <option value="normal" ${!config.modo_invertido ? 'selected' : ''}>Normal (semana 1 = R$1, semana 52 = R$52)</option>
+            <option value="invertido" ${config.modo_invertido ? 'selected' : ''}>Invertido (semana 1 = R$52, semana 52 = R$1)</option>
+            <option value="fixo">Valor fixo por semana</option>
+          </select>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Valor base (R$)</label>
+            <input id="d52-base" type="number" min="0.5" max="100" step="0.5" value="${config.valor_base || 1}" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Multiplicador</label>
+            <input id="d52-mult" type="number" min="0.5" max="10" step="0.5" value="${config.multiplicador || 1}" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Vincular a investimento (opcional)</label>
+          <select id="d52-investimento" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
+            <option value="">Nenhum investimento</option>
+            ${investimentos.map(i => `<option value="${i.id}" ${config.investimento_vinculado == i.id ? 'selected' : ''}>${i.nome} — ${i.tipo}</option>`).join('')}
+          </select>
+          <p style="color:#475569;font-size:0.72rem;margin:4px 0 0;">Ao marcar semana como concluida, o valor e depositado no investimento selecionado.</p>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Vincular a meta (opcional)</label>
+          <select id="d52-meta" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
+            <option value="">Nenhuma meta</option>
+            ${metas.map(m => `<option value="${m.id}" ${config.meta_vinculada == m.id ? 'selected' : ''}>${m.titulo}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:12px;margin-bottom:20px;">
+          <p id="d52-preview" style="color:#10B981;font-size:0.82rem;margin:0;text-align:center;">Total anual: calculando...</p>
+        </div>
+
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-config-desafio52').remove()" style="flex:1;padding:12px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;font-size:0.88rem;">Cancelar</button>
+          <button id="btn-salvar-config-d52" onclick="VM.salvarConfigDesafio52()" style="flex:2;padding:12px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:0.88rem;font-weight:600;">Salvar Configuracao</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(modal)
+
+    const calcPreview = () => {
+      const base = parseFloat(document.getElementById('d52-base').value) || 1
+      const mult = parseFloat(document.getElementById('d52-mult').value) || 1
+      const modo = document.getElementById('d52-modo').value
+      let total = 0
+      for (let w = 1; w <= 52; w++) {
+        const semana = modo === 'invertido' ? (53 - w) : (modo === 'fixo' ? 1 : w)
+        total += semana * base * mult
+      }
+      document.getElementById('d52-preview').textContent = `Total anual estimado: R$ ${total.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})}`
+    }
+    document.getElementById('d52-base').addEventListener('input', calcPreview)
+    document.getElementById('d52-mult').addEventListener('input', calcPreview)
+    document.getElementById('d52-modo').addEventListener('change', calcPreview)
+    calcPreview()
+  },
+
+  async salvarConfigDesafio52() {
+    const btn = document.getElementById('btn-salvar-config-d52')
+    btn.disabled = true; btn.textContent = 'Salvando...'
+    try {
+      const modo = document.getElementById('d52-modo').value
+      const payload = {
+        valor_base: parseFloat(document.getElementById('d52-base').value) || 1,
+        multiplicador: parseFloat(document.getElementById('d52-mult').value) || 1,
+        modo_invertido: modo === 'invertido',
+        meta_vinculada: document.getElementById('d52-meta').value || null,
+        investimento_vinculado: document.getElementById('d52-investimento').value || null
+      }
+      const resp = await this.api('POST', 'desafio-52/config', payload)
+      this.toast(resp.message || 'Configuracao salva!', 'success')
+      document.getElementById('modal-config-desafio52').remove()
+      this.pageDesafio52()
+    } catch(e) {
+      this.toast('Erro ao salvar: ' + e.message, 'error')
+      btn.disabled = false; btn.textContent = 'Salvar Configuracao'
+    }
+  },
+
   async toggleDesafio52(week, currentStatus, ano) {
     // Ciclo: pending → completed → skipped → pending
     const nextStatus = currentStatus === 'pending' ? 'completed'
@@ -13424,7 +13877,452 @@ const VM = {
       if (modal) modal.scrollTop = 0
       if (window.innerWidth <= 768) document.body.style.overflow = 'hidden'
     })
-  }
+  },
+
+  // ==================== ANTECIPAÇÃO DE CONTAS ====================
+  async pageAntecipacao() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">⚡ Antecipação de Contas</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Antecipe pagamentos e economize juros. Integrado ao Diagnóstico 360°.</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button onclick="VM._modalNovaAntecipacao()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-plus"></i> Nova Antecipação
+          </button>
+        </div>
+      </div>
+      <div id="antecipacao-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this._carregarAntecipacoes()
+  },
+
+  async _carregarAntecipacoes() {
+    const cont = document.getElementById('antecipacao-container')
+    try {
+      const [data, sug] = await Promise.all([
+        this.api('GET', 'antecipacao'),
+        this.api('GET', 'antecipacao/sugestoes').catch(() => ({ sugestoes: [] }))
+      ])
+      const { antecipacoes = [], total_economizado = 0 } = data
+      const sugestoes = sug.sugestoes || []
+
+      let html = ''
+
+      // Card de sugestões do sistema
+      if (sugestoes.length > 0) {
+        html += `
+          <div style="background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(251,191,36,0.04));border:1px solid rgba(245,158,11,0.2);border-radius:16px;padding:20px;margin-bottom:20px;">
+            <div style="font-size:0.85rem;font-weight:700;color:#F59E0B;margin-bottom:12px;">💡 Sugestões de Antecipação (próximos 60 dias)</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${sugestoes.slice(0,5).map(s => `
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.05);">
+                  <div style="flex:1;">
+                    <div style="font-size:0.85rem;font-weight:600;color:#F8FAFC;">${s.descricao}</div>
+                    <div style="font-size:0.75rem;color:#64748B;">Vence em ${s.dias_ate_vencimento}d • ${this.formatMoney(s.valor)}</div>
+                  </div>
+                  <div style="text-align:right;flex-shrink:0;">
+                    <div style="font-size:0.75rem;color:#10B981;font-weight:600;">Economia ~${this.formatMoney(s.economia_estimada)}</div>
+                    <button onclick="VM._antecipacaoRapida(${JSON.stringify(s).replace(/"/g,'&quot;')})"
+                      style="margin-top:4px;padding:4px 10px;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);border-radius:6px;cursor:pointer;font-size:0.72rem;">
+                      Antecipar
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>`
+      }
+
+      // Summary card
+      html += `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;text-align:center;">
+            <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Total Economizado</div>
+            <div style="font-size:1.5rem;font-weight:800;color:#10B981;">${this.formatMoney(total_economizado)}</div>
+          </div>
+          <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:14px;padding:16px;text-align:center;">
+            <div style="color:#A5B4FC;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚡ Total Antecipado</div>
+            <div style="font-size:1.5rem;font-weight:800;color:#818CF8;">${antecipacoes.filter(a=>a.status==='antecipada').length}</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:16px;text-align:center;">
+            <div style="color:#FCD34D;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⏳ Pendentes</div>
+            <div style="font-size:1.5rem;font-weight:800;color:#F59E0B;">${antecipacoes.filter(a=>a.status==='pendente').length}</div>
+          </div>
+        </div>`
+
+      if (antecipacoes.length === 0) {
+        html += `<div class="empty-state"><div style="font-size:3rem;margin-bottom:16px;">⚡</div><h3>Nenhuma antecipação registrada</h3><p style="color:#64748B;">Antecipe pagamentos para economizar juros e melhorar seu score financeiro.</p></div>`
+      } else {
+        html += `<div style="display:flex;flex-direction:column;gap:10px;">`
+        antecipacoes.forEach(a => {
+          const corStatus = a.status === 'antecipada' ? '#10B981' : a.status === 'cancelada' ? '#64748B' : '#F59E0B'
+          const labelStatus = a.status === 'antecipada' ? '✅ Antecipada' : a.status === 'cancelada' ? '❌ Cancelada' : '⏳ Pendente'
+          html += `
+            <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;display:flex;align-items:flex-start;gap:14px;">
+              <div style="flex:1;">
+                <div style="font-size:0.92rem;font-weight:700;color:#F8FAFC;margin-bottom:4px;">${a.descricao}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.75rem;color:#64748B;">
+                  <span>💰 ${this.formatMoney(a.valor_total)}</span>
+                  <span>📅 Antecipado: ${new Date(a.data_antecipacao+'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                  <span>📋 Venc.: ${new Date(a.data_vencimento_original+'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                  ${a.economia_juros > 0 ? `<span style="color:#10B981;">✨ Economia: ${this.formatMoney(a.economia_juros)}</span>` : ''}
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+                <span style="background:${corStatus}18;color:${corStatus};border:1px solid ${corStatus}30;border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:700;">${labelStatus}</span>
+                ${a.status === 'pendente' ? `<button onclick="VM._confirmarAntecipacao(${a.id})" style="padding:4px 10px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);border-radius:6px;cursor:pointer;font-size:0.72rem;">Confirmar</button>` : ''}
+                <button onclick="VM._excluirAntecipacao(${a.id})" style="padding:4px 10px;background:rgba(239,68,68,0.1);color:#F87171;border:1px solid rgba(239,68,68,0.2);border-radius:6px;cursor:pointer;font-size:0.72rem;">Excluir</button>
+              </div>
+            </div>`
+        })
+        html += `</div>`
+      }
+      cont.innerHTML = html
+    } catch(e) {
+      cont.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar antecipações</p></div>`
+    }
+  },
+
+  async _antecipacaoRapida(despesa) {
+    const hoje = new Date().toISOString().split('T')[0]
+    try {
+      await this.api('POST', 'antecipacao', {
+        descricao: despesa.descricao,
+        valor_total: despesa.valor,
+        data_vencimento_original: despesa.vencimento,
+        data_antecipacao: hoje,
+        economia_juros: despesa.economia_estimada || 0,
+        tipo: 'conta',
+        referencia_id: despesa.id,
+        referencia_tipo: 'despesa'
+      })
+      this.toast('Antecipação registrada! ⚡', 'success')
+      this._carregarAntecipacoes()
+    } catch(e) {
+      this.toast('Erro ao registrar antecipação', 'error')
+    }
+  },
+
+  async _confirmarAntecipacao(id) {
+    try {
+      await this.api('PATCH', `antecipacao/${id}/status`, { status: 'antecipada' })
+      this.toast('Antecipação confirmada! ✅', 'success')
+      this._carregarAntecipacoes()
+    } catch(e) { this.toast('Erro', 'error') }
+  },
+
+  async _excluirAntecipacao(id) {
+    const ok = await this.vmConfirm('Excluir esta antecipação?', { titulo: 'Excluir', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
+    try {
+      await this.api('DELETE', `antecipacao/${id}`)
+      this.toast('Excluído!'); this._carregarAntecipacoes()
+    } catch(e) { this.toast('Erro', 'error') }
+  },
+
+  async _modalNovaAntecipacao() {
+    const hoje = new Date().toISOString().split('T')[0]
+    const modal = document.createElement('div')
+    modal.id = 'modal-antecipacao'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1.1rem;font-weight:700;margin:0;">⚡ Nova Antecipação</h2>
+          <button onclick="document.getElementById('modal-antecipacao').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Descrição *</label>
+          <input id="ant-desc" type="text" placeholder="Ex: Fatura do cartão, boleto..." style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Valor (R$) *</label>
+            <input id="ant-valor" type="number" min="0.01" step="0.01" placeholder="0,00" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Economia Juros (R$)</label>
+            <input id="ant-economia" type="number" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Data Antecipação *</label>
+            <input id="ant-data" type="date" value="${hoje}" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Vencimento Original *</label>
+            <input id="ant-vencimento" type="date" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Tipo</label>
+          <select id="ant-tipo" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
+            <option value="conta">📋 Conta</option>
+            <option value="fatura">💳 Fatura</option>
+            <option value="parcela">📦 Parcela</option>
+            <option value="emprestimo">💰 Empréstimo</option>
+            <option value="financiamento">🏠 Financiamento</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-antecipacao').remove()" style="flex:1;padding:12px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-salvar-ant" onclick="VM._salvarAntecipacao()" style="flex:2;padding:12px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Salvar Antecipação</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+  },
+
+  async _salvarAntecipacao() {
+    const btn = document.getElementById('btn-salvar-ant')
+    const desc = document.getElementById('ant-desc').value?.trim()
+    const valor = parseFloat(document.getElementById('ant-valor').value)
+    const dataAnt = document.getElementById('ant-data').value
+    const dataVenc = document.getElementById('ant-vencimento').value
+    if (!desc || !valor || !dataAnt || !dataVenc) { this.toast('Preencha todos os campos obrigatórios', 'error'); return }
+    btn.disabled = true; btn.textContent = 'Salvando...'
+    try {
+      await this.api('POST', 'antecipacao', {
+        descricao: desc, valor_total: valor,
+        data_antecipacao: dataAnt, data_vencimento_original: dataVenc,
+        economia_juros: parseFloat(document.getElementById('ant-economia').value) || 0,
+        tipo: document.getElementById('ant-tipo').value
+      })
+      this.toast('Antecipação registrada! ⚡', 'success')
+      document.getElementById('modal-antecipacao').remove()
+      this._carregarAntecipacoes()
+    } catch(e) {
+      this.toast('Erro: ' + e.message, 'error')
+      btn.disabled = false; btn.textContent = 'Salvar Antecipação'
+    }
+  },
+
+  // ==================== RECEBIMENTOS PARCELADOS ====================
+  async pageRecebimentosParcelados() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">📋 Recebimentos Parcelados</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle parcelas a receber (vendas, contratos, serviços).</div>
+        </div>
+        <button onclick="VM._modalNovoRecebimento()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Novo Recebimento
+        </button>
+      </div>
+      <div id="recebimentos-container">
+        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
+    `
+    this._carregarRecebimentos()
+  },
+
+  async _carregarRecebimentos() {
+    const cont = document.getElementById('recebimentos-container')
+    try {
+      const data = await this.api('GET', 'antecipacao/recebimentos')
+      const { recebimentos = [] } = data
+      if (recebimentos.length === 0) {
+        cont.innerHTML = `<div class="empty-state"><div style="font-size:3rem;margin-bottom:16px;">📋</div><h3>Nenhum recebimento cadastrado</h3><p style="color:#64748B;">Controle seus recebimentos parcelados de vendas, contratos ou serviços.</p></div>`
+        return
+      }
+      cont.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;">${recebimentos.map(r => {
+        const pct = r.numero_parcelas > 0 ? Math.round((r.parcelas_recebidas / r.numero_parcelas) * 100) : 0
+        const corStatus = r.status === 'concluido' ? '#10B981' : r.status === 'cancelado' ? '#64748B' : r.status === 'em_atraso' ? '#F43F5E' : '#818CF8'
+        const tipoEmoji = {venda:'🛍️',servico:'🔧',aluguel:'🏠',emprestimo_a_receber:'💰',contrato:'📋',outros:'📁'}[r.tipo] || '📋'
+        return `
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;">
+            <div style="padding:16px 20px;display:flex;align-items:flex-start;gap:14px;">
+              <div style="flex:1;">
+                <div style="font-size:0.95rem;font-weight:700;color:#F8FAFC;margin-bottom:4px;">${tipoEmoji} ${r.descricao}</div>
+                ${r.pagador ? `<div style="font-size:0.78rem;color:#818CF8;margin-bottom:4px;">👤 ${r.pagador}</div>` : ''}
+                <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.75rem;color:#64748B;">
+                  <span>💰 Total: ${this.formatMoney(r.valor_total)}</span>
+                  <span>✅ Recebido: ${this.formatMoney(r.total_recebido || 0)}</span>
+                  <span>📦 ${r.parcelas_recebidas || 0}/${r.numero_parcelas} parcelas</span>
+                </div>
+                <div style="margin-top:10px;background:rgba(255,255,255,0.04);border-radius:50px;height:5px;overflow:hidden;">
+                  <div style="height:100%;width:${pct}%;background:${corStatus};border-radius:50px;transition:width 0.6s;"></div>
+                </div>
+                <div style="font-size:0.7rem;color:#475569;margin-top:3px;">${pct}% recebido</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+                <span style="background:${corStatus}18;color:${corStatus};border:1px solid ${corStatus}30;border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:700;">${r.status}</span>
+                <button onclick="VM._verParcelasRecebimento(${r.id},'${(r.descricao||'').replace(/'/g,"&#39;")}')"
+                  style="padding:5px 12px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.25);border-radius:8px;cursor:pointer;font-size:0.75rem;">
+                  <i class="fas fa-list"></i> Parcelas
+                </button>
+                <button onclick="VM._excluirRecebimento(${r.id})"
+                  style="padding:5px 12px;background:rgba(239,68,68,0.1);color:#F87171;border:1px solid rgba(239,68,68,0.2);border-radius:8px;cursor:pointer;font-size:0.75rem;">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>`
+      }).join('')}</div>`
+    } catch(e) {
+      cont.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar recebimentos</p></div>`
+    }
+  },
+
+  async _verParcelasRecebimento(id, titulo) {
+    const modal = document.createElement('div')
+    modal.id = 'modal-parcelas-rec'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `<div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:520px;max-height:85vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0;">📋 ${titulo}</h2>
+        <button onclick="document.getElementById('modal-parcelas-rec').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+      </div>
+      <div id="lista-parcelas-rec"><div style="text-align:center;padding:24px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div></div>
+    </div>`
+    document.body.appendChild(modal)
+
+    try {
+      const data = await this.api('GET', `antecipacao/recebimentos/${id}/parcelas`)
+      const { parcelas = [] } = data
+      const hoje = new Date().toISOString().split('T')[0]
+      document.getElementById('lista-parcelas-rec').innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${parcelas.map(p => {
+            const atrasada = p.status === 'pendente' && p.data_prevista < hoje
+            const cor = p.status === 'recebida' ? '#10B981' : atrasada ? '#F43F5E' : '#818CF8'
+            return `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid ${cor}22;">
+                <div style="width:32px;height:32px;border-radius:50%;background:${cor}22;border:1px solid ${cor}44;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:${cor};flex-shrink:0;">${p.numero_parcela}</div>
+                <div style="flex:1;">
+                  <div style="font-size:0.88rem;font-weight:600;color:#F8FAFC;">${this.formatMoney(p.valor)}</div>
+                  <div style="font-size:0.73rem;color:#64748B;">
+                    ${p.status === 'recebida' && p.data_recebimento ? `Recebido em ${new Date(p.data_recebimento+'T12:00:00').toLocaleDateString('pt-BR')}` : `Previsto: ${new Date(p.data_prevista+'T12:00:00').toLocaleDateString('pt-BR')}${atrasada?' ⚠️ Atrasada':''}`}
+                  </div>
+                </div>
+                ${p.status === 'pendente' ? `<button onclick="VM._marcarParcelaRecebida(${p.id},${id},'${titulo.replace(/'/g,'&#39;')}')"
+                  style="padding:5px 12px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);border-radius:8px;cursor:pointer;font-size:0.75rem;flex-shrink:0;">
+                  <i class="fas fa-check"></i> Receber
+                </button>` : `<span style="background:${cor}18;color:${cor};border:1px solid ${cor}30;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">${p.status === 'recebida' ? '✅ Recebida' : p.status}</span>`}
+              </div>`
+          }).join('')}
+        </div>`
+    } catch(e) {
+      document.getElementById('lista-parcelas-rec').innerHTML = `<p style="color:#F43F5E;text-align:center;">Erro ao carregar parcelas</p>`
+    }
+  },
+
+  async _marcarParcelaRecebida(parcelaId, recId, titulo) {
+    const hoje = new Date().toISOString().split('T')[0]
+    try {
+      const res = await this.api('PATCH', `antecipacao/recebimentos/parcelas/${parcelaId}/receber`, {
+        data_recebimento: hoje, criar_receita: true
+      })
+      this.toast(res.message || 'Parcela marcada como recebida! ✅', 'success')
+      document.getElementById('modal-parcelas-rec').remove()
+      await this._verParcelasRecebimento(recId, titulo)
+      this._carregarRecebimentos()
+    } catch(e) { this.toast('Erro: ' + e.message, 'error') }
+  },
+
+  async _excluirRecebimento(id) {
+    const ok = await this.vmConfirm('Excluir este recebimento e todas as suas parcelas?', { titulo: 'Excluir', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    if (!ok) return
+    try {
+      await this.api('DELETE', `antecipacao/recebimentos/${id}`)
+      this.toast('Excluído!'); this._carregarRecebimentos()
+    } catch(e) { this.toast('Erro', 'error') }
+  },
+
+  async _modalNovoRecebimento() {
+    const hoje = new Date().toISOString().split('T')[0]
+    const modal = document.createElement('div')
+    modal.id = 'modal-novo-rec'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h2 style="color:#f1f5f9;font-size:1.1rem;font-weight:700;margin:0;">📋 Novo Recebimento Parcelado</h2>
+          <button onclick="document.getElementById('modal-novo-rec').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Descrição *</label>
+          <input id="rec-desc" type="text" placeholder="Ex: Venda do carro, Contrato de serviço..." style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Pagador (nome de quem paga)</label>
+          <input id="rec-pagador" type="text" placeholder="Ex: João Silva, Empresa XYZ..." style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Valor Total (R$) *</label>
+            <input id="rec-total" type="number" min="0.01" step="0.01" placeholder="50000,00" oninput="VM._calcVlrParcela()" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Nº de Parcelas *</label>
+            <input id="rec-num-parc" type="number" min="1" max="360" placeholder="12" oninput="VM._calcVlrParcela()" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px;margin-bottom:14px;">
+          <div style="font-size:0.78rem;color:#A5B4FC;">Valor por parcela: <strong id="rec-preview-parcela" style="color:#818CF8;">—</strong></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Primeira Parcela *</label>
+            <input id="rec-inicio" type="date" value="${hoje}" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Tipo</label>
+            <select id="rec-tipo" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
+              <option value="venda">🛍️ Venda</option>
+              <option value="servico">🔧 Serviço</option>
+              <option value="aluguel">🏠 Aluguel</option>
+              <option value="emprestimo_a_receber">💰 Empréstimo a receber</option>
+              <option value="contrato">📋 Contrato</option>
+              <option value="outros">📁 Outros</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('modal-novo-rec').remove()" style="flex:1;padding:12px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-criar-rec" onclick="VM._salvarNovoRecebimento()" style="flex:2;padding:12px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Criar Recebimento</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+  },
+
+  _calcVlrParcela() {
+    const total = parseFloat(document.getElementById('rec-total')?.value) || 0
+    const num = parseInt(document.getElementById('rec-num-parc')?.value) || 0
+    const prev = document.getElementById('rec-preview-parcela')
+    if (prev && total > 0 && num > 0) {
+      prev.textContent = this.formatMoney(Math.round(total / num * 100) / 100) + '/mês'
+    } else if (prev) { prev.textContent = '—' }
+  },
+
+  async _salvarNovoRecebimento() {
+    const btn = document.getElementById('btn-criar-rec')
+    const desc = document.getElementById('rec-desc').value?.trim()
+    const total = parseFloat(document.getElementById('rec-total').value)
+    const numParc = parseInt(document.getElementById('rec-num-parc').value)
+    const inicio = document.getElementById('rec-inicio').value
+    if (!desc || !total || !numParc || !inicio) { this.toast('Preencha todos os campos obrigatórios', 'error'); return }
+    btn.disabled = true; btn.textContent = 'Criando...'
+    try {
+      const res = await this.api('POST', 'antecipacao/recebimentos', {
+        descricao: desc, valor_total: total, numero_parcelas: numParc,
+        data_inicio: inicio, tipo: document.getElementById('rec-tipo').value,
+        pagador: document.getElementById('rec-pagador').value || undefined
+      })
+      this.toast(res.message || 'Recebimento criado!', 'success')
+      document.getElementById('modal-novo-rec').remove()
+      this._carregarRecebimentos()
+    } catch(e) {
+      this.toast('Erro: ' + e.message, 'error')
+      btn.disabled = false; btn.textContent = 'Criar Recebimento'
+    }
+  },
 }
 
 // Init

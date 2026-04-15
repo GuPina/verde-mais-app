@@ -28,24 +28,27 @@ alertasCartao.get('/', requireAuth, async (c) => {
   return c.json({ alertas: rows.results || [], total_nao_lidos })
 })
 
-// ─── PATCH /api/alertas-cartao/:id/lido ──────────────────────────────────────
-alertasCartao.patch('/:id/lido', requireAuth, async (c) => {
-  const user     = c.get('user')
-  const alertaId = parseInt(c.req.param('id'))
-
-  await c.env.DB.prepare(
-    `UPDATE alertas_cartao SET lido=1 WHERE id=? AND user_id=?`
-  ).bind(alertaId, user.id).run()
-
-  return c.json({ success: true })
-})
-
 // ─── PATCH /api/alertas-cartao/todos-lidos ────────────────────────────────────
+// IMPORTANTE: deve ficar ANTES de /:id/lido para evitar conflito de rota
 alertasCartao.patch('/todos-lidos', requireAuth, async (c) => {
   const user = c.get('user')
   await c.env.DB.prepare(
     `UPDATE alertas_cartao SET lido=1 WHERE user_id=?`
   ).bind(user.id).run()
+  return c.json({ success: true })
+})
+
+// ─── PATCH /api/alertas-cartao/:id/lido ──────────────────────────────────────
+alertasCartao.patch('/:id/lido', requireAuth, async (c) => {
+  const user     = c.get('user')
+  const alertaId = parseInt(c.req.param('id'))
+
+  if (isNaN(alertaId)) return c.json({ error: 'ID inválido' }, 400)
+
+  await c.env.DB.prepare(
+    `UPDATE alertas_cartao SET lido=1 WHERE id=? AND user_id=?`
+  ).bind(alertaId, user.id).run()
+
   return c.json({ success: true })
 })
 

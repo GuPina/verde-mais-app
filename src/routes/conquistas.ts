@@ -410,11 +410,71 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   // Patrimônio líquido > R$500.000
   if (patrimonioLiq >= 500000) await ganhar('patrimonio_500k')
 
-  // Scorecard: acima de 80 por 3 meses (só verifica score atual, flag histórica)
+  // ── Score de saúde ────────────────────────────────────────────────────────
   const scoreAtual = await c.env.DB.prepare(
     "SELECT score_saude FROM users WHERE id = ?"
   ).bind(user.id).first() as any
-  if ((scoreAtual?.score_saude || 0) >= 100) await ganhar('score_100')
+  const score = scoreAtual?.score_saude || 0
+  if (score >= 50)  await ganhar('score_50')
+  if (score >= 70)  await ganhar('score_70')
+  if (score >= 80)  await ganhar('score_80')
+  if (score >= 90)  await ganhar('score_90')
+  if (score >= 100) await ganhar('score_100')
+
+  // Score > 80 por 3 meses consecutivos (usando histórico de score)
+  if (score >= 80) {
+    try {
+      const scoreHist = await c.env.DB.prepare(
+        `SELECT score FROM score_historico WHERE user_id = ? ORDER BY mes DESC LIMIT 3`
+      ).bind(user.id).all() as any
+      const hist = scoreHist?.results || []
+      if (hist.length >= 3 && hist.every((h: any) => (h.score || 0) >= 80)) {
+        await ganhar('score_80_3m')
+      }
+    } catch { /* tabela pode não existir */ }
+  }
+
+  // ── Olho no Futuro (viu_projecao) — ganho ao acessar simulador ────────────
+  // Verificar se usou o simulador (tem registro de simulação salva ou investimento)
+  const usouSimulador = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM investimentos WHERE user_id = ?`
+  ).bind(user.id).first() as any
+  if ((usouSimulador?.total || 0) >= 1) await ganhar('viu_projecao')
+
+  // ── Dinheiro Trabalhando (renda_de_investimento) ──────────────────────────
+  const rendaInvCheck = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM receitas
+     WHERE user_id = ? AND tipo IN ('investimento','dividendo','rendimento','renda_variavel')`
+  ).bind(user.id).first() as any
+  if ((rendaInvCheck?.total || 0) >= 1) await ganhar('renda_de_investimento')
+
+  // Investimento com rentabilidade positiva = dinheiro trabalhando
+  const invComLucro = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND valor_atual > valor_investido`
+  ).bind(user.id).first() as any
+  if ((invComLucro?.total || 0) >= 1) await ganhar('renda_de_investimento')
+
+  // ── Antecipação de Contas ─────────────────────────────────────────────────
+  try {
+    const antecipacoes = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM antecipacoes WHERE user_id=? AND status='antecipada'`
+    ).bind(user.id).first() as any
+    if ((antecipacoes?.total || 0) >= 1) await ganhar('primeira_antecipacao')
+    if ((antecipacoes?.total || 0) >= 3) await ganhar('3_antecipacoes')
+  } catch { /* tabela pode não existir */ }
+
+  // ── Recebimentos Parcelados ───────────────────────────────────────────────
+  try {
+    const recebPrimeiro = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM recebimentos_parcelados WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((recebPrimeiro?.total || 0) >= 1) await ganhar('primeiro_recebimento_parcelado')
+
+    const recebConcluido = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM recebimentos_parcelados WHERE user_id=? AND status='concluido'`
+    ).bind(user.id).first() as any
+    if ((recebConcluido?.total || 0) >= 1) await ganhar('recebimento_concluido')
+  } catch { /* tabela pode não existir */ }
 
   return c.json({ novas_conquistas: novas, total_novas: novas.length })
 })

@@ -287,6 +287,21 @@ async function getCotacoesCriptoFallback(db: D1Database, symbols: string[], usdB
 }
 
 
+// Conta apenas dias úteis (seg-sex) entre duas datas
+function contarDiasUteis(dataInicio: Date, dataFim: Date): number {
+  let dias = 0
+  const cur = new Date(dataInicio)
+  cur.setHours(0, 0, 0, 0)
+  const fim = new Date(dataFim)
+  fim.setHours(0, 0, 0, 0)
+  while (cur < fim) {
+    const dow = cur.getDay()
+    if (dow !== 0 && dow !== 6) dias++ // 0=dom, 6=sab
+    cur.setDate(cur.getDate() + 1)
+  }
+  return dias
+}
+
 function calcularCaixinha(valorInvestido: number, percentualCdi: number, cdiAnual: number, diasDecorridos: number): number {
   const cdiDiario = Math.pow(1 + cdiAnual / 100, 1 / 252) - 1
   const taxaDiaria = cdiDiario * (percentualCdi / 100)
@@ -474,8 +489,8 @@ investimentos.get('/comparativo-cdi', requireAuth, async (c) => {
     const vi = Number(inv.valor_investido)
     const va = Number(inv.valor_atual)
     const dataInicio = new Date(inv.data_inicio + 'T00:00:00')
-    const diasDecorridos = Math.max(1, Math.floor((Date.now() - dataInicio.getTime()) / 86400000))
-    const anosDecorridos = diasDecorridos / 365
+    const diasDecorridos = Math.max(1, contarDiasUteis(dataInicio, new Date()))
+    const anosDecorridos = diasDecorridos / 252 // 252 dias úteis/ano
 
     // Rentabilidade anualizada do ativo
     const rentAnualAtivo = vi > 0 && anosDecorridos > 0
@@ -528,11 +543,12 @@ investimentos.get('/', requireAuth, async (c) => {
 
     if (inv.tipo === 'caixinha' && inv.percentual_cdi && inv.data_inicio) {
       const dataInicio = new Date(inv.data_inicio + 'T00:00:00')
-      const diasDecorridos = Math.max(0, Math.floor((Date.now() - dataInicio.getTime()) / 86400000))
+      // Usa apenas dias úteis (seg-sex) para refletir mercado financeiro real
+      const diasDecorridos = contarDiasUteis(dataInicio, new Date())
       const cdiEfetivo = inv.cdi_atual || cdiAnual
       valorAtualCalc = calcularCaixinha(inv.valor_investido, inv.percentual_cdi, cdiEfetivo, diasDecorridos)
       rentab = inv.valor_investido > 0 ? ((valorAtualCalc - inv.valor_investido) / inv.valor_investido) * 100 : 0
-      cotacaoInfo = { cdi_anual: cdiEfetivo, percentual_cdi: inv.percentual_cdi, dias_decorridos: diasDecorridos, cdi_info: `${inv.percentual_cdi}% do CDI (${cdiEfetivo}% a.a.)` }
+      cotacaoInfo = { cdi_anual: cdiEfetivo, percentual_cdi: inv.percentual_cdi, dias_decorridos: diasDecorridos, dias_uteis: true, cdi_info: `${inv.percentual_cdi}% do CDI (${cdiEfetivo}% a.a.) — ${diasDecorridos} dias úteis` }
     } else if (inv.tipo === 'cripto' && inv.symbol) {
       const sym = inv.symbol.toUpperCase()
       const cot = cotacoesCripto[sym]
@@ -626,7 +642,7 @@ investimentos.post('/', requireAuth, async (c) => {
 
   if (tipoFinal === 'caixinha' && percentual_cdi) {
     const dataInicio = new Date(data_inicio + 'T00:00:00')
-    const diasDecorridos = Math.max(0, Math.floor((Date.now() - dataInicio.getTime()) / 86400000))
+    const diasDecorridos = Math.max(0, contarDiasUteis(dataInicio, new Date()))
     if (diasDecorridos > 0) {
       valor_atual = calcularCaixinha(parseFloat(valor_investido), parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
       rentab = ((valor_atual - parseFloat(valor_investido)) / parseFloat(valor_investido)) * 100
@@ -707,7 +723,7 @@ investimentos.put('/:id', requireAuth, async (c) => {
 
   if (tipo === 'caixinha' && percentual_cdi) {
     const dataInicio = new Date((data_inicio || existing.data_inicio) + 'T00:00:00')
-    const diasDecorridos = Math.max(0, Math.floor((Date.now() - dataInicio.getTime()) / 86400000))
+    const diasDecorridos = Math.max(0, contarDiasUteis(dataInicio, new Date()))
     if (diasDecorridos > 0) {
       valor_atual = calcularCaixinha(parseFloat(valor_investido || existing.valor_investido), parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
       rentab = ((valor_atual - parseFloat(valor_investido || existing.valor_investido)) / parseFloat(valor_investido || existing.valor_investido)) * 100
@@ -809,7 +825,7 @@ investimentos.delete('/:id', requireAuth, async (c) => {
 // GET /api/investimentos/simulacao
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.get('/simulacao', async (c) => {
-  const { valor, tipo, prazo_meses = '12', taxa_personalizada, percentual_cdi } = c.req.query()
+  const { valor, tipo, prazo_meses = '12', taxa_personalizada, percentual_cdi, aporte_mensal = '0' } = c.req.query()
   if (!valor || !tipo) return c.json({ error: 'Parâmetros: valor, tipo, prazo_meses' }, 400)
 
   // Buscar CDI real
@@ -837,31 +853,46 @@ investimentos.get('/simulacao', async (c) => {
   }
 
   const valorInicial = parseFloat(valor)
+  const aporteMensal = parseFloat(aporte_mensal) || 0
   const meses = parseInt(prazo_meses)
   const projecao = []
   let valorAtual = valorInicial
+  let totalAportado = 0
 
   for (let mes = 1; mes <= meses; mes++) {
-    valorAtual = valorAtual * (1 + taxaMensal)
+    valorAtual = valorAtual * (1 + taxaMensal) + aporteMensal
+    totalAportado += aporteMensal
     if (mes % 3 === 0 || mes === meses) {
-      projecao.push({ mes, valor: Math.round(valorAtual * 100) / 100, lucro: Math.round((valorAtual - valorInicial) * 100) / 100 })
+      const investidoAcumulado = valorInicial + totalAportado
+      projecao.push({
+        mes,
+        valor: Math.round(valorAtual * 100) / 100,
+        lucro: Math.round((valorAtual - investidoAcumulado) * 100) / 100,
+        total_investido: Math.round(investidoAcumulado * 100) / 100
+      })
     }
   }
 
-  const valorFinal = valorInicial * Math.pow(1 + taxaMensal, meses)
+  const valorFinal = valorAtual
+  const investidoTotal = valorInicial + totalAportado
   return c.json({
     simulacao: {
-      valor_inicial: valorInicial, tipo, prazo_meses: meses,
+      valor_inicial: valorInicial,
+      aporte_mensal: aporteMensal,
+      total_aportado: Math.round(totalAportado * 100) / 100,
+      total_investido: Math.round(investidoTotal * 100) / 100,
+      tipo,
+      prazo_meses: meses,
       taxa_mensal: Math.round(taxaMensal * 10000) / 100,
       valor_final: Math.round(valorFinal * 100) / 100,
-      lucro_total: Math.round((valorFinal - valorInicial) * 100) / 100,
-      rentabilidade_total: Math.round(((valorFinal / valorInicial) - 1) * 10000) / 100,
+      lucro_total: Math.round((valorFinal - investidoTotal) * 100) / 100,
+      rentabilidade_total: Math.round(((valorFinal / investidoTotal) - 1) * 10000) / 100,
       projecao
     },
     cdi_atual: Math.round(CDI_EFETIVO * 100) / 100,
     aviso: tipo === 'caixinha'
-      ? `Simulação com ${percentual_cdi || 100}% do CDI (CDI atual: ${Math.round(CDI_EFETIVO * 100) / 100}% a.a.). Rentabilidade calculada com capitalização diária.`
-      : 'Esta é uma simulação educacional. Rentabilidades passadas não garantem resultados futuros.'
+      ? `Simulacao com ${percentual_cdi || 100}% do CDI (CDI atual: ${Math.round(CDI_EFETIVO * 100) / 100}% a.a.).`
+      : 'Esta e uma simulacao educacional. Rentabilidades passadas nao garantem resultados futuros.'
   })
 })
 

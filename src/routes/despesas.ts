@@ -305,6 +305,9 @@ despesas.put('/:id', requireAuth, async (c) => {
     return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
   }
 
+  // Buscar dados atuais da despesa (para comparar valor e cartao)
+  const despesaAtual = await c.env.DB.prepare('SELECT * FROM despesas WHERE id=? AND user_id=?').bind(id, user.id).first() as any
+
   // Montar update dinâmico para campos opcionais
   const updateFields = ['descricao=?','data=?','categoria=?','subcategoria=?','valor=?']
   const updateVals: any[] = [descricao, data, categoria, subcategoria || null, valorEditNum]
@@ -320,6 +323,21 @@ despesas.put('/:id', requireAuth, async (c) => {
   await c.env.DB.prepare(
     `UPDATE despesas SET ${updateFields.join(', ')} WHERE id=? AND user_id=?`
   ).bind(...updateVals).run()
+
+  // Sincronizar card_charges quando o valor mudou e ha cartao vinculado
+  if (despesaAtual?.cartao_id && valorEditNum !== Number(despesaAtual.valor)) {
+    const charge = await c.env.DB.prepare('SELECT * FROM card_charges WHERE expense_id=?').bind(id).first() as any
+    if (charge) {
+      const diffValor = valorEditNum - Number(despesaAtual.valor)
+      await c.env.DB.prepare('UPDATE card_charges SET valor=? WHERE expense_id=?').bind(valorEditNum, id).run()
+      // Se pendente, ajustar limite disponivel do cartao
+      if (charge.status === 'pendente') {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?'
+        ).bind(diffValor, despesaAtual.cartao_id, user.id).run()
+      }
+    }
+  }
 
   return c.json({ success: true, message: 'Despesa atualizada!' })
 })
@@ -404,6 +422,41 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   }
 
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
+})
+
+// PATCH /api/despesas/bulk-pagar — marcar multiplas despesas como pagas
+despesas.patch('/bulk-pagar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => null)
+  const ids: number[] = body?.ids || []
+  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
+  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
+
+  const hoje = new Date().toISOString().split('T')[0]
+  let atualizadas = 0
+  for (const id of ids) {
+    // Buscar dados antes de atualizar para sincronizar cartão
+    const desp = await c.env.DB.prepare(
+      'SELECT * FROM despesas WHERE id=? AND user_id=? AND status=\'pendente\''
+    ).bind(id, user.id).first() as any
+    if (!desp) continue
+
+    const res = await c.env.DB.prepare(
+      `UPDATE despesas SET status='pago', data_pagamento=? WHERE id=? AND user_id=? AND status='pendente'`
+    ).bind(hoje, id, user.id).run()
+    if (res.meta.changes > 0) {
+      atualizadas++
+      // Sincronizar cartão de crédito vinculado
+      if (desp.cartao_id) {
+        await c.env.DB.prepare('UPDATE card_charges SET status=\'pago\' WHERE expense_id=?').bind(id).run()
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id=? AND user_id=?'
+        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
+      }
+    }
+  }
+
+  return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como paga(s).` })
 })
 
 // DELETE /api/despesas/bulk — excluir múltiplas despesas de uma vez

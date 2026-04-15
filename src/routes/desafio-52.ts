@@ -114,21 +114,28 @@ desafio52.patch('/:semana', requireAuth, async (c) => {
     WHERE user_id = ? AND year = ? AND week_number = ?
   `).bind(status, status, user.id, ano, weekNum).run()
 
-  // ── BLOCO 6.4: Integração Desafio 52 → Metas ───────────────────────────────
-  // Se há meta vinculada na config do desafio, depositar o valor da semana nela
+  // ── Integração Desafio 52 → Metas e Investimentos ──────────────────────────
   let meta_atualizada = false
+  let investimento_atualizado = false
   if (status === 'completed') {
     const config = await c.env.DB.prepare(
-      `SELECT meta_vinculada FROM desafio_config WHERE user_id = ?`
+      `SELECT meta_vinculada, investimento_vinculado FROM desafio_config WHERE user_id = ?`
     ).bind(user.id).first() as any
 
     if (config?.meta_vinculada) {
-      // Depositar valor da semana na meta vinculada
       await c.env.DB.prepare(`
         UPDATE metas SET valor_atual = MIN(valor_atual + ?, valor_objetivo)
         WHERE id = ? AND user_id = ? AND status = 'ativa'
       `).bind(week.target_amount, config.meta_vinculada, user.id).run()
       meta_atualizada = true
+    }
+
+    if (config?.investimento_vinculado) {
+      await c.env.DB.prepare(`
+        UPDATE investimentos SET valor_investido = valor_investido + ?, valor_atual = valor_atual + ?
+        WHERE id = ? AND user_id = ?
+      `).bind(week.target_amount, week.target_amount, config.investimento_vinculado, user.id).run()
+      investimento_atualizado = true
     }
   }
 
@@ -137,11 +144,12 @@ desafio52.patch('/:semana', requireAuth, async (c) => {
     week: weekNum,
     amount: week.target_amount,
     meta_atualizada,
+    investimento_atualizado,
     message: status === 'completed'
-      ? `✅ Semana ${weekNum} concluída! +R$ ${week.target_amount.toFixed(2)} guardados${meta_atualizada ? ' — meta atualizada!' : ''}`
+      ? `Semana ${weekNum} concluida! +R$ ${week.target_amount.toFixed(2)} guardados${meta_atualizada ? ' — meta atualizada!' : ''}${investimento_atualizado ? ' — investimento atualizado!' : ''}`
       : status === 'skipped'
-      ? `↩️ Semana ${weekNum} pulada. Não desista!`
-      : `⏳ Semana ${weekNum} marcada como pendente`
+      ? `Semana ${weekNum} pulada.`
+      : `Semana ${weekNum} marcada como pendente`
   })
 })
 
@@ -183,30 +191,24 @@ desafio52.get('/config', requireAuth, async (c) => {
 // ── POST /api/desafio-52/config — Melhoria 3.1 ────────────────────────────
 desafio52.post('/config', requireAuth, async (c) => {
   const user = c.get('user')
-  const { valor_base = 1, multiplicador = 1, modo_invertido = false } = await c.req.json()
+  const { valor_base = 1, multiplicador = 1, modo_invertido = false, meta_vinculada = null, investimento_vinculado = null } = await c.req.json()
 
   const vBase = Math.max(0.5, Math.min(100, parseFloat(valor_base)))
   const mult = Math.max(0.5, Math.min(10, parseFloat(multiplicador)))
   const invertido = Boolean(modo_invertido)
+  const metaId = meta_vinculada ? parseInt(meta_vinculada) : null
+  const investId = investimento_vinculado ? parseInt(investimento_vinculado) : null
 
-  // Salvar ou atualizar config
-  await c.env.DB.prepare(`
-    INSERT INTO desafio_config (user_id, valor_base, multiplicador, modo_invertido)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET
-      valor_base = excluded.valor_base,
-      multiplicador = excluded.multiplicador,
-      modo_invertido = excluded.modo_invertido,
-      updated_at = CURRENT_TIMESTAMP
-  `).bind(user.id, vBase, mult, invertido ? 1 : 0).run().catch(async () => {
-    // Se ON CONFLICT não funcionar, faz upsert manual
-    const existing = await c.env.DB.prepare(`SELECT id FROM desafio_config WHERE user_id = ?`).bind(user.id).first()
-    if (existing) {
-      await c.env.DB.prepare(`UPDATE desafio_config SET valor_base=?, multiplicador=?, modo_invertido=? WHERE user_id=?`).bind(vBase, mult, invertido ? 1 : 0, user.id).run()
-    } else {
-      await c.env.DB.prepare(`INSERT INTO desafio_config (user_id, valor_base, multiplicador, modo_invertido) VALUES (?,?,?,?)`).bind(user.id, vBase, mult, invertido ? 1 : 0).run()
-    }
-  })
+  const existing = await c.env.DB.prepare(`SELECT id FROM desafio_config WHERE user_id = ?`).bind(user.id).first()
+  if (existing) {
+    await c.env.DB.prepare(
+      `UPDATE desafio_config SET valor_base=?, multiplicador=?, modo_invertido=?, meta_vinculada=?, investimento_vinculado=?, updated_at=CURRENT_TIMESTAMP WHERE user_id=?`
+    ).bind(vBase, mult, invertido ? 1 : 0, metaId, investId, user.id).run()
+  } else {
+    await c.env.DB.prepare(
+      `INSERT INTO desafio_config (user_id, valor_base, multiplicador, modo_invertido, meta_vinculada, investimento_vinculado) VALUES (?,?,?,?,?,?)`
+    ).bind(user.id, vBase, mult, invertido ? 1 : 0, metaId, investId).run()
+  }
 
   const total = calcularTotalAnual(vBase, mult, invertido)
 
