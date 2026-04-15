@@ -13880,103 +13880,155 @@ const VM = {
   },
 
   // ==================== ANTECIPAÇÃO DE CONTAS ====================
+  // Paleta de ícones por tipo
+  _antTipoInfo(tipo) {
+    return {
+      conta:          { icon: '📋', label: 'Conta',          cor: '#818CF8' },
+      fatura:         { icon: '💳', label: 'Fatura Cartão',  cor: '#F59E0B' },
+      fatura_cartao:  { icon: '💳', label: 'Fatura Cartão',  cor: '#F59E0B' },
+      parcela:        { icon: '📦', label: 'Parcela',        cor: '#34D399' },
+      emprestimo:     { icon: '💰', label: 'Empréstimo',     cor: '#F87171' },
+      financiamento:  { icon: '🏠', label: 'Financiamento',  cor: '#FB923C' },
+      outros:         { icon: '📁', label: 'Outros',         cor: '#94A3B8' },
+    }[tipo] || { icon: '📋', label: tipo, cor: '#818CF8' }
+  },
+
   async pageAntecipacao() {
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div class="section-header">
         <div>
           <div class="section-title">⚡ Antecipação de Contas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Antecipe pagamentos e economize juros. Integrado ao Diagnóstico 360°.</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Registre pagamentos antecipados — com ou sem desconto. Integrado ao Diagnóstico 360°.</div>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button onclick="VM._modalNovaAntecipacao()" class="btn-primary" style="width:auto;padding:10px 20px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM._modalNovaAntecipacao()" class="btn-primary" style="width:auto;padding:10px 18px;">
             <i class="fas fa-plus"></i> Nova Antecipação
           </button>
         </div>
       </div>
       <div id="antecipacao-container">
-        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
-      </div>
-    `
+        <div class="skeleton" style="height:160px;border-radius:16px;"></div>
+      </div>`
     this._carregarAntecipacoes()
   },
 
   async _carregarAntecipacoes() {
     const cont = document.getElementById('antecipacao-container')
+    if (!cont) return
     try {
       const [data, sug] = await Promise.all([
         this.api('GET', 'antecipacao'),
         this.api('GET', 'antecipacao/sugestoes').catch(() => ({ sugestoes: [] }))
       ])
-      const { antecipacoes = [], total_economizado = 0 } = data
+      const { antecipacoes = [], total_economizado = 0, total_antecipado = 0 } = data
       const sugestoes = sug.sugestoes || []
+
+      // ── filtros ──────────────────────────────────────────────────────────
+      const filtroAtual = this._antFiltro || 'todos'
+      const lista = antecipacoes.filter(a =>
+        filtroAtual === 'todos' ? true :
+        filtroAtual === 'pendente' ? a.status === 'pendente' :
+        filtroAtual === 'antecipada' ? a.status === 'antecipada' : true
+      )
+
+      const countPend  = antecipacoes.filter(a => a.status === 'pendente').length
+      const countAnt   = antecipacoes.filter(a => a.status === 'antecipada').length
+      const temEco     = total_economizado > 0
 
       let html = ''
 
-      // Card de sugestões do sistema
-      if (sugestoes.length > 0) {
-        html += `
-          <div style="background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(251,191,36,0.04));border:1px solid rgba(245,158,11,0.2);border-radius:16px;padding:20px;margin-bottom:20px;">
-            <div style="font-size:0.85rem;font-weight:700;color:#F59E0B;margin-bottom:12px;">💡 Sugestões de Antecipação (próximos 60 dias)</div>
-            <div style="display:flex;flex-direction:column;gap:8px;">
-              ${sugestoes.slice(0,5).map(s => `
-                <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.05);">
-                  <div style="flex:1;">
-                    <div style="font-size:0.85rem;font-weight:600;color:#F8FAFC;">${s.descricao}</div>
-                    <div style="font-size:0.75rem;color:#64748B;">Vence em ${s.dias_ate_vencimento}d • ${this.formatMoney(s.valor)}</div>
-                  </div>
-                  <div style="text-align:right;flex-shrink:0;">
-                    <div style="font-size:0.75rem;color:#10B981;font-weight:600;">Economia ~${this.formatMoney(s.economia_estimada)}</div>
-                    <button onclick="VM._antecipacaoRapida(${JSON.stringify(s).replace(/"/g,'&quot;')})"
-                      style="margin-top:4px;padding:4px 10px;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);border-radius:6px;cursor:pointer;font-size:0.72rem;">
-                      Antecipar
-                    </button>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>`
-      }
+      // ── KPIs ─────────────────────────────────────────────────────────────
+      html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px;">
+        <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:14px;padding:14px;text-align:center;">
+          <div style="color:#A5B4FC;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">⚡ Valor Antecipado</div>
+          <div style="font-size:1.4rem;font-weight:800;color:#818CF8;">${this.formatMoney(total_antecipado)}</div>
+          <div style="font-size:0.7rem;color:#475569;margin-top:3px;">${countAnt} operaç${countAnt===1?'ão':'ões'}</div>
+        </div>
+        ${temEco ? `<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:14px;text-align:center;">
+          <div style="color:#6EE7B7;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">✨ Total Economizado</div>
+          <div style="font-size:1.4rem;font-weight:800;color:#10B981;">${this.formatMoney(total_economizado)}</div>
+          <div style="font-size:0.7rem;color:#475569;margin-top:3px;">em juros/descontos</div>
+        </div>` : ''}
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:14px;text-align:center;">
+          <div style="color:#FCD34D;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">⏳ Pendentes</div>
+          <div style="font-size:1.4rem;font-weight:800;color:#F59E0B;">${countPend}</div>
+          <div style="font-size:0.7rem;color:#475569;margin-top:3px;">aguardando confirmação</div>
+        </div>
+      </div>`
 
-      // Summary card
-      html += `
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
-          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;text-align:center;">
-            <div style="color:#6EE7B7;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Total Economizado</div>
-            <div style="font-size:1.5rem;font-weight:800;color:#10B981;">${this.formatMoney(total_economizado)}</div>
-          </div>
-          <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:14px;padding:16px;text-align:center;">
-            <div style="color:#A5B4FC;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚡ Total Antecipado</div>
-            <div style="font-size:1.5rem;font-weight:800;color:#818CF8;">${antecipacoes.filter(a=>a.status==='antecipada').length}</div>
-          </div>
-          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:16px;text-align:center;">
-            <div style="color:#FCD34D;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⏳ Pendentes</div>
-            <div style="font-size:1.5rem;font-weight:800;color:#F59E0B;">${antecipacoes.filter(a=>a.status==='pendente').length}</div>
+      // ── Sugestões automáticas ─────────────────────────────────────────────
+      if (sugestoes.length > 0) {
+        html += `<div style="background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(251,191,36,0.02));border:1px solid rgba(245,158,11,0.18);border-radius:14px;padding:16px;margin-bottom:18px;">
+          <div style="font-size:0.8rem;font-weight:700;color:#F59E0B;margin-bottom:10px;">💡 Contas vencendo nos próximos 60 dias (sugestões)</div>
+          <div style="display:flex;flex-direction:column;gap:7px;">
+            ${sugestoes.slice(0,5).map(s => `
+              <div style="display:flex;align-items:center;gap:12px;padding:9px 13px;background:rgba(255,255,255,0.02);border-radius:9px;border:1px solid rgba(255,255,255,0.04);">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:0.83rem;font-weight:600;color:#F8FAFC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.descricao}</div>
+                  <div style="font-size:0.72rem;color:#64748B;">Vence em ${s.dias_ate_vencimento}d · ${this.formatMoney(s.valor)}${s.cartao_nome ? ` · 💳 ${s.cartao_nome}` : ''}</div>
+                </div>
+                <button onclick="VM._antecipacaoRapida(${JSON.stringify(s).replace(/"/g,'&quot;')})"
+                  style="flex-shrink:0;padding:5px 12px;background:rgba(245,158,11,0.14);color:#F59E0B;border:1px solid rgba(245,158,11,0.28);border-radius:7px;cursor:pointer;font-size:0.73rem;font-weight:600;white-space:nowrap;">
+                  ⚡ Antecipar
+                </button>
+              </div>`).join('')}
           </div>
         </div>`
+      }
 
-      if (antecipacoes.length === 0) {
-        html += `<div class="empty-state"><div style="font-size:3rem;margin-bottom:16px;">⚡</div><h3>Nenhuma antecipação registrada</h3><p style="color:#64748B;">Antecipe pagamentos para economizar juros e melhorar seu score financeiro.</p></div>`
+      // ── Filtros ───────────────────────────────────────────────────────────
+      html += `<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+        ${['todos','pendente','antecipada'].map(f => `
+          <button onclick="VM._antFiltro='${f}';VM._carregarAntecipacoes()"
+            style="padding:5px 14px;border-radius:20px;border:1px solid ${filtroAtual===f?'#6366F1':'rgba(255,255,255,0.1)'};background:${filtroAtual===f?'rgba(99,102,241,0.15)':'transparent'};color:${filtroAtual===f?'#818CF8':'#64748B'};cursor:pointer;font-size:0.75rem;font-weight:${filtroAtual===f?'700':'400'};">
+            ${{todos:'Todos',pendente:'⏳ Pendentes',antecipada:'✅ Confirmadas'}[f]}
+          </button>`).join('')}
+      </div>`
+
+      // ── Lista ─────────────────────────────────────────────────────────────
+      if (lista.length === 0) {
+        html += `<div class="empty-state" style="margin-top:24px;">
+          <div style="font-size:3rem;margin-bottom:12px;">⚡</div>
+          <h3 style="color:#94A3B8;">${antecipacoes.length === 0 ? 'Nenhuma antecipação registrada' : 'Nenhum item neste filtro'}</h3>
+          <p style="color:#475569;font-size:0.85rem;">${antecipacoes.length === 0 ? 'Registre pagamentos que você antecipou — com ou sem desconto.' : 'Tente outro filtro acima.'}</p>
+        </div>`
       } else {
-        html += `<div style="display:flex;flex-direction:column;gap:10px;">`
-        antecipacoes.forEach(a => {
-          const corStatus = a.status === 'antecipada' ? '#10B981' : a.status === 'cancelada' ? '#64748B' : '#F59E0B'
-          const labelStatus = a.status === 'antecipada' ? '✅ Antecipada' : a.status === 'cancelada' ? '❌ Cancelada' : '⏳ Pendente'
+        html += `<div style="display:flex;flex-direction:column;gap:9px;">`
+        lista.forEach(a => {
+          const ti = this._antTipoInfo(a.tipo)
+          const corStatus = a.status === 'antecipada' ? '#10B981' : a.status === 'cancelada' ? '#475569' : '#F59E0B'
+          const labelStatus = a.status === 'antecipada' ? '✅ Confirmada' : a.status === 'cancelada' ? '❌ Cancelada' : '⏳ Pendente'
+          const dataAnt = new Date(a.data_antecipacao + 'T12:00:00').toLocaleDateString('pt-BR')
+          const dataVenc = a.data_vencimento_original && a.data_vencimento_original !== a.data_antecipacao
+            ? new Date(a.data_vencimento_original + 'T12:00:00').toLocaleDateString('pt-BR') : null
           html += `
-            <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;display:flex;align-items:flex-start;gap:14px;">
-              <div style="flex:1;">
-                <div style="font-size:0.92rem;font-weight:700;color:#F8FAFC;margin-bottom:4px;">${a.descricao}</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.75rem;color:#64748B;">
-                  <span>💰 ${this.formatMoney(a.valor_total)}</span>
-                  <span>📅 Antecipado: ${new Date(a.data_antecipacao+'T12:00:00').toLocaleDateString('pt-BR')}</span>
-                  <span>📋 Venc.: ${new Date(a.data_vencimento_original+'T12:00:00').toLocaleDateString('pt-BR')}</span>
-                  ${a.economia_juros > 0 ? `<span style="color:#10B981;">✨ Economia: ${this.formatMoney(a.economia_juros)}</span>` : ''}
+            <div style="background:rgba(15,23,42,0.9);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px;">
+              <div style="width:36px;height:36px;border-radius:10px;background:${ti.cor}18;border:1px solid ${ti.cor}30;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">${ti.icon}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+                  <span style="font-size:0.9rem;font-weight:700;color:#F8FAFC;">${a.descricao}</span>
+                  <span style="background:${ti.cor}15;color:${ti.cor};border:1px solid ${ti.cor}25;border-radius:20px;padding:1px 8px;font-size:0.68rem;font-weight:600;">${ti.label}</span>
+                  ${a.cartao_nome ? `<span style="background:rgba(245,158,11,0.1);color:#F59E0B;border:1px solid rgba(245,158,11,0.2);border-radius:20px;padding:1px 8px;font-size:0.68rem;">💳 ${a.cartao_nome}</span>` : ''}
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.73rem;color:#64748B;">
+                  <span style="color:#F8FAFC;font-weight:700;">${this.formatMoney(a.valor_total)}</span>
+                  <span>📅 ${dataAnt}</span>
+                  ${dataVenc ? `<span>🏁 Venc. original: ${dataVenc}</span>` : ''}
+                  ${(a.economia_juros || 0) > 0 ? `<span style="color:#10B981;font-weight:600;">✨ Desconto: ${this.formatMoney(a.economia_juros)}</span>` : ''}
+                  ${a.observacoes ? `<span style="color:#475569;" title="${a.observacoes}">📝 ${a.observacoes.substring(0,30)}${a.observacoes.length>30?'...':''}</span>` : ''}
                 </div>
               </div>
-              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
-                <span style="background:${corStatus}18;color:${corStatus};border:1px solid ${corStatus}30;border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:700;">${labelStatus}</span>
-                ${a.status === 'pendente' ? `<button onclick="VM._confirmarAntecipacao(${a.id})" style="padding:4px 10px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);border-radius:6px;cursor:pointer;font-size:0.72rem;">Confirmar</button>` : ''}
-                <button onclick="VM._excluirAntecipacao(${a.id})" style="padding:4px 10px;background:rgba(239,68,68,0.1);color:#F87171;border:1px solid rgba(239,68,68,0.2);border-radius:6px;cursor:pointer;font-size:0.72rem;">Excluir</button>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0;">
+                <span style="background:${corStatus}18;color:${corStatus};border:1px solid ${corStatus}30;border-radius:20px;padding:2px 10px;font-size:0.7rem;font-weight:700;">${labelStatus}</span>
+                <div style="display:flex;gap:4px;margin-top:2px;">
+                  <button onclick="VM._editarAntecipacao(${JSON.stringify(a).replace(/"/g,'&quot;')})" title="Editar"
+                    style="padding:4px 9px;background:rgba(99,102,241,0.1);color:#818CF8;border:1px solid rgba(99,102,241,0.25);border-radius:7px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                  ${a.status === 'pendente' ? `<button onclick="VM._confirmarAntecipacao(${a.id})" title="Confirmar"
+                    style="padding:4px 9px;background:rgba(16,185,129,0.12);color:#10B981;border:1px solid rgba(16,185,129,0.25);border-radius:7px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-check"></i></button>` : ''}
+                  <button onclick="VM._excluirAntecipacao(${a.id})" title="Excluir"
+                    style="padding:4px 9px;background:rgba(239,68,68,0.08);color:#F87171;border:1px solid rgba(239,68,68,0.18);border-radius:7px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                </div>
               </div>
             </div>`
         })
@@ -13984,7 +14036,7 @@ const VM = {
       }
       cont.innerHTML = html
     } catch(e) {
-      cont.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar antecipações</p></div>`
+      if (cont) cont.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar: ${e.message}</p></div>`
     }
   },
 
@@ -13996,22 +14048,21 @@ const VM = {
         valor_total: despesa.valor,
         data_vencimento_original: despesa.vencimento,
         data_antecipacao: hoje,
-        economia_juros: despesa.economia_estimada || 0,
-        tipo: 'conta',
+        economia_juros: 0,
+        status: 'pendente',
+        tipo: despesa.cartao_id ? 'fatura_cartao' : 'conta',
         referencia_id: despesa.id,
         referencia_tipo: 'despesa'
       })
       this.toast('Antecipação registrada! ⚡', 'success')
       this._carregarAntecipacoes()
-    } catch(e) {
-      this.toast('Erro ao registrar antecipação', 'error')
-    }
+    } catch(e) { this.toast('Erro ao registrar antecipação', 'error') }
   },
 
   async _confirmarAntecipacao(id) {
     try {
       await this.api('PATCH', `antecipacao/${id}/status`, { status: 'antecipada' })
-      this.toast('Antecipação confirmada! ✅', 'success')
+      this.toast('✅ Antecipação confirmada!', 'success')
       this._carregarAntecipacoes()
     } catch(e) { this.toast('Erro', 'error') }
   },
@@ -14021,84 +14072,182 @@ const VM = {
     if (!ok) return
     try {
       await this.api('DELETE', `antecipacao/${id}`)
-      this.toast('Excluído!'); this._carregarAntecipacoes()
+      this.toast('Removida!'); this._carregarAntecipacoes()
     } catch(e) { this.toast('Erro', 'error') }
   },
 
-  async _modalNovaAntecipacao() {
+  async _editarAntecipacao(ant) {
+    await this._modalNovaAntecipacao(ant)
+  },
+
+  async _modalNovaAntecipacao(ant = null) {
     const hoje = new Date().toISOString().split('T')[0]
+    const editando = !!ant
+
+    // Carregar cartões para o select
+    let cartoes = []
+    try {
+      const r = await this.api('GET', 'cartoes')
+      cartoes = r.cartoes || []
+    } catch(e) {}
+
+    const modalId = 'modal-antecipacao'
+    document.getElementById(modalId)?.remove()
     const modal = document.createElement('div')
-    modal.id = 'modal-antecipacao'
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.id = modalId
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'
+
+    const inp = (id, label, val, type='text', placeholder='', extra='') =>
+      `<div>
+        <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">${label}</label>
+        <input id="${id}" type="${type}" value="${val ?? ''}" placeholder="${placeholder}"
+          style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;" ${extra}>
+      </div>`
+
+    const tipoSelecionado = ant?.tipo || 'conta'
+    const mostrarCartao = ['fatura','fatura_cartao'].includes(tipoSelecionado)
+
     modal.innerHTML = `
-      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:28px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:26px;width:100%;max-width:500px;max-height:92vh;overflow-y:auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-          <h2 style="color:#f1f5f9;font-size:1.1rem;font-weight:700;margin:0;">⚡ Nova Antecipação</h2>
-          <button onclick="document.getElementById('modal-antecipacao').remove()" style="background:none;border:none;color:#64748B;font-size:1.4rem;cursor:pointer;">×</button>
+          <h2 style="color:#f1f5f9;font-size:1.05rem;font-weight:700;margin:0;">${editando ? '✏️ Editar Antecipação' : '⚡ Nova Antecipação'}</h2>
+          <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;color:#64748B;font-size:1.3rem;cursor:pointer;">×</button>
         </div>
+
+        <!-- Tipo (primeiro, pois muda os campos) -->
         <div style="margin-bottom:14px;">
-          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Descrição *</label>
-          <input id="ant-desc" type="text" placeholder="Ex: Fatura do cartão, boleto..." style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Tipo de Antecipação</label>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;" id="ant-tipo-grid">
+            ${[
+              {v:'conta',       i:'📋', l:'Conta'},
+              {v:'fatura_cartao',i:'💳', l:'Fatura Cartão'},
+              {v:'parcela',     i:'📦', l:'Parcela'},
+              {v:'emprestimo',  i:'💰', l:'Empréstimo'},
+              {v:'financiamento',i:'🏠',l:'Financiamento'},
+              {v:'outros',      i:'📁', l:'Outros'},
+            ].map(t => `
+              <button type="button" data-tipo="${t.v}" onclick="VM._antSelecionarTipo('${t.v}')"
+                style="padding:8px 4px;border-radius:10px;border:2px solid ${tipoSelecionado===t.v?'#6366F1':'rgba(255,255,255,0.08)'};background:${tipoSelecionado===t.v?'rgba(99,102,241,0.15)':'rgba(255,255,255,0.02)'};color:${tipoSelecionado===t.v?'#818CF8':'#64748B'};cursor:pointer;font-size:0.73rem;text-align:center;transition:all 0.15s;">
+                <div style="font-size:1.1rem;">${t.i}</div><div style="margin-top:2px;">${t.l}</div>
+              </button>`).join('')}
+          </div>
+          <input type="hidden" id="ant-tipo" value="${tipoSelecionado}">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
-          <div>
-            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Valor (R$) *</label>
-            <input id="ant-valor" type="number" min="0.01" step="0.01" placeholder="0,00" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
-          </div>
-          <div>
-            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Economia Juros (R$)</label>
-            <input id="ant-economia" type="number" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
-          <div>
-            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Data Antecipação *</label>
-            <input id="ant-data" type="date" value="${hoje}" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
-          </div>
-          <div>
-            <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Vencimento Original *</label>
-            <input id="ant-vencimento" type="date" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;box-sizing:border-box;">
-          </div>
-        </div>
-        <div style="margin-bottom:20px;">
-          <label style="color:#94A3B8;font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Tipo</label>
-          <select id="ant-tipo" style="width:100%;padding:10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#f1f5f9;font-size:0.88rem;">
-            <option value="conta">📋 Conta</option>
-            <option value="fatura">💳 Fatura</option>
-            <option value="parcela">📦 Parcela</option>
-            <option value="emprestimo">💰 Empréstimo</option>
-            <option value="financiamento">🏠 Financiamento</option>
+
+        <!-- Cartão (visível só p/ fatura) -->
+        <div id="ant-cartao-section" style="margin-bottom:14px;${mostrarCartao?'':'display:none;'}">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">💳 Cartão</label>
+          <select id="ant-cartao-id" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;">
+            <option value="">— Nenhum —</option>
+            ${cartoes.map(c => `<option value="${c.id}" ${ant?.referencia_id==c.id && ant?.referencia_tipo==='cartao'?'selected':''}>${c.nome} ${c.bandeira ? `(${c.bandeira})` : ''}</option>`).join('')}
           </select>
         </div>
+
+        <div style="margin-bottom:14px;">
+          ${inp('ant-desc','Descrição *', ant?.descricao || '', 'text', 'Ex: Fatura Nubank Maio, Boleto IPTU...')}
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          ${inp('ant-valor','Valor (R$) *', ant?.valor_total || '', 'number','0,00','min="0.01" step="0.01"')}
+          <div>
+            <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Desconto/Economia (R$) <span style="color:#475569;font-weight:400;">opcional</span></label>
+            <input id="ant-economia" type="number" min="0" step="0.01" value="${ant?.economia_juros || ''}" placeholder="0,00 (pode deixar vazio)"
+              style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+            <div style="font-size:0.7rem;color:#475569;margin-top:3px;">Nem toda antecipação gera desconto — deixe em branco se não houver.</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          ${inp('ant-data','Data da Antecipação *', ant?.data_antecipacao || hoje, 'date')}
+          <div>
+            <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Vencimento Original <span style="color:#475569;font-weight:400;">opcional</span></label>
+            <input id="ant-vencimento" type="date" value="${ant?.data_vencimento_original && ant.data_vencimento_original !== ant?.data_antecipacao ? ant.data_vencimento_original : ''}"
+              style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+            <div style="font-size:0.7rem;color:#475569;margin-top:3px;">Quando era pra vencer originalmente.</div>
+          </div>
+        </div>
+
+        <!-- Status -->
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Status</label>
+          <div style="display:flex;gap:8px;">
+            ${[{v:'pendente',l:'⏳ Pendente',cor:'#F59E0B'},{v:'antecipada',l:'✅ Confirmada',cor:'#10B981'}].map(s => `
+              <label style="flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:9px;cursor:pointer;">
+                <input type="radio" name="ant-status" value="${s.v}" ${(ant?.status||'pendente')===s.v?'checked':''} style="accent-color:${s.cor};">
+                <span style="font-size:0.82rem;color:#F8FAFC;">${s.l}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <!-- Observações -->
+        <div style="margin-bottom:20px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Observações <span style="color:#475569;font-weight:400;">opcional</span></label>
+          <textarea id="ant-obs" placeholder="Detalhes, motivo da antecipação, número do contrato..." rows="2"
+            style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;resize:vertical;">${ant?.observacoes || ''}</textarea>
+        </div>
+
         <div style="display:flex;gap:10px;">
-          <button onclick="document.getElementById('modal-antecipacao').remove()" style="flex:1;padding:12px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
-          <button id="btn-salvar-ant" onclick="VM._salvarAntecipacao()" style="flex:2;padding:12px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Salvar Antecipação</button>
+          <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.04);color:#94A3B8;border:1px solid rgba(255,255,255,0.08);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-salvar-ant" onclick="VM._salvarAntecipacao(${ant?.id || 'null'})"
+            style="flex:2;padding:11px;background:#6366F1;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">${editando ? '💾 Salvar Alterações' : '⚡ Registrar Antecipação'}</button>
         </div>
       </div>`
     document.body.appendChild(modal)
   },
 
-  async _salvarAntecipacao() {
+  _antSelecionarTipo(tipo) {
+    document.getElementById('ant-tipo').value = tipo
+    document.querySelectorAll('#ant-tipo-grid button').forEach(btn => {
+      const sel = btn.dataset.tipo === tipo
+      btn.style.borderColor = sel ? '#6366F1' : 'rgba(255,255,255,0.08)'
+      btn.style.background  = sel ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.02)'
+      btn.style.color       = sel ? '#818CF8' : '#64748B'
+    })
+    const sec = document.getElementById('ant-cartao-section')
+    if (sec) sec.style.display = ['fatura','fatura_cartao'].includes(tipo) ? '' : 'none'
+  },
+
+  async _salvarAntecipacao(antId = null) {
     const btn = document.getElementById('btn-salvar-ant')
-    const desc = document.getElementById('ant-desc').value?.trim()
-    const valor = parseFloat(document.getElementById('ant-valor').value)
-    const dataAnt = document.getElementById('ant-data').value
-    const dataVenc = document.getElementById('ant-vencimento').value
-    if (!desc || !valor || !dataAnt || !dataVenc) { this.toast('Preencha todos os campos obrigatórios', 'error'); return }
-    btn.disabled = true; btn.textContent = 'Salvando...'
+    const desc  = document.getElementById('ant-desc')?.value?.trim()
+    const valor = parseFloat(document.getElementById('ant-valor')?.value)
+    const dataAnt = document.getElementById('ant-data')?.value
+    if (!desc || !valor || !dataAnt) { this.toast('Preencha Descrição, Valor e Data da Antecipação', 'error'); return }
+
+    const tipo = document.getElementById('ant-tipo')?.value || 'conta'
+    const cartaoId = document.getElementById('ant-cartao-id')?.value
+    const statusEl = document.querySelector('input[name="ant-status"]:checked')
+    const economia = parseFloat(document.getElementById('ant-economia')?.value) || 0
+    const vencimento = document.getElementById('ant-vencimento')?.value || null
+    const obs = document.getElementById('ant-obs')?.value?.trim() || null
+
+    const body = {
+      descricao:               desc,
+      valor_total:             valor,
+      data_antecipacao:        dataAnt,
+      data_vencimento_original: vencimento || undefined,
+      economia_juros:          economia || undefined,
+      tipo,
+      status:                  statusEl?.value || 'pendente',
+      observacoes:             obs,
+      referencia_id:           (tipo === 'fatura_cartao' || tipo === 'fatura') && cartaoId ? parseInt(cartaoId) : undefined,
+      referencia_tipo:         (tipo === 'fatura_cartao' || tipo === 'fatura') && cartaoId ? 'cartao' : undefined,
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...' }
     try {
-      await this.api('POST', 'antecipacao', {
-        descricao: desc, valor_total: valor,
-        data_antecipacao: dataAnt, data_vencimento_original: dataVenc,
-        economia_juros: parseFloat(document.getElementById('ant-economia').value) || 0,
-        tipo: document.getElementById('ant-tipo').value
-      })
-      this.toast('Antecipação registrada! ⚡', 'success')
-      document.getElementById('modal-antecipacao').remove()
+      if (antId) {
+        await this.api('PUT', `antecipacao/${antId}`, body)
+        this.toast('✅ Antecipação atualizada!', 'success')
+      } else {
+        await this.api('POST', 'antecipacao', body)
+        this.toast('⚡ Antecipação registrada!', 'success')
+      }
+      document.getElementById('modal-antecipacao')?.remove()
       this._carregarAntecipacoes()
     } catch(e) {
       this.toast('Erro: ' + e.message, 'error')
-      btn.disabled = false; btn.textContent = 'Salvar Antecipação'
+      if (btn) { btn.disabled = false; btn.textContent = antId ? '💾 Salvar Alterações' : '⚡ Registrar Antecipação' }
     }
   },
 
@@ -14195,16 +14344,21 @@ const VM = {
             return `
               <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid ${cor}22;">
                 <div style="width:32px;height:32px;border-radius:50%;background:${cor}22;border:1px solid ${cor}44;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:${cor};flex-shrink:0;">${p.numero_parcela}</div>
-                <div style="flex:1;">
-                  <div style="font-size:0.88rem;font-weight:600;color:#F8FAFC;">${this.formatMoney(p.valor)}</div>
-                  <div style="font-size:0.73rem;color:#64748B;">
-                    ${p.status === 'recebida' && p.data_recebimento ? `Recebido em ${new Date(p.data_recebimento+'T12:00:00').toLocaleDateString('pt-BR')}` : `Previsto: ${new Date(p.data_prevista+'T12:00:00').toLocaleDateString('pt-BR')}${atrasada?' ⚠️ Atrasada':''}`}
+                <div style="flex:1;min-width:0;">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:0.88rem;font-weight:700;color:#F8FAFC;">${this.formatMoney(p.valor)}</span>
+                    ${p.status === 'recebida' && p.observacoes ? `<span style="font-size:0.7rem;color:#475569;" title="${p.observacoes}">📝</span>` : ''}
+                  </div>
+                  <div style="font-size:0.73rem;color:#64748B;margin-top:2px;">
+                    ${p.status === 'recebida' && p.data_recebimento
+                      ? `✅ Recebido em ${new Date(p.data_recebimento+'T12:00:00').toLocaleDateString('pt-BR')}${p.observacoes ? ` · ${p.observacoes}` : ''}`
+                      : `📅 Previsto: ${new Date(p.data_prevista+'T12:00:00').toLocaleDateString('pt-BR')}${atrasada?' ⚠️ Atrasada':''}`}
                   </div>
                 </div>
-                ${p.status === 'pendente' ? `<button onclick="VM._marcarParcelaRecebida(${p.id},${id},'${titulo.replace(/'/g,'&#39;')}')"
-                  style="padding:5px 12px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);border-radius:8px;cursor:pointer;font-size:0.75rem;flex-shrink:0;">
+                ${p.status === 'pendente' ? `<button onclick="VM._marcarParcelaRecebida(${p.id},${id},'${titulo.replace(/'/g,'&#39;')}',${p.valor})"
+                  style="padding:5px 12px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);border-radius:8px;cursor:pointer;font-size:0.75rem;flex-shrink:0;white-space:nowrap;">
                   <i class="fas fa-check"></i> Receber
-                </button>` : `<span style="background:${cor}18;color:${cor};border:1px solid ${cor}30;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">${p.status === 'recebida' ? '✅ Recebida' : p.status}</span>`}
+                </button>` : `<span style="background:${cor}18;color:${cor};border:1px solid ${cor}30;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${p.status === 'recebida' ? '✅ Recebida' : p.status}</span>`}
               </div>`
           }).join('')}
         </div>`
@@ -14213,17 +14367,90 @@ const VM = {
     }
   },
 
-  async _marcarParcelaRecebida(parcelaId, recId, titulo) {
+  async _marcarParcelaRecebida(parcelaId, recId, titulo, valorPrevisto) {
     const hoje = new Date().toISOString().split('T')[0]
+    const modalId = 'modal-receber-parcela-' + parcelaId
+    const modal = document.createElement('div')
+    modal.id = modalId
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;'
+    const vlrPrev = parseFloat(valorPrevisto) || 0
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:24px;width:100%;max-width:420px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+          <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0;">✅ Confirmar Recebimento</h3>
+          <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;color:#64748B;font-size:1.3rem;cursor:pointer;">×</button>
+        </div>
+
+        <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.18);border-radius:10px;padding:12px;margin-bottom:16px;">
+          <div style="font-size:0.75rem;color:#A5B4FC;margin-bottom:4px;">📋 ${titulo}</div>
+          <div style="font-size:0.8rem;color:#64748B;">Valor previsto: <strong style="color:#F8FAFC;">${this.formatMoney(vlrPrev)}</strong></div>
+          <div style="font-size:0.73rem;color:#475569;margin-top:4px;">Se houve reajuste (INCC, IGP-M etc.), informe o valor real recebido abaixo.</div>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">
+            Valor Efetivamente Recebido (R$)
+          </label>
+          <input id="prec-valor-real-${parcelaId}" type="number" min="0.01" step="0.01" value="${vlrPrev || ''}"
+            placeholder="${this.formatMoney(vlrPrev)}"
+            style="width:100%;padding:10px 12px;background:#0f172a;border:1px solid rgba(99,102,241,0.3);border-radius:9px;color:#f1f5f9;font-size:1rem;font-weight:700;box-sizing:border-box;">
+          <div style="font-size:0.7rem;color:#475569;margin-top:4px;">Deixe igual ao previsto se não houve reajuste.</div>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Data de Recebimento</label>
+          <input id="prec-data-${parcelaId}" type="date" value="${hoje}"
+            style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Observações <span style="color:#475569;font-weight:400;">opcional</span></label>
+          <input id="prec-obs-${parcelaId}" type="text" placeholder="Ex: Reajuste INCC 0,8%, pagamento adiantado..."
+            style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+
+        <label style="display:flex;align-items:center;gap:9px;margin-bottom:18px;cursor:pointer;">
+          <input type="checkbox" id="prec-criar-receita-${parcelaId}" checked style="width:15px;height:15px;accent-color:#10B981;">
+          <div>
+            <div style="font-size:0.82rem;font-weight:600;color:#F8FAFC;">Criar receita automaticamente</div>
+            <div style="font-size:0.7rem;color:#475569;">Registra o valor recebido como receita no sistema</div>
+          </div>
+        </label>
+
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.04);color:#94A3B8;border:1px solid rgba(255,255,255,0.08);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-conf-rec-${parcelaId}" onclick="VM._confirmarParcelaRecebida(${parcelaId},${recId},'${titulo.replace(/'/g,"&#39;")}','${modalId}')"
+            style="flex:2;padding:11px;background:#10B981;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">✅ Confirmar Recebimento</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+  },
+
+  async _confirmarParcelaRecebida(parcelaId, recId, titulo, modalId) {
+    const btn = document.getElementById('btn-conf-rec-' + parcelaId)
+    const valorReal = parseFloat(document.getElementById('prec-valor-real-' + parcelaId)?.value)
+    const dataRec   = document.getElementById('prec-data-' + parcelaId)?.value
+    const obs       = document.getElementById('prec-obs-' + parcelaId)?.value?.trim() || undefined
+    const criarRec  = document.getElementById('prec-criar-receita-' + parcelaId)?.checked ?? true
+
+    if (!valorReal || valorReal <= 0) { this.toast('Informe o valor recebido', 'error'); return }
+    if (btn) { btn.disabled = true; btn.textContent = 'Confirmando...' }
     try {
       const res = await this.api('PATCH', `antecipacao/recebimentos/parcelas/${parcelaId}/receber`, {
-        data_recebimento: hoje, criar_receita: true
+        data_recebimento: dataRec || new Date().toISOString().split('T')[0],
+        criar_receita: criarRec,
+        valor_real: valorReal,
+        observacoes: obs
       })
-      this.toast(res.message || 'Parcela marcada como recebida! ✅', 'success')
-      document.getElementById('modal-parcelas-rec').remove()
+      this.toast(res.message || '✅ Parcela recebida!', 'success')
+      document.getElementById(modalId)?.remove()
+      document.getElementById('modal-parcelas-rec')?.remove()
       await this._verParcelasRecebimento(recId, titulo)
       this._carregarRecebimentos()
-    } catch(e) { this.toast('Erro: ' + e.message, 'error') }
+    } catch(e) {
+      this.toast('Erro: ' + e.message, 'error')
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar Recebimento' }
+    }
   },
 
   async _excluirRecebimento(id) {
