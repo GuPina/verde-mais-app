@@ -767,6 +767,95 @@ cartoes.delete('/compras/:groupId', requireAuth, async (c) => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/cartoes/compras/:groupId — editar nome/valor de compra parcelada
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.patch('/compras/:groupId', requireAuth, async (c) => {
+  const user    = c.get('user')
+  const groupId = c.req.param('groupId')
+
+  const chk = await c.env.DB.prepare(
+    `SELECT cc.*, ca.user_id FROM card_charges cc
+     INNER JOIN cartoes ca ON ca.id = cc.card_id AND ca.user_id = ?
+     WHERE cc.purchase_group_id = ? LIMIT 1`
+  ).bind(user.id, groupId).first() as any
+  if (!chk) return c.json({ error: 'Compra não encontrada' }, 404)
+
+  const body = await c.req.json()
+  const { descricao, valor_parcela } = body
+
+  if (!descricao && !valor_parcela) {
+    return c.json({ error: 'Informe pelo menos descricao ou valor_parcela' }, 400)
+  }
+
+  if (descricao) {
+    // Atualizar descrição em todos os charges do grupo
+    await c.env.DB.prepare(
+      `UPDATE card_charges SET descricao = ? WHERE purchase_group_id = ?`
+    ).bind(descricao, groupId).run()
+    // Atualizar despesas vinculadas também
+    await c.env.DB.prepare(
+      `UPDATE despesas SET descricao = ? WHERE purchase_group_id = ? AND user_id = ?`
+    ).bind(descricao, groupId, user.id).run()
+  }
+
+  if (valor_parcela) {
+    const vp = parseFloat(valor_parcela)
+    if (isNaN(vp) || vp <= 0) return c.json({ error: 'Valor inválido' }, 400)
+    // Atualizar apenas parcelas pendentes
+    await c.env.DB.prepare(
+      `UPDATE card_charges SET valor = ? WHERE purchase_group_id = ? AND status = 'pendente'`
+    ).bind(vp, groupId).run()
+    await c.env.DB.prepare(
+      `UPDATE despesas SET valor = ? WHERE purchase_group_id = ? AND user_id = ? AND status = 'pendente'`
+    ).bind(vp, groupId, user.id).run()
+  }
+
+  return c.json({ success: true, message: 'Compra atualizada!' })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/cartoes/compras/:groupId/tags — vincular tags a todas as despesas do grupo
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.post('/compras/:groupId/tags', requireAuth, async (c) => {
+  const user    = c.get('user')
+  const groupId = c.req.param('groupId')
+
+  const chk = await c.env.DB.prepare(
+    `SELECT d.id FROM despesas d
+     INNER JOIN cartoes ca ON ca.id = d.cartao_id AND ca.user_id = ?
+     WHERE d.purchase_group_id = ? LIMIT 1`
+  ).bind(user.id, groupId).first() as any
+  if (!chk) return c.json({ error: 'Compra não encontrada' }, 404)
+
+  const { tag_ids } = await c.req.json()
+  if (!Array.isArray(tag_ids)) return c.json({ error: 'tag_ids deve ser um array' }, 400)
+
+  // Buscar todas as despesas do grupo
+  const despesas = await c.env.DB.prepare(
+    `SELECT id FROM despesas WHERE purchase_group_id = ? AND user_id = ?`
+  ).bind(groupId, user.id).all<any>()
+
+  const despIds = (despesas.results || []).map((d: any) => d.id)
+  if (despIds.length === 0) return c.json({ error: 'Nenhuma despesa encontrada' }, 404)
+
+  // Para cada despesa, substituir as tags
+  for (const despId of despIds) {
+    // Remover tags existentes
+    await c.env.DB.prepare(
+      `DELETE FROM despesa_tags WHERE despesa_id = ?`
+    ).bind(despId).run()
+    // Inserir novas tags
+    for (const tagId of tag_ids) {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`
+      ).bind(despId, tagId).run().catch(() => {})
+    }
+  }
+
+  return c.json({ success: true, despesas_atualizadas: despIds.length, message: 'Tags aplicadas em todas as parcelas!' })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/cartoes/:id/limite — S-C4: ajuste manual de limite disponível
 // Permite ao usuário sincronizar o limite disponível com o banco real
 // ─────────────────────────────────────────────────────────────────────────────

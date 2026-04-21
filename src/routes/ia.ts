@@ -1042,7 +1042,7 @@ Retorne EXCLUSIVAMENTE um JSON válido:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-5-mini',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1000,
         temperature: 0.6,

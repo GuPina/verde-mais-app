@@ -6627,11 +6627,15 @@ const VM = {
                   ${isParcelada ? `<div style="font-size:0.7rem;color:#888;">Total: ${this.formatMoney(cp.valor_total_compra)}</div>` : ''}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
-                  <button onclick="VM._editarTagsCompra(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
+                  <button onclick="VM._editarCompraParcelada(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\'")}', ${cp.valor_parcela})"
+                    style="background:rgba(16,185,129,0.12);color:#10B981;border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">
+                    <i class="fas fa-edit"></i> Editar
+                  </button>
+                  <button onclick="VM._editarTagsCompra(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\'")}')"
                     style="background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.25);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">
                     Tags
                   </button>
-                  <button onclick="VM._confirmarExcluirGrupo(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\\'")}')"
+                  <button onclick="VM._confirmarExcluirGrupo(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\'")}')"
                     style="background:rgba(255,80,80,0.12);color:#ff6b6b;border:1px solid rgba(255,80,80,0.25);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">
                     Excluir
                   </button>
@@ -6643,6 +6647,57 @@ const VM = {
       `
     } catch(e) {
       div.innerHTML = `<div style="text-align:center;padding:32px;color:#ff6b6b;font-size:0.85rem;">Erro ao carregar compras.</div>`
+    }
+  },
+
+  async _editarCompraParcelada(groupId, descricao, valorAtual) {
+    if (!groupId) { this.toast('Compra sem grupo identificado', 'error'); return }
+    const modalId = 'modal-editar-compra'
+    document.getElementById(modalId)?.remove()
+    const modal = document.createElement('div')
+    modal.id = modalId
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;'
+    modal.innerHTML = `
+      <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:24px;width:100%;max-width:400px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+          <h3 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0;">✏️ Editar Compra</h3>
+          <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;color:#64748B;font-size:1.3rem;cursor:pointer;">×</button>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Descrição</label>
+          <input id="ec-desc" type="text" value="${descricao}" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:18px;">
+          <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">Valor da Parcela (R$) — apenas pendentes serão alteradas</label>
+          <input id="ec-valor" type="number" min="0.01" step="0.01" value="${Number(valorAtual).toFixed(2)}" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.04);color:#94A3B8;border:1px solid rgba(255,255,255,0.08);border-radius:10px;cursor:pointer;">Cancelar</button>
+          <button id="btn-salvar-ec" onclick="VM._salvarEdicaoCompra('${groupId}')" style="flex:1;padding:11px;background:#10B981;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">💾 Salvar</button>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+  },
+
+  async _salvarEdicaoCompra(groupId) {
+    const btn = document.getElementById('btn-salvar-ec')
+    const desc = document.getElementById('ec-desc')?.value?.trim()
+    const valor = parseFloat(document.getElementById('ec-valor')?.value)
+    if (!desc && (!valor || valor <= 0)) { this.toast('Informe ao menos descrição ou valor', 'error'); return }
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...' }
+    try {
+      const body = {}
+      if (desc) body.descricao = desc
+      if (valor > 0) body.valor_parcela = valor
+      await this.api('PATCH', `cartoes/compras/${groupId}`, body)
+      document.getElementById('modal-editar-compra')?.remove()
+      this.toast('✅ Compra atualizada!')
+      // Recarregar a lista no modal gerenciar
+      const sel = document.getElementById('gc-cartao-select')
+      if (sel?.value) this._carregarComprasParaGerenciar(sel.value)
+    } catch(e) {
+      this.toast('Erro: ' + (e.response?.data?.error || e.message), 'error')
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar' }
     }
   },
 
@@ -10129,6 +10184,8 @@ const VM = {
     const renderRec = async () => {
       content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i></div>`
       const data = await this.api('GET', 'recorrencias')
+      // Salva referência no objeto para uso fora do escopo (delete/edit modais)
+      this._renderRecCallback = renderRec
       const recs   = data.recorrencias || []
       const resumo = data.resumo || {}
 
@@ -10501,7 +10558,8 @@ const VM = {
         await this.api('DELETE', `recorrencias/${id}`, { excluir_futuros: excluirFuturos })
         document.getElementById(modalId)?.remove()
         this.toast(excluirFuturos ? '✅ Recorrência e lançamentos futuros removidos' : '✅ Recorrência removida')
-        renderRec()
+        if (this._renderRecCallback) await this._renderRecCallback()
+        else this.navigate('recorrencias')
       } catch(e) { this.toast('Erro ao excluir', 'error'); if(btn){btn.disabled=false;btn.textContent='Excluir'} }
     }
 
@@ -10569,7 +10627,8 @@ const VM = {
         await this.api('PUT', `recorrencias/${id}`, body)
         document.getElementById(modalId)?.remove()
         this.toast(body.propagar_futuras ? '✅ Recorrência e lançamentos futuros atualizados!' : '✅ Recorrência atualizada!')
-        renderRec()
+        if (this._renderRecCallback) await this._renderRecCallback()
+        else this.navigate('recorrencias')
       } catch(e) { this.toast('Erro ao salvar', 'error'); if(btn){btn.disabled=false;btn.textContent='💾 Salvar'} }
     }
 
@@ -14137,10 +14196,27 @@ const VM = {
         <!-- Cartão (visível só p/ fatura) -->
         <div id="ant-cartao-section" style="margin-bottom:14px;${mostrarCartao?'':'display:none;'}">
           <label style="color:#94A3B8;font-size:0.78rem;font-weight:600;display:block;margin-bottom:5px;">💳 Cartão</label>
-          <select id="ant-cartao-id" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;">
+          <select id="ant-cartao-id" onchange="VM._antCarregarFatura()" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.85rem;">
             <option value="">— Nenhum —</option>
             ${cartoes.map(c => `<option value="${c.id}" ${ant?.referencia_id==c.id && ant?.referencia_tipo==='cartao'?'selected':''}>${c.nome} ${c.bandeira ? `(${c.bandeira})` : ''}</option>`).join('')}
           </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+            <div>
+              <label style="color:#94A3B8;font-size:0.73rem;font-weight:600;display:block;margin-bottom:4px;">Mês da Fatura</label>
+              <select id="ant-mes-fatura" onchange="VM._antCarregarFatura()" style="width:100%;padding:8px 10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.82rem;">
+                ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<option value="${m}" ${m===(new Date().getMonth()+1)?'selected':''}>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][m-1]}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="color:#94A3B8;font-size:0.73rem;font-weight:600;display:block;margin-bottom:4px;">Ano</label>
+              <select id="ant-ano-fatura" onchange="VM._antCarregarFatura()" style="width:100%;padding:8px 10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.82rem;">
+                ${[new Date().getFullYear()-1, new Date().getFullYear(), new Date().getFullYear()+1].map(a=>`<option value="${a}" ${a===new Date().getFullYear()?'selected':''}>${a}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div id="ant-fatura-info" style="margin-top:8px;padding:8px 12px;background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:9px;font-size:0.78rem;color:#94A3B8;display:none;">
+            <i class="fas fa-info-circle" style="color:#6366F1;margin-right:5px;"></i><span id="ant-fatura-txt">Carregando fatura...</span>
+          </div>
         </div>
 
         <div style="margin-bottom:14px;">
@@ -14207,6 +14283,31 @@ const VM = {
     if (sec) sec.style.display = ['fatura','fatura_cartao'].includes(tipo) ? '' : 'none'
   },
 
+  async _antCarregarFatura() {
+    const cartaoId = document.getElementById('ant-cartao-id')?.value
+    const mes = document.getElementById('ant-mes-fatura')?.value
+    const ano = document.getElementById('ant-ano-fatura')?.value
+    const infoDiv = document.getElementById('ant-fatura-info')
+    const infoTxt = document.getElementById('ant-fatura-txt')
+    if (!cartaoId || !mes || !ano) { if (infoDiv) infoDiv.style.display = 'none'; return }
+    if (infoDiv) { infoDiv.style.display = ''; infoTxt.textContent = 'Buscando fatura...' }
+    try {
+      const r = await this.api('GET', `antecipacao/fatura-cartao?cartao_id=${cartaoId}&mes=${mes}&ano=${ano}`)
+      const v = r.valor_fatura || 0
+      const qtd = r.qtd_lancamentos || 0
+      const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      if (infoTxt) infoTxt.innerHTML = `Fatura ${meses[parseInt(mes)-1]}/${ano}: <strong style="color:#f1f5f9;">R$ ${v.toFixed(2).replace('.',',')}</strong> (${qtd} lançamento(s))`
+      // Auto-fill no campo de valor se estiver vazio
+      const valEl = document.getElementById('ant-valor')
+      if (valEl && (!valEl.value || parseFloat(valEl.value) === 0)) valEl.value = v.toFixed(2)
+      // Auto-fill descrição se vazia
+      const descEl = document.getElementById('ant-desc')
+      if (descEl && !descEl.value) descEl.value = `Fatura ${r.cartao?.nome || ''} ${meses[parseInt(mes)-1]}/${ano}`
+    } catch(e) {
+      if (infoTxt) infoTxt.textContent = 'Não foi possível buscar a fatura.'
+    }
+  },
+
   async _salvarAntecipacao(antId = null) {
     const btn = document.getElementById('btn-salvar-ant')
     const desc  = document.getElementById('ant-desc')?.value?.trim()
@@ -14221,6 +14322,9 @@ const VM = {
     const vencimento = document.getElementById('ant-vencimento')?.value || null
     const obs = document.getElementById('ant-obs')?.value?.trim() || null
 
+    const mesFatura = document.getElementById('ant-mes-fatura')?.value
+    const anoFatura = document.getElementById('ant-ano-fatura')?.value
+
     const body = {
       descricao:               desc,
       valor_total:             valor,
@@ -14232,6 +14336,9 @@ const VM = {
       observacoes:             obs,
       referencia_id:           (tipo === 'fatura_cartao' || tipo === 'fatura') && cartaoId ? parseInt(cartaoId) : undefined,
       referencia_tipo:         (tipo === 'fatura_cartao' || tipo === 'fatura') && cartaoId ? 'cartao' : undefined,
+      cartao_id:               (tipo === 'fatura_cartao' || tipo === 'fatura') && cartaoId ? parseInt(cartaoId) : undefined,
+      mes_fatura:              mesFatura ? parseInt(mesFatura) : undefined,
+      ano_fatura:              anoFatura ? parseInt(anoFatura) : undefined,
     }
 
     if (btn) { btn.disabled = true; btn.textContent = 'Salvando...' }
