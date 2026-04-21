@@ -629,7 +629,7 @@ cartoes.patch('/charges/:id/pagar', requireAuth, async (c) => {
     'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
   ).bind(Number(charge.valor), charge.card_id, user.id).run()
 
-  await verificarConquista(c.env.DB, user.id, 'cartao_zero')
+  await verificarConquista(c.env.DB, user.id, 'zero_divida_cartao')
   return c.json({ success: true, message: 'Parcela paga! Limite restaurado.' })
 })
 
@@ -671,7 +671,7 @@ cartoes.patch('/:id/pagar-fatura', requireAuth, async (c) => {
     'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
   ).bind(totalPago, cardId, user.id).run()
 
-  await verificarConquista(c.env.DB, user.id, 'fatura_paga')
+  await verificarConquista(c.env.DB, user.id, 'fatura_em_dia')
   return c.json({
     success: true,
     parcelas_pagas: (pendentes.results as any[]).length,
@@ -1061,7 +1061,7 @@ cartoes.patch('/lancamentos/:id/status', requireAuth, async (c) => {
       await c.env.DB.prepare(
         'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
       ).bind(Number(charge.valor), charge.card_id, user.id).run()
-      await verificarConquista(c.env.DB, user.id, 'cartao_zero')
+      await verificarConquista(c.env.DB, user.id, 'zero_divida_cartao')
     }
     return c.json({ success: true })
   }

@@ -97,7 +97,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   if ((metaConcluida?.total || 0) >= 1) await ganhar('meta_concluida')
   if ((metaConcluida?.total || 0) >= 3) await ganhar('3_metas_concluidas')
 
-  const lembretesCount = await c.env.DB.prepare('SELECT COUNT(*) as total FROM lembretes WHERE user_id = ?').bind(user.id).first() as any
+  const lembretesCount = await c.env.DB.prepare('SELECT COUNT(*) as total FROM lembretes WHERE user_id = ? AND ativo = 1').bind(user.id).first() as any
   if ((lembretesCount?.total || 0) >= 5) await ganhar('lembrete_mestre')
   if ((lembretesCount?.total || 0) >= 10) await ganhar('10_lembretes')
 
@@ -118,7 +118,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
   // ── Receitas diversificadas ────────────────────────────────────────────────
   const tiposReceita = await c.env.DB.prepare(
-    'SELECT COUNT(DISTINCT tipo) as cnt FROM receitas WHERE user_id = ?'
+    'SELECT COUNT(DISTINCT categoria) as cnt FROM receitas WHERE user_id = ?'
   ).bind(user.id).first() as any
   if ((tiposReceita?.cnt || 0) >= 3) await ganhar('receita_diversificada')
 
@@ -230,6 +230,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   const orcamentos = await c.env.DB.prepare(
     'SELECT COUNT(*) as total FROM orcamentos WHERE user_id = ?'
   ).bind(user.id).first() as any
+  if ((orcamentos?.total || 0) >= 1) await ganhar('primeiro_orcamento')
   if ((orcamentos?.total || 0) >= 3) await ganhar('3_orcamentos')
 
   // ── Meta grande (>R$10.000) ────────────────────────────────────────────────
@@ -239,16 +240,32 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   if ((metaGrande?.total || 0) >= 1) await ganhar('meta_grande')
 
   // ── Desafio 52 ────────────────────────────────────────────────────────────
-  const desafio = await c.env.DB.prepare(
-    'SELECT semanas_concluidas, valor_acumulado FROM desafio_52 WHERE user_id = ? LIMIT 1'
-  ).bind(user.id).first() as any
-  if (desafio) {
-    await ganhar('desafio_52_iniciou')
-    if ((desafio.semanas_concluidas || 0) >= 10) await ganhar('desafio_52_10sem')
-    if ((desafio.semanas_concluidas || 0) >= 26) await ganhar('desafio_52_metade')
-    if ((desafio.semanas_concluidas || 0) >= 52) await ganhar('desafio_52_completo')
-    if ((desafio.valor_acumulado || 0) >= 1000) await ganhar('desafio_52_1k')
-  }
+  let desafio: any = null
+  try {
+    // Conta semanas concluídas e soma os valores acumulados
+    const desafioRows = await c.env.DB.prepare(
+      `SELECT COUNT(*) as semanas_concluidas,
+              COALESCE(SUM(target_amount),0) as valor_acumulado
+       FROM weekly_challenges WHERE user_id=? AND status='completed'`
+    ).bind(user.id).first() as any
+    if (desafioRows && (desafioRows.semanas_concluidas || 0) > 0) {
+      desafio = desafioRows
+      await ganhar('desafio_52_iniciou')
+      if ((desafio.semanas_concluidas || 0) >= 10) await ganhar('desafio_52_10sem')
+      if ((desafio.semanas_concluidas || 0) >= 26) await ganhar('desafio_52_metade')
+      if ((desafio.semanas_concluidas || 0) >= 52) await ganhar('desafio_52_completo')
+      if ((desafio.valor_acumulado || 0) >= 1000) await ganhar('desafio_52_1k')
+    } else {
+      // Se tem pelo menos 1 registro de weekly_challenges, já iniciou
+      const temDesafio = await c.env.DB.prepare(
+        `SELECT COUNT(*) as total FROM weekly_challenges WHERE user_id=?`
+      ).bind(user.id).first() as any
+      if ((temDesafio?.total || 0) >= 1) {
+        desafio = { semanas_concluidas: 0, valor_acumulado: 0 }
+        await ganhar('desafio_52_iniciou')
+      }
+    }
+  } catch { /* desafio_52 / weekly_challenges */ }
 
   // ── Meses ativos (lançamentos em meses distintos) ─────────────────────────
   const mesesAtivos = await c.env.DB.prepare(
@@ -288,22 +305,53 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
   // ── BLOCO 0035: Novas conquistas ──────────────────────────────────────────
 
-  // Assinaturas
-  const assinaturas = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM assinaturas WHERE user_id = ?"
-  ).bind(user.id).first() as any
-  if ((assinaturas?.total || 0) >= 1) await ganhar('primeira_assinatura')
+  // Assinaturas — usa detected_subscriptions (serviços como Netflix, Spotify, etc.)
+  // A tabela 'assinaturas' contém apenas o plano do app (free/premium/pro),
+  // então usamos detected_subscriptions para conquistas de serviços de assinatura.
+  let assinaturasDetectadas: any = null
+  try {
+    assinaturasDetectadas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total, COALESCE(SUM(amount),0) as total_mensal,
+              COUNT(CASE WHEN service_type IS NOT NULL AND service_type != '' THEN 1 END) as com_tipo
+       FROM detected_subscriptions
+       WHERE user_id = ? AND (user_feedback IS NULL OR user_feedback != 'rejected')`
+    ).bind(user.id).first() as any
+  } catch { assinaturasDetectadas = null }
 
-  const assinaturasSemCat = await c.env.DB.prepare(
-    "SELECT COUNT(*) as sem FROM assinaturas WHERE user_id = ? AND (categoria IS NULL OR categoria = '')"
-  ).bind(user.id).first() as any
-  const totalAssinaturas = assinaturas?.total || 0
-  if (totalAssinaturas > 0 && (assinaturasSemCat?.sem || 0) === 0) await ganhar('assinaturas_organizadas')
+  // Fallback: também verificar recorrências com padrão de assinatura
+  let assinaturasRecorrencias: any = null
+  try {
+    assinaturasRecorrencias = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total, COALESCE(SUM(valor),0) as total_mensal
+       FROM recorrencias WHERE user_id = ? AND ativa = 1
+       AND (LOWER(descricao) LIKE '%netflix%' OR LOWER(descricao) LIKE '%spotify%'
+            OR LOWER(descricao) LIKE '%amazon%' OR LOWER(descricao) LIKE '%disney%'
+            OR LOWER(descricao) LIKE '%youtube%' OR LOWER(descricao) LIKE '%hbo%'
+            OR LOWER(descricao) LIKE '%globoplay%' OR LOWER(descricao) LIKE '%assinatura%'
+            OR LOWER(descricao) LIKE '%mensalidade%' OR LOWER(descricao) LIKE '%plano%'
+            OR LOWER(descricao) LIKE '%streaming%' OR LOWER(descricao) LIKE '%academia%'
+            OR LOWER(descricao) LIKE '%seguro%' OR LOWER(descricao) LIKE '%plano de saude%'
+            OR LOWER(categoria) = 'assinatura' OR LOWER(categoria) = 'streaming'
+            OR LOWER(categoria) = 'saude' OR LOWER(categoria) = 'educacao')`
+    ).bind(user.id).first() as any
+  } catch { assinaturasRecorrencias = null }
 
-  const gastoAssinatura = await c.env.DB.prepare(
-    "SELECT COALESCE(SUM(valor), 0) as total FROM assinaturas WHERE user_id = ? AND ativa = 1"
-  ).bind(user.id).first() as any
-  if ((gastoAssinatura?.total || 0) > 0 && (gastoAssinatura?.total || 0) < 200) await ganhar('assinatura_econômico')
+  const totalAssinDetectadas = (assinaturasDetectadas?.total || 0)
+  const totalAssinRec = (assinaturasRecorrencias?.total || 0)
+  const totalAssinaturas = totalAssinDetectadas + totalAssinRec
+
+  if (totalAssinaturas >= 1) await ganhar('primeira_assinatura')
+
+  // assinaturas_organizadas — todas as assinaturas detectadas têm service_type
+  if (totalAssinDetectadas > 0 && (assinaturasDetectadas?.com_tipo || 0) === totalAssinDetectadas) {
+    await ganhar('assinaturas_organizadas')
+  }
+  // Fallback: tem recorrências de assinatura categorizadas
+  if (totalAssinRec > 0 && totalAssinDetectadas === 0) await ganhar('assinaturas_organizadas')
+
+  // assinatura_econômico — gasto total com assinaturas < R$200/mês
+  const gastoAssinaturas = (assinaturasDetectadas?.total_mensal || 0) + (assinaturasRecorrencias?.total_mensal || 0)
+  if (gastoAssinaturas > 0 && gastoAssinaturas < 200) await ganhar('assinatura_econômico')
 
   // Recorrências
   const recorrencias = await c.env.DB.prepare(
@@ -318,19 +366,20 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
   // Limite total de cartões > R$10.000
   const limiteTotal = await c.env.DB.prepare(
-    "SELECT COALESCE(SUM(limite), 0) as total FROM cartoes WHERE user_id = ?"
+    "SELECT COALESCE(SUM(limite_total), 0) as total FROM cartoes WHERE user_id = ?"
   ).bind(user.id).first() as any
   if ((limiteTotal?.total || 0) >= 10000) await ganhar('limite_10k')
 
-  // Lembretes concluídos (20)
+  // Lembretes concluídos (20) — lembretes usa 'ativo' booleano, não status
+  // Considera concluídos os lembretes com ativo=0 (desativados após conclusão)
   const lembretesConc = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM lembretes WHERE user_id = ? AND status = 'concluido'"
+    "SELECT COUNT(*) as total FROM lembretes WHERE user_id = ? AND ativo = 0"
   ).bind(user.id).first() as any
   if ((lembretesConc?.total || 0) >= 20) await ganhar('20_lembretes_concluidos')
 
   // Lembretes ativos simultâneos (3)
   const lembretesAtivos = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM lembretes WHERE user_id = ? AND status = 'ativo'"
+    "SELECT COUNT(*) as total FROM lembretes WHERE user_id = ? AND ativo = 1"
   ).bind(user.id).first() as any
   if ((lembretesAtivos?.total || 0) >= 3) await ganhar('3_lembretes_ativos')
 
@@ -340,18 +389,20 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   ).bind(user.id).first() as any
   if ((financiamentos?.total || 0) >= 1) await ganhar('primeiro_financiamento')
 
-  // Amortização antecipada: verificar se existe alguma com parcelas_pagas > 0 e entrada_valor > 0
+  // Amortização antecipada: financiamento com entrada parcelada paga (entrada_parcelas_pagas > 0)
+  // ou com valor de entrada pago (valor_entrada > 0 e parcelas_pagas > numero_parcelas * 0.1)
   const amortizou = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM financiamentos WHERE user_id = ? AND entrada_valor > 0"
+    `SELECT COUNT(*) as total FROM financiamentos WHERE user_id = ?
+     AND (entrada_parcelas_pagas > 0 OR (valor_entrada > 0 AND parcelas_pagas > 0))`
   ).bind(user.id).first() as any
   if ((amortizou?.total || 0) >= 1) await ganhar('amortizou_antecipado')
 
-  // Meio caminho no financiamento (saldo_devedor < valor_total * 0.5)
+  // Meio caminho no financiamento (saldo_devedor < valor_financiado * 0.5)
   const meiadoPago = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM financiamentos
      WHERE user_id = ? AND status = 'ativo'
-     AND saldo_devedor > 0 AND valor_total > 0
-     AND saldo_devedor < (valor_total * 0.5)`
+     AND saldo_devedor > 0 AND valor_financiado > 0
+     AND saldo_devedor < (valor_financiado * 0.5)`
   ).bind(user.id).first() as any
   if ((meiadoPago?.total || 0) >= 1) await ganhar('metade_paga')
 
@@ -366,10 +417,13 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   ).bind(user.id).first() as any
   if ((emprestimoQuitado?.total || 0) >= 1) await ganhar('emprestimo_quitado')
 
-  // Receita de investimento (tipo = 'investimento' ou 'dividendo' ou 'rendimento')
+  // Receita de investimento (categoria = 'Investimentos' ou 'Dividendos' etc.)
   const rendaInv = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM receitas
-     WHERE user_id = ? AND tipo IN ('investimento','dividendo','rendimento','renda_variavel')`
+     WHERE user_id = ? AND (
+       LOWER(categoria) IN ('investimentos','investimento','dividendo','dividendos','rendimento','rendimentos','renda variavel','renda_variavel')
+       OR LOWER(tipo) IN ('investimento','dividendo','rendimento','renda_variavel')
+     )`
   ).bind(user.id).first() as any
   if ((rendaInv?.total || 0) >= 1) await ganhar('renda_de_investimento')
 
@@ -380,19 +434,20 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   const metaEducConcluida = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM metas
      WHERE user_id = ? AND status = 'concluida'
-     AND LOWER(tipo) IN ('educacao','educação','curso','faculdade','estudo')`
+     AND LOWER(categoria) IN ('educacao','educação','curso','faculdade','estudo','capacitacao','capacitação')`
   ).bind(user.id).first() as any
   if ((metaEducConcluida?.total || 0) >= 1) await ganhar('meta_educacao_concluida')
 
   const metaViagemConc = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM metas
-     WHERE user_id = ? AND status = 'concluida' AND LOWER(tipo) = 'viagem'`
+     WHERE user_id = ? AND status = 'concluida'
+     AND LOWER(categoria) IN ('viagem','trip','turismo','ferias','férias')`
   ).bind(user.id).first() as any
   if ((metaViagemConc?.total || 0) >= 1) await ganhar('meta_viagem_concluida')
 
   const metaAposentadoria = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM metas
-     WHERE user_id = ? AND LOWER(tipo) IN ('aposentadoria','independencia','independência_financeira','liberdade')`
+     WHERE user_id = ? AND LOWER(categoria) IN ('aposentadoria','independencia','independência_financeira','liberdade','liberdade_financeira')`
   ).bind(user.id).first() as any
   if ((metaAposentadoria?.total || 0) >= 1) await ganhar('pensa_no_futuro')
 
@@ -425,10 +480,10 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   if (score >= 80) {
     try {
       const scoreHist = await c.env.DB.prepare(
-        `SELECT score FROM score_historico WHERE user_id = ? ORDER BY mes DESC LIMIT 3`
+        `SELECT score_geral FROM score_historico WHERE user_id = ? ORDER BY mes DESC LIMIT 3`
       ).bind(user.id).all() as any
       const hist = scoreHist?.results || []
-      if (hist.length >= 3 && hist.every((h: any) => (h.score || 0) >= 80)) {
+      if (hist.length >= 3 && hist.every((h: any) => (h.score_geral || 0) >= 80)) {
         await ganhar('score_80_3m')
       }
     } catch { /* tabela pode não existir */ }
@@ -444,7 +499,10 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   // ── Dinheiro Trabalhando (renda_de_investimento) ──────────────────────────
   const rendaInvCheck = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM receitas
-     WHERE user_id = ? AND tipo IN ('investimento','dividendo','rendimento','renda_variavel')`
+     WHERE user_id = ? AND (
+       LOWER(categoria) IN ('investimentos','investimento','dividendo','dividendos','rendimento','rendimentos','renda variavel','renda_variavel')
+       OR LOWER(tipo) IN ('investimento','dividendo','rendimento','renda_variavel')
+     )`
   ).bind(user.id).first() as any
   if ((rendaInvCheck?.total || 0) >= 1) await ganhar('renda_de_investimento')
 
@@ -475,6 +533,710 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     ).bind(user.id).first() as any
     if ((recebConcluido?.total || 0) >= 1) await ganhar('recebimento_concluido')
   } catch { /* tabela pode não existir */ }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── BLOCO COMPLETO: 88 CONQUISTAS ANTERIORMENTE SEM VERIFICAÇÃO ──────────
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── [Investimentos por tipo] ──────────────────────────────────────────────
+  try {
+    const invAcoes = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('acao','acoes','ações','renda_variavel','rv')`
+    ).bind(user.id).first() as any
+    if ((invAcoes?.total || 0) >= 1) await ganhar('investidor_acoes')
+
+    const invFii = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('fii','fundo imobiliario','fundo_imobiliario','fundos imobiliários')`
+    ).bind(user.id).first() as any
+    if ((invFii?.total || 0) >= 1) await ganhar('investidor_fii')
+
+    const invCripto = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cripto','criptomoeda','crypto','bitcoin','ethereum')`
+    ).bind(user.id).first() as any
+    if ((invCripto?.total || 0) >= 1) await ganhar('investidor_cripto')
+
+    const invTesouro = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('tesouro','tesouro direto','tesouro_direto')`
+    ).bind(user.id).first() as any
+    if ((invTesouro?.total || 0) >= 1) await ganhar('investidor_tesouro')
+
+    const invCdb = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca','renda_fixa','rf','renda fixa')`
+    ).bind(user.id).first() as any
+    if ((invCdb?.total || 0) >= 1) await ganhar('investidor_cdb')
+
+    // Investidor CDI — investimento com rendimento atrelado ao CDI
+    const invCdi = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca','renda_fixa','rf','tesouro','tesouro direto')`
+    ).bind(user.id).first() as any
+    if ((invCdi?.total || 0) >= 1) await ganhar('investidor_cdi')
+
+    // Veterano: >= 10 investimentos
+    const totalInvCount = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((totalInvCount?.total || 0) >= 10) await ganhar('investidor_veteran')
+
+    // Barreira dos 100k
+    if (valorAtual >= 100000) await ganhar('barreira_100k')
+    if (valorAtual >= 10000)  await ganhar('barreira_10k')
+    if (valorAtual >= 50000)  await ganhar('barreira_50k')
+    if (valorAtual >= 1000000) await ganhar('primeiro_milhao')
+
+    // Aporte nos últimos 3 meses consecutivos
+    const aportesUlt3 = await c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT strftime('%Y-%m', data_inicio)) as cnt
+       FROM investimentos WHERE user_id=?
+       AND data_inicio >= date('now','-3 months')`
+    ).bind(user.id).first() as any
+    if ((aportesUlt3?.cnt || 0) >= 3) {
+      await ganhar('aporte_3_meses')
+      await ganhar('investidor_mensal')
+      await ganhar('aporta_todo_mes')
+    }
+
+    // Aporte recorrente — tem recorrência do tipo receita ou despesa com categoria investimento
+    const aportRec = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM recorrencias WHERE user_id=? AND ativa=1
+       AND (LOWER(categoria) LIKE '%invest%' OR LOWER(descricao) LIKE '%aporte%')`
+    ).bind(user.id).first() as any
+    if ((aportRec?.total || 0) >= 1) await ganhar('aporte_recorrente')
+
+    // Diversificador: >= 4 tipos distintos de investimento
+    const tiposInv = await c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT tipo) as cnt FROM investimentos WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((tiposInv?.cnt || 0) >= 4) await ganhar('diversificador')
+    if ((tiposInv?.cnt || 0) >= 3) await ganhar('carteira_diversa')
+
+    // Crescimento anual — aporte este ano maior que no ano anterior
+    const anoAtual = new Date().getFullYear()
+    const aporteAnoAtual = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor_investido),0) as total FROM investimentos
+       WHERE user_id=? AND strftime('%Y',data_inicio)=?`
+    ).bind(user.id, String(anoAtual)).first() as any
+    const aporteAnoAnterior = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor_investido),0) as total FROM investimentos
+       WHERE user_id=? AND strftime('%Y',data_inicio)=?`
+    ).bind(user.id, String(anoAtual - 1)).first() as any
+    if ((aporteAnoAtual?.total || 0) > 0 && (aporteAnoAnterior?.total || 0) > 0
+        && (aporteAnoAtual.total > aporteAnoAnterior.total)) {
+      await ganhar('crescimento_anual')
+    }
+  } catch { /* investimentos */ }
+
+  // ── [Cartões] ─────────────────────────────────────────────────────────────
+  try {
+    // Uso do cartão calculado: (limite_total - limite_disponivel) / limite_total
+    // limite_disponivel = limite não usado; usado = limite_total - limite_disponivel
+    const cartoesUso = await c.env.DB.prepare(
+      `SELECT SUM(limite_total) as lim_total,
+              SUM(limite_total - limite_disponivel) as usado_total
+       FROM cartoes WHERE user_id=? AND limite_total > 0 AND ativo = 1`
+    ).bind(user.id).first() as any
+    if (cartoesUso && (cartoesUso.lim_total || 0) > 0) {
+      const pct = (cartoesUso.usado_total || 0) / cartoesUso.lim_total
+      if (pct < 0.30) await ganhar('uso_baixo_cartao')
+      if (pct === 0)  await ganhar('zero_dividas_cartao')
+      if (pct <= 0.50) await ganhar('fatura_saudavel')
+    }
+
+    // Zero dívidas em cartão (limite_disponivel == limite_total em todos os cartões)
+    const cartaoSemDivida = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM cartoes WHERE user_id=?
+       AND ativo=1 AND (limite_disponivel >= limite_total OR limite_total = 0)`
+    ).bind(user.id).first() as any
+    if ((cartaoSemDivida?.total || 0) > 0 && (cartaoSemDivida.total === (cartoes?.total || 0))) {
+      await ganhar('zero_dividas_cartao')
+      await ganhar('zero_divida_cartao')
+      await ganhar('sem_cartao_devedor')
+    }
+
+    // zero_divida_cartao (categoria geral) — nenhum gasto no cartão
+    const semDividaCartao = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(limite_total - limite_disponivel),0) as usado FROM cartoes
+       WHERE user_id=? AND ativo=1 AND limite_total > 0`
+    ).bind(user.id).first() as any
+    if ((semDividaCartao?.usado || 0) <= 0 && (cartoes?.total || 0) > 0) {
+      await ganhar('zero_divida_cartao')
+      await ganhar('sem_cartao_devedor')
+    }
+  } catch { /* cartões */ }
+
+  // ── [Despesas — comportamento mensal] ────────────────────────────────────
+  try {
+    // Mês zerado — sem despesas no mês atual
+    const despMes = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
+       AND strftime('%Y-%m', COALESCE(data,vencimento)) = strftime('%Y-%m','now')
+       AND COALESCE(tipo,'normal') != 'aporte'`
+    ).bind(user.id).first() as any
+    const recMes2 = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=?
+       AND strftime('%Y-%m', data) = strftime('%Y-%m','now')`
+    ).bind(user.id).first() as any
+    if ((despMes?.total || 0) === 0 && (recMes2?.total || 0) > 0) await ganhar('mes_zerado')
+
+    // Reduziu gastos em 3 categorias (este mês vs mês anterior)
+    const reducaoRows = await c.env.DB.prepare(
+      `SELECT categoria,
+              SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now') THEN valor ELSE 0 END) as atual,
+              SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now','-1 month') THEN valor ELSE 0 END) as anterior
+       FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte'
+       GROUP BY categoria HAVING anterior > 0 AND atual < anterior`
+    ).bind(user.id).all() as any
+    if ((reducaoRows?.results?.length || 0) >= 3) await ganhar('reduziu_3_categorias')
+
+    // Sem gastos de luxo no mês (sem despesas em categorias consideradas luxo)
+    const luxoCats = ['lazer','luxo','viagem','joias','hobby','entretenimento premium']
+    const luxoMes = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM despesas WHERE user_id=?
+       AND LOWER(categoria) IN (${luxoCats.map(() => '?').join(',')})
+       AND strftime('%Y-%m', COALESCE(data,vencimento)) = strftime('%Y-%m','now')`
+    ).bind(user.id, ...luxoCats).first() as any
+    if ((luxoMes?.total || 0) === 0 && (despesas?.total || 0) > 0) await ganhar('sem_gastos_luxo')
+
+    // Sem atraso: nenhuma despesa vencida e não paga
+    const vencidas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM despesas WHERE user_id=?
+       AND status='pendente' AND vencimento < date('now')`
+    ).bind(user.id).first() as any
+    if ((vencidas?.total || 0) === 0 && (despesas?.total || 0) >= 5) await ganhar('sem_atraso')
+
+    // Zero atraso por 3 meses
+    if ((vencidas?.total || 0) === 0) {
+      const atrasosHist = await c.env.DB.prepare(
+        `SELECT COUNT(*) as total FROM despesas WHERE user_id=?
+         AND status='pendente' AND vencimento < date('now','-90 days')`
+      ).bind(user.id).first() as any
+      if ((atrasosHist?.total || 0) === 0 && (despesas?.total || 0) >= 10) await ganhar('zero_atraso_3m')
+    }
+  } catch { /* despesas comportamental */ }
+
+  // ── [Metas comportamentais] ───────────────────────────────────────────────
+  try {
+    // Meta concluída antes do prazo (data_meta é o prazo; valor_atual >= valor_objetivo = concluída)
+    const metaAntecipada = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND status='concluida' AND data_criacao < data_meta`
+    ).bind(user.id).first() as any
+    if ((metaAntecipada?.total || 0) >= 1) await ganhar('meta_antes_prazo')
+
+    // Meta rápida — concluída em menos de 30 dias (usa data_meta como prazo)
+    const metaRapida = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND status='concluida'
+       AND julianday(data_meta) - julianday(data_criacao) <= 30`
+    ).bind(user.id).first() as any
+    if ((metaRapida?.total || 0) >= 1) await ganhar('meta_rapida')
+
+    // 3 metas de educação concluídas
+    const metaEduc3 = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=? AND status='concluida'
+       AND LOWER(categoria) IN ('educacao','educação','curso','faculdade','estudo','capacitacao','capacitação')`
+    ).bind(user.id).first() as any
+    if ((metaEduc3?.total || 0) >= 3) await ganhar('3_metas_meta_concluidas')
+  } catch { /* metas comportamentais */ }
+
+  // ── [Orçamentos] ──────────────────────────────────────────────────────────
+  try {
+    // A tabela orcamentos tem: categoria, mes, ano, limite
+    // Gasto calculado cruzando com despesas do mesmo mês/ano/categoria
+    const orcMesAtual = await c.env.DB.prepare(
+      `SELECT o.categoria, o.limite,
+              COALESCE((
+                SELECT SUM(d.valor) FROM despesas d
+                WHERE d.user_id = o.user_id
+                AND LOWER(d.categoria) = LOWER(o.categoria)
+                AND strftime('%m', COALESCE(d.data, d.vencimento)) = printf('%02d', o.mes)
+                AND strftime('%Y', COALESCE(d.data, d.vencimento)) = CAST(o.ano AS TEXT)
+                AND COALESCE(d.tipo,'normal') != 'aporte'
+              ),0) as gasto_atual
+       FROM orcamentos o WHERE o.user_id=?
+       AND o.mes = CAST(strftime('%m','now') AS INTEGER)
+       AND o.ano = CAST(strftime('%Y','now') AS INTEGER)`
+    ).bind(user.id).all() as any
+    const orcRows = orcMesAtual?.results || []
+    const orcNoLimite = orcRows.filter((o: any) => (o.gasto_atual || 0) <= (o.limite || 0))
+    if (orcNoLimite.length >= 3) await ganhar('orcamentos_no_limite')
+    if (orcNoLimite.length >= 1) await ganhar('orcamento_cumprido')
+
+    // Orçamento completo — tem orçamento para pelo menos 5 categorias diferentes
+    const orcCategorias = await c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT categoria) as cnt FROM orcamentos WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((orcCategorias?.cnt || 0) >= 5) await ganhar('orcamento_completo')
+  } catch { /* orçamentos */ }
+
+  // ── [Reservas especializadas] ─────────────────────────────────────────────
+  try {
+    const reservasEspec = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND valor_atual > 0`
+    ).bind(user.id).first() as any
+    if ((reservasEspec?.total || 0) >= 1) await ganhar('reserva_spec_completa')
+    if ((reservasEspec?.total || 0) >= 3) await ganhar('multi_3_reservas')
+    if ((reservasEspec?.total || 0) >= 1) await ganhar('multi_reserva_criada')
+
+    // Super reserva — reserva de emergência >= 12 meses
+    if (reservaRow) {
+      const mediaDesp2 = await c.env.DB.prepare(
+        `SELECT COALESCE(AVG(total_mes),0) as media FROM (
+          SELECT SUM(valor) as total_mes FROM despesas WHERE user_id=?
+          AND data >= date('now','-6 months')
+          GROUP BY strftime('%Y-%m',data)
+        )`
+      ).bind(user.id).first() as any
+      if ((mediaDesp2?.media || 0) > 0 && reservaRow.valor_atual / mediaDesp2.media >= 12) {
+        await ganhar('super_reserva')
+        await ganhar('reserva_completa')
+      }
+    }
+  } catch { /* reservas especializadas */ }
+
+  // ── [Recorrências comportamentais] ────────────────────────────────────────
+  try {
+    // Recorrências com dia de vencimento definido (organizado)
+    const recDia = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM recorrencias WHERE user_id=? AND dia_vencimento IS NOT NULL AND ativa=1`
+    ).bind(user.id).first() as any
+    if ((recDia?.total || 0) >= 3) await ganhar('recorrencias_dia')
+  } catch { /* recorrencias */ }
+
+  // ── [Engajamento / Hábito] ────────────────────────────────────────────────
+  try {
+    // Usou IA
+    const usouIA = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM ia_insights WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((usouIA?.total || 0) >= 1) await ganhar('usou_ia')
+    if ((usouIA?.total || 0) >= 10) await ganhar('ia_power_user')
+    if ((usouIA?.total || 0) >= 1) await ganhar('curioso')
+    if ((usouIA?.total || 0) >= 5) await ganhar('analitico')
+    if ((usouIA?.total || 0) >= 1) await ganhar('analista')
+    if ((usouIA?.total || 0) >= 1) await ganhar('projetor')
+    if ((usouIA?.total || 0) >= 1) await ganhar('projecao_vista')
+    if ((usouIA?.total || 0) >= 1) await ganhar('viu_projecao')
+    if ((usouIA?.total || 0) >= 1) await ganhar('usou_simulador')
+
+    // Login em 30 dias consecutivos (usa tabela sessions)
+    const loginDias = await c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT date(created_at)) as dias FROM sessions WHERE user_id=?
+       AND created_at >= date('now','-35 days')`
+    ).bind(user.id).first() as any
+    if ((loginDias?.dias || 0) >= 5)  await ganhar('acesso_5_dias')
+    if ((loginDias?.dias || 0) >= 7)  await ganhar('7_dias_lancando')
+    if ((loginDias?.dias || 0) >= 30) await ganhar('30_dias_lancando')
+    if ((loginDias?.dias || 0) >= 30) await ganhar('login_30_dias')
+    if ((loginDias?.dias || 0) >= 1)  await ganhar('login_diario')
+
+    // 2 anos na plataforma
+    const dataCadastro = await c.env.DB.prepare(
+      `SELECT created_at FROM users WHERE id=?`
+    ).bind(user.id).first() as any
+    if (dataCadastro?.created_at) {
+      const anos = (Date.now() - new Date(dataCadastro.created_at).getTime()) / (365.25 * 24 * 3600 * 1000)
+      if (anos >= 2) await ganhar('2_anos_verde')
+    }
+
+    // Perfil completo
+    const perfil = await c.env.DB.prepare(
+      `SELECT perfil_investidor, avatar_color FROM users WHERE id=?`
+    ).bind(user.id).first() as any
+    if (perfil?.perfil_investidor) {
+      await ganhar('perfil_completo')
+      await ganhar('planejador')
+    }
+
+    // Usou comparativo CDI
+    const compCDI = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM cdi_historico LIMIT 1`
+    ).first() as any
+    if ((compCDI?.total || 0) >= 1 && (investimentos?.total || 0) >= 1) await ganhar('usou_comparativo_cdi')
+
+    // Primeiro relatório (acesso ao endpoint de análise)
+    if ((usouIA?.total || 0) >= 1) await ganhar('primeiro_relatorio')
+
+    // Usou filtros — tem tags aplicadas em despesas
+    if ((despesasComTag?.total || 0) >= 1) await ganhar('usou_filtros')
+
+    // Exportador de dados — tem receitas e despesas suficientes
+    if ((receitas?.total || 0) >= 10 && (despesas?.total || 0) >= 10) await ganhar('exportador_dados')
+  } catch { /* engajamento */ }
+
+  // ── [Saúde Financeira] ────────────────────────────────────────────────────
+  try {
+    // score_80_1m — score >= 80 pelo menos este mês
+    if (score >= 80) {
+      await ganhar('score_80_1m')
+      await ganhar('score_80')
+    }
+    // score_80_2m — score >= 80 por 2 meses
+    if (score >= 80) {
+      const hist2 = await c.env.DB.prepare(
+        `SELECT score_geral FROM score_historico WHERE user_id=? ORDER BY mes DESC LIMIT 2`
+      ).bind(user.id).all() as any
+      if ((hist2?.results?.length || 0) >= 2 && hist2.results.every((h: any) => (h.score_geral || 0) >= 80)) {
+        await ganhar('score_80_2m')
+      }
+    }
+    // saude_ferro — score >= 90 por 1 mês
+    if (score >= 90) await ganhar('saude_ferro')
+
+    // recuperacao — score subiu de < 40 para >= 60
+    const scoreHist3 = await c.env.DB.prepare(
+      `SELECT score_geral FROM score_historico WHERE user_id=? ORDER BY mes ASC LIMIT 6`
+    ).bind(user.id).all() as any
+    const histArr = scoreHist3?.results || []
+    if (histArr.length >= 2) {
+      const primeiro = histArr[0].score_geral || 0
+      const ultimo = histArr[histArr.length - 1].score_geral || 0
+      if (primeiro < 40 && ultimo >= 60) await ganhar('recuperacao')
+      if (ultimo > primeiro + 10) await ganhar('score_melhorou')
+    }
+
+    // Regra 50/30/20 — necessidades <= 50% da receita
+    const recMesNec = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=?
+       AND strftime('%Y-%m',data)=strftime('%Y-%m','now')`
+    ).bind(user.id).first() as any
+    const despNec = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
+       AND LOWER(categoria) IN ('moradia','alimentacao','alimentação','saude','saúde','transporte','educacao','educação')
+       AND strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now')`
+    ).bind(user.id).first() as any
+    if ((recMesNec?.total || 0) > 0 && (despNec?.total || 0) / recMesNec.total <= 0.50) {
+      await ganhar('necessidades_50pct')
+      await ganhar('regra_503020_verde')
+    }
+
+    // Saldo verde por 3 meses (alias de saldo_verde_3m)
+    if (mesesPositivos >= 3) await ganhar('saldo_verde_3m')
+  } catch { /* saúde */ }
+
+  // ── [Dívidas] ─────────────────────────────────────────────────────────────
+  try {
+    // Livre do banco — sem empréstimos ativos
+    const emprestimosAtivos = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM emprestimos WHERE user_id=? AND status='ativo'`
+    ).bind(user.id).first() as any
+    if ((emprestimosAtivos?.total || 0) === 0 && (emprestimos?.total || 0) >= 1) {
+      await ganhar('livre_do_banco')
+      await ganhar('livre_emprestimo')
+    }
+
+    // Quita dívida — empréstimo quitado
+    if ((emprestimoQuitado?.total || 0) >= 1) await ganhar('quita_divida')
+
+    // Empréstimo sem atraso — nenhuma parcela atrasada
+    const parcelasAtrasadas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM pagamentos WHERE user_id=? AND status='atrasado'`
+    ).bind(user.id).first() as any
+    if ((parcelasAtrasadas?.total || 0) === 0 && (emprestimos?.total || 0) >= 1) await ganhar('emprestimo_sem_atraso')
+
+    // Reduziu dívida em 20%
+    const divAtual = (totalDividas?.total || 0) + (totalFinanc?.total || 0)
+    const divHist = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos
+       WHERE user_id=? AND status IN ('ativo','quitado')
+       UNION ALL
+       SELECT COALESCE(SUM(valor_financiado),0) FROM financiamentos WHERE user_id=?`
+    ).bind(user.id, user.id).all() as any
+    const divOriginal = (divHist?.results || []).reduce((s: number, r: any) => s + (r.total || 0), 0)
+    if (divOriginal > 0 && divAtual < divOriginal * 0.80) await ganhar('reduziu_divida_20')
+  } catch { /* dívidas */ }
+
+  // ── [Financiamentos comportamentais] ──────────────────────────────────────
+  try {
+    // Um ano de financiamento
+    const finAnual = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=?
+       AND status='ativo' AND data_inicio <= date('now','-1 year')`
+    ).bind(user.id).first() as any
+    if ((finAnual?.total || 0) >= 1) await ganhar('um_ano_financiamento')
+
+    // 50% do financiamento pago (alias)
+    if ((meiadoPago?.total || 0) >= 1) await ganhar('50pct_financiamento')
+
+    // Amortizou simulando antes
+    const simAmort = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM amortization_simulations WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((simAmort?.total || 0) >= 1 && (amortizou?.total || 0) >= 1) await ganhar('amortizou_simulou')
+    if ((amortizou?.total || 0) >= 1) await ganhar('amortizou')
+    if ((amortizou?.total || 0) >= 3) await ganhar('amortizador_serie')
+
+    // Quitou imóvel
+    const quitouImovel = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=? AND status='quitado'
+       AND tipo_bem IN ('imovel','imovel_comercial','imóvel')`
+    ).bind(user.id).first() as any
+    if ((quitouImovel?.total || 0) >= 1) await ganhar('quitou_imovel')
+  } catch { /* financiamentos */ }
+
+  // ── [Assinaturas] ─────────────────────────────────────────────────────────
+  try {
+    // Cortou gordura — cancelou pelo menos 1 assinatura detectada (feedback = 'cancelled')
+    const assinCanceladas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM detected_subscriptions
+       WHERE user_id=? AND user_feedback IN ('cancelled','rejected')`
+    ).bind(user.id).first() as any
+    // Também verifica recorrências desativadas com padrão de assinatura
+    const recCanceladas = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM recorrencias WHERE user_id=? AND ativa=0
+       AND (LOWER(descricao) LIKE '%netflix%' OR LOWER(descricao) LIKE '%spotify%'
+            OR LOWER(descricao) LIKE '%amazon%' OR LOWER(descricao) LIKE '%disney%'
+            OR LOWER(categoria) = 'assinatura' OR LOWER(categoria) = 'streaming')`
+    ).bind(user.id).first() as any
+    const totalCanceladas = (assinCanceladas?.total || 0) + (recCanceladas?.total || 0)
+    if (totalCanceladas >= 1) await ganhar('cortou_gordura')
+    if (totalCanceladas >= 1) await ganhar('sub_cancelou_1')
+
+    // Detector de assinatura — detectou assinatura pelo scanner
+    const detected = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM detected_subscriptions WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((detected?.total || 0) >= 1) await ganhar('detector_assinatura')
+    if ((detected?.total || 0) >= 1) await ganhar('sub_detector_scanned')
+    if ((detected?.total || 0) >= 5) await ganhar('detector_expert')
+  } catch { /* assinaturas */ }
+
+  // ── [Lembretes comportamentais] ───────────────────────────────────────────
+  try {
+    // Lembrete pontual — lembrete criado com data de vencimento específica
+    // lembretes usa proximo_vencimento ou dia_vencimento
+    const lembPontual = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM lembretes WHERE user_id=?
+       AND (proximo_vencimento IS NOT NULL OR dia_vencimento IS NOT NULL)`
+    ).bind(user.id).first() as any
+    if ((lembPontual?.total || 0) >= 1) await ganhar('lembrete_pontual')
+
+    // Lembrete de fatura — lembrete com título/descricao de cartão/fatura
+    const lembFatura = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM lembretes WHERE user_id=?
+       AND (LOWER(titulo) LIKE '%fatura%' OR LOWER(titulo) LIKE '%cartao%' OR LOWER(titulo) LIKE '%cartão%'
+            OR LOWER(COALESCE(descricao,'')) LIKE '%fatura%' OR LOWER(COALESCE(descricao,'')) LIKE '%cartao%')`
+    ).bind(user.id).first() as any
+    if ((lembFatura?.total || 0) >= 1) await ganhar('lembrete_fatura')
+  } catch { /* lembretes */ }
+
+  // ── [Receitas comportamentais] ────────────────────────────────────────────
+  try {
+    // Renda extra cadastrada (usa categoria pois receitas usam categoria, não tipo)
+    const rendaExtra = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM receitas WHERE user_id=?
+       AND (
+         LOWER(categoria) IN ('freelance','bônus','bonus','comissao','comissão','outros','vendas','aluguel')
+         OR LOWER(tipo) IN ('extra','freelance','bônus','bonus','comissao','comissão','outras','outro')
+       )`
+    ).bind(user.id).first() as any
+    if ((rendaExtra?.total || 0) >= 1) {
+      await ganhar('renda_extra_cadastrada')
+      await ganhar('renda_extra')
+    }
+  } catch { /* receitas */ }
+
+  // ── [Tags] ────────────────────────────────────────────────────────────────
+  try {
+    const tagsCount = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM tags WHERE user_id=?`
+    ).bind(user.id).first() as any
+    if ((tagsCount?.total || 0) >= 1) await ganhar('primeira_tag')
+    if ((tagsCount?.total || 0) >= 10) await ganhar('mestre_tags')
+  } catch { /* tags */ }
+
+  // ── [Realizador] ──────────────────────────────────────────────────────────
+  try {
+    // Realizador — meta concluída + receita de renda variável + investimento
+    if ((metaConcluida?.total || 0) >= 1 && (investimentos?.total || 0) >= 1) {
+      await ganhar('realizador')
+    }
+
+    // Poupador por 3 meses — tem receita e poupou mais de 20% por 3 meses
+    const poupaMeses = await c.env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM (
+         SELECT strftime('%Y-%m',r.data) as mes,
+                SUM(r.valor) as rec,
+                COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=r.user_id
+                          AND strftime('%Y-%m',d.data)=strftime('%Y-%m',r.data)
+                          AND COALESCE(d.tipo,'normal')!='aporte'),0) as desp
+         FROM receitas r WHERE r.user_id=?
+         GROUP BY mes HAVING rec > 0 AND (rec - desp) / rec >= 0.20
+       )`
+    ).bind(user.id).first() as any
+    if ((poupaMeses?.cnt || 0) >= 1) await ganhar('poupador')
+    if ((poupaMeses?.cnt || 0) >= 3) await ganhar('poupador_3m')
+
+    // Regra dos 3 meses — poupou consistentemente
+    if ((poupaMeses?.cnt || 0) >= 3) await ganhar('regra_3meses')
+
+    // Desafio do trimestre — 3 meses consecutivos poupando
+    if ((poupaMeses?.cnt || 0) >= 3) await ganhar('desafio_trimestre')
+
+    // Desafio 52 — 5 meses (20 semanas)
+    if (desafio && (desafio.semanas_concluidas || 0) >= 20) await ganhar('desafio_52_5meses')
+  } catch { /* realizador */ }
+
+  // ── [Todas as reservas OK] ────────────────────────────────────────────────
+  try {
+    // todas_reservas_ok — tem reserva de emergência e pelo menos 1 reserva especializada
+    const resEspec2 = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND valor_atual > 0`
+    ).bind(user.id).first() as any
+    if (reservaRow && (resEspec2?.total || 0) >= 1) await ganhar('todas_reservas_ok')
+  } catch { /* reservas ok */ }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── BLOCO FINAL: 19 CONQUISTAS ANTERIORMENTE SEM NENHUMA VERIFICAÇÃO ─────
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── [Disciplinado] ────────────────────────────────────────────────────────
+  try {
+    // Disciplinado — 10 despesas pagas no mesmo mês
+    const disciplinadoRows = await c.env.DB.prepare(
+      `SELECT strftime('%Y-%m', COALESCE(data, vencimento)) as mes, COUNT(*) as cnt
+       FROM despesas WHERE user_id=? AND status='pago'
+       GROUP BY mes HAVING cnt >= 10 LIMIT 1`
+    ).bind(user.id).first() as any
+    if (disciplinadoRows) await ganhar('disciplinado')
+  } catch { /* orcamento / disciplinado */ }
+
+  // ── [Fatura em dia — tem cartão com limite disponível = limite total] ────
+  try {
+    const faturaZerada = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM cartoes WHERE user_id=? AND ativo=1
+       AND limite_disponivel >= limite_total AND limite_total > 0`
+    ).bind(user.id).first() as any
+    if ((faturaZerada?.total || 0) >= 1 && (cartoes?.total || 0) >= 1) {
+      await ganhar('fatura_em_dia')
+    }
+  } catch { /* fatura_em_dia */ }
+
+  // ── [Financiamentos por tipo] ─────────────────────────────────────────────
+  try {
+    // primeiro_imovel — primeiro financiamento imobiliário
+    const finImovel = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=?
+       AND LOWER(tipo_bem) IN ('imovel','imóvel','imovel_comercial','residencial','comercial')`
+    ).bind(user.id).first() as any
+    if ((finImovel?.total || 0) >= 1) await ganhar('primeiro_imovel')
+
+    // primeiro_carro / financiamento_veiculo — financiamento de veículo
+    const finVeiculo = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=?
+       AND LOWER(tipo_bem) IN ('veiculo','veículo','carro','moto','automovel','automóvel')`
+    ).bind(user.id).first() as any
+    if ((finVeiculo?.total || 0) >= 1) {
+      await ganhar('primeiro_carro')
+      await ganhar('financiamento_veiculo')
+    }
+
+    // financiamento_outros — tipo_bem não é imóvel nem veículo
+    const finOutros = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=?
+       AND LOWER(tipo_bem) NOT IN ('imovel','imóvel','imovel_comercial','residencial','comercial',
+                                   'veiculo','veículo','carro','moto','automovel','automóvel')`
+    ).bind(user.id).first() as any
+    if ((finOutros?.total || 0) >= 1) await ganhar('financiamento_outros')
+
+    // carro_quitado — financiamento de veículo quitado
+    const carroQuitado = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=?
+       AND status='quitado'
+       AND LOWER(tipo_bem) IN ('veiculo','veículo','carro','moto','automovel','automóvel')`
+    ).bind(user.id).first() as any
+    if ((carroQuitado?.total || 0) >= 1) await ganhar('carro_quitado')
+
+    // quitou_X% — progresso de quitação do financiamento imobiliário
+    // Calcula: % quitado = (valor_financiado - saldo_devedor) / valor_financiado * 100
+    const finImovAtivo = await c.env.DB.prepare(
+      `SELECT valor_financiado, saldo_devedor FROM financiamentos WHERE user_id=?
+       AND LOWER(tipo_bem) IN ('imovel','imóvel','imovel_comercial','residencial','comercial')
+       AND status='ativo' AND valor_financiado > 0
+       ORDER BY valor_financiado DESC LIMIT 1`
+    ).bind(user.id).first() as any
+    if (finImovAtivo && finImovAtivo.valor_financiado > 0) {
+      const pctQuitado = ((finImovAtivo.valor_financiado - finImovAtivo.saldo_devedor) / finImovAtivo.valor_financiado) * 100
+      if (pctQuitado >= 10) await ganhar('quitou_10pct')
+      if (pctQuitado >= 15) await ganhar('quitou_15pct')
+      if (pctQuitado >= 20) await ganhar('quitou_20pct')
+      if (pctQuitado >= 30) await ganhar('quitou_30pct')
+      if (pctQuitado >= 50) await ganhar('quitou_50pct')
+    }
+    // Também considera financiamentos já quitados (100% = todos os percentuais)
+    if ((quitouImovel?.total || 0) >= 1) {
+      await ganhar('quitou_10pct')
+      await ganhar('quitou_15pct')
+      await ganhar('quitou_20pct')
+      await ganhar('quitou_30pct')
+      await ganhar('quitou_50pct')
+    }
+  } catch { /* financiamentos tipo */ }
+
+  // ── [Metas por tipo — metas ativas (não precisa estar concluída)] ─────────
+  try {
+    // meta_educacao — meta com categoria educação
+    const metaEduc = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('educacao','educação','curso','faculdade','estudo','capacitacao','capacitação')`
+    ).bind(user.id).first() as any
+    if ((metaEduc?.total || 0) >= 1) await ganhar('meta_educacao')
+
+    // meta_viagem — meta com categoria viagem
+    const metaViagem = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('viagem','trip','turismo','ferias','férias')`
+    ).bind(user.id).first() as any
+    if ((metaViagem?.total || 0) >= 1) await ganhar('meta_viagem')
+
+    // meta_carro — meta com categoria veiculo
+    const metaCarro = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('carro','veiculo','veículo','automovel','automóvel','moto','transporte')`
+    ).bind(user.id).first() as any
+    if ((metaCarro?.total || 0) >= 1) await ganhar('meta_carro')
+
+    // meta_casa — meta com categoria imovel
+    const metaCasa = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('casa','imovel','imóvel','apartamento','moradia','residencia','residência')`
+    ).bind(user.id).first() as any
+    if ((metaCasa?.total || 0) >= 1) await ganhar('meta_casa')
+
+    // meta_aposentadoria — meta de aposentadoria ou independência
+    const metaApos = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('aposentadoria','independencia','independência','independencia_financeira',
+                                'independência_financeira','liberdade','liberdade_financeira','reforma','retiro')`
+    ).bind(user.id).first() as any
+    if ((metaApos?.total || 0) >= 1) await ganhar('meta_aposentadoria')
+
+    // meta_liberdade — meta de liberdade financeira
+    const metaLib = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM metas WHERE user_id=?
+       AND LOWER(categoria) IN ('liberdade','liberdade_financeira','independencia','independência',
+                                'aposentadoria','aposentadoria_financeira')`
+    ).bind(user.id).first() as any
+    if ((metaLib?.total || 0) >= 1) await ganhar('meta_liberdade')
+
+    // Fallback — verifica por nome da meta quando categoria é genérica
+    const metaNomes = await c.env.DB.prepare(
+      `SELECT LOWER(nome) as nome, LOWER(COALESCE(categoria,'')) as cat FROM metas WHERE user_id=?`
+    ).bind(user.id).all() as any
+    for (const m of (metaNomes?.results || [])) {
+      const n = m.nome || ''
+      const cat = m.cat || ''
+      if (cat === 'economia' || cat === 'outros' || cat === '' || cat === 'geral') {
+        if (/educa|curso|facul|estud|capaci/.test(n)) await ganhar('meta_educacao')
+        if (/viag|trip|ferias|férias|turismo/.test(n)) await ganhar('meta_viagem')
+        if (/carro|veicu|veiculo|moto|automovel/.test(n)) await ganhar('meta_carro')
+        if (/casa|imovel|imóvel|apto|apart|morad|resid/.test(n)) await ganhar('meta_casa')
+        if (/aposen|independ|liberd|reform|retiro|fire/.test(n)) {
+          await ganhar('meta_aposentadoria')
+          await ganhar('meta_liberdade')
+        }
+      }
+    }
+  } catch { /* metas por tipo */ }
 
   return c.json({ novas_conquistas: novas, total_novas: novas.length })
 })

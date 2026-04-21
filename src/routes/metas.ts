@@ -321,7 +321,7 @@ metas.patch('/:id/deposito', requireAuth, async (c) => {
   }
 
   if (statusNovo === 'concluida')
-    await verificarConquista(c.env.DB, user.id, 'meta_concluida_1')
+    await verificarConquista(c.env.DB, user.id, 'meta_concluida')
 
   const msgBase = tipo === 'saque'
     ? `R$ ${valorNum.toFixed(2)} sacado da meta`

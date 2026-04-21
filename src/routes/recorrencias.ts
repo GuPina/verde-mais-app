@@ -222,12 +222,12 @@ recorrencias.post('/', requireAuth, async (c) => {
     data_inicio, notas || null, tagsStr
   ).run()
 
-  await verificarConquista(c.env.DB, user.id, 'automatico')
+  await verificarConquista(c.env.DB, user.id, 'primeira_recorrencia')
 
   const count = await c.env.DB.prepare(
     `SELECT COUNT(*) as n FROM recorrencias WHERE user_id = ? AND ativa = 1`
   ).bind(user.id).first() as any
-  if ((count?.n || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'recorrente_pro')
+  if ((count?.n || 0) >= 3) await verificarConquista(c.env.DB, user.id, '3_recorrencias')
 
   return c.json({ success: true, id: res.meta.last_row_id })
 })

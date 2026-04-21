@@ -329,7 +329,7 @@ orcamentos.post('/', requireAuth, async (c) => {
     'SELECT * FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?'
   ).bind(user.id, categoria, mes, ano).first()
 
-  await verificarConquista(c.env.DB, user.id, 'orcamentista')
+  await verificarConquista(c.env.DB, user.id, 'primeiro_orcamento')
   await verificarConquista(c.env.DB, user.id, 'primeiro_orcamento')
 
   return c.json({ success: true, orcamento: orc })
