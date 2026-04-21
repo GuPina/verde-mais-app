@@ -314,6 +314,10 @@ recorrencias.patch('/:id/toggle', requireAuth, async (c) => {
 })
 
 // ─── DELETE /api/recorrencias/:id ────────────────────────────────────────────
+// Ao excluir uma recorrência, SEMPRE remove os lançamentos futuros pendentes
+// vinculados a ela (receitas/despesas com status='pendente' e data >= hoje).
+// Isso garante consistência entre a tela de Recorrências e as telas de
+// Receitas/Despesas — não faz sentido manter lançamentos "soltos" sem pai.
 recorrencias.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id   = c.req.param('id')
@@ -323,45 +327,29 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
-  // Verificar se deve excluir também os lançamentos futuros pendentes
-  // Aceita query param (?excluir_futuros=true) — body é ignorado em DELETE pelo Cloudflare Workers
-  const qp = c.req.query('excluir_futuros')
-  let bodyExcluir = false
+  const recTipo = rec.tipo || 'despesa'
+  const hoje    = new Date().toISOString().split('T')[0]
+
+  // Sempre excluir lançamentos futuros pendentes vinculados à recorrência
   try {
-    const ct = c.req.header('content-type') || ''
-    if (ct.includes('application/json')) {
-      const bd = await c.req.json() as any
-      bodyExcluir = bd?.excluir_futuros === true || bd?.excluir_futuros === 'true'
+    if (recTipo === 'receita') {
+      await c.env.DB.prepare(
+        `DELETE FROM receitas WHERE recorrencia_id = ? AND user_id = ? AND data >= ? AND status = 'pendente'`
+      ).bind(id, user.id, hoje).run()
+    } else {
+      await c.env.DB.prepare(
+        `DELETE FROM despesas WHERE recorrencia_id = ? AND user_id = ? AND vencimento >= ? AND status = 'pendente'`
+      ).bind(id, user.id, hoje).run()
     }
-  } catch (_) {}
-  const excluirFuturos = qp === 'true' || qp === '1' || bodyExcluir
-
-  // Buscar tipo ANTES de deletar a recorrência (necessário para saber se é receita ou despesa)
-  const recTipo = (rec as any).tipo || 'despesa'
-
-  if (excluirFuturos) {
-    const hoje = new Date().toISOString().split('T')[0]
-    try {
-      if (recTipo === 'receita') {
-        await c.env.DB.prepare(
-          `DELETE FROM receitas WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
-        ).bind(id, user.id, hoje).run()
-      } else {
-        await c.env.DB.prepare(
-          `DELETE FROM despesas WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
-        ).bind(id, user.id, hoje).run()
-      }
-    } catch (e: any) {
-      // Coluna recorrencia_id pode não existir — fallback por descricao + recorrente=1
-      console.error('[recorrencias] excluir_futuros error:', e?.message)
-    }
+  } catch (e: any) {
+    console.error('[recorrencias] delete futuros error:', e?.message)
   }
 
   await c.env.DB.prepare(
     `DELETE FROM recorrencias WHERE id = ? AND user_id = ?`
   ).bind(id, user.id).run()
 
-  return c.json({ success: true, futuros_excluidos: excluirFuturos })
+  return c.json({ success: true, futuros_excluidos: true })
 })
 
 // ─── POST /api/recorrencias/:id/lancar ───────────────────────────────────────

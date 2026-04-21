@@ -10535,13 +10535,13 @@ const VM = {
         <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:24px;width:100%;max-width:420px;">
           <div style="font-size:1.05rem;font-weight:700;color:#F8FAFC;margin-bottom:8px;">🗑️ Excluir Recorrência</div>
           <div style="color:#94A3B8;font-size:0.85rem;margin-bottom:18px;">Excluir <strong style="color:#F8FAFC;">"${desc}"</strong>?</div>
-          <label style="display:flex;align-items:center;gap:10px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px;cursor:pointer;margin-bottom:18px;">
-            <input type="checkbox" id="cb-excluir-futuros-${id}" style="width:16px;height:16px;accent-color:#ef4444;">
+          <div style="display:flex;align-items:flex-start;gap:10px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px;margin-bottom:18px;">
+            <div style="font-size:1.3rem;margin-top:2px;">⚠️</div>
             <div>
-              <div style="font-size:0.83rem;font-weight:600;color:#F8FAFC;">Excluir também lançamentos futuros pendentes</div>
-              <div style="font-size:0.73rem;color:#64748B;margin-top:2px;">Remove despesas/receitas futuras vinculadas a esta recorrência</div>
+              <div style="font-size:0.83rem;font-weight:600;color:#F8FAFC;">Todos os lançamentos futuros pendentes serão removidos</div>
+              <div style="font-size:0.73rem;color:#94A3B8;margin-top:3px;">As despesas/receitas geradas por esta recorrência que ainda não foram pagas também serão excluídas das telas de Receitas e Despesas.</div>
             </div>
-          </label>
+          </div>
           <div style="display:flex;gap:10px;">
             <button onclick="document.getElementById('${modalId}').remove()" style="flex:1;padding:11px;background:rgba(255,255,255,0.05);color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;">Cancelar</button>
             <button id="btn-confirmar-del-rec-${id}" onclick="VM._confirmarDeleteRecorrencia(${id},'${modalId}')" style="flex:1;padding:11px;background:#ef4444;color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Excluir</button>
@@ -10551,15 +10551,13 @@ const VM = {
     }
 
     this._confirmarDeleteRecorrencia = async (id, modalId) => {
-      const excluirFuturos = document.getElementById('cb-excluir-futuros-' + id)?.checked || false
       const btn = document.getElementById('btn-confirmar-del-rec-' + id)
       if (btn) { btn.disabled = true; btn.textContent = 'Excluindo...' }
       try {
-        // Enviar como query param para garantir que Cloudflare Workers processe corretamente
-        const urlDel = excluirFuturos ? `recorrencias/${id}?excluir_futuros=true` : `recorrencias/${id}`
-        await this.api('DELETE', urlDel)
+        // Sempre excluir lançamentos futuros pendentes ao remover a recorrência
+        await this.api('DELETE', `recorrencias/${id}?excluir_futuros=true`)
         document.getElementById(modalId)?.remove()
-        this.toast(excluirFuturos ? '✅ Recorrência e lançamentos futuros removidos' : '✅ Recorrência removida')
+        this.toast('✅ Recorrência e lançamentos futuros removidos')
         if (this._renderRecCallback) await this._renderRecCallback()
         else this.navigate('recorrencias')
       } catch(e) { this.toast('Erro ao excluir', 'error'); if(btn){btn.disabled=false;btn.textContent='Excluir'} }
