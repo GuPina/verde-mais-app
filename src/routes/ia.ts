@@ -1100,88 +1100,107 @@ ia.get('/insights', requireAuth, async (c) => {
   }
 })
 
-// ─── POST /api/ia/tag-sugestao — Opção C: matching inteligente + sugestão de nova tag ──
+// ─── POST /api/ia/tag-sugestao — matching rigoroso + IA como decisor final ───
 ia.post('/tag-sugestao', requireAuth, async (c) => {
   const user = c.get('user')
-  const { descricao, categoria, tags } = await c.req.json().catch(() => ({} as any))
+  const { descricao, categoria, tags, tags_existentes } = await c.req.json().catch(() => ({} as any))
   if (!descricao) return c.json({ error: 'Descricao obrigatoria' }, 400)
 
-  const tagsLista: Array<{ id: string; nome: string }> = tags || []
+  // Aceita tanto "tags" quanto "tags_existentes" (frontend usa os dois nomes)
+  const tagsLista: Array<{ id: string; nome: string }> = tags_existentes || tags || []
 
   const normalizar = (s: string) =>
     s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim()
 
-  const descNorm = normalizar(descricao)
-  const catNorm  = normalizar(categoria || '')
+  // Tokeniza em palavras com >= 3 letras, ignorando stopwords
+  const STOPWORDS = new Set(['para','com','sem','uma','uns','umas','por','dos','das','del','the','and','de','da','do','em','no','na','os','as'])
+  const tokenizar = (s: string) =>
+    normalizar(s).split(/\s+/).filter((w: string) => w.length >= 3 && !STOPWORDS.has(w))
 
-  // ── Mapa categoria → palavras-chave de alta relevância ────────────────────
+  const descNorm   = normalizar(descricao)
+  const descTokens = tokenizar(descricao)
+  const catNorm    = normalizar(categoria || '')
+  const catTokens  = tokenizar(categoria || '')
+
+  // ── Mapa categoria → termos-chave (apenas palavras COMPLETAS, sem substrings) ──
+  // Regra: kw deve ter >= 4 chars para evitar matches acidentais (ex: "gas" vs "gasolina")
   const CAT_KEYWORDS: Record<string, string[]> = {
-    alimentacao:    ['mercado','supermercado','restaurante','lanche','ifood','uber eats','rappi','pizza','sushi','hamburguer','padaria','acougue','hortifruti','food','cafe'],
-    moradia:        ['aluguel','condominio','agua','luz','energia','gas','internet','telefone','iptu','seguro imovel','manutencao','reforma','apartamento','casa','imovel'],
-    transporte:     ['uber','99','taxi','onibus','metro','combustivel','gasolina','etanol','estacionamento','pedagio','carro','moto','bike','bicicleta','transfer'],
-    saude:          ['farmacia','remedio','medico','consulta','exame','plano saude','hospital','clinica','dentista','laboratorio','drogaria','academia','nutricionista'],
-    educacao:       ['escola','faculdade','curso','livro','material','uniforme','mensalidade','idioma','ingles','certificacao','treinamento','aula'],
-    lazer:          ['cinema','teatro','show','evento','viagem','hotel','airbnb','spotify','netflix','amazon','disney','hbo','streaming','jogo','game','passeio'],
-    vestuario:      ['roupa','calcado','tenis','sapato','camisa','calca','vestido','moda','loja','zara','renner','riachuelo','cea','shopping'],
-    financeiro:     ['parcela','prestacao','juros','taxa','tarifa','banco','cartao','emprestimo','financiamento','seguro','investimento','poupanca','ted','pix'],
-    pets:           ['pet','veterinario','racao','vacina','banho','tosa','aquario','passaro','gato','cachorro','canil','petshop'],
-    servicos:       ['servico','assistencia','tecnico','conserto','manutencao','limpeza','faxina','diarista','encanador','eletricista','pintor','jardineiro'],
-    entretenimento: ['netflix','spotify','youtube','prime','hbo','disney','streaming','jogo','game','app','assinatura'],
-    viagem:         ['hotel','hostel','airbnb','passagem','aeroporto','viagem','turismo','excursao','cruzeiro','resort'],
+    alimentacao:    ['mercado','supermercado','restaurante','lanche','ifood','rappi','pizza','sushi','hamburguer','padaria','hortifruti','acougue','cafeteria','mercearia','emporio'],
+    moradia:        ['aluguel','condominio','energia','internet','iptu','reforma','apartamento','casa','imovel','agua','manutencao'],
+    transporte:     ['uber','taxi','onibus','metro','combustivel','gasolina','etanol','estacionamento','pedagio','mecanica','automovel'],
+    saude:          ['farmacia','remedio','medico','consulta','exame','hospital','clinica','dentista','laboratorio','drogaria','academia','nutricionista','plano'],
+    educacao:       ['escola','faculdade','curso','livro','mensalidade','idioma','certificacao','treinamento','aula','apostila'],
+    lazer:          ['cinema','teatro','show','evento','spotify','netflix','amazon','disney','streaming','game','passeio'],
+    vestuario:      ['roupa','calcado','tenis','sapato','camisa','calca','vestido','shopping','moda'],
+    financeiro:     ['parcela','prestacao','juros','taxa','tarifa','banco','cartao','emprestimo','financiamento','seguro','investimento'],
+    pets:           ['veterinario','racao','vacina','petshop','cachorro','gato','canil'],
+    servicos:       ['assistencia','conserto','limpeza','faxina','diarista','encanador','eletricista','pintor'],
+    entretenimento: ['netflix','spotify','youtube','prime','disney','streaming','assinatura'],
+    viagem:         ['hotel','hostel','airbnb','passagem','aeroporto','turismo','cruzeiro','resort'],
   }
 
-  // ── Scoring avançado ──────────────────────────────────────────────────────
+  // ── Scoring rigoroso: apenas tokens completos (word boundary), sem substring parcial ──
   let melhorTag: string | null = null
   let melhorScore = 0
+  const scores: Array<{ nome: string; score: number }> = []
 
   for (const t of tagsLista) {
     const tagNorm   = normalizar(t.nome)
-    const tagTokens = tagNorm.split(/\s+/).filter((w: string) => w.length > 2)
+    const tagTokens = tokenizar(t.nome)
     let score = 0
 
-    // Correspondência direta tag ↔ descrição
-    for (const token of tagTokens) {
-      if (descNorm.includes(token)) score += 3
-      if (catNorm.includes(token))  score += 2
-    }
-    if (descNorm.includes(tagNorm))                   score += 4
-    if (tagNorm.includes(descNorm.split(' ')[0]))     score += 2
+    // 1. Correspondência exata: tag inteira aparece na descrição (ex: "Apartamento" em "Entrada Apartamento")
+    if (descNorm.includes(tagNorm)) score += 8
 
-    // Bônus por categoria: se a categoria da despesa mapeia para palavras-chave
-    // que correspondem ao nome da tag, aumenta o score
+    // 2. Tokens da tag batem em tokens da descrição (word-level, não substring)
+    for (const tt of tagTokens) {
+      if (descTokens.includes(tt)) score += 5      // token exato na descrição
+      if (catTokens.includes(tt))  score += 3      // token exato na categoria
+    }
+
+    // 3. Tokens da descrição batem na tag (bidirecional)
+    for (const dt of descTokens) {
+      if (tagNorm === dt)           score += 5     // desc token == tag inteira
+      if (tagTokens.includes(dt))  score += 3     // desc token == token da tag
+    }
+
+    // 4. Bônus categoria: palavra-chave da categoria bate EXATAMENTE com token da tag
+    //    (não bate se for apenas substring — ex: "gas" NÃO bate com "gasolina")
     const catKey = catNorm.split(' ')[0]
-    const kwList = CAT_KEYWORDS[catKey] || []
+    const kwList = (CAT_KEYWORDS[catKey] || []).filter((kw: string) => kw.length >= 4)
     for (const kw of kwList) {
-      if (tagNorm.includes(kw) || kw.includes(tagNorm)) score += 2
-      if (descNorm.includes(kw))                         score += 1
+      if (tagTokens.includes(kw))  score += 3     // kw é um token exato da tag
+      if (descTokens.includes(kw)) score += 2     // kw aparece na descrição
     }
 
+    scores.push({ nome: t.nome, score })
     if (score > melhorScore) { melhorScore = score; melhorTag = t.nome }
   }
 
-  // Score alto no matching local → retorna sem IA
-  if (melhorScore >= 4) {
+  // Score confiável: >= 5 significa pelo menos um match semântico real
+  // (ex: "Apartamento" em descrição → score 8 ou mais)
+  if (melhorScore >= 5) {
     return c.json({ tag_sugerida: melhorTag, sugestao: melhorTag, metodo: 'local', nova_tag: null })
   }
 
-  // ── Chamar IA para decisão final ──────────────────────────────────────────
+  // ── Chamar IA para decisão final (quando matching local é inconclusivo) ────
   try {
     const apiKey  = c.env.OPENAI_API_KEY
     const baseUrl = (c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
     if (!apiKey) throw new Error('sem api key')
 
-    // Histórico recente do usuário com tags (contexto de padrões pessoais)
+    // Histórico recente do usuário: padrões de tag que ele já usou
     const historico = await c.env.DB.prepare(
       `SELECT d.descricao, d.categoria, t.nome as tag_nome
        FROM despesas d
        JOIN despesa_tags dt ON dt.despesa_id = d.id
        JOIN tags t ON t.id = dt.tag_id
        WHERE d.user_id = ?
-       ORDER BY d.data DESC LIMIT 15`
+       ORDER BY d.data DESC LIMIT 20`
     ).bind(user.id).all<any>().catch(() => ({ results: [] }))
 
     const exemplos = (historico.results || [])
-      .slice(0, 8)
+      .slice(0, 10)
       .map((r: any) => `"${r.descricao}" (${r.categoria}) → "${r.tag_nome}"`)
       .join('\n')
 
@@ -1192,18 +1211,19 @@ ia.post('/tag-sugestao', requireAuth, async (c) => {
 DESPESA: "${descricao}"
 CATEGORIA FINANCEIRA: "${categoria || 'não informada'}"
 TAGS EXISTENTES DO USUÁRIO: ${tagsNomes}
-${exemplos ? `\nPADRÕES DO USUÁRIO (despesas anteriores com tags):\n${exemplos}` : ''}
+${exemplos ? `\nPADRÕES DO USUÁRIO (despesas anteriores com suas tags):\n${exemplos}` : ''}
 
-TAREFA: Analise a despesa e decida:
-1. Se uma das tags existentes se encaixa bem → responda com o nome EXATO da tag
-2. Se nenhuma tag existente faz sentido → sugira um nome curto (1-3 palavras) para uma NOVA tag que seria ideal
+REGRAS OBRIGATÓRIAS:
+- Só sugira uma tag existente se ela realmente fizer sentido semântico para esta despesa
+- NÃO sugira tags por coincidência de letras ou sons — apenas por significado real
+- Se nenhuma tag existente fizer sentido, sugira uma nova tag curta (1-3 palavras) que descreva bem a despesa
+- Exemplos de bom match: "Entrada Apartamento" → tag "Apartamento" ou "Moradia"; "Mercado Extra" → "Supermercado" ou "Alimentação"
+- Exemplos de mau match: "Entrada Apartamento" → tag "Gasolina" (ERRADO — não tem relação)
 
-FORMATO DA RESPOSTA (JSON):
+FORMATO DA RESPOSTA (apenas JSON, sem texto extra):
 {"acao": "usar_existente", "tag": "nome exato da tag existente"}
 OU
-{"acao": "criar_nova", "tag": "Nome Sugerido"}
-
-Responda APENAS o JSON. Sem explicações.`
+{"acao": "criar_nova", "tag": "Nome Sugerido"}`
 
     const aiRes = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -1219,14 +1239,11 @@ Responda APENAS o JSON. Sem explicações.`
     if (aiRes.ok) {
       const aiData: any = await aiRes.json()
       const raw = (aiData?.choices?.[0]?.message?.content || '').trim()
-
-      // Extrair JSON da resposta
       const jsonMatch = raw.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
 
         if (parsed.acao === 'usar_existente' && parsed.tag) {
-          // Validar se a tag sugerida existe na lista
           const tagValida = tagsLista.find(
             (t: any) => normalizar(t.nome) === normalizar(parsed.tag)
           )
@@ -1236,26 +1253,20 @@ Responda APENAS o JSON. Sem explicações.`
         }
 
         if (parsed.acao === 'criar_nova' && parsed.tag) {
-          // IA sugere criar uma nova tag — retorna sugestão sem aplicar automaticamente
           const nomeSugerido = parsed.tag.trim().substring(0, 30)
-          return c.json({
-            tag_sugerida: null,
-            sugestao: 'nenhuma',
-            metodo: 'ia_nova_tag',
-            nova_tag: nomeSugerido  // frontend vai perguntar ao usuário se quer criar
-          })
+          return c.json({ tag_sugerida: null, sugestao: 'nenhuma', metodo: 'ia_nova_tag', nova_tag: nomeSugerido })
         }
       }
     }
   } catch (_) {}
 
-  // Fallback: melhor match local mesmo com score baixo
-  return c.json({
-    tag_sugerida: melhorScore > 0 ? melhorTag : null,
-    sugestao:     melhorScore > 0 ? melhorTag : 'nenhuma',
-    metodo:       melhorScore > 0 ? 'local_baixo' : 'nenhuma',
-    nova_tag:     null
-  })
+  // Fallback: só retorna match local se score for >= 3 (alguma relevância mínima)
+  // Abaixo disso, é melhor não sugerir nada do que sugerir errado
+  if (melhorScore >= 3) {
+    return c.json({ tag_sugerida: melhorTag, sugestao: melhorTag, metodo: 'local_baixo', nova_tag: null })
+  }
+
+  return c.json({ tag_sugerida: null, sugestao: 'nenhuma', metodo: 'nenhuma', nova_tag: null })
 })
 
 export default ia
