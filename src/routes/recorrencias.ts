@@ -276,16 +276,21 @@ recorrencias.put('/:id', requireAuth, async (c) => {
   const propagarPara = body.propagar_futuras ?? false
   if (propagarPara) {
     const hoje = new Date().toISOString().split('T')[0]
-    if (recAtual.tipo === 'receita') {
-      await c.env.DB.prepare(
-        `UPDATE receitas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
-         WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
-      ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
-    } else {
-      await c.env.DB.prepare(
-        `UPDATE despesas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
-         WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
-      ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
+    try {
+      if (recAtual.tipo === 'receita') {
+        await c.env.DB.prepare(
+          `UPDATE receitas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+           WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
+        ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
+      } else {
+        await c.env.DB.prepare(
+          `UPDATE despesas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+           WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
+        ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
+      }
+    } catch (e: any) {
+      // Coluna recorrencia_id pode não existir em versões antigas — apenas ignora
+      console.error('[recorrencias] propagar_futuras error:', e?.message)
     }
   }
 
@@ -336,10 +341,19 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
 
   if (excluirFuturos) {
     const hoje = new Date().toISOString().split('T')[0]
-    if (recTipo === 'receita') {
-      await c.env.DB.prepare(`DELETE FROM receitas WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`).bind(id, user.id, hoje).run()
-    } else {
-      await c.env.DB.prepare(`DELETE FROM despesas WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`).bind(id, user.id, hoje).run()
+    try {
+      if (recTipo === 'receita') {
+        await c.env.DB.prepare(
+          `DELETE FROM receitas WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
+        ).bind(id, user.id, hoje).run()
+      } else {
+        await c.env.DB.prepare(
+          `DELETE FROM despesas WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
+        ).bind(id, user.id, hoje).run()
+      }
+    } catch (e: any) {
+      // Coluna recorrencia_id pode não existir — fallback por descricao + recorrente=1
+      console.error('[recorrencias] excluir_futuros error:', e?.message)
     }
   }
 
@@ -402,10 +416,10 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
     await c.env.DB.prepare(
       `INSERT INTO despesas
          (user_id, descricao, valor, categoria, vencimento, data, status,
-          meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
-       VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
+          meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente, recorrencia_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1, ?)`
     ).bind(user.id, rec.descricao, valorLancar, rec.categoria,
-           dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+           dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
   } else {
     const existe = await c.env.DB.prepare(
       `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
@@ -413,9 +427,9 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
     if (existe) return c.json({ error: `Já existe um lançamento de "${rec.descricao}" em ${mes}/${ano}` }, 409)
 
     await c.env.DB.prepare(
-      `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
-       VALUES (?, ?, ?, ?, ?, 1)`
-    ).bind(user.id, rec.descricao, valorLancar, rec.categoria, dataVenc).run()
+      `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`
+    ).bind(user.id, rec.descricao, valorLancar, rec.categoria, dataVenc, rec.id).run()
   }
 
   await c.env.DB.prepare(
@@ -469,9 +483,9 @@ recorrencias.post('/processar', requireAuth, async (c) => {
       ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
-        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
-         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente, recorrencia_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1, ?)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
       geradasItems.push({ tipo: 'despesa', descricao: rec.descricao, valor: rec.valor })
     } else {
       const existe = await c.env.DB.prepare(
@@ -479,9 +493,9 @@ recorrencias.post('/processar', requireAuth, async (c) => {
       ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
-        `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
-         VALUES (?, ?, ?, ?, ?, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc).run()
+        `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, rec.id).run()
       geradasItems.push({ tipo: 'receita', descricao: rec.descricao, valor: rec.valor })
     }
 
@@ -537,18 +551,18 @@ recorrencias.post('/processar-mes', requireAuth, async (c) => {
       ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
-        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente)
-         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros').run()
+        `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente, recorrencia_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1, ?)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
     } else {
       const existe = await c.env.DB.prepare(
         `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
       ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
-        `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente)
-         VALUES (?, ?, ?, ?, ?, 1)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc).run()
+        `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`
+      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, rec.id).run()
     }
     geradas++
   }
