@@ -314,10 +314,11 @@ recorrencias.patch('/:id/toggle', requireAuth, async (c) => {
 })
 
 // ─── DELETE /api/recorrencias/:id ────────────────────────────────────────────
-// Ao excluir uma recorrência, SEMPRE remove os lançamentos futuros pendentes
-// vinculados a ela (receitas/despesas com status='pendente' e data >= hoje).
-// Isso garante consistência entre a tela de Recorrências e as telas de
-// Receitas/Despesas — não faz sentido manter lançamentos "soltos" sem pai.
+// Ao excluir uma recorrência, remove TODOS os lançamentos vinculados a ela
+// que ainda não foram pagos/recebidos — garantindo consistência total entre
+// as telas de Recorrências, Despesas e Receitas.
+// Nota: receitas não têm coluna 'status', logo remove todas as vinculadas.
+//       despesas têm 'status', remove apenas as 'pendente' (não as já pagas).
 recorrencias.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id   = c.req.param('id')
@@ -328,21 +329,17 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   const recTipo = rec.tipo || 'despesa'
-  const hoje    = new Date().toISOString().split('T')[0]
 
-  // Sempre excluir lançamentos futuros pendentes vinculados à recorrência
-  try {
-    if (recTipo === 'receita') {
-      await c.env.DB.prepare(
-        `DELETE FROM receitas WHERE recorrencia_id = ? AND user_id = ? AND data >= ? AND status = 'pendente'`
-      ).bind(id, user.id, hoje).run()
-    } else {
-      await c.env.DB.prepare(
-        `DELETE FROM despesas WHERE recorrencia_id = ? AND user_id = ? AND vencimento >= ? AND status = 'pendente'`
-      ).bind(id, user.id, hoje).run()
-    }
-  } catch (e: any) {
-    console.error('[recorrencias] delete futuros error:', e?.message)
+  if (recTipo === 'receita') {
+    // Receitas não têm coluna 'status' — remove todas as vinculadas
+    await c.env.DB.prepare(
+      `DELETE FROM receitas WHERE recorrencia_id = ? AND user_id = ?`
+    ).bind(id, user.id).run()
+  } else {
+    // Despesas: remove apenas as pendentes (preserva as já pagas no histórico)
+    await c.env.DB.prepare(
+      `DELETE FROM despesas WHERE recorrencia_id = ? AND user_id = ? AND status = 'pendente'`
+    ).bind(id, user.id).run()
   }
 
   await c.env.DB.prepare(
