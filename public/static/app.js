@@ -4854,7 +4854,10 @@ const VM = {
         ${despesas.map(d => {
           const sug    = sugestoes[d.id]
           const dataFmt = d.data ? (() => { const [y,m,day] = d.data.split('-'); return `${day}/${mesesPT[parseInt(m)-1]}/${y}` })() : ''
-          const parcStr = d.parcelado && d.numero_parcelas > 1 ? ` <span style="font-size:0.7rem;color:#64748B;">${d.parcela_atual}/${d.numero_parcelas}</span>` : ''
+          // Se é grupo de parcelas, mostrar badge com total de parcelas do grupo
+          const parcStr = d.eh_grupo
+            ? ` <span style="font-size:0.7rem;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);border-radius:4px;padding:1px 6px;margin-left:4px;" title="Tag será aplicada em todas as ${d.total_parcelas} parcelas">${d.total_parcelas} parcelas</span>`
+            : (d.parcelado && d.numero_parcelas > 1 ? ` <span style="font-size:0.7rem;color:#64748B;">${d.parcela_atual}/${d.numero_parcelas}</span>` : '')
 
           const tagSelecionadaHTML = sug
             ? `<div style="display:flex;align-items:center;gap:6px;background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.35);border-radius:8px;padding:4px 10px;font-size:0.78rem;color:#A78BFA;">
@@ -4963,14 +4966,22 @@ const VM = {
         tags: tagsUsuario.map(t => ({ id: String(t.id), nome: t.nome }))
       })
 
-      if (resp.tag_sugerida && resp.tag_sugerida !== 'nenhuma') {
+      // backend pode retornar tag_sugerida (match alto) ou sugestao (match baixo) — usar ambos
+      const tagNomeIA = resp.tag_sugerida || (resp.sugestao !== 'nenhuma' ? resp.sugestao : null) || ''
+
+      if (tagNomeIA && tagNomeIA !== 'nenhuma') {
         // Tag existente encontrada
-        const tag = tagsUsuario.find(t => t.nome.toLowerCase() === resp.tag_sugerida.toLowerCase())
+        const tag = tagsUsuario.find(t => t.nome.toLowerCase() === tagNomeIA.toLowerCase())
         if (tag) {
           this._semTagState.sugestoes[despesaId] = { tag_id: tag.id, tag_nome: tag.nome, tag_nova: false }
           // Atualizar select
           const sel = document.getElementById(`sel-tag-${despesaId}`)
           if (sel) sel.value = tag.id
+        } else if (resp.metodo !== 'local_baixo') {
+          // IA encontrou algo mas não existe na lista — tratar como nova
+          this._semTagState.sugestoes[despesaId] = { tag_id: null, tag_nome: tagNomeIA, tag_nova: true }
+        } else {
+          this.toast('IA não encontrou tag adequada para esta despesa', 'warning')
         }
       } else if (resp.nova_tag && resp.metodo === 'ia_nova_tag') {
         // Nova tag sugerida
@@ -5009,9 +5020,14 @@ const VM = {
           tags: tags_para_ia
         })
 
-        if (resp.tag_sugerida && resp.tag_sugerida !== 'nenhuma') {
-          const tag = tagsUsuario.find(t => t.nome.toLowerCase() === resp.tag_sugerida.toLowerCase())
-          if (tag) this._semTagState.sugestoes[d.id] = { tag_id: tag.id, tag_nome: tag.nome, tag_nova: false }
+        const tagNomeIA = resp.tag_sugerida || (resp.sugestao !== 'nenhuma' ? resp.sugestao : null) || ''
+        if (tagNomeIA && tagNomeIA !== 'nenhuma') {
+          const tag = tagsUsuario.find(t => t.nome.toLowerCase() === tagNomeIA.toLowerCase())
+          if (tag) {
+            this._semTagState.sugestoes[d.id] = { tag_id: tag.id, tag_nome: tag.nome, tag_nova: false }
+          } else if (resp.metodo !== 'local_baixo') {
+            this._semTagState.sugestoes[d.id] = { tag_id: null, tag_nome: tagNomeIA, tag_nova: true }
+          }
         } else if (resp.nova_tag && resp.metodo === 'ia_nova_tag') {
           this._semTagState.sugestoes[d.id] = { tag_id: null, tag_nome: resp.nova_tag, tag_nova: true }
         }
@@ -5046,11 +5062,20 @@ const VM = {
     if (btnAplicar) { btnAplicar.disabled = true; btnAplicar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...' }
 
     try {
-      const aplicacoes = entradas.map(([despesa_id, sug]) => ({
-        despesa_id: parseInt(despesa_id),
-        tag_id:     sug.tag_id   || null,
-        tag_nome:   sug.tag_nova ? sug.tag_nome : null
-      }))
+      // Montar mapa despesa_id → despesa (para recuperar grupo_ids)
+      const despesaMap = {}
+      for (const d of this._semTagState.despesas) despesaMap[d.id] = d
+
+      const aplicacoes = entradas.map(([despesa_id, sug]) => {
+        const desp = despesaMap[parseInt(despesa_id)]
+        return {
+          despesa_id: parseInt(despesa_id),
+          // Se for grupo de parcelas, enviar todos os IDs para o backend aplicar em todas
+          grupo_ids:  desp?.grupo_ids?.length > 1 ? desp.grupo_ids : null,
+          tag_id:     sug.tag_id   || null,
+          tag_nome:   (!sug.tag_id || sug.tag_nova) ? sug.tag_nome : null
+        }
+      })
 
       const resp = await this.api('POST', 'tags/aplicar-em-lote', { aplicacoes })
       this.toast(resp.message || `${resp.vinculadas} despesas atualizadas!`, 'success')

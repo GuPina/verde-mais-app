@@ -502,7 +502,8 @@ tags.get('/sugestoes-mesclar', requireAuth, async (c) => {
 })
 
 // ─── GET /api/tags/despesas-sem-tag ──────────────────────────────────────────
-// Lista despesas sem nenhuma tag vinculada, com paginação (20/página)
+// Lista despesas sem nenhuma tag vinculada, com paginação (20/página).
+// Parcelas do mesmo grupo são AGRUPADAS em 1 linha (mostra a 1ª parcela como representante).
 // Query params: pagina (default 1), limit (default 20, max 50)
 tags.get('/despesas-sem-tag', requireAuth, async (c) => {
   const user   = c.get('user')
@@ -510,23 +511,12 @@ tags.get('/despesas-sem-tag', requireAuth, async (c) => {
   const limit  = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20')))
   const offset = (pagina - 1) * limit
 
-  // Total de despesas sem tag (excluindo parceladas que não são a parcela 1 para não poluir)
-  const totalRow = await c.env.DB.prepare(
-    `SELECT COUNT(*) as total
-     FROM despesas d
-     WHERE d.user_id = ?
-       AND d.tipo != 'aporte'
-       AND NOT EXISTS (
-         SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
-       )`
-  ).bind(user.id).first<{ total: number }>()
-
-  const total = totalRow?.total || 0
-
-  // Despesas paginadas
-  const rows = await c.env.DB.prepare(
+  // Busca todas as despesas sem tag do usuário (sem paginação ainda — precisamos agrupar em memória)
+  // Para evitar full-scan em tabelas grandes, limitamos a 5000 para agrupar
+  const allRows = await c.env.DB.prepare(
     `SELECT d.id, d.descricao, d.data, d.valor, d.categoria, d.status,
-            d.vencimento, d.parcela_atual, d.numero_parcelas, d.parcelado
+            d.vencimento, d.parcela_atual, d.numero_parcelas, d.parcelado,
+            d.purchase_group_id
      FROM despesas d
      WHERE d.user_id = ?
        AND d.tipo != 'aporte'
@@ -534,8 +524,58 @@ tags.get('/despesas-sem-tag', requireAuth, async (c) => {
          SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
        )
      ORDER BY d.data DESC, d.id DESC
-     LIMIT ? OFFSET ?`
-  ).bind(user.id, limit, offset).all<any>()
+     LIMIT 5000`
+  ).bind(user.id).all<any>()
+
+  const allDespesas = allRows.results || []
+
+  // Agrupar parcelas: chave = purchase_group_id (se existir e não for null)
+  // Ou, para parcelas antigas sem purchase_group_id, agrupar por descrição-base (removendo sufixo " (N/M)")
+  const grupos = new Map<string, any>()   // chave → representante
+  const grupoIds = new Map<string, number[]>() // chave → lista de ids do grupo
+
+  for (const d of allDespesas) {
+    let chave: string
+
+    if (d.purchase_group_id && d.purchase_group_id !== 'null') {
+      // Grupo explícito
+      chave = `grp:${d.purchase_group_id}`
+    } else if (d.parcelado) {
+      // Agrupar por descrição-base: remove sufixo " (N/M)"
+      const baseDesc = d.descricao.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim()
+      chave = `desc:${baseDesc}:${d.categoria}`
+    } else {
+      // Despesa simples — cada uma é única
+      chave = `id:${d.id}`
+    }
+
+    if (!grupos.has(chave)) {
+      grupos.set(chave, d)
+      grupoIds.set(chave, [d.id])
+    } else {
+      grupoIds.get(chave)!.push(d.id)
+    }
+  }
+
+  // Converter Map em array, preservando ordem (já está ordenado por data DESC)
+  const gruposArray = Array.from(grupos.entries()).map(([chave, rep]) => {
+    const ids  = grupoIds.get(chave)!
+    const total_parcelas = ids.length
+    const baseDesc = rep.descricao.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim()
+    return {
+      ...rep,
+      // Normalizar descrição para mostrar sem o sufixo de parcela
+      descricao_base: baseDesc,
+      // Se for grupo de parcelas, exibir a descrição limpa
+      descricao: total_parcelas > 1 ? baseDesc : rep.descricao,
+      grupo_ids:      ids,           // todos os IDs do grupo (para aplicar tag em todos)
+      total_parcelas,
+      eh_grupo:       total_parcelas > 1,
+    }
+  })
+
+  const total = gruposArray.length
+  const paginados = gruposArray.slice(offset, offset + limit)
 
   // Buscar todas as tags do usuário para o dropdown
   const tagsUsuario = await c.env.DB.prepare(
@@ -543,19 +583,20 @@ tags.get('/despesas-sem-tag', requireAuth, async (c) => {
   ).bind(user.id).all<any>()
 
   return c.json({
-    despesas:     rows.results || [],
+    despesas:     paginados,
     tags_usuario: tagsUsuario.results || [],
     total,
     pagina,
     limit,
-    total_paginas: Math.ceil(total / limit),
+    total_paginas: Math.max(1, Math.ceil(total / limit)),
   })
 })
 
 // ─── POST /api/tags/aplicar-em-lote ──────────────────────────────────────────
 // Vincula tags em múltiplas despesas de uma vez.
 // Cria automaticamente tags novas se necessário.
-// Body: { aplicacoes: [{ despesa_id, tag_nome, tag_id? }] }
+// Se vier grupo_ids (array de IDs de parcelas), aplica em TODAS as parcelas do grupo.
+// Body: { aplicacoes: [{ despesa_id, grupo_ids?, tag_nome?, tag_id? }] }
 tags.post('/aplicar-em-lote', requireAuth, async (c) => {
   const user = c.get('user')
   const { aplicacoes } = await c.req.json().catch(() => ({ aplicacoes: [] }))
@@ -563,8 +604,8 @@ tags.post('/aplicar-em-lote', requireAuth, async (c) => {
   if (!Array.isArray(aplicacoes) || aplicacoes.length === 0)
     return c.json({ error: 'aplicacoes deve ser um array não vazio' }, 400)
 
-  // Limitar a 100 por vez para segurança
-  const lista = aplicacoes.slice(0, 100)
+  // Limitar a 200 por vez (grupo pode ter muitas parcelas)
+  const lista = aplicacoes.slice(0, 200)
 
   let vinculadas  = 0
   let criadas     = 0
@@ -573,67 +614,77 @@ tags.post('/aplicar-em-lote', requireAuth, async (c) => {
   // Cache de tags criadas nesta operação (nome → id)
   const tagCache: Record<string, number> = {}
 
+  // Helper: resolver tag_id a partir de tag_id direto ou tag_nome
+  const resolverTagId = async (item: any): Promise<number | null> => {
+    let tagId: number | null = item.tag_id ? parseInt(item.tag_id) : null
+
+    if (tagId) {
+      const tagExiste = await c.env.DB.prepare(
+        `SELECT id FROM tags WHERE id = ? AND user_id = ?`
+      ).bind(tagId, user.id).first<{ id: number }>()
+      if (!tagExiste) tagId = null
+    }
+
+    if (!tagId && item.tag_nome) {
+      const nomeNorm = item.tag_nome.trim().substring(0, 30)
+      if (tagCache[nomeNorm]) return tagCache[nomeNorm]
+
+      const existing = await c.env.DB.prepare(
+        `SELECT id FROM tags WHERE user_id = ? AND LOWER(nome) = LOWER(?)`
+      ).bind(user.id, nomeNorm).first<{ id: number }>()
+
+      if (existing) {
+        tagCache[nomeNorm] = existing.id
+        return existing.id
+      }
+
+      // Criar nova tag com cor aleatória
+      const cores = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#F43F5E','#06B6D4','#84CC16','#EC4899']
+      const cor   = cores[Math.floor(Math.random() * cores.length)]
+      const nova  = await c.env.DB.prepare(
+        `INSERT INTO tags (user_id, nome, cor) VALUES (?, ?, ?) RETURNING id`
+      ).bind(user.id, nomeNorm, cor).first<{ id: number }>()
+      if (nova?.id) {
+        tagCache[nomeNorm] = nova.id
+        criadas++
+        return nova.id
+      }
+    }
+    return tagId
+  }
+
   for (const item of lista) {
     try {
-      const despesaId = item.despesa_id
-      if (!despesaId) continue
+      // Lista de IDs a vincular: grupo_ids (todas as parcelas) ou apenas despesa_id
+      const idsParaVincular: number[] = []
 
-      // Verificar que a despesa pertence ao usuário
-      const desp = await c.env.DB.prepare(
-        `SELECT id FROM despesas WHERE id = ? AND user_id = ?`
-      ).bind(despesaId, user.id).first<{ id: number }>()
-      if (!desp) continue
-
-      let tagId: number | null = item.tag_id || null
-
-      // Se vier tag_id, validar ownership
-      if (tagId) {
-        const tagExiste = await c.env.DB.prepare(
-          `SELECT id FROM tags WHERE id = ? AND user_id = ?`
-        ).bind(tagId, user.id).first<{ id: number }>()
-        if (!tagExiste) tagId = null
-      }
-
-      // Se vier tag_nome mas não tag_id — buscar ou criar
-      if (!tagId && item.tag_nome) {
-        const nomeNorm = item.tag_nome.trim().substring(0, 30)
-
-        // Verificar cache desta operação
-        if (tagCache[nomeNorm]) {
-          tagId = tagCache[nomeNorm]
-        } else {
-          // Buscar existente (case-insensitive)
-          const existing = await c.env.DB.prepare(
-            `SELECT id FROM tags WHERE user_id = ? AND LOWER(nome) = LOWER(?)`
-          ).bind(user.id, nomeNorm).first<{ id: number }>()
-
-          if (existing) {
-            tagId = existing.id
-            tagCache[nomeNorm] = tagId
-          } else {
-            // Criar nova tag com cor padrão
-            const cores = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#F43F5E','#06B6D4','#84CC16','#EC4899']
-            const cor   = cores[Math.floor(Math.random() * cores.length)]
-            const nova  = await c.env.DB.prepare(
-              `INSERT INTO tags (user_id, nome, cor) VALUES (?, ?, ?) RETURNING id`
-            ).bind(user.id, nomeNorm, cor).first<{ id: number }>()
-            if (nova?.id) {
-              tagId = nova.id
-              tagCache[nomeNorm] = tagId
-              criadas++
-            }
-          }
+      if (Array.isArray(item.grupo_ids) && item.grupo_ids.length > 0) {
+        // Aplicar em todas as parcelas do grupo — verificar que todas pertencem ao usuário
+        const ids = item.grupo_ids.map((x: any) => parseInt(x)).filter((x: number) => !isNaN(x))
+        for (const gid of ids) {
+          const ok = await c.env.DB.prepare(
+            `SELECT id FROM despesas WHERE id = ? AND user_id = ?`
+          ).bind(gid, user.id).first<{ id: number }>()
+          if (ok) idsParaVincular.push(gid)
         }
+      } else if (item.despesa_id) {
+        const ok = await c.env.DB.prepare(
+          `SELECT id FROM despesas WHERE id = ? AND user_id = ?`
+        ).bind(item.despesa_id, user.id).first<{ id: number }>()
+        if (ok) idsParaVincular.push(parseInt(item.despesa_id))
       }
 
+      if (idsParaVincular.length === 0) continue
+
+      const tagId = await resolverTagId(item)
       if (!tagId) continue
 
-      // Vincular (INSERT OR IGNORE para evitar duplicata)
-      await c.env.DB.prepare(
-        `INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`
-      ).bind(despesaId, tagId).run()
-
-      vinculadas++
+      for (const despId of idsParaVincular) {
+        await c.env.DB.prepare(
+          `INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`
+        ).bind(despId, tagId).run()
+        vinculadas++
+      }
     } catch (e: any) {
       erros.push(`despesa ${item.despesa_id}: ${e?.message || 'erro'}`)
     }
