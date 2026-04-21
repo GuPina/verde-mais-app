@@ -10,10 +10,19 @@ const despesas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, status, limit = '50', offset = '0' } = c.req.query()
+  const { mes, ano, categoria, status, limit = '50', offset = '0', purchase_group_id } = c.req.query()
 
   let query = 'SELECT * FROM despesas WHERE user_id = ?'
   const params: any[] = [user.id]
+
+  if (purchase_group_id) {
+    // Filtro direto por grupo de compra parcelada — ignora outros filtros de data
+    query += ' AND purchase_group_id = ?'
+    params.push(purchase_group_id)
+    query += ' ORDER BY data ASC, id ASC LIMIT 100'
+    const result = await c.env.DB.prepare(query).bind(...params).all()
+    return c.json({ despesas: result.results || [], total: (result.results || []).length })
+  }
 
   if (mes && ano) {
     query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'

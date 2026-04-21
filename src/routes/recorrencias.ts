@@ -314,18 +314,29 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   const id   = c.req.param('id')
 
   const rec = await c.env.DB.prepare(
-    `SELECT id FROM recorrencias WHERE id = ? AND user_id = ?`
-  ).bind(id, user.id).first()
+    `SELECT id, tipo FROM recorrencias WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first() as any
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   // Verificar se deve excluir também os lançamentos futuros pendentes
-  const body = await c.req.json().catch(() => ({})) as any
-  const excluirFuturos = body?.excluir_futuros ?? false
+  // Aceita query param (?excluir_futuros=true) — body é ignorado em DELETE pelo Cloudflare Workers
+  const qp = c.req.query('excluir_futuros')
+  let bodyExcluir = false
+  try {
+    const ct = c.req.header('content-type') || ''
+    if (ct.includes('application/json')) {
+      const bd = await c.req.json() as any
+      bodyExcluir = bd?.excluir_futuros === true || bd?.excluir_futuros === 'true'
+    }
+  } catch (_) {}
+  const excluirFuturos = qp === 'true' || qp === '1' || bodyExcluir
+
+  // Buscar tipo ANTES de deletar a recorrência (necessário para saber se é receita ou despesa)
+  const recTipo = (rec as any).tipo || 'despesa'
 
   if (excluirFuturos) {
     const hoje = new Date().toISOString().split('T')[0]
-    const recInfo = await c.env.DB.prepare(`SELECT tipo FROM recorrencias WHERE id=?`).bind(id).first() as any
-    if (recInfo?.tipo === 'receita') {
+    if (recTipo === 'receita') {
       await c.env.DB.prepare(`DELETE FROM receitas WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`).bind(id, user.id, hoje).run()
     } else {
       await c.env.DB.prepare(`DELETE FROM despesas WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`).bind(id, user.id, hoje).run()

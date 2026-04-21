@@ -1044,7 +1044,7 @@ Regras importantes:
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-5',
+        model: 'gpt-5.4-mini',
         max_tokens: 4000,
         messages: [
           {

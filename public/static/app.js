@@ -6651,7 +6651,7 @@ const VM = {
   },
 
   async _editarCompraParcelada(groupId, descricao, valorAtual) {
-    if (!groupId) { this.toast('Compra sem grupo identificado', 'error'); return }
+    if (!groupId || groupId === 'null' || groupId === null) { this.toast('Compra sem grupo identificado', 'error'); return }
     const modalId = 'modal-editar-compra'
     document.getElementById(modalId)?.remove()
     const modal = document.createElement('div')
@@ -10555,7 +10555,9 @@ const VM = {
       const btn = document.getElementById('btn-confirmar-del-rec-' + id)
       if (btn) { btn.disabled = true; btn.textContent = 'Excluindo...' }
       try {
-        await this.api('DELETE', `recorrencias/${id}`, { excluir_futuros: excluirFuturos })
+        // Enviar como query param para garantir que Cloudflare Workers processe corretamente
+        const urlDel = excluirFuturos ? `recorrencias/${id}?excluir_futuros=true` : `recorrencias/${id}`
+        await this.api('DELETE', urlDel)
         document.getElementById(modalId)?.remove()
         this.toast(excluirFuturos ? '✅ Recorrência e lançamentos futuros removidos' : '✅ Recorrência removida')
         if (this._renderRecCallback) await this._renderRecCallback()

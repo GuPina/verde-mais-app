@@ -98,7 +98,7 @@ Responda APENAS com array JSON válido:
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini',
+        model: 'gpt-5.4-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.15,
         max_tokens: 3000,

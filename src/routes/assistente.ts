@@ -559,7 +559,7 @@ Responda em no máximo 200 palavras.`
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'gpt-5-mini',
+          model: 'gpt-5.4-mini',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: mensagem }

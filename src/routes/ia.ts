@@ -1042,19 +1042,25 @@ Retorne EXCLUSIVAMENTE um JSON válido:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000,
+        max_tokens: 2500,
         temperature: 0.6,
       })
     })
 
     if (!aiRes.ok) {
-      return c.json({ error: 'Erro na API de IA', insights: [] }, 500)
+      const errBody = await aiRes.text().catch(() => '')
+      return c.json({ error: `Erro na API de IA (${aiRes.status}): ${errBody.substring(0,200)}`, insights: [] }, 500)
     }
 
     const aiData: any = await aiRes.json()
-    const content = aiData?.choices?.[0]?.message?.content || ''
+    // gpt-5-mini usa reasoning tokens — content pode estar em choices[0].message.content
+    // ou em choices[0].message.reasoning_content. Tentar ambos.
+    const rawContent = aiData?.choices?.[0]?.message?.content
+      || aiData?.choices?.[0]?.message?.reasoning_content
+      || ''
+    const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent)
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
     const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
 
@@ -1096,13 +1102,14 @@ ia.get('/insights', requireAuth, async (c) => {
 
 // ─── POST /api/ia/tag-sugestao — Sugere a melhor tag para uma despesa ─────────
 ia.post('/tag-sugestao', requireAuth, async (c) => {
+  const user = c.get('user')
   const { descricao, categoria, tags } = await c.req.json().catch(() => ({} as any))
   if (!descricao) return c.json({ error: 'Descricao obrigatoria' }, 400)
 
   const tagsLista: Array<{ id: string; nome: string }> = tags || []
-  if (tagsLista.length === 0) return c.json({ tag_sugerida: null, sugestao: 'nenhuma' })
+  if (tagsLista.length === 0) return c.json({ tag_sugerida: null, sugestao: 'nenhuma', metodo: 'vazio' })
 
-  // Correspondencia local sem IA: normaliza descricao e compara com nomes de tags
+  // 1ª tentativa: matching local por normalização
   const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim()
   const descNorm = normalizar(descricao)
   const catNorm = normalizar(categoria || '')
@@ -1112,16 +1119,79 @@ ia.post('/tag-sugestao', requireAuth, async (c) => {
 
   for (const t of tagsLista) {
     const tagNorm = normalizar(t.nome)
-    const tagTokens = tagNorm.split(/\s+/).filter(w => w.length > 2)
+    const tagTokens = tagNorm.split(/\s+/).filter((w: string) => w.length > 2)
     let score = 0
     for (const token of tagTokens) {
       if (descNorm.includes(token)) score += 2
       if (catNorm.includes(token)) score += 1
     }
+    // Verifica também se desc contém o nome da tag inteiro
+    if (descNorm.includes(tagNorm) || tagNorm.includes(descNorm.split(' ')[0])) score += 3
     if (score > melhorScore) { melhorScore = score; melhorTag = t.nome }
   }
 
-  return c.json({ tag_sugerida: melhorScore > 0 ? melhorTag : null, sugestao: melhorScore > 0 ? melhorTag : 'nenhuma' })
+  // Matching local com score alto: retornar sem chamar IA
+  if (melhorScore >= 3) {
+    return c.json({ tag_sugerida: melhorTag, sugestao: melhorTag, metodo: 'local' })
+  }
+
+  // 2ª tentativa: chamar IA com contexto das últimas 5 despesas similares
+  try {
+    const apiKey  = c.env.OPENAI_API_KEY
+    const baseUrl = (c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+    if (!apiKey) throw new Error('API key não configurada')
+
+    // Buscar últimas 5 despesas do usuário para contexto
+    const historico = await c.env.DB.prepare(
+      `SELECT d.descricao, d.categoria, t.nome as tag_nome
+       FROM despesas d
+       LEFT JOIN despesa_tags dt ON dt.despesa_id = d.id
+       LEFT JOIN tags t ON t.id = dt.tag_id
+       WHERE d.user_id = ?
+       ORDER BY d.data DESC LIMIT 10`
+    ).bind(user.id).all<any>().catch(() => ({ results: [] }))
+
+    const historicoPairs = (historico.results || [])
+      .filter((r: any) => r.tag_nome)
+      .slice(0, 5)
+      .map((r: any) => `"${r.descricao}" → tag: "${r.tag_nome}"`)
+      .join('\n')
+
+    const tagsNomes = tagsLista.map((t: any) => t.nome).join(', ')
+    const prompt = `Você é um assistente de categorização financeira. Analise a despesa e sugira a tag mais adequada.
+
+Despesa: "${descricao}"
+Categoria: "${categoria || 'não informada'}"
+Tags disponíveis: ${tagsNomes}
+${historicoPairs ? `\nHistórico recente do usuário:\n${historicoPairs}` : ''}
+
+Responda APENAS com o nome exato de uma tag da lista acima, ou "nenhuma" se nenhuma se encaixa bem.
+Não explique. Não use aspas. Só o nome da tag ou "nenhuma".`
+
+    const aiRes = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-5.4-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 30, temperature: 0.2 })
+    })
+
+    if (aiRes.ok) {
+      const aiData: any = await aiRes.json()
+      const sugerida = (aiData?.choices?.[0]?.message?.content || '').trim().replace(/^"|"$/g, '').toLowerCase()
+
+      // Validar se a tag sugerida está na lista (evitar alucinações)
+      const tagValida = tagsLista.find((t: any) => normalizar(t.nome) === normalizar(sugerida))
+      if (tagValida && sugerida !== 'nenhuma') {
+        return c.json({ tag_sugerida: tagValida.nome, sugestao: tagValida.nome, metodo: 'ia' })
+      }
+    }
+  } catch (_) {}
+
+  // Fallback: retornar melhor match local (mesmo com score baixo)
+  return c.json({
+    tag_sugerida: melhorScore > 0 ? melhorTag : null,
+    sugestao: melhorScore > 0 ? melhorTag : 'nenhuma',
+    metodo: melhorScore > 0 ? 'local_baixo' : 'nenhuma'
+  })
 })
 
 export default ia
