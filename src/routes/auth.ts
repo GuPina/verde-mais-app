@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { hashPassword, verifyPassword, generateToken, getTokenExpiry } from '../lib/auth'
+import { verificarConquistasParaUsuario } from './conquistas'
 
 type Bindings = { DB: D1Database }
 
@@ -278,6 +279,13 @@ auth.post('/login', async (c) => {
     await c.env.DB.prepare(
       'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)'
     ).bind(user.id, token, expiresAt).run()
+
+    // Verifica e desbloqueia conquistas retroativamente (sem bloquear a resposta)
+    // Roda de forma assíncrona via waitUntil quando disponível, ou em background
+    try {
+      // Executa sem await para não atrasar o login — erros são silenciados
+      verificarConquistasParaUsuario(c.env.DB, user.id).catch(() => {})
+    } catch { /* ignora erros na verificação */ }
 
     return c.json({
       success: true,

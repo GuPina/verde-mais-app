@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { verificarConquistasParaUsuario } from './conquistas'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -300,6 +301,66 @@ admin.post('/api/query', async (c) => {
     return c.json({ rows: result.results, count: result.results.length })
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
+  }
+})
+
+// ─── POST /admin/api/reprocessar-conquistas → Reprocessa conquistas de todos (ou um) usuário ──
+admin.post('/api/reprocessar-conquistas', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({})) as any
+    const userId: number | null = body?.user_id ? Number(body.user_id) : null
+
+    // Busca IDs a processar
+    let usersQuery: any
+    if (userId) {
+      usersQuery = await c.env.DB.prepare('SELECT id, email FROM users WHERE id = ?').bind(userId).all()
+    } else {
+      usersQuery = await c.env.DB.prepare('SELECT id, email FROM users ORDER BY id').all()
+    }
+
+    const users = usersQuery.results as { id: number; email: string }[]
+    const resultados: { user_id: number; email: string; novas: number; codigos: string[] }[] = []
+    let totalNovas = 0
+
+    for (const u of users) {
+      try {
+        const novas = await verificarConquistasParaUsuario(c.env.DB, u.id)
+        resultados.push({ user_id: u.id, email: u.email, novas: novas.length, codigos: novas })
+        totalNovas += novas.length
+      } catch (err: any) {
+        resultados.push({ user_id: u.id, email: u.email, novas: -1, codigos: [`ERRO: ${err?.message}`] })
+      }
+    }
+
+    return c.json({
+      success: true,
+      usuarios_processados: users.length,
+      total_novas_conquistas: totalNovas,
+      detalhes: resultados
+    })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500)
+  }
+})
+
+// ─── GET /admin/api/status-conquistas → Resumo de conquistas por usuário ──────
+admin.get('/api/status-conquistas', async (c) => {
+  try {
+    const resultado = await c.env.DB.prepare(`
+      SELECT
+        u.id, u.email, u.plano,
+        COUNT(cu.conquista_codigo) as total_conquistadas,
+        (SELECT COUNT(*) FROM conquistas_definicoes) as total_disponiveis,
+        MAX(cu.data_conquista) as ultima_conquista
+      FROM users u
+      LEFT JOIN conquistas_usuario cu ON cu.user_id = u.id
+      GROUP BY u.id, u.email, u.plano
+      ORDER BY total_conquistadas DESC
+    `).all()
+
+    return c.json({ usuarios: resultado.results })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500)
   }
 })
 

@@ -22,7 +22,8 @@ conquistas.get('/', requireAuth, async (c) => {
     ...def,
     conquistada: ganhasCodigos.has(def.codigo),
     data_conquista: ganhassMap[def.codigo]?.data_conquista || null,
-    visualizado: ganhassMap[def.codigo]?.visualizado || 1
+    // visualizado: null = não conquistada (trata como 1), 0 = nova não vista, 1 = já vista
+    visualizado: ganhasCodigos.has(def.codigo) ? (ganhassMap[def.codigo]?.visualizado ?? 0) : 1
   }))
 
   const totalPontos = resultado.filter(r => r.conquistada).reduce((s, r) => s + r.pontos, 0)
@@ -55,6 +56,31 @@ conquistas.get('/novas', requireAuth, async (c) => {
      ORDER BY cu.data_conquista DESC`
   ).bind(user.id).all()
   return c.json({ novas: result.results })
+})
+
+// POST /api/conquistas/reprocessar — retroativamente desbloqueia conquistas já ganhas pelo usuário
+conquistas.post('/reprocessar', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    const novas = await verificarConquistasParaUsuario(c.env.DB, user.id)
+
+    // Busca o total atual após reprocessamento
+    const totalGanhas = await c.env.DB.prepare(
+      'SELECT COUNT(*) as total FROM conquistas_usuario WHERE user_id = ?'
+    ).bind(user.id).first() as any
+
+    return c.json({
+      success: true,
+      novas_desbloqueadas: novas.length,
+      codigos_novos: novas,
+      total_conquistadas: totalGanhas?.total || 0,
+      mensagem: novas.length > 0
+        ? `${novas.length} nova(s) conquista(s) desbloqueada(s)!`
+        : 'Todas as suas conquistas já estão atualizadas.'
+    })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500)
+  }
 })
 
 // POST /api/conquistas/verificar — verificar e atribuir conquistas automaticamente
