@@ -501,4 +501,151 @@ tags.get('/sugestoes-mesclar', requireAuth, async (c) => {
   return c.json({ sugestoes, total: sugestoes.length })
 })
 
+// ─── GET /api/tags/despesas-sem-tag ──────────────────────────────────────────
+// Lista despesas sem nenhuma tag vinculada, com paginação (20/página)
+// Query params: pagina (default 1), limit (default 20, max 50)
+tags.get('/despesas-sem-tag', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const pagina = Math.max(1, parseInt(c.req.query('pagina') || '1'))
+  const limit  = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20')))
+  const offset = (pagina - 1) * limit
+
+  // Total de despesas sem tag (excluindo parceladas que não são a parcela 1 para não poluir)
+  const totalRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total
+     FROM despesas d
+     WHERE d.user_id = ?
+       AND d.tipo != 'aporte'
+       AND NOT EXISTS (
+         SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
+       )`
+  ).bind(user.id).first<{ total: number }>()
+
+  const total = totalRow?.total || 0
+
+  // Despesas paginadas
+  const rows = await c.env.DB.prepare(
+    `SELECT d.id, d.descricao, d.data, d.valor, d.categoria, d.status,
+            d.vencimento, d.parcela_atual, d.numero_parcelas, d.parcelado
+     FROM despesas d
+     WHERE d.user_id = ?
+       AND d.tipo != 'aporte'
+       AND NOT EXISTS (
+         SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
+       )
+     ORDER BY d.data DESC, d.id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(user.id, limit, offset).all<any>()
+
+  // Buscar todas as tags do usuário para o dropdown
+  const tagsUsuario = await c.env.DB.prepare(
+    `SELECT id, nome, cor FROM tags WHERE user_id = ? ORDER BY nome ASC`
+  ).bind(user.id).all<any>()
+
+  return c.json({
+    despesas:     rows.results || [],
+    tags_usuario: tagsUsuario.results || [],
+    total,
+    pagina,
+    limit,
+    total_paginas: Math.ceil(total / limit),
+  })
+})
+
+// ─── POST /api/tags/aplicar-em-lote ──────────────────────────────────────────
+// Vincula tags em múltiplas despesas de uma vez.
+// Cria automaticamente tags novas se necessário.
+// Body: { aplicacoes: [{ despesa_id, tag_nome, tag_id? }] }
+tags.post('/aplicar-em-lote', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { aplicacoes } = await c.req.json().catch(() => ({ aplicacoes: [] }))
+
+  if (!Array.isArray(aplicacoes) || aplicacoes.length === 0)
+    return c.json({ error: 'aplicacoes deve ser um array não vazio' }, 400)
+
+  // Limitar a 100 por vez para segurança
+  const lista = aplicacoes.slice(0, 100)
+
+  let vinculadas  = 0
+  let criadas     = 0
+  const erros: string[] = []
+
+  // Cache de tags criadas nesta operação (nome → id)
+  const tagCache: Record<string, number> = {}
+
+  for (const item of lista) {
+    try {
+      const despesaId = item.despesa_id
+      if (!despesaId) continue
+
+      // Verificar que a despesa pertence ao usuário
+      const desp = await c.env.DB.prepare(
+        `SELECT id FROM despesas WHERE id = ? AND user_id = ?`
+      ).bind(despesaId, user.id).first<{ id: number }>()
+      if (!desp) continue
+
+      let tagId: number | null = item.tag_id || null
+
+      // Se vier tag_id, validar ownership
+      if (tagId) {
+        const tagExiste = await c.env.DB.prepare(
+          `SELECT id FROM tags WHERE id = ? AND user_id = ?`
+        ).bind(tagId, user.id).first<{ id: number }>()
+        if (!tagExiste) tagId = null
+      }
+
+      // Se vier tag_nome mas não tag_id — buscar ou criar
+      if (!tagId && item.tag_nome) {
+        const nomeNorm = item.tag_nome.trim().substring(0, 30)
+
+        // Verificar cache desta operação
+        if (tagCache[nomeNorm]) {
+          tagId = tagCache[nomeNorm]
+        } else {
+          // Buscar existente (case-insensitive)
+          const existing = await c.env.DB.prepare(
+            `SELECT id FROM tags WHERE user_id = ? AND LOWER(nome) = LOWER(?)`
+          ).bind(user.id, nomeNorm).first<{ id: number }>()
+
+          if (existing) {
+            tagId = existing.id
+            tagCache[nomeNorm] = tagId
+          } else {
+            // Criar nova tag com cor padrão
+            const cores = ['#10B981','#3B82F6','#8B5CF6','#F59E0B','#F43F5E','#06B6D4','#84CC16','#EC4899']
+            const cor   = cores[Math.floor(Math.random() * cores.length)]
+            const nova  = await c.env.DB.prepare(
+              `INSERT INTO tags (user_id, nome, cor) VALUES (?, ?, ?) RETURNING id`
+            ).bind(user.id, nomeNorm, cor).first<{ id: number }>()
+            if (nova?.id) {
+              tagId = nova.id
+              tagCache[nomeNorm] = tagId
+              criadas++
+            }
+          }
+        }
+      }
+
+      if (!tagId) continue
+
+      // Vincular (INSERT OR IGNORE para evitar duplicata)
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO despesa_tags (despesa_id, tag_id) VALUES (?, ?)`
+      ).bind(despesaId, tagId).run()
+
+      vinculadas++
+    } catch (e: any) {
+      erros.push(`despesa ${item.despesa_id}: ${e?.message || 'erro'}`)
+    }
+  }
+
+  return c.json({
+    success:   true,
+    vinculadas,
+    criadas,
+    erros,
+    message:   `${vinculadas} despesa${vinculadas !== 1 ? 's' : ''} atualizada${vinculadas !== 1 ? 's' : ''}${criadas > 0 ? `, ${criadas} tag${criadas !== 1 ? 's' : ''} criada${criadas !== 1 ? 's' : ''}` : ''}`
+  })
+})
+
 export default tags

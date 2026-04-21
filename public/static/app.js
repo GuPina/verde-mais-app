@@ -4398,6 +4398,9 @@ const VM = {
           <button onclick="VM.modalMesclarTags()" class="btn-secondary" style="width:auto;padding:10px 18px;" title="Detectar e mesclar tags duplicadas ou similares">
             <i class="fas fa-code-branch"></i> Mesclar Similares
           </button>
+          <button onclick="VM.pageDespesasSemTag()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(245,158,11,0.4);color:#F59E0B;" title="Ver despesas sem nenhuma tag">
+            <i class="fas fa-tag" style="opacity:0.6;"></i> Sem Tags <span id="badge-sem-tags" style="background:#F59E0B;color:#000;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-left:4px;display:none;">0</span>
+          </button>
         </div>
       </div>
       <div id="tags-container">
@@ -4413,6 +4416,17 @@ const VM = {
     const cont = document.getElementById('tags-container')
     if (!cont) return
     try {
+      // Carregar contagem de despesas sem tag para o badge
+      this.api('GET', 'tags/despesas-sem-tag?limit=1').then(r => {
+        const badge = document.getElementById('badge-sem-tags')
+        if (badge && r && r.total > 0) {
+          badge.textContent = r.total > 99 ? '99+' : r.total
+          badge.style.display = 'inline-block'
+        } else if (badge) {
+          badge.style.display = 'none'
+        }
+      }).catch(() => {})
+
       const tags = await this.api('GET', 'tags')
       if (!tags || tags.length === 0) {
         cont.innerHTML = `
@@ -4734,6 +4748,319 @@ const VM = {
       this.carregarTags()
     } catch (e) {
       this.toast(e.response?.data?.error || 'Erro ao excluir', 'error')
+    }
+  },
+
+  // ─── DESPESAS SEM TAG ────────────────────────────────────────────────────
+  // Estado da tela de despesas sem tag (paginação, dados carregados, sugestões IA)
+  _semTagState: {
+    pagina: 1, total: 0, totalPaginas: 1, despesas: [], tagsUsuario: [],
+    sugestoes: {}, // despesa_id → { tag_id, tag_nome, tag_nova }
+    processandoIA: false
+  },
+
+  async pageDespesasSemTag() {
+    this._semTagState = { pagina: 1, total: 0, totalPaginas: 1, despesas: [], tagsUsuario: [], sugestoes: {}, processandoIA: false }
+    const pc = document.getElementById('page-content')
+    pc.innerHTML = `
+      <div class="section-header" style="flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button onclick="VM.navigate('tags')" style="background:none;border:none;color:#64748B;cursor:pointer;font-size:0.85rem;padding:0;">
+              <i class="fas fa-arrow-left"></i> Tags & Filtros
+            </button>
+          </div>
+          <div class="section-title" style="margin-top:4px;">🏷️ Despesas sem Tag</div>
+          <div style="color:#64748B;font-size:0.83rem;margin-top:2px;" id="sem-tag-subtitulo">Carregando...</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM._sugerirIAEmLote()" id="btn-ia-lote"
+            style="background:linear-gradient(135deg,#7C3AED,#4F46E5);color:#fff;border:none;border-radius:10px;padding:10px 18px;cursor:pointer;font-size:0.85rem;font-weight:600;display:flex;align-items:center;gap:7px;">
+            <i class="fas fa-magic"></i> IA Sugerir para todas
+          </button>
+          <button onclick="VM._aplicarEmLote()" id="btn-aplicar-lote"
+            style="background:#10B981;color:#fff;border:none;border-radius:10px;padding:10px 18px;cursor:pointer;font-size:0.85rem;font-weight:600;display:none;align-items:center;gap:7px;">
+            <i class="fas fa-check-double"></i> Aplicar selecionadas
+          </button>
+        </div>
+      </div>
+      <div id="sem-tag-lista" style="margin-top:8px;">
+        <div style="text-align:center;padding:40px;color:#64748B;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+      </div>
+      <div id="sem-tag-paginacao" style="display:flex;justify-content:center;gap:8px;margin-top:20px;padding-bottom:24px;"></div>
+    `
+    await this._carregarDespesasSemTag(1)
+  },
+
+  async _carregarDespesasSemTag(pagina) {
+    const lista = document.getElementById('sem-tag-lista')
+    const pag   = document.getElementById('sem-tag-paginacao')
+    const sub   = document.getElementById('sem-tag-subtitulo')
+    if (!lista) return
+
+    lista.innerHTML = `<div style="text-align:center;padding:32px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
+
+    try {
+      const r = await this.api('GET', `tags/despesas-sem-tag?pagina=${pagina}&limit=20`)
+      this._semTagState.pagina      = pagina
+      this._semTagState.total       = r.total || 0
+      this._semTagState.totalPaginas = r.total_paginas || 1
+      this._semTagState.despesas    = r.despesas || []
+      this._semTagState.tagsUsuario = r.tags_usuario || []
+
+      if (sub) sub.textContent = `${r.total} despesa${r.total !== 1 ? 's' : ''} sem tag — página ${pagina} de ${r.total_paginas}`
+
+      // Atualizar badge no header
+      const badge = document.getElementById('badge-sem-tags')
+      if (badge) {
+        if (r.total > 0) { badge.textContent = r.total > 99 ? '99+' : r.total; badge.style.display = 'inline-block' }
+        else badge.style.display = 'none'
+      }
+
+      if (!r.despesas || r.despesas.length === 0) {
+        lista.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:3rem;margin-bottom:16px;">✅</div>
+            <h3 style="color:#10B981;">Todas as despesas têm tags!</h3>
+            <p style="color:#64748B;">Nenhuma despesa sem tag encontrada.</p>
+            <button onclick="VM.navigate('tags')" class="btn-secondary" style="width:auto;padding:10px 20px;margin-top:16px;">
+              <i class="fas fa-arrow-left"></i> Voltar para Tags
+            </button>
+          </div>`
+        if (pag) pag.innerHTML = ''
+        return
+      }
+
+      this._renderizarListaSemTag()
+      this._renderizarPaginacaoSemTag()
+    } catch (e) {
+      lista.innerHTML = `<div style="color:#F43F5E;text-align:center;padding:24px;">Erro ao carregar. <button onclick="VM._carregarDespesasSemTag(1)" class="btn-secondary" style="width:auto;padding:6px 14px;margin-left:8px;">Tentar novamente</button></div>`
+    }
+  },
+
+  _renderizarListaSemTag() {
+    const lista = document.getElementById('sem-tag-lista')
+    if (!lista) return
+    const { despesas, tagsUsuario, sugestoes } = this._semTagState
+
+    const opcoesDropdown = tagsUsuario.map(t =>
+      `<option value="${t.id}" data-nome="${t.nome.replace(/"/g,'&quot;')}" data-nova="0">${t.nome}</option>`
+    ).join('')
+
+    const mesesPT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+    lista.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${despesas.map(d => {
+          const sug    = sugestoes[d.id]
+          const dataFmt = d.data ? (() => { const [y,m,day] = d.data.split('-'); return `${day}/${mesesPT[parseInt(m)-1]}/${y}` })() : ''
+          const parcStr = d.parcelado && d.numero_parcelas > 1 ? ` <span style="font-size:0.7rem;color:#64748B;">${d.parcela_atual}/${d.numero_parcelas}</span>` : ''
+
+          const tagSelecionadaHTML = sug
+            ? `<div style="display:flex;align-items:center;gap:6px;background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.35);border-radius:8px;padding:4px 10px;font-size:0.78rem;color:#A78BFA;">
+                <i class="fas fa-magic" style="font-size:0.7rem;"></i>
+                <span>${sug.tag_nome}</span>${sug.tag_nova ? '<span style="font-size:0.68rem;background:#7C3AED;color:#fff;border-radius:4px;padding:1px 5px;margin-left:2px;">nova</span>' : ''}
+                <button onclick="VM._limparSugestao(${d.id})" style="background:none;border:none;color:#94A3B8;cursor:pointer;padding:0 0 0 4px;font-size:0.75rem;" title="Remover sugestão">✕</button>
+               </div>`
+            : ''
+
+          return `
+            <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;" id="sem-tag-row-${d.id}">
+              <!-- Info da despesa -->
+              <div style="flex:1;min-width:180px;">
+                <div style="font-size:0.88rem;font-weight:600;color:#F1F5F9;">${d.descricao}${parcStr}</div>
+                <div style="font-size:0.75rem;color:#64748B;margin-top:2px;">${dataFmt} · ${d.categoria} · <span style="color:#F43F5E;">R$ ${this.formatMoney(d.valor)}</span></div>
+              </div>
+              <!-- Tag sugerida pela IA (se houver) -->
+              ${tagSelecionadaHTML}
+              <!-- Dropdown manual -->
+              <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+                <select id="sel-tag-${d.id}"
+                  style="background:#1E293B;color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:5px 8px;font-size:0.78rem;cursor:pointer;max-width:140px;"
+                  onchange="VM._selecionarTagManual(${d.id}, this)">
+                  <option value="">-- Selecionar tag --</option>
+                  ${opcoesDropdown}
+                </select>
+                <!-- Botão IA individual -->
+                <button onclick="VM._sugerirIAIndividual(${d.id}, '${d.descricao.replace(/'/g,"\\'")}', '${(d.categoria||'').replace(/'/g,"\\'")}', this)"
+                  title="IA sugerir tag"
+                  style="background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.3);color:#A78BFA;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:0.8rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;"
+                  onmouseover="this.style.background='rgba(124,58,237,0.3)'" onmouseout="this.style.background='rgba(124,58,237,0.15)'">
+                  <i class="fas fa-magic"></i>
+                </button>
+              </div>
+            </div>
+          `
+        }).join('')}
+      </div>`
+
+    // Mostrar/esconder botão "Aplicar selecionadas"
+    this._atualizarBtnAplicar()
+  },
+
+  _renderizarPaginacaoSemTag() {
+    const pag = document.getElementById('sem-tag-paginacao')
+    if (!pag) return
+    const { pagina, totalPaginas } = this._semTagState
+    if (totalPaginas <= 1) { pag.innerHTML = ''; return }
+
+    let html = ''
+    const btnStyle = (ativo) => `background:${ativo ? '#3B82F6' : 'rgba(30,41,59,0.8)'};color:${ativo ? '#fff' : '#94A3B8'};border:1px solid ${ativo ? '#3B82F6' : 'rgba(255,255,255,0.1)'};border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.82rem;`
+
+    if (pagina > 1) html += `<button onclick="VM._carregarDespesasSemTag(${pagina - 1})" style="${btnStyle(false)}"><i class="fas fa-chevron-left"></i></button>`
+
+    const inicio = Math.max(1, pagina - 2)
+    const fim    = Math.min(totalPaginas, pagina + 2)
+    for (let p = inicio; p <= fim; p++) {
+      html += `<button onclick="VM._carregarDespesasSemTag(${p})" style="${btnStyle(p === pagina)}">${p}</button>`
+    }
+
+    if (pagina < totalPaginas) html += `<button onclick="VM._carregarDespesasSemTag(${pagina + 1})" style="${btnStyle(false)}"><i class="fas fa-chevron-right"></i></button>`
+
+    pag.innerHTML = html
+  },
+
+  _selecionarTagManual(despesaId, selectEl) {
+    const opt = selectEl.options[selectEl.selectedIndex]
+    if (!opt || !opt.value) {
+      delete this._semTagState.sugestoes[despesaId]
+    } else {
+      this._semTagState.sugestoes[despesaId] = {
+        tag_id:   parseInt(opt.value),
+        tag_nome: opt.dataset.nome || opt.text,
+        tag_nova: false
+      }
+    }
+    this._renderizarListaSemTag()
+  },
+
+  _limparSugestao(despesaId) {
+    delete this._semTagState.sugestoes[despesaId]
+    // Resetar select
+    const sel = document.getElementById(`sel-tag-${despesaId}`)
+    if (sel) sel.value = ''
+    this._renderizarListaSemTag()
+  },
+
+  _atualizarBtnAplicar() {
+    const btn = document.getElementById('btn-aplicar-lote')
+    if (!btn) return
+    const total = Object.keys(this._semTagState.sugestoes).length
+    if (total > 0) {
+      btn.style.display = 'inline-flex'
+      btn.innerHTML = `<i class="fas fa-check-double"></i> Aplicar ${total} selecionada${total !== 1 ? 's' : ''}`
+    } else {
+      btn.style.display = 'none'
+    }
+  },
+
+  async _sugerirIAIndividual(despesaId, descricao, categoria, btnEl) {
+    if (btnEl) { btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; btnEl.disabled = true }
+    try {
+      const { tagsUsuario } = this._semTagState
+      const resp = await this.api('POST', 'ia/tag-sugestao', {
+        descricao, categoria,
+        tags: tagsUsuario.map(t => ({ id: String(t.id), nome: t.nome }))
+      })
+
+      if (resp.tag_sugerida && resp.tag_sugerida !== 'nenhuma') {
+        // Tag existente encontrada
+        const tag = tagsUsuario.find(t => t.nome.toLowerCase() === resp.tag_sugerida.toLowerCase())
+        if (tag) {
+          this._semTagState.sugestoes[despesaId] = { tag_id: tag.id, tag_nome: tag.nome, tag_nova: false }
+          // Atualizar select
+          const sel = document.getElementById(`sel-tag-${despesaId}`)
+          if (sel) sel.value = tag.id
+        }
+      } else if (resp.nova_tag && resp.metodo === 'ia_nova_tag') {
+        // Nova tag sugerida
+        this._semTagState.sugestoes[despesaId] = { tag_id: null, tag_nome: resp.nova_tag, tag_nova: true }
+      } else {
+        this.toast('IA não encontrou tag adequada para esta despesa', 'warning')
+      }
+      this._renderizarListaSemTag()
+    } catch (e) {
+      this.toast('Erro ao consultar IA', 'error')
+    } finally {
+      if (btnEl) { btnEl.innerHTML = '<i class="fas fa-magic"></i>'; btnEl.disabled = false }
+    }
+  },
+
+  async _sugerirIAEmLote() {
+    const { despesas, tagsUsuario, processandoIA } = this._semTagState
+    if (processandoIA) return
+    if (!despesas || despesas.length === 0) { this.toast('Nenhuma despesa na página atual', 'warning'); return }
+
+    this._semTagState.processandoIA = true
+    const btnLote = document.getElementById('btn-ia-lote')
+    if (btnLote) { btnLote.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Consultando IA...'; btnLote.disabled = true }
+
+    const tags_para_ia = tagsUsuario.map(t => ({ id: String(t.id), nome: t.nome }))
+    let processadas = 0
+
+    for (const d of despesas) {
+      // Pular as que já têm sugestão
+      if (this._semTagState.sugestoes[d.id]) { processadas++; continue }
+
+      try {
+        const resp = await this.api('POST', 'ia/tag-sugestao', {
+          descricao: d.descricao,
+          categoria: d.categoria,
+          tags: tags_para_ia
+        })
+
+        if (resp.tag_sugerida && resp.tag_sugerida !== 'nenhuma') {
+          const tag = tagsUsuario.find(t => t.nome.toLowerCase() === resp.tag_sugerida.toLowerCase())
+          if (tag) this._semTagState.sugestoes[d.id] = { tag_id: tag.id, tag_nome: tag.nome, tag_nova: false }
+        } else if (resp.nova_tag && resp.metodo === 'ia_nova_tag') {
+          this._semTagState.sugestoes[d.id] = { tag_id: null, tag_nome: resp.nova_tag, tag_nova: true }
+        }
+      } catch (_) {}
+
+      processadas++
+      if (btnLote) btnLote.innerHTML = `<i class="fas fa-spinner fa-spin"></i> IA... ${processadas}/${despesas.length}`
+      // Pequena pausa para não sobrecarregar a API
+      await new Promise(r => setTimeout(r, 120))
+    }
+
+    this._semTagState.processandoIA = false
+    if (btnLote) { btnLote.innerHTML = '<i class="fas fa-magic"></i> IA Sugerir para todas'; btnLote.disabled = false }
+
+    const total = Object.keys(this._semTagState.sugestoes).length
+    this.toast(`IA processou ${despesas.length} despesas — ${total} sugestão${total !== 1 ? 'ões' : ''} gerada${total !== 1 ? 's' : ''}`, 'success')
+    this._renderizarListaSemTag()
+  },
+
+  async _aplicarEmLote() {
+    const { sugestoes } = this._semTagState
+    const entradas = Object.entries(sugestoes)
+    if (entradas.length === 0) { this.toast('Nenhuma tag selecionada', 'warning'); return }
+
+    const ok = await this.vmConfirm(
+      `Serão aplicadas tags em <strong>${entradas.length} despesa${entradas.length !== 1 ? 's' : ''}</strong>.<br>Tags novas serão criadas automaticamente.`,
+      { titulo: 'Aplicar Tags em Lote', corBotao: '#10B981', textoBotao: 'Aplicar', icone: '🏷️' }
+    )
+    if (!ok) return
+
+    const btnAplicar = document.getElementById('btn-aplicar-lote')
+    if (btnAplicar) { btnAplicar.disabled = true; btnAplicar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...' }
+
+    try {
+      const aplicacoes = entradas.map(([despesa_id, sug]) => ({
+        despesa_id: parseInt(despesa_id),
+        tag_id:     sug.tag_id   || null,
+        tag_nome:   sug.tag_nova ? sug.tag_nome : null
+      }))
+
+      const resp = await this.api('POST', 'tags/aplicar-em-lote', { aplicacoes })
+      this.toast(resp.message || `${resp.vinculadas} despesas atualizadas!`, 'success')
+
+      // Limpar sugestões aplicadas e recarregar página atual
+      this._semTagState.sugestoes = {}
+      await this._carregarDespesasSemTag(this._semTagState.pagina)
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao aplicar tags', 'error')
+      if (btnAplicar) { btnAplicar.disabled = false; btnAplicar.innerHTML = '<i class="fas fa-check-double"></i> Aplicar selecionadas' }
     }
   },
 
