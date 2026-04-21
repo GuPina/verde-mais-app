@@ -4391,9 +4391,14 @@ const VM = {
           <div class="section-title">🏷️ Tags & Filtros</div>
           <div style="color:#64748B;font-size:0.85rem;margin-top:2px;">Organize suas despesas com etiquetas personalizadas</div>
         </div>
-        <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-plus"></i> Nova Tag
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-plus"></i> Nova Tag
+          </button>
+          <button onclick="VM.modalMesclarTags()" class="btn-secondary" style="width:auto;padding:10px 18px;" title="Detectar e mesclar tags duplicadas ou similares">
+            <i class="fas fa-code-branch"></i> Mesclar Similares
+          </button>
+        </div>
       </div>
       <div id="tags-container">
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
@@ -4560,19 +4565,35 @@ const VM = {
       const nomes = tagsExistentes.map(t => t.nome).join(', ')
       const prompt = `Despesa: "${desc}", Categoria: "${cat}". Tags disponiveis: ${nomes || 'nenhuma'}. Qual tag se encaixa melhor? Responda apenas com o nome exato da tag ou "nenhuma".`
       const resp = await this.api('POST', 'ia/tag-sugestao', { descricao: desc, categoria: cat, tags: tagsExistentes })
-      const sugerida = resp.tag_sugerida || resp.sugestao || ''
+      const sugerida = resp.tag_sugerida || ''
+      const novaTag  = resp.nova_tag || ''
+      const metodo   = resp.metodo || ''
+
       if (sugerida && sugerida !== 'nenhuma') {
+        // IA encontrou uma tag existente que se encaixa
         const chip = Array.from(chips).find(c => c.textContent.trim().toLowerCase() === sugerida.toLowerCase())
         if (chip) {
           if (chip.dataset.tagSelected !== '1') this._toggleTag(chip)
-          resultEl.textContent = 'Tag sugerida pela IA: ' + sugerida
+          resultEl.innerHTML = `<span style="color:#10B981">✓ Tag selecionada pela IA:</span> <strong>${sugerida}</strong>`
           resultEl.style.display = 'block'
         } else {
-          resultEl.textContent = 'IA sugeriu: ' + sugerida + ' (nao encontrada nas suas tags)'
+          resultEl.innerHTML = `<span style="color:#F59E0B">⚠ IA sugeriu:</span> <strong>${sugerida}</strong> (tag não encontrada na lista)`
           resultEl.style.display = 'block'
         }
+      } else if (novaTag && metodo === 'ia_nova_tag') {
+        // IA sugere criar uma nova tag — oferecer ao usuário
+        resultEl.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="color:#A78BFA">💡 IA sugere criar tag:</span>
+            <strong style="color:#fff">${novaTag}</strong>
+            <button onclick="VM._criarTagSugerida('${novaTag.replace(/'/g,"\\'")}', this)"
+              style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">
+              + Criar esta tag
+            </button>
+          </div>`
+        resultEl.style.display = 'block'
       } else {
-        resultEl.textContent = 'IA nao encontrou uma tag adequada.'
+        resultEl.innerHTML = `<span style="color:#94A3B8">IA não encontrou tag adequada para esta descrição.</span>`
         resultEl.style.display = 'block'
       }
     } catch(e) {
@@ -4580,6 +4601,39 @@ const VM = {
       resultEl.style.display = 'block'
     } finally {
       btn.disabled = false; btn.textContent = 'IA Sugerir'
+    }
+  },
+
+  // Criar tag sugerida pela IA e selecioná-la automaticamente no modal
+  async _criarTagSugerida(nome, btnEl) {
+    if (!nome) return
+    try {
+      if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Criando...' }
+      const resp = await this.api('POST', 'tags', { nome: nome.trim(), cor: '#7C3AED' })
+      if (resp && resp.id) {
+        // Adicionar chip dinamicamente ao container de tags
+        const chipsContainer = document.getElementById('d-tags-chips')
+        if (chipsContainer) {
+          const chip = document.createElement('span')
+          chip.dataset.tagId = resp.id
+          chip.dataset.tagCor = '#7C3AED'
+          chip.dataset.tagSelected = '0'
+          chip.style.cssText = 'display:inline-block;padding:3px 10px;border-radius:20px;cursor:pointer;font-size:12px;border:1.5px solid rgba(255,255,255,0.1);color:#94A3B8;margin:2px'
+          chip.textContent = nome
+          chip.onclick = () => this._toggleTag(chip)
+          chipsContainer.appendChild(chip)
+          // Selecionar automaticamente
+          this._toggleTag(chip)
+        }
+        const resultEl = document.getElementById('ia-tag-resultado')
+        if (resultEl) {
+          resultEl.innerHTML = `<span style="color:#10B981">✓ Tag <strong>${nome}</strong> criada e selecionada!</span>`
+        }
+        this.toast(`Tag "${nome}" criada com sucesso!`, 'success')
+      }
+    } catch(e) {
+      this.toast('Erro ao criar tag: ' + (e.message || 'tente novamente'), 'error')
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Criar esta tag' }
     }
   },
 
@@ -4680,6 +4734,144 @@ const VM = {
       this.carregarTags()
     } catch (e) {
       this.toast(e.response?.data?.error || 'Erro ao excluir', 'error')
+    }
+  },
+
+  // ─── MESCLAR TAGS SIMILARES ───────────────────────────────────────────────
+  async modalMesclarTags() {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:520px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">🔀 Mesclar Tags Similares</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:1.1rem;">✕</button>
+          </div>
+          <div id="mesclar-tags-content">
+            <div style="text-align:center;padding:24px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Detectando tags similares...</div>
+          </div>
+        </div>
+      </div>
+    `
+    // Carregar sugestões
+    try {
+      const resp = await this.api('GET', 'tags/sugestoes-mesclar')
+      const sugestoes = resp.sugestoes || []
+      const cont = document.getElementById('mesclar-tags-content')
+      if (!cont) return
+
+      if (sugestoes.length === 0) {
+        cont.innerHTML = `
+          <div style="text-align:center;padding:24px;">
+            <div style="font-size:2.5rem;margin-bottom:12px;">✅</div>
+            <div style="color:#10B981;font-weight:600;margin-bottom:6px;">Nenhuma tag similar encontrada!</div>
+            <div style="color:#64748B;font-size:0.85rem;">Suas tags estão bem organizadas.</div>
+          </div>
+          <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;margin-top:16px;">Fechar</button>`
+        return
+      }
+
+      cont.innerHTML = `
+        <div style="color:#94A3B8;font-size:0.82rem;margin-bottom:14px;">
+          ${sugestoes.length} par${sugestoes.length > 1 ? 'es' : ''} de tags similar${sugestoes.length > 1 ? 'es' : ''} detectado${sugestoes.length > 1 ? 's' : ''}.
+          Selecione qual manter como destino.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;max-height:380px;overflow-y:auto;padding-right:4px;" id="sugestoes-mesclar-list">
+          ${sugestoes.map((s, i) => `
+            <div style="background:rgba(30,41,59,0.8);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;" id="sugestao-${i}">
+              <div style="font-size:0.72rem;color:#64748B;margin-bottom:8px;">
+                <i class="fas fa-info-circle" style="margin-right:4px;"></i>${s.similaridade}
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <!-- Tag A -->
+                <div style="display:flex;align-items:center;gap:6px;background:${s.tag_a.cor}18;border:1px solid ${s.tag_a.cor}44;border-radius:8px;padding:6px 10px;cursor:pointer;flex:1;min-width:100px;"
+                  onclick="VM._selecionarDestMescla(${i}, ${s.tag_a.id}, this)"
+                  id="opt-a-${i}" data-tag-id="${s.tag_a.id}" data-tag-nome="${s.tag_a.nome.replace(/"/g,'&quot;')}">
+                  <div style="width:10px;height:10px;border-radius:3px;background:${s.tag_a.cor};flex-shrink:0;"></div>
+                  <span style="color:#F1F5F9;font-size:0.85rem;font-weight:600;">${s.tag_a.nome}</span>
+                  <span style="color:#64748B;font-size:0.72rem;margin-left:auto;">${s.tag_a.uso} uso${s.tag_a.uso !== 1 ? 's' : ''}</span>
+                </div>
+                <div style="color:#64748B;font-size:0.8rem;flex-shrink:0;">⇄</div>
+                <!-- Tag B -->
+                <div style="display:flex;align-items:center;gap:6px;background:${s.tag_b.cor}18;border:1px solid ${s.tag_b.cor}44;border-radius:8px;padding:6px 10px;cursor:pointer;flex:1;min-width:100px;"
+                  onclick="VM._selecionarDestMescla(${i}, ${s.tag_b.id}, this)"
+                  id="opt-b-${i}" data-tag-id="${s.tag_b.id}" data-tag-nome="${s.tag_b.nome.replace(/"/g,'&quot;')}">
+                  <div style="width:10px;height:10px;border-radius:3px;background:${s.tag_b.cor};flex-shrink:0;"></div>
+                  <span style="color:#F1F5F9;font-size:0.85rem;font-weight:600;">${s.tag_b.nome}</span>
+                  <span style="color:#64748B;font-size:0.72rem;margin-left:auto;">${s.tag_b.uso} uso${s.tag_b.uso !== 1 ? 's' : ''}</span>
+                </div>
+              </div>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+                <div style="font-size:0.75rem;color:#94A3B8;" id="hint-${i}">
+                  <i class="fas fa-hand-pointer" style="margin-right:4px;opacity:0.6;"></i>Clique em uma tag para defini-la como destino (a outra será mesclada nela)
+                </div>
+                <button onclick="VM._confirmarMescla(${i}, ${s.tag_a.id}, ${s.tag_b.id})"
+                  id="btn-mesclar-${i}"
+                  style="display:none;background:#7C3AED;color:#fff;border:none;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:0.78rem;margin-left:auto;flex-shrink:0;">
+                  <i class="fas fa-code-branch"></i> Mesclar
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;margin-top:16px;">Fechar</button>
+      `
+    } catch (e) {
+      const cont = document.getElementById('mesclar-tags-content')
+      if (cont) cont.innerHTML = `<div style="color:#F43F5E;text-align:center;padding:20px;">Erro ao detectar tags similares. Tente novamente.</div>`
+    }
+  },
+
+  _selecionarDestMescla(idx, tagId, el) {
+    // Highlight na seleção
+    const optA = document.getElementById(`opt-a-${idx}`)
+    const optB = document.getElementById(`opt-b-${idx}`)
+    const btn  = document.getElementById(`btn-mesclar-${idx}`)
+    const hint = document.getElementById(`hint-${idx}`)
+
+    ;[optA, optB].forEach(o => {
+      if (o) {
+        o.style.border = o === el
+          ? '2px solid #7C3AED'
+          : '1px solid rgba(255,255,255,0.08)'
+        o.style.background = o === el ? 'rgba(124,58,237,0.18)' : ''
+      }
+    })
+    // Guardar destino no btn
+    if (btn) {
+      btn.style.display = 'inline-flex'
+      btn.dataset.destino = tagId
+      btn.dataset.destinoNome = el.dataset.tagNome
+    }
+    if (hint) hint.textContent = `✓ Destino: "${el.dataset.tagNome}" — a outra tag será mesclada nela e excluída`
+  },
+
+  async _confirmarMescla(idx, idA, idB) {
+    const btn = document.getElementById(`btn-mesclar-${idx}`)
+    if (!btn) return
+    const destinoId   = parseInt(btn.dataset.destino)
+    const destinoNome = btn.dataset.destinoNome
+    if (!destinoId) { this.toast('Selecione qual tag manter', 'warning'); return }
+
+    const origemId = destinoId === idA ? idB : idA
+
+    const ok = await this.vmConfirm(
+      `A tag origem será <strong>mesclada</strong> em <strong>"${destinoNome}"</strong> e depois excluída.<br>Todos os lançamentos serão realocados automaticamente.`,
+      { titulo: 'Confirmar Mesclagem', corBotao: '#7C3AED', textoBotao: 'Mesclar', icone: '🔀' }
+    )
+    if (!ok) return
+
+    try {
+      btn.disabled = true; btn.textContent = 'Mesclando...'
+      const resp = await this.api('POST', 'tags/mesclar', { tag_origem_id: origemId, tag_destino_id: destinoId })
+      this.toast(resp.message || `Tags mescladas em "${destinoNome}"!`, 'success')
+      // Remover o card da sugestão da lista
+      const card = document.getElementById(`sugestao-${idx}`)
+      if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none' }
+      this.carregarTags()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao mesclar tags', 'error')
+      if (btn) { btn.disabled = false; btn.textContent = 'Mesclar' }
     }
   },
 

@@ -1042,7 +1042,7 @@ Retorne EXCLUSIVAMENTE um JSON válido:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 2500,
         temperature: 0.6,
@@ -1100,97 +1100,161 @@ ia.get('/insights', requireAuth, async (c) => {
   }
 })
 
-// ─── POST /api/ia/tag-sugestao — Sugere a melhor tag para uma despesa ─────────
+// ─── POST /api/ia/tag-sugestao — Opção C: matching inteligente + sugestão de nova tag ──
 ia.post('/tag-sugestao', requireAuth, async (c) => {
   const user = c.get('user')
   const { descricao, categoria, tags } = await c.req.json().catch(() => ({} as any))
   if (!descricao) return c.json({ error: 'Descricao obrigatoria' }, 400)
 
   const tagsLista: Array<{ id: string; nome: string }> = tags || []
-  if (tagsLista.length === 0) return c.json({ tag_sugerida: null, sugestao: 'nenhuma', metodo: 'vazio' })
 
-  // 1ª tentativa: matching local por normalização
-  const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim()
+  const normalizar = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim()
+
   const descNorm = normalizar(descricao)
-  const catNorm = normalizar(categoria || '')
+  const catNorm  = normalizar(categoria || '')
 
+  // ── Mapa categoria → palavras-chave de alta relevância ────────────────────
+  const CAT_KEYWORDS: Record<string, string[]> = {
+    alimentacao:    ['mercado','supermercado','restaurante','lanche','ifood','uber eats','rappi','pizza','sushi','hamburguer','padaria','acougue','hortifruti','food','cafe'],
+    moradia:        ['aluguel','condominio','agua','luz','energia','gas','internet','telefone','iptu','seguro imovel','manutencao','reforma','apartamento','casa','imovel'],
+    transporte:     ['uber','99','taxi','onibus','metro','combustivel','gasolina','etanol','estacionamento','pedagio','carro','moto','bike','bicicleta','transfer'],
+    saude:          ['farmacia','remedio','medico','consulta','exame','plano saude','hospital','clinica','dentista','laboratorio','drogaria','academia','nutricionista'],
+    educacao:       ['escola','faculdade','curso','livro','material','uniforme','mensalidade','idioma','ingles','certificacao','treinamento','aula'],
+    lazer:          ['cinema','teatro','show','evento','viagem','hotel','airbnb','spotify','netflix','amazon','disney','hbo','streaming','jogo','game','passeio'],
+    vestuario:      ['roupa','calcado','tenis','sapato','camisa','calca','vestido','moda','loja','zara','renner','riachuelo','cea','shopping'],
+    financeiro:     ['parcela','prestacao','juros','taxa','tarifa','banco','cartao','emprestimo','financiamento','seguro','investimento','poupanca','ted','pix'],
+    pets:           ['pet','veterinario','racao','vacina','banho','tosa','aquario','passaro','gato','cachorro','canil','petshop'],
+    servicos:       ['servico','assistencia','tecnico','conserto','manutencao','limpeza','faxina','diarista','encanador','eletricista','pintor','jardineiro'],
+    entretenimento: ['netflix','spotify','youtube','prime','hbo','disney','streaming','jogo','game','app','assinatura'],
+    viagem:         ['hotel','hostel','airbnb','passagem','aeroporto','viagem','turismo','excursao','cruzeiro','resort'],
+  }
+
+  // ── Scoring avançado ──────────────────────────────────────────────────────
   let melhorTag: string | null = null
   let melhorScore = 0
 
   for (const t of tagsLista) {
-    const tagNorm = normalizar(t.nome)
+    const tagNorm   = normalizar(t.nome)
     const tagTokens = tagNorm.split(/\s+/).filter((w: string) => w.length > 2)
     let score = 0
+
+    // Correspondência direta tag ↔ descrição
     for (const token of tagTokens) {
-      if (descNorm.includes(token)) score += 2
-      if (catNorm.includes(token)) score += 1
+      if (descNorm.includes(token)) score += 3
+      if (catNorm.includes(token))  score += 2
     }
-    // Verifica também se desc contém o nome da tag inteiro
-    if (descNorm.includes(tagNorm) || tagNorm.includes(descNorm.split(' ')[0])) score += 3
+    if (descNorm.includes(tagNorm))                   score += 4
+    if (tagNorm.includes(descNorm.split(' ')[0]))     score += 2
+
+    // Bônus por categoria: se a categoria da despesa mapeia para palavras-chave
+    // que correspondem ao nome da tag, aumenta o score
+    const catKey = catNorm.split(' ')[0]
+    const kwList = CAT_KEYWORDS[catKey] || []
+    for (const kw of kwList) {
+      if (tagNorm.includes(kw) || kw.includes(tagNorm)) score += 2
+      if (descNorm.includes(kw))                         score += 1
+    }
+
     if (score > melhorScore) { melhorScore = score; melhorTag = t.nome }
   }
 
-  // Matching local com score alto: retornar sem chamar IA
-  if (melhorScore >= 3) {
-    return c.json({ tag_sugerida: melhorTag, sugestao: melhorTag, metodo: 'local' })
+  // Score alto no matching local → retorna sem IA
+  if (melhorScore >= 4) {
+    return c.json({ tag_sugerida: melhorTag, sugestao: melhorTag, metodo: 'local', nova_tag: null })
   }
 
-  // 2ª tentativa: chamar IA com contexto das últimas 5 despesas similares
+  // ── Chamar IA para decisão final ──────────────────────────────────────────
   try {
     const apiKey  = c.env.OPENAI_API_KEY
     const baseUrl = (c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
-    if (!apiKey) throw new Error('API key não configurada')
+    if (!apiKey) throw new Error('sem api key')
 
-    // Buscar últimas 5 despesas do usuário para contexto
+    // Histórico recente do usuário com tags (contexto de padrões pessoais)
     const historico = await c.env.DB.prepare(
       `SELECT d.descricao, d.categoria, t.nome as tag_nome
        FROM despesas d
-       LEFT JOIN despesa_tags dt ON dt.despesa_id = d.id
-       LEFT JOIN tags t ON t.id = dt.tag_id
+       JOIN despesa_tags dt ON dt.despesa_id = d.id
+       JOIN tags t ON t.id = dt.tag_id
        WHERE d.user_id = ?
-       ORDER BY d.data DESC LIMIT 10`
+       ORDER BY d.data DESC LIMIT 15`
     ).bind(user.id).all<any>().catch(() => ({ results: [] }))
 
-    const historicoPairs = (historico.results || [])
-      .filter((r: any) => r.tag_nome)
-      .slice(0, 5)
-      .map((r: any) => `"${r.descricao}" → tag: "${r.tag_nome}"`)
+    const exemplos = (historico.results || [])
+      .slice(0, 8)
+      .map((r: any) => `"${r.descricao}" (${r.categoria}) → "${r.tag_nome}"`)
       .join('\n')
 
-    const tagsNomes = tagsLista.map((t: any) => t.nome).join(', ')
-    const prompt = `Você é um assistente de categorização financeira. Analise a despesa e sugira a tag mais adequada.
+    const tagsNomes = tagsLista.length > 0 ? tagsLista.map((t: any) => t.nome).join(', ') : 'nenhuma'
 
-Despesa: "${descricao}"
-Categoria: "${categoria || 'não informada'}"
-Tags disponíveis: ${tagsNomes}
-${historicoPairs ? `\nHistórico recente do usuário:\n${historicoPairs}` : ''}
+    const prompt = `Você é um assistente financeiro pessoal especializado em categorizar despesas com tags.
 
-Responda APENAS com o nome exato de uma tag da lista acima, ou "nenhuma" se nenhuma se encaixa bem.
-Não explique. Não use aspas. Só o nome da tag ou "nenhuma".`
+DESPESA: "${descricao}"
+CATEGORIA FINANCEIRA: "${categoria || 'não informada'}"
+TAGS EXISTENTES DO USUÁRIO: ${tagsNomes}
+${exemplos ? `\nPADRÕES DO USUÁRIO (despesas anteriores com tags):\n${exemplos}` : ''}
+
+TAREFA: Analise a despesa e decida:
+1. Se uma das tags existentes se encaixa bem → responda com o nome EXATO da tag
+2. Se nenhuma tag existente faz sentido → sugira um nome curto (1-3 palavras) para uma NOVA tag que seria ideal
+
+FORMATO DA RESPOSTA (JSON):
+{"acao": "usar_existente", "tag": "nome exato da tag existente"}
+OU
+{"acao": "criar_nova", "tag": "Nome Sugerido"}
+
+Responda APENAS o JSON. Sem explicações.`
 
     const aiRes = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'gpt-5.4-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 30, temperature: 0.2 })
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 60,
+        temperature: 0.1
+      })
     })
 
     if (aiRes.ok) {
       const aiData: any = await aiRes.json()
-      const sugerida = (aiData?.choices?.[0]?.message?.content || '').trim().replace(/^"|"$/g, '').toLowerCase()
+      const raw = (aiData?.choices?.[0]?.message?.content || '').trim()
 
-      // Validar se a tag sugerida está na lista (evitar alucinações)
-      const tagValida = tagsLista.find((t: any) => normalizar(t.nome) === normalizar(sugerida))
-      if (tagValida && sugerida !== 'nenhuma') {
-        return c.json({ tag_sugerida: tagValida.nome, sugestao: tagValida.nome, metodo: 'ia' })
+      // Extrair JSON da resposta
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+
+        if (parsed.acao === 'usar_existente' && parsed.tag) {
+          // Validar se a tag sugerida existe na lista
+          const tagValida = tagsLista.find(
+            (t: any) => normalizar(t.nome) === normalizar(parsed.tag)
+          )
+          if (tagValida) {
+            return c.json({ tag_sugerida: tagValida.nome, sugestao: tagValida.nome, metodo: 'ia', nova_tag: null })
+          }
+        }
+
+        if (parsed.acao === 'criar_nova' && parsed.tag) {
+          // IA sugere criar uma nova tag — retorna sugestão sem aplicar automaticamente
+          const nomeSugerido = parsed.tag.trim().substring(0, 30)
+          return c.json({
+            tag_sugerida: null,
+            sugestao: 'nenhuma',
+            metodo: 'ia_nova_tag',
+            nova_tag: nomeSugerido  // frontend vai perguntar ao usuário se quer criar
+          })
+        }
       }
     }
   } catch (_) {}
 
-  // Fallback: retornar melhor match local (mesmo com score baixo)
+  // Fallback: melhor match local mesmo com score baixo
   return c.json({
     tag_sugerida: melhorScore > 0 ? melhorTag : null,
-    sugestao: melhorScore > 0 ? melhorTag : 'nenhuma',
-    metodo: melhorScore > 0 ? 'local_baixo' : 'nenhuma'
+    sugestao:     melhorScore > 0 ? melhorTag : 'nenhuma',
+    metodo:       melhorScore > 0 ? 'local_baixo' : 'nenhuma',
+    nova_tag:     null
   })
 })
 

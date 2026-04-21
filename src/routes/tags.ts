@@ -384,4 +384,121 @@ tags.get('/analise', requireAuth, async (c) => {
   })
 })
 
+// ─── POST /api/tags/mesclar — Mesclar tags: migra lançamentos da tag origem para destino ──
+// Body: { tag_origem_id: number, tag_destino_id: number }
+tags.post('/mesclar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { tag_origem_id, tag_destino_id } = await c.req.json().catch(() => ({} as any))
+
+  if (!tag_origem_id || !tag_destino_id)
+    return c.json({ error: 'tag_origem_id e tag_destino_id são obrigatórios' }, 400)
+  if (tag_origem_id === tag_destino_id)
+    return c.json({ error: 'As tags de origem e destino devem ser diferentes' }, 400)
+
+  // Verificar que ambas pertencem ao usuário
+  const origem = await c.env.DB.prepare(
+    `SELECT id, nome FROM tags WHERE id = ? AND user_id = ?`
+  ).bind(tag_origem_id, user.id).first() as any
+  if (!origem) return c.json({ error: 'Tag de origem não encontrada' }, 404)
+
+  const destino = await c.env.DB.prepare(
+    `SELECT id, nome FROM tags WHERE id = ? AND user_id = ?`
+  ).bind(tag_destino_id, user.id).first() as any
+  if (!destino) return c.json({ error: 'Tag de destino não encontrada' }, 404)
+
+  // Migrar despesa_tags: se já existe associação com destino, apenas remover a origem
+  // Se não existe, atualizar origem → destino
+  const despesasComDestino = await c.env.DB.prepare(
+    `SELECT despesa_id FROM despesa_tags WHERE tag_id = ? AND despesa_id IN
+     (SELECT despesa_id FROM despesa_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id).all<any>()
+
+  const dupDespesas = new Set((despesasComDestino.results || []).map((r: any) => r.despesa_id))
+
+  // Atualizar as que não têm duplicata
+  await c.env.DB.prepare(
+    `UPDATE despesa_tags SET tag_id = ? WHERE tag_id = ? AND despesa_id NOT IN
+     (SELECT despesa_id FROM despesa_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run()
+
+  // Remover os que eram duplicatas
+  await c.env.DB.prepare(
+    `DELETE FROM despesa_tags WHERE tag_id = ?`
+  ).bind(tag_origem_id).run()
+
+  // Migrar receita_tags da mesma forma
+  await c.env.DB.prepare(
+    `UPDATE receita_tags SET tag_id = ? WHERE tag_id = ? AND receita_id NOT IN
+     (SELECT receita_id FROM receita_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run()
+
+  await c.env.DB.prepare(
+    `DELETE FROM receita_tags WHERE tag_id = ?`
+  ).bind(tag_origem_id).run()
+
+  // Deletar a tag de origem
+  await c.env.DB.prepare(
+    `DELETE FROM tags WHERE id = ? AND user_id = ?`
+  ).bind(tag_origem_id, user.id).run()
+
+  return c.json({
+    success: true,
+    origem: origem.nome,
+    destino: destino.nome,
+    message: `Tag "${origem.nome}" mesclada em "${destino.nome}" com sucesso`
+  })
+})
+
+// ─── GET /api/tags/sugestoes-mesclar — Detecta tags similares para sugerir mesclagem ──
+tags.get('/sugestoes-mesclar', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const allTags = await c.env.DB.prepare(
+    `SELECT t.id, t.nome, t.cor, COUNT(dt.despesa_id) as uso
+     FROM tags t
+     LEFT JOIN despesa_tags dt ON dt.tag_id = t.id
+     WHERE t.user_id = ?
+     GROUP BY t.id ORDER BY t.nome`
+  ).bind(user.id).all<any>()
+
+  const tags_list = allTags.results || []
+
+  // Detectar tags similares por normalização
+  const normalizar = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '').trim()
+
+  const sugestoes: Array<{ tag_a: any; tag_b: any; similaridade: string }> = []
+  const processados = new Set<string>()
+
+  for (let i = 0; i < tags_list.length; i++) {
+    for (let j = i + 1; j < tags_list.length; j++) {
+      const a = tags_list[i], b = tags_list[j]
+      const nA = normalizar(a.nome), nB = normalizar(b.nome)
+      const chave = `${Math.min(a.id,b.id)}-${Math.max(a.id,b.id)}`
+      if (processados.has(chave)) continue
+
+      let motivo = ''
+      // Substring de 3+ chars
+      if (nA.length >= 3 && nB.includes(nA)) motivo = `"${b.nome}" contém "${a.nome}"`
+      else if (nB.length >= 3 && nA.includes(nB)) motivo = `"${a.nome}" contém "${b.nome}"`
+      // Normalização idêntica
+      else if (nA === nB) motivo = 'Nomes idênticos após normalização'
+      // Prefixo comum longo (>= 4 chars)
+      else {
+        const minLen = Math.min(nA.length, nB.length)
+        let prefixo = 0
+        for (let k = 0; k < minLen; k++) { if (nA[k] === nB[k]) prefixo++; else break }
+        if (prefixo >= 4 && prefixo >= minLen * 0.7) motivo = `Prefixo comum: "${nA.substring(0, prefixo)}"`
+      }
+
+      if (motivo) {
+        processados.add(chave)
+        sugestoes.push({ tag_a: a, tag_b: b, similaridade: motivo })
+      }
+    }
+  }
+
+  return c.json({ sugestoes, total: sugestoes.length })
+})
+
 export default tags

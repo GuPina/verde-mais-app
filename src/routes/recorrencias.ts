@@ -273,24 +273,29 @@ recorrencias.put('/:id', requireAuth, async (c) => {
   ).run()
 
   // Propagar alterações para despesas/receitas futuras vinculadas a esta recorrência
+  // Cobre lançamentos novos (recorrencia_id) E antigos (recorrencia_id NULL, por descrição+recorrente=1)
   const propagarPara = body.propagar_futuras ?? false
   if (propagarPara) {
-    const hoje = new Date().toISOString().split('T')[0]
-    try {
-      if (recAtual.tipo === 'receita') {
-        await c.env.DB.prepare(
-          `UPDATE receitas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
-           WHERE recorrencia_id=? AND user_id=? AND data >= ? AND status='pendente'`
-        ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
-      } else {
-        await c.env.DB.prepare(
-          `UPDATE despesas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
-           WHERE recorrencia_id=? AND user_id=? AND vencimento >= ? AND status='pendente'`
-        ).bind(descricao, valorSalvo, categoria, mpFinal, id, user.id, hoje).run()
-      }
-    } catch (e: any) {
-      // Coluna recorrencia_id pode não existir em versões antigas — apenas ignora
-      console.error('[recorrencias] propagar_futuras error:', e?.message)
+    const hoje      = new Date().toISOString().split('T')[0]
+    const descOrig  = recAtual.descricao.replace(/ \(Auto\)$/, '').trim()
+    if (recAtual.tipo === 'receita') {
+      await c.env.DB.prepare(
+        `UPDATE receitas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+         WHERE user_id=? AND data >= ?
+           AND (recorrencia_id=?
+                OR (recorrencia_id IS NULL AND recorrente=1
+                    AND (descricao=? OR descricao=?)))`
+      ).bind(descricao, valorSalvo, categoria, mpFinal,
+             user.id, hoje, id, descOrig, descOrig + ' (Auto)').run()
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE despesas SET descricao=?, valor=?, categoria=?, meio_pagamento=?
+         WHERE user_id=? AND vencimento >= ? AND status='pendente'
+           AND (recorrencia_id=?
+                OR (recorrencia_id IS NULL AND recorrente=1
+                    AND (descricao=? OR descricao=?)))`
+      ).bind(descricao, valorSalvo, categoria, mpFinal,
+             user.id, hoje, id, descOrig, descOrig + ' (Auto)').run()
     }
   }
 
@@ -324,22 +329,32 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   const id   = c.req.param('id')
 
   const rec = await c.env.DB.prepare(
-    `SELECT id, tipo FROM recorrencias WHERE id = ? AND user_id = ?`
+    `SELECT id, tipo, descricao FROM recorrencias WHERE id = ? AND user_id = ?`
   ).bind(id, user.id).first() as any
   if (!rec) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
-  const recTipo = rec.tipo || 'despesa'
+  const recTipo  = rec.tipo || 'despesa'
+  const descLike  = (rec.descricao || '').replace(/ \(Auto\)$/, '').trim()
 
   if (recTipo === 'receita') {
-    // Receitas não têm coluna 'status' — remove todas as vinculadas
+    // Receitas não têm coluna 'status'.
+    // Cobre lançamentos novos (recorrencia_id vinculado) E antigos (recorrencia_id NULL, por descrição + recorrente=1)
     await c.env.DB.prepare(
-      `DELETE FROM receitas WHERE recorrencia_id = ? AND user_id = ?`
-    ).bind(id, user.id).run()
+      `DELETE FROM receitas
+       WHERE user_id = ?
+         AND (recorrencia_id = ?
+              OR (recorrencia_id IS NULL AND recorrente = 1
+                  AND (descricao = ? OR descricao = ?)))`
+    ).bind(user.id, id, descLike, descLike + ' (Auto)').run()
   } else {
-    // Despesas: remove apenas as pendentes (preserva as já pagas no histórico)
+    // Despesas: remove pendentes com recorrencia_id vinculado OU antigas por descrição + recorrente=1
     await c.env.DB.prepare(
-      `DELETE FROM despesas WHERE recorrencia_id = ? AND user_id = ? AND status = 'pendente'`
-    ).bind(id, user.id).run()
+      `DELETE FROM despesas
+       WHERE user_id = ? AND status = 'pendente'
+         AND (recorrencia_id = ?
+              OR (recorrencia_id IS NULL AND recorrente = 1
+                  AND (descricao = ? OR descricao = ?)))`
+    ).bind(user.id, id, descLike, descLike + ' (Auto)').run()
   }
 
   await c.env.DB.prepare(
