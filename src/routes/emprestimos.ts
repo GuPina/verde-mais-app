@@ -149,7 +149,7 @@ emprestimos.post('/', requireAuth, async (c) => {
     descricao, tipo = 'pessoal', valor_original, saldo_devedor: saldoInformado,
     taxa_juros_mensal, numero_parcelas,
     parcelas_pagas = 0, valor_parcela, data_inicio, data_primeira_parcela,
-    dia_vencimento, credor, finalidade, observacoes
+    dia_vencimento, credor, observacoes
   } = body
 
   if (!descricao || !valor_original || !taxa_juros_mensal || !numero_parcelas || !valor_parcela || !data_inicio)
@@ -172,9 +172,9 @@ emprestimos.post('/', requireAuth, async (c) => {
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
   const result = await c.env.DB.prepare(
-    `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, finalidade, observacoes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, finalidade || null, observacoes || null).run()
+    `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, observacoes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
 
   const empId = result.meta.last_row_id as number
 
