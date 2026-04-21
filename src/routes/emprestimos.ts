@@ -155,6 +155,10 @@ emprestimos.post('/', requireAuth, async (c) => {
   if (!descricao || !valor_original || !taxa_juros_mensal || !numero_parcelas || !valor_parcela || !data_inicio)
     return c.json({ error: 'Campos obrigatórios faltando' }, 400)
 
+  // Normalizar tipo — garantir que só valores válidos do CHECK constraint sejam inseridos
+  const TIPOS_VALIDOS = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
+  const tipoNormalizado = TIPOS_VALIDOS.includes(tipo) ? tipo : 'outros'
+
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
   const parcelasPagasN = parseInt(parcelas_pagas)
@@ -174,7 +178,7 @@ emprestimos.post('/', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(
     `INSERT INTO emprestimos (user_id, descricao, tipo, valor_original, valor_pago, saldo_devedor, taxa_juros_mensal, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, data_previsao_fim, dia_vencimento, credor, observacoes)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, descricao, tipo, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
+  ).bind(user.id, descricao, tipoNormalizado, parseFloat(valor_original), parseFloat(valor_parcela) * parcelasPagasN, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFim.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, observacoes || null).run()
 
   const empId = result.meta.last_row_id as number
 
@@ -238,7 +242,11 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Empréstimo não encontrado' }, 404)
 
   const body = await c.req.json()
-  const { descricao, tipo, valor_original, saldo_devedor: saldoInformado, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, dia_vencimento, credor, status, observacoes } = body
+  const { descricao, tipo: tipoPut, valor_original, saldo_devedor: saldoInformado, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, dia_vencimento, credor, status, observacoes } = body
+
+  // Normalizar tipo no PUT também
+  const TIPOS_VALIDOS_PUT = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
+  const tipoNormalizadoPut = TIPOS_VALIDOS_PUT.includes(tipoPut) ? tipoPut : 'outros'
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
@@ -261,7 +269,7 @@ emprestimos.put('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare(
     `UPDATE emprestimos SET descricao=?, tipo=?, valor_original=?, valor_pago=?, saldo_devedor=?, taxa_juros_mensal=?, taxa_juros_anual=?, numero_parcelas=?, parcelas_pagas=?, valor_parcela=?, data_inicio=?, data_previsao_fim=?, dia_vencimento=?, credor=?, status=?, observacoes=? WHERE id=? AND user_id=?`
-  ).bind(descricao, tipo, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFimPut.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
+  ).bind(descricao, tipoNormalizadoPut, parseFloat(valor_original), valorPago, saldoDevedor, parseFloat(taxa_juros_mensal), Math.round(taxaA * 100) / 100, parseInt(numero_parcelas), parcelasPagasN, parseFloat(valor_parcela), data_inicio, dataFimPut.toISOString().split('T')[0], parseInt(dia_vencimento) || null, credor || null, status || 'ativo', observacoes || null, id, user.id).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
 
