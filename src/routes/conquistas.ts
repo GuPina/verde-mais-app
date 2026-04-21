@@ -397,12 +397,14 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   ).bind(user.id).first() as any
   if ((amortizou?.total || 0) >= 1) await ganhar('amortizou_antecipado')
 
-  // Meio caminho no financiamento (saldo_devedor < valor_financiado * 0.5)
+  // Meio caminho no financiamento (saldo_devedor < valor_financiado * 0.5 ou quitado)
   const meiadoPago = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM financiamentos
-     WHERE user_id = ? AND status = 'ativo'
-     AND saldo_devedor > 0 AND valor_financiado > 0
-     AND saldo_devedor < (valor_financiado * 0.5)`
+     WHERE user_id = ? AND valor_financiado > 0
+     AND (
+       (status = 'ativo' AND saldo_devedor > 0 AND saldo_devedor < (valor_financiado * 0.5))
+       OR status = 'quitado'
+     )`
   ).bind(user.id).first() as any
   if ((meiadoPago?.total || 0) >= 1) await ganhar('metade_paga')
 
@@ -541,33 +543,33 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   // ── [Investimentos por tipo] ──────────────────────────────────────────────
   try {
     const invAcoes = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('acao','acoes','ações','renda_variavel','rv')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('acoes','outros')`
     ).bind(user.id).first() as any
     if ((invAcoes?.total || 0) >= 1) await ganhar('investidor_acoes')
 
     const invFii = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('fii','fundo imobiliario','fundo_imobiliario','fundos imobiliários')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('fii')`
     ).bind(user.id).first() as any
     if ((invFii?.total || 0) >= 1) await ganhar('investidor_fii')
 
     const invCripto = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cripto','criptomoeda','crypto','bitcoin','ethereum')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cripto')`
     ).bind(user.id).first() as any
     if ((invCripto?.total || 0) >= 1) await ganhar('investidor_cripto')
 
     const invTesouro = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('tesouro','tesouro direto','tesouro_direto')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('tesouro_direto')`
     ).bind(user.id).first() as any
     if ((invTesouro?.total || 0) >= 1) await ganhar('investidor_tesouro')
 
     const invCdb = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca','renda_fixa','rf','renda fixa')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca')`
     ).bind(user.id).first() as any
     if ((invCdb?.total || 0) >= 1) await ganhar('investidor_cdb')
 
     // Investidor CDI — investimento com rendimento atrelado ao CDI
     const invCdi = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca','renda_fixa','rf','tesouro','tesouro direto')`
+      `SELECT COUNT(*) as total FROM investimentos WHERE user_id=? AND LOWER(tipo) IN ('cdb','lci','lca','tesouro_direto')`
     ).bind(user.id).first() as any
     if ((invCdi?.total || 0) >= 1) await ganhar('investidor_cdi')
 
@@ -771,7 +773,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   // ── [Reservas especializadas] ─────────────────────────────────────────────
   try {
     const reservasEspec = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND valor_atual > 0`
+      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND current_amount > 0`
     ).bind(user.id).first() as any
     if ((reservasEspec?.total || 0) >= 1) await ganhar('reserva_spec_completa')
     if ((reservasEspec?.total || 0) >= 3) await ganhar('multi_3_reservas')
@@ -831,10 +833,10 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
     // 2 anos na plataforma
     const dataCadastro = await c.env.DB.prepare(
-      `SELECT created_at FROM users WHERE id=?`
+      `SELECT data_criacao FROM users WHERE id=?`
     ).bind(user.id).first() as any
-    if (dataCadastro?.created_at) {
-      const anos = (Date.now() - new Date(dataCadastro.created_at).getTime()) / (365.25 * 24 * 3600 * 1000)
+    if (dataCadastro?.data_criacao) {
+      const anos = (Date.now() - new Date(dataCadastro.data_criacao).getTime()) / (365.25 * 24 * 3600 * 1000)
       if (anos >= 2) await ganhar('2_anos_verde')
     }
 
@@ -1080,7 +1082,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   try {
     // todas_reservas_ok — tem reserva de emergência e pelo menos 1 reserva especializada
     const resEspec2 = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND valor_atual > 0`
+      `SELECT COUNT(*) as total FROM specialized_reserves WHERE user_id=? AND current_amount > 0`
     ).bind(user.id).first() as any
     if (reservaRow && (resEspec2?.total || 0) >= 1) await ganhar('todas_reservas_ok')
   } catch { /* reservas ok */ }
@@ -1163,7 +1165,11 @@ conquistas.post('/verificar', requireAuth, async (c) => {
       if (pctQuitado >= 50) await ganhar('quitou_50pct')
     }
     // Também considera financiamentos já quitados (100% = todos os percentuais)
-    if ((quitouImovel?.total || 0) >= 1) {
+    const quitouImovelTipo = await c.env.DB.prepare(
+      `SELECT COUNT(*) as total FROM financiamentos WHERE user_id=? AND status='quitado'
+       AND tipo_bem IN ('imovel','imovel_comercial','imóvel')`
+    ).bind(user.id).first() as any
+    if ((quitouImovelTipo?.total || 0) >= 1) {
       await ganhar('quitou_10pct')
       await ganhar('quitou_15pct')
       await ganhar('quitou_20pct')
