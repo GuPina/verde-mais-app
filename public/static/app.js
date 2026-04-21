@@ -9075,7 +9075,23 @@ const VM = {
           parcelas_pagas: parseInt(document.getElementById('e-pagas').value) || 0,
           data_inicio: document.getElementById('e-inicio').value,
           dia_vencimento: parseInt(document.getElementById('e-dia').value) || null,
-          data_primeira_parcela: document.getElementById('e-primeira-parcela')?.value || null
+          data_primeira_parcela: (() => {
+            const v = document.getElementById('e-primeira-parcela')?.value || ''
+            if (!v) return null
+            // Normalizar para ISO YYYY-MM-DD (o input type=date já entrega ISO, mas por segurança)
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) { const [d,m,y]=v.split('/'); return `${y}-${m}-${d}` }
+            return v || null
+          })()
+        }
+        // Validação extra antes de enviar
+        if (!payload.descricao || !payload.valor_original || isNaN(payload.valor_original) ||
+            !payload.taxa_juros_mensal || isNaN(payload.taxa_juros_mensal) ||
+            !payload.numero_parcelas || isNaN(payload.numero_parcelas) ||
+            !payload.valor_parcela || isNaN(payload.valor_parcela) ||
+            !payload.data_inicio) {
+          this.toast('Preencha todos os campos obrigatórios corretamente', 'error')
+          btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+          return
         }
         if (isEdit) await this.api('PUT', `emprestimos/${emp.id}`, payload)
         else await this.api('POST', 'emprestimos', payload)

@@ -191,7 +191,12 @@ emprestimos.post('/', requireAuth, async (c) => {
   // Referência para datas das parcelas:
   let dataPrimeiraRef: Date
   if (data_primeira_parcela) {
-    dataPrimeiraRef = new Date(data_primeira_parcela + 'T12:00:00')
+    const parsed = parseDataSegura(data_primeira_parcela)
+    dataPrimeiraRef = parsed || new Date(dataInicio.getFullYear(), dataInicio.getMonth(), diaVenc)
+    if (!parsed) {
+      // data inválida — cair no cálculo automático
+      if (dataPrimeiraRef <= dataInicio) dataPrimeiraRef.setMonth(dataPrimeiraRef.getMonth() + 1)
+    }
   } else {
     dataPrimeiraRef = new Date(dataInicio.getFullYear(), dataInicio.getMonth(), diaVenc)
     if (dataPrimeiraRef <= dataInicio) {
@@ -460,6 +465,24 @@ emprestimos.delete('/:id', requireAuth, async (c) => {
 
   return c.json({ success: true, message: 'Empréstimo e parcelas removidos!' })
 })
+
+/**
+ * parseDataSegura: converte string de data em Date sem explodir.
+ * Aceita YYYY-MM-DD e DD/MM/YYYY.
+ */
+function parseDataSegura(str: string): Date | null {
+  if (!str) return null
+  // Formato ISO: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str + 'T12:00:00')
+  // Formato BR: DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+    const [d, m, y] = str.split('/')
+    return new Date(`${y}-${m}-${d}T12:00:00`)
+  }
+  // Tentativa genérica
+  const d = new Date(str)
+  return isNaN(d.getTime()) ? null : d
+}
 
 /**
  * calcSaldo: usado apenas quando o usuário NÃO informa o saldo_devedor_atual.
