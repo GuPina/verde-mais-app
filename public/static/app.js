@@ -1770,6 +1770,10 @@ const VM = {
     // ── Limpar overlay de conquista ao navegar ──────────────────────────────
     const conqOverlay = document.getElementById('conquista-overlay')
     if (conqOverlay) conqOverlay.remove()
+    // ── Rastrear página anterior para sugestões contextuais do Assistente ───
+    if (this.currentPage && this.currentPage !== 'assistente') {
+      this._ultimaPaginaAntes = this.currentPage
+    }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
@@ -6086,6 +6090,7 @@ const VM = {
     const hoje = new Date()
     let mesAtual = hoje.getMonth() + 1
     let anoAtual = hoje.getFullYear()
+    const NOMES = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
@@ -6093,7 +6098,10 @@ const VM = {
           <div class="section-title">📊 Comparativo Mensal</div>
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Evolução mês a mês por categoria</div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button onclick="VM._navComparativo(-1)" title="Mês anterior"
+            style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;"
+            onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">‹</button>
           <select id="comp-mes" class="form-select" style="width:auto;padding:8px 12px;">
             ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
               const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
@@ -6103,22 +6111,73 @@ const VM = {
           <select id="comp-ano" class="form-select" style="width:auto;padding:8px 12px;">
             ${[anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${a === anoAtual ? 'selected' : ''}>${a}</option>`).join('')}
           </select>
+          <button onclick="VM._navComparativo(1)" title="Próximo mês"
+            style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;"
+            onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">›</button>
           <button onclick="VM.carregarComparativo()" class="btn-primary" style="width:auto;padding:9px 18px;">
             <i class="fas fa-sync-alt"></i> Atualizar
           </button>
         </div>
       </div>
+      <!-- Abas Despesas / Receitas -->
+      <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:12px;">
+        <button id="tab-comp-desp" onclick="VM._setTabComparativo('despesas')"
+          style="padding:7px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;background:rgba(244,63,94,0.2);color:#F43F5E;border:1px solid rgba(244,63,94,0.4);">
+          📤 Despesas
+        </button>
+        <button id="tab-comp-rec" onclick="VM._setTabComparativo('receitas')"
+          style="padding:7px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;background:transparent;color:#64748B;border:1px solid rgba(255,255,255,0.08);">
+          📥 Receitas
+        </button>
+      </div>
       <div id="comparativo-container">
         <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
       </div>
     `
+    this._tabComparativo = 'despesas'
     await this.carregarComparativo()
+  },
+
+  _setTabComparativo(tab) {
+    this._tabComparativo = tab
+    const btnD = document.getElementById('tab-comp-desp')
+    const btnR = document.getElementById('tab-comp-rec')
+    if (btnD) {
+      btnD.style.background = tab === 'despesas' ? 'rgba(244,63,94,0.2)' : 'transparent'
+      btnD.style.color = tab === 'despesas' ? '#F43F5E' : '#64748B'
+      btnD.style.borderColor = tab === 'despesas' ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'
+    }
+    if (btnR) {
+      btnR.style.background = tab === 'receitas' ? 'rgba(16,185,129,0.2)' : 'transparent'
+      btnR.style.color = tab === 'receitas' ? '#10B981' : '#64748B'
+      btnR.style.borderColor = tab === 'receitas' ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.08)'
+    }
+    this.carregarComparativo()
+  },
+
+  _navComparativo(delta) {
+    let mes = parseInt(document.getElementById('comp-mes')?.value || new Date().getMonth()+1)
+    let ano = parseInt(document.getElementById('comp-ano')?.value || new Date().getFullYear())
+    mes += delta
+    if (mes < 1) { mes = 12; ano-- }
+    if (mes > 12) { mes = 1; ano++ }
+    const selMes = document.getElementById('comp-mes')
+    const selAno = document.getElementById('comp-ano')
+    if (selMes) selMes.value = mes
+    if (selAno) {
+      if (![...selAno.options].some(o => parseInt(o.value) === ano)) {
+        const opt = document.createElement('option'); opt.value = ano; opt.textContent = ano; selAno.appendChild(opt)
+      }
+      selAno.value = ano
+    }
+    this.carregarComparativo()
   },
 
   async carregarComparativo() {
     const mes = document.getElementById('comp-mes')?.value || new Date().getMonth() + 1
     const ano = document.getElementById('comp-ano')?.value || new Date().getFullYear()
     const cont = document.getElementById('comparativo-container')
+    const tabAtiva = this._tabComparativo || 'despesas'
     if (!cont) return
 
     try {
@@ -6127,7 +6186,20 @@ const VM = {
         this.api('GET', `comparativo/historico?meses=6`)
       ])
 
-      const { resumo, categorias, alertas, periodo } = r
+      // suporte a aba de receitas: gera categorias de receitas se disponível
+      let categoriasUsar = r.categorias || []
+      let tituloTabela = 'Detalhamento por Categoria'
+      if (tabAtiva === 'receitas') {
+        categoriasUsar = r.categorias_receitas || []
+        tituloTabela = 'Receitas por Categoria'
+        if (categoriasUsar.length === 0) {
+          // fallback: mostrar aviso
+          categoriasUsar = []
+        }
+      }
+
+      const { resumo, alertas, periodo } = r
+      const categorias = categoriasUsar
       const { historico } = hist
 
       // KPIs de comparação
@@ -6186,13 +6258,32 @@ const VM = {
           <div style="font-size:0.82rem;color:#34D399;">✅ Nenhuma variação expressiva detectada neste mês</div>
         </div>`
 
+      // Destaque da maior variação
+      const maiorVariacao = categorias.length > 0 ? categorias.reduce((mx, c) => Math.abs(c.variacao||0) > Math.abs(mx.variacao||0) ? c : mx, categorias[0]) : null
+      const destaqueVarHtml = maiorVariacao && Math.abs(maiorVariacao.variacao) > 5 ? `
+        <div style="background:rgba(139,92,246,0.07);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
+          <div style="font-size:1.4rem;">🔦</div>
+          <div>
+            <div style="font-size:0.78rem;color:#A78BFA;font-weight:700;margin-bottom:2px;">Maior variação do mês</div>
+            <div style="font-size:0.88rem;color:#F8FAFC;">
+              <strong>${maiorVariacao.categoria}</strong>:
+              <span style="color:${maiorVariacao.variacao > 0 ? '#F43F5E' : '#10B981'};font-weight:700;">
+                ${maiorVariacao.variacao > 0 ? '▲' : '▼'} ${Math.abs(maiorVariacao.variacao).toFixed(1)}%
+              </span>
+              vs mês anterior
+              (${this.formatMoney(maiorVariacao.anterior)} → ${this.formatMoney(maiorVariacao.atual)})
+            </div>
+          </div>
+        </div>` : ''
+
       // Tabela de categorias
+      const vazia = tabAtiva === 'receitas' ? 'Nenhuma receita por categoria disponível' : 'Nenhuma despesa registrada neste período'
       const tabelaCats = categorias.length === 0
-        ? `<div style="text-align:center;padding:40px;color:#475569;">Nenhuma despesa registrada neste período</div>`
+        ? `<div style="text-align:center;padding:40px;color:#475569;">${vazia}</div>`
         : `
           <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);">
-              <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">Detalhamento por Categoria</div>
+              <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">${tituloTabela}</div>
             </div>
             <table style="width:100%;border-collapse:collapse;">
               <thead>
@@ -6211,10 +6302,13 @@ const VM = {
                   const icon = cat.variacao > 10 ? '▲' : cat.variacao < -10 ? '▼' : '→'
                   const maxCat = Math.max(...categorias.map(c => Math.max(c.atual, c.anterior)))
                   const pct = maxCat > 0 ? Math.round((cat.atual / maxCat) * 100) : 0
-                  const catEnc = encodeURIComponent(cat.categoria)
+                  const isMaior = maiorVariacao && cat.categoria === maiorVariacao.categoria
                   return `
-                    <tr style="border-top:1px solid rgba(255,255,255,0.04);${i % 2 === 0 ? '' : 'background:rgba(255,255,255,0.01);'}">
-                      <td style="padding:11px 16px;font-size:0.85rem;color:#F8FAFC;font-weight:500;">${cat.categoria}</td>
+                    <tr style="border-top:1px solid rgba(255,255,255,0.04);${isMaior ? 'background:rgba(139,92,246,0.05);' : i % 2 === 0 ? '' : 'background:rgba(255,255,255,0.01);'}">
+                      <td style="padding:11px 16px;font-size:0.85rem;color:#F8FAFC;font-weight:500;">
+                        ${isMaior ? '<span style="font-size:0.65rem;background:rgba(139,92,246,0.25);color:#A78BFA;border-radius:4px;padding:1px 5px;margin-right:6px;">★</span>' : ''}
+                        ${cat.categoria}
+                      </td>
                       <td style="padding:11px 16px;font-size:0.83rem;color:#64748B;text-align:right;">R$ ${this.formatMoney(cat.anterior)}</td>
                       <td style="padding:11px 16px;font-size:0.83rem;color:#F8FAFC;text-align:right;font-weight:600;">R$ ${this.formatMoney(cat.atual)}</td>
                       <td style="padding:11px 16px;font-size:0.83rem;color:${cor};text-align:right;font-weight:700;">${icon} ${Math.abs(cat.variacao).toFixed(1)}%</td>
@@ -6242,6 +6336,16 @@ const VM = {
           <div style="font-size:0.8rem;color:${corAcum};margin-top:5px;">${saldoAcum6m >= 0 ? '▲ Positivo' : '▼ Negativo'} nos últimos 6 meses</div>
         </div>`
 
+      // Gráfico de linha acumulado (saldo corrido dos 6 meses)
+      const saldosCorridos = []
+      let acum = 0
+      historico.forEach(m => { acum += (m.receitas - m.despesas); saldosCorridos.push(Math.round(acum * 100) / 100) })
+      const lineChartHtml = `
+        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+          <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;margin-bottom:12px;">📈 Saldo Acumulado — Evolução 6 Meses</div>
+          <div style="height:120px;"><canvas id="comp-acum-chart"></canvas></div>
+        </div>`
+
       cont.innerHTML = `
         <!-- KPIs -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px;">
@@ -6251,9 +6355,35 @@ const VM = {
           ${kpiAcum}
         </div>
         ${barChart}
+        ${lineChartHtml}
         ${alertasHtml}
+        ${destaqueVarHtml}
         ${tabelaCats}
       `
+
+      // Renderizar gráfico de linha acumulado
+      setTimeout(() => {
+        const ctx = document.getElementById('comp-acum-chart')
+        if (ctx) {
+          if (window._compAcumChart) { window._compAcumChart.destroy() }
+          const corLinha = saldoAcum6m >= 0 ? '#10B981' : '#F43F5E'
+          window._compAcumChart = new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+              labels: historico.map(m => m.label),
+              datasets: [{ label: 'Saldo Acumulado', data: saldosCorridos, borderColor: corLinha, backgroundColor: `${corLinha}18`, fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: corLinha, borderWidth: 2 }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${this.formatMoney(ctx.raw)}` } } },
+              scales: {
+                x: { ticks: { color: '#555', font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { color: '#555', font: { size: 10 }, callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: 'rgba(255,255,255,0.04)' } }
+              }
+            }
+          })
+        }
+      }, 80)
 
       // Conquista
       this.api('GET', 'comparativo?mes=1&ano=2024').catch(() => {}) // disparo silencioso
@@ -6297,6 +6427,12 @@ const VM = {
           <button onclick="VM.pageDespesasSemTag()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(245,158,11,0.4);color:#F59E0B;" title="Ver despesas sem nenhuma tag">
             <i class="fas fa-tag" style="opacity:0.6;"></i> Sem Tags <span id="badge-sem-tags" style="background:#F59E0B;color:#000;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-left:4px;display:none;">0</span>
           </button>
+          <button onclick="VM._exportarTagsCSV()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(16,185,129,0.4);color:#10B981;" title="Exportar todas as tags para CSV">
+            <i class="fas fa-download"></i> Exportar CSV
+          </button>
+          <button onclick="VM._toggleGraficoPizzaTags()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(59,130,246,0.4);color:#60A5FA;" title="Ver gráfico pizza de distribuição das tags">
+            <i class="fas fa-chart-pie"></i> Gráfico
+          </button>
         </div>
       </div>
 
@@ -6318,6 +6454,15 @@ const VM = {
       <!-- Stats globais -->
       <div id="tags-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
         ${[1,2,3,4].map(() => `<div class="skeleton" style="height:60px;border-radius:12px;"></div>`).join('')}
+      </div>
+
+      <!-- Gráfico pizza (oculto por padrão) -->
+      <div id="tags-pizza-container" style="display:none;background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+        <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;margin-bottom:16px;">🍕 Distribuição por Tag (valor total)</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+          <div style="width:200px;height:200px;flex-shrink:0;"><canvas id="chart-tags-pizza"></canvas></div>
+          <div id="tags-pizza-legenda" style="flex:1;min-width:200px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;"></div>
+        </div>
       </div>
 
       <div id="tags-container">
@@ -6487,6 +6632,72 @@ const VM = {
 
         <div id="tag-busca-resultado" style="margin-top:24px;"></div>
       `
+  },
+
+  _exportarTagsCSV() {
+    const tags = this._tagsCache || []
+    if (tags.length === 0) { this.toast('Nenhuma tag para exportar', 'warning'); return }
+    const rows = [
+      ['Nome', 'Cor', 'Usos', 'Valor Total (R$)'],
+      ...tags.map(t => [
+        t.nome,
+        t.cor || '',
+        t.usos || 0,
+        (t.total_valor || 0).toFixed(2).replace('.', ',')
+      ])
+    ]
+    const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = `tags_${new Date().toISOString().slice(0,10)}.csv`; a.click()
+    URL.revokeObjectURL(url)
+    this.toast('CSV de tags exportado ✅', 'success')
+  },
+
+  _toggleGraficoPizzaTags() {
+    const container = document.getElementById('tags-pizza-container')
+    if (!container) return
+    const visible = container.style.display !== 'none'
+    if (visible) { container.style.display = 'none'; return }
+    container.style.display = 'block'
+    const tags = (this._tagsCache || []).filter(t => (t.total_valor || 0) > 0)
+    if (tags.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:20px;color:#475569;">Nenhuma tag com valor para exibir</div>`
+      return
+    }
+    const top = tags.sort((a,b) => (b.total_valor||0) - (a.total_valor||0)).slice(0, 8)
+    const outros = tags.slice(8).reduce((s,t) => s + (t.total_valor||0), 0)
+    const dados = outros > 0 ? [...top, { nome: 'Outros', cor: '#64748B', total_valor: outros }] : top
+
+    const canvas = document.getElementById('chart-tags-pizza')
+    if (!canvas) return
+    if (window._chartTagsPizza) { window._chartTagsPizza.destroy(); window._chartTagsPizza = null }
+    window._chartTagsPizza = new Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: dados.map(t => t.nome),
+        datasets: [{ data: dados.map(t => t.total_valor||0), backgroundColor: dados.map(t => t.cor || '#10B981'), borderColor: '#0f172a', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${this.formatMoney(ctx.raw)}` } } }
+      }
+    })
+    const legEl = document.getElementById('tags-pizza-legenda')
+    if (legEl) {
+      const total = dados.reduce((s,t) => s + (t.total_valor||0), 0)
+      legEl.innerHTML = dados.map(t => {
+        const pct = total > 0 ? ((t.total_valor||0)/total*100).toFixed(1) : '0'
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;">
+          <div style="width:12px;height:12px;border-radius:3px;background:${t.cor||'#10B981'};flex-shrink:0;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:0.78rem;color:#F1F5F9;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.nome}</div>
+            <div style="font-size:0.7rem;color:#64748B;">${this.formatMoney(t.total_valor||0)} · ${pct}%</div>
+          </div>
+        </div>`
+      }).join('')
+    }
   },
 
   modalNovaTag() {
@@ -7460,6 +7671,51 @@ const VM = {
           <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💰 Saldo ${ano}</div><div class="stat-value ${totais.saldo >= 0 ? 'positive' : 'negative'}">${this.formatMoney(totais.saldo)}</div></div>
         </div>
 
+        ${(() => {
+          // Cards de melhor/pior mês (R1, R2) e economias vs média (R5)
+          const mesesComDados = relatorio.filter(m => m.receitas > 0 || m.despesas > 0)
+          if (mesesComDados.length === 0) return ''
+          const NOMES_MES = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+          const melhorMes = mesesComDados.reduce((mx, m) => m.saldo > mx.saldo ? m : mx, mesesComDados[0])
+          const piorMes   = mesesComDados.reduce((mn, m) => m.saldo < mn.saldo ? m : mn, mesesComDados[0])
+          const mediaSaldo = mesesComDados.reduce((s,m) => s + m.saldo, 0) / mesesComDados.length
+          const mediaDespesa = mesesComDados.reduce((s,m) => s + m.despesas, 0) / mesesComDados.length
+          const maisGastador = mesesComDados.reduce((mx, m) => m.despesas > mx.despesas ? m : mx, mesesComDados[0])
+          const economiaVsMedia = mesesComDados.map(m => ({ mes: m.mes, diff: mediaDespesa - m.despesas })).filter(m => m.diff > 0)
+          const totalEconomia = economiaVsMedia.reduce((s,m) => s + m.diff, 0)
+
+          return `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px;">
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:14px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">🏆</div>
+              <div style="font-size:0.72rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Melhor Mês</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${NOMES_MES[melhorMes.mes]}/${ano}</div>
+              <div style="font-size:0.95rem;color:#10B981;font-weight:700;">${this.formatMoney(melhorMes.saldo)}</div>
+              <div style="font-size:0.72rem;color:#475569;margin-top:3px;">Saldo mais alto do ano</div>
+            </div>
+            <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">📉</div>
+              <div style="font-size:0.72rem;color:#FDA4AF;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Mês Mais Gastador</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${NOMES_MES[maisGastador.mes]}/${ano}</div>
+              <div style="font-size:0.95rem;color:#F43F5E;font-weight:700;">${this.formatMoney(maisGastador.despesas)}</div>
+              <div style="font-size:0.72rem;color:#475569;margin-top:3px;">Maiores despesas do ano</div>
+            </div>
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:14px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">📊</div>
+              <div style="font-size:0.72rem;color:#FDE68A;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Saldo Médio/Mês</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${this.formatMoney(Math.abs(mediaSaldo))}</div>
+              <div style="font-size:0.72rem;color:${mediaSaldo >= 0 ? '#10B981' : '#F43F5E'};font-weight:700;margin-top:3px;">${mediaSaldo >= 0 ? '▲ Positivo' : '▼ Negativo'} em média</div>
+            </div>
+            ${totalEconomia > 0 ? `
+            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:14px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">💡</div>
+              <div style="font-size:0.72rem;color:#93C5FD;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Economia vs Média</div>
+              <div style="font-size:1rem;font-weight:800;color:#F1F5F9;">${this.formatMoney(totalEconomia)}</div>
+              <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${economiaVsMedia.length} mes(es) abaixo da média</div>
+            </div>` : ''}
+          </div>`
+        })()}
+
         ${!temDados ? `
         <div class="card" style="margin-bottom:24px;text-align:center;padding:40px 20px;">
           <div style="font-size:2.5rem;margin-bottom:12px;">📭</div>
@@ -7530,6 +7786,18 @@ const VM = {
           </div>
           <div id="rel-tags-lista"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
         </div>
+
+        <!-- Comparação Ano vs Ano (R3) -->
+        <div class="card" style="margin-top:24px;">
+          <div style="font-weight:700;margin-bottom:16px;">📅 Comparação Ano vs Ano</div>
+          <div id="rel-ano-vs-ano"><div class="skeleton" style="height:180px;border-radius:10px;"></div></div>
+        </div>
+
+        <!-- Projeção Financeira Anual (R4) -->
+        <div class="card" style="margin-top:24px;" id="rel-projecao-anual">
+          <div style="font-weight:700;margin-bottom:8px;">🔮 Projeção para o Restante do Ano</div>
+          <div id="rel-projecao-content"><div class="skeleton" style="height:80px;border-radius:10px;"></div></div>
+        </div>
       `
 
       if (temDados) {
@@ -7557,12 +7825,85 @@ const VM = {
           })
         }
       }
-      // Carregar Top Tags do ano em paralelo (não bloqueia)
+      // Carregar extras em paralelo (não bloqueia)
       this._carregarTopTagsRelatorio(ano)
+      this._carregarAnoVsAno(ano, relatorio)
+      this._carregarProjecaoAnual(ano, relatorio)
 
     } catch (e) {
       this.toast('Erro ao carregar relatório', 'error')
     }
+  },
+
+  async _carregarAnoVsAno(anoAtual, relAtual) {
+    const el = document.getElementById('rel-ano-vs-ano')
+    if (!el) return
+    try {
+      const anoAnt = parseInt(anoAtual) - 1
+      const dataAnt = await this.api('GET', `dashboard/relatorio?ano=${anoAnt}`)
+      const relAnt = dataAnt?.relatorio || []
+      const NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const despAnt = relAnt.map(m => m.despesas || 0)
+      const despAt  = relAtual.map(m => m.despesas || 0)
+      el.innerHTML = `<div style="height:180px;"><canvas id="chart-ano-vs-ano"></canvas></div>`
+      setTimeout(() => {
+        const ctx = document.getElementById('chart-ano-vs-ano')
+        if (!ctx) return
+        if (window._chartAnoVsAno) window._chartAnoVsAno.destroy()
+        window._chartAnoVsAno = new Chart(ctx.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: NOMES,
+            datasets: [
+              { label: String(anoAnt), data: despAnt, backgroundColor: 'rgba(100,116,139,0.45)', borderRadius: 4 },
+              { label: String(anoAtual), data: despAt, backgroundColor: 'rgba(244,63,94,0.55)', borderRadius: 4 }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+            scales: {
+              x: { ticks: { color: '#888' }, grid: { display: false } },
+              y: { ticks: { color: '#888', callback: v => `R$${(v/1000).toFixed(0)}k` }, grid: { color: 'rgba(255,255,255,0.04)' } }
+            }
+          }
+        })
+      }, 80)
+    } catch(_) {
+      if (el) el.innerHTML = `<div style="color:#475569;font-size:0.82rem;text-align:center;padding:20px;">Dados do ano anterior não disponíveis</div>`
+    }
+  },
+
+  _carregarProjecaoAnual(ano, relatorio) {
+    const el = document.getElementById('rel-projecao-content')
+    if (!el) return
+    const mesAtual = new Date().getFullYear() === parseInt(ano) ? new Date().getMonth() + 1 : 12
+    const mesesComDados = relatorio.filter(m => (m.receitas > 0 || m.despesas > 0) && m.mes <= mesAtual)
+    if (mesesComDados.length === 0) { el.innerHTML = `<div style="color:#475569;font-size:0.82rem;">Lance receitas e despesas para ver a projeção anual.</div>`; return }
+    const medRec  = mesesComDados.reduce((s,m) => s + m.receitas, 0) / mesesComDados.length
+    const medDesp = mesesComDados.reduce((s,m) => s + m.despesas, 0) / mesesComDados.length
+    const mesesRestantes = 12 - mesAtual
+    const projRec  = totais.receitas + medRec  * mesesRestantes
+    const projDesp = totais.despesas + medDesp * mesesRestantes
+    const projSaldo = projRec - projDesp
+    const cor = projSaldo >= 0 ? '#10B981' : '#F43F5E'
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:0.72rem;color:#64748B;margin-bottom:4px;">📥 Receitas Projetadas</div>
+          <div style="font-weight:800;color:#10B981;font-size:1.05rem;">${this.formatMoney(projRec)}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:0.72rem;color:#64748B;margin-bottom:4px;">📤 Despesas Projetadas</div>
+          <div style="font-weight:800;color:#F43F5E;font-size:1.05rem;">${this.formatMoney(projDesp)}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid ${cor}33;border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:0.72rem;color:#64748B;margin-bottom:4px;">💰 Saldo Projetado ${ano}</div>
+          <div style="font-weight:800;color:${cor};font-size:1.05rem;">${this.formatMoney(projSaldo)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:0.75rem;color:#475569;">📌 Baseado na média de ${mesesComDados.length} mes(es) já registrados · ${mesesRestantes} mes(es) restantes projetados</div>
+    `
   },
 
   async _carregarTopTagsRelatorio(ano) {
@@ -12260,10 +12601,19 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div class="section-title">🧠 Diagnóstico Financeiro 360°</div>
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Análise completa baseada em 5 módulos • Hierarquia CFP®</div>
         </div>
-        <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-robot" style="margin-right:6px;"></i>Gerar Insights com IA
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-robot" style="margin-right:6px;"></i>Gerar Insights com IA
+          </button>
+          <button onclick="VM._exportarDiagnosticoPDF()" class="btn-secondary" style="width:auto;padding:10px 16px;border-color:rgba(124,58,237,0.4);color:#A78BFA;" title="Exportar diagnóstico em PDF">
+            <i class="fas fa-file-pdf"></i> PDF
+          </button>
+          <button onclick="VM._checkInMensal()" class="btn-secondary" style="width:auto;padding:10px 16px;border-color:rgba(245,158,11,0.4);color:#F59E0B;" title="Registrar check-in mensal" id="btn-checkin-ia">
+            <i class="fas fa-calendar-check"></i> Check-in
+          </button>
+        </div>
       </div>
+      <div id="ia-checkin-banner" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:0.84rem;color:#FDE68A;"></div>
       <div id="ia-insights-container" style="margin-bottom:16px;"></div>
       <div id="ia-container">
         <div style="display:flex;flex-direction:column;gap:16px;">
@@ -12272,6 +12622,56 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       </div>
     `
     this.carregarIA()
+    this._verificarCheckIn()
+  },
+
+  async _verificarCheckIn() {
+    try {
+      const data = await this.api('GET', 'ia/check-in').catch(() => null)
+      if (!data) return
+      const banner = document.getElementById('ia-checkin-banner')
+      if (!banner) return
+      if (data.check_in_hoje) {
+        banner.style.display = 'block'
+        banner.innerHTML = `✅ Check-in de hoje registrado! Score deste mês: <strong>${data.score_atual||'—'}</strong> ${data.badge ? `· Badge: <strong style="color:#F59E0B;">${data.badge}</strong>` : ''}`
+        const btn = document.getElementById('btn-checkin-ia')
+        if (btn) btn.style.opacity = '0.5'
+      }
+    } catch(_) {}
+  },
+
+  async _checkInMensal() {
+    try {
+      const resp = await this.api('POST', 'ia/check-in', {})
+      this.toast(resp.message || '✅ Check-in registrado!', 'success')
+      if (resp.badge) this.toast(`🏅 Badge desbloqueado: ${resp.badge}`, 'success')
+      this._verificarCheckIn()
+    } catch(e) {
+      this.toast(e.message || 'Erro ao registrar check-in', 'error')
+    }
+  },
+
+  async _exportarDiagnosticoPDF() {
+    const container = document.getElementById('ia-container')
+    if (!container || container.textContent.trim() === '') { this.toast('Gere os insights primeiro', 'warning'); return }
+    try {
+      if (!window.jspdf) {
+        await new Promise((r,j) => { const s = document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload=r; s.onerror=j; document.head.appendChild(s) })
+      }
+      const { jsPDF } = window.jspdf
+      const doc = new jsPDF()
+      const hoje = new Date().toLocaleDateString('pt-BR')
+      const nome = this.user?.nome || 'Usuário'
+      doc.setFontSize(16); doc.setTextColor(47,191,113); doc.text('🧠 Diagnóstico Financeiro 360° — VerdeMais', 15, 20)
+      doc.setFontSize(10); doc.setTextColor(100,116,139); doc.text(`Gerado em ${hoje} • ${nome}`, 15, 28)
+      // Extrair texto do container
+      const texto = container.innerText || container.textContent || ''
+      const linhas = texto.split('\n').filter(l => l.trim()).slice(0, 80)
+      doc.setFontSize(9); doc.setTextColor(200, 210, 220)
+      linhas.forEach((l, i) => { if (15 + (i+1) * 6 < 285) doc.text(l.trim().slice(0, 100), 15, 36 + i * 6) })
+      doc.save(`diagnostico_360_${hoje.replace(/\//g,'-')}.pdf`)
+      this.toast('PDF do diagnóstico exportado ✅', 'success')
+    } catch(e) { this.toast('Erro ao gerar PDF', 'error') }
   },
 
   async carregarIA() {
@@ -15239,13 +15639,48 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div style="font-size:1.1rem;font-weight:700;">🔮 Projeção Financeira</div>
           <div style="color:#666;font-size:0.82rem;">Baseada nos últimos 6 meses do seu histórico real</div>
         </div>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${[6,12].map(p => `
             <button id="btn-proj-${p}" onclick="VM._selProjPeriodo(${p})"
               style="background:${p===periodoSel?t.cor:'rgba(255,255,255,0.05)'};color:${p===periodoSel?'#fff':'#888'};border:1px solid ${p===periodoSel?t.cor:'#333'};border-radius:8px;padding:6px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.2s;">
               ${p} meses
             </button>`).join('')}
+          <button onclick="VM._exportarProjecaoPDF()" title="Exportar projeção em PDF"
+            style="background:rgba(124,58,237,0.12);color:#A78BFA;border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:6px 14px;cursor:pointer;font-size:0.82rem;font-weight:600;">
+            <i class="fas fa-file-pdf"></i> PDF
+          </button>
         </div>
+      </div>
+
+      ${data.tendencia === 'negative' && (data.resumo?.projecao_12m||0) < 0 ? `
+      <!-- Alerta projeção negativa (P2) -->
+      <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.35);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-start;">
+        <div style="font-size:1.8rem;flex-shrink:0;">🚨</div>
+        <div>
+          <div style="font-weight:700;color:#F43F5E;margin-bottom:4px;">Atenção: Projeção Negativa em 12 meses</div>
+          <div style="font-size:0.84rem;color:#FDA4AF;line-height:1.5;">
+            Com o padrão atual, seu saldo acumulado pode chegar a <strong>${this.fmt(data.resumo?.projecao_12m||0)}</strong> em 12 meses.
+            Considere reduzir despesas ou aumentar receitas.
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <button onclick="VM.navigate('despesas')" style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:6px 14px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">📤 Ver Despesas</button>
+            <button onclick="VM.navigate('metas')" style="background:rgba(245,158,11,0.12);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);padding:6px 14px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">🎯 Criar Meta</button>
+          </div>
+        </div>
+      </div>` : ''}
+
+      <!-- Meta de Patrimônio (P1) -->
+      <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
+        <div style="font-size:0.78rem;color:#6EE7B7;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🎯 Meta de Patrimônio</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input type="number" id="proj-meta-patrimonio" placeholder="Ex: 100000" min="0" step="1000"
+            value="${this._projecaoMeta || ''}"
+            style="flex:1;min-width:180px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;color:#F1F5F9;font-size:0.88rem;"
+            oninput="VM._calcularMetaPatrimonio()">
+          <span style="color:#64748B;font-size:0.82rem;">R$</span>
+          <button onclick="VM._calcularMetaPatrimonio()" style="background:rgba(16,185,129,0.2);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 16px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;">Calcular</button>
+        </div>
+        <div id="proj-meta-resultado" style="margin-top:10px;"></div>
       </div>
 
       <!-- KPIs -->
@@ -15294,6 +15729,29 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             return `Com um saldo médio de <strong style="color:${med>=0?'#10B981':'#F43F5E'};">${this.fmt(med)}/mês</strong> e tendência de <strong style="color:${t.cor};">${tendText}</strong>, em 12 meses seu patrimônio acumulado estimado será <strong style="color:${m12>=0?'#10B981':'#F43F5E'};">${this.fmt(Math.abs(m12))} ${sinal}</strong>. Confiança desta estimativa: <strong style="color:${conf>=70?'#10B981':conf>=40?'#F59E0B':'#F43F5E'};">${conf}% (${conf>=70?'Alta':conf>=40?'Média':'Baixa'})</strong> — ${conf < 40 ? 'lance mais meses para aumentar a precisão.' : 'baseada em histórico suficiente.'}`
           })()}
         </p>
+      </div>
+
+      <!-- Cenários Otimista/Pessimista (P4) -->
+      <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">📐 Cenários — 12 Meses</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+          ${(() => {
+            const med = data.media_mensal || 0
+            const cenarios = [
+              { label: '🐂 Otimista', mult: 1.2, cor: '#10B981', desc: '+20% de saldo' },
+              { label: '📊 Base',     mult: 1.0, cor: '#60A5FA', desc: 'Padrão atual' },
+              { label: '🐻 Pessimista', mult: 0.8, cor: '#F43F5E', desc: '-20% de saldo' }
+            ]
+            return cenarios.map(c => {
+              const val = med * c.mult * 12
+              return `<div style="background:rgba(255,255,255,0.02);border:1px solid ${c.cor}33;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:0.78rem;color:${c.cor};font-weight:700;margin-bottom:4px;">${c.label}</div>
+                <div style="font-size:1.05rem;font-weight:800;color:#F1F5F9;">${this.fmt(val)}</div>
+                <div style="font-size:0.68rem;color:#475569;margin-top:3px;">${c.desc}</div>
+              </div>`
+            }).join('')
+          })()}
+        </div>
       </div>
 
       <!-- Insights -->
@@ -15381,6 +15839,84 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
     // Armazena dados para o simulador
     this._projecaoData = data
+    // Calcular meta se já definida anteriormente
+    setTimeout(() => { if (this._projecaoMeta) this._calcularMetaPatrimonio() }, 200)
+  },
+
+  _calcularMetaPatrimonio() {
+    const metaEl = document.getElementById('proj-meta-patrimonio')
+    const resultEl = document.getElementById('proj-meta-resultado')
+    if (!metaEl || !resultEl) return
+    const meta = parseFloat(metaEl.value)
+    const data = this._projecaoData
+    if (!meta || isNaN(meta) || !data) { resultEl.innerHTML = ''; return }
+    this._projecaoMeta = meta
+    const med = data.media_mensal || 0
+    if (med <= 0) {
+      resultEl.innerHTML = `<div style="color:#F43F5E;font-size:0.82rem;">⚠️ Saldo médio negativo ou zero — revise despesas para atingir a meta.</div>`
+      return
+    }
+    const mesesParaMeta = Math.ceil(meta / med)
+    const anos = Math.floor(mesesParaMeta / 12)
+    const meses = mesesParaMeta % 12
+    const tempStr = anos > 0 ? `${anos} ano(s) e ${meses} mês(es)` : `${meses} mês(es)`
+    const corMeta = mesesParaMeta <= 24 ? '#10B981' : mesesParaMeta <= 60 ? '#F59E0B' : '#F43F5E'
+    resultEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;background:#0f172a;border-radius:10px;padding:12px 14px;">
+          <div style="font-size:0.72rem;color:#64748B;margin-bottom:4px;">⏱️ Tempo estimado para atingir a meta</div>
+          <div style="font-size:1.1rem;font-weight:800;color:${corMeta};">${tempStr}</div>
+          <div style="font-size:0.72rem;color:#475569;margin-top:2px;">Com saldo médio de ${this.fmt(med)}/mês</div>
+        </div>
+        <div style="background:#0f172a;border-radius:10px;padding:12px 14px;">
+          <div style="font-size:0.72rem;color:#64748B;margin-bottom:4px;">📅 Previsão</div>
+          <div style="font-size:0.95rem;font-weight:700;color:#F1F5F9;">
+            ${new Date(Date.now() + mesesParaMeta * 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR', {month:'short',year:'numeric'})}
+          </div>
+        </div>
+      </div>`
+  },
+
+  async _exportarProjecaoPDF() {
+    const data = this._projecaoData
+    if (!data) { this.toast('Dados de projeção não disponíveis', 'warning'); return }
+    try {
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+          s.onload = resolve; s.onerror = reject; document.head.appendChild(s)
+        })
+      }
+      const { jsPDF } = window.jspdf
+      const doc = new jsPDF()
+      const nome = this.user?.nome || 'Usuário'
+      const hoje = new Date().toLocaleDateString('pt-BR')
+      doc.setFontSize(18); doc.setTextColor(16, 185, 129); doc.text('🔮 Projeção Financeira — VerdeMais', 20, 20)
+      doc.setFontSize(11); doc.setTextColor(100, 116, 139); doc.text(`Gerado em ${hoje} • ${nome}`, 20, 30)
+      doc.setFontSize(12); doc.setTextColor(241, 245, 249)
+      const linhas = [
+        '', `Tendência: ${data.tendencia === 'positive' ? 'Crescimento' : data.tendencia === 'negative' ? 'Queda' : 'Estável'}`,
+        `Saldo Médio Mensal: R$ ${(data.media_mensal||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        `Confiança: ${data.confianca}%`,
+        '',
+        `Projeção 6 meses: R$ ${(data.resumo?.projecao_6m||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        `Projeção 12 meses: R$ ${(data.resumo?.projecao_12m||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        '',
+        '📈 Cenários:',
+        `  Otimista (+20%): R$ ${((data.media_mensal||0)*1.2*12).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        `  Base: R$ ${((data.media_mensal||0)*12).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        `  Pessimista (-20%): R$ ${((data.media_mensal||0)*0.8*12).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        '',
+        '💡 Insights:',
+        ...(data.insights||[]).map(i => `  • ${i}`),
+      ]
+      linhas.forEach((l, i) => { doc.setFontSize(11); doc.setTextColor(200, 210, 220); doc.text(l, 20, 45 + i * 7) })
+      doc.save(`projecao_${hoje.replace(/\//g,'-')}.pdf`)
+      this.toast('PDF da projeção exportado ✅', 'success')
+    } catch(e) {
+      this.toast('Erro ao gerar PDF', 'error')
+    }
   },
 
   _simularProjecao() {
@@ -16328,6 +16864,61 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>`).join('')}
         </div>`}`
       
+      // Calculadora de impacto anual (S2)
+      const impactoAnualHtml = detected.length > 0 ? `
+        <div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#A78BFA;margin-bottom:12px;">💰 Calculadora de Impacto</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+            <div style="background:#0f172a;border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;margin-bottom:3px;">Custo Mensal</div>
+              <div style="font-weight:800;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(totalMensal)}</div>
+            </div>
+            <div style="background:#0f172a;border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;margin-bottom:3px;">Custo Anual</div>
+              <div style="font-weight:800;color:#F59E0B;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(totalAnual)}</div>
+            </div>
+            <div style="background:#0f172a;border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;margin-bottom:3px;">Em 5 anos</div>
+              <div style="font-weight:800;color:#A78BFA;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(totalMensal * 60)}</div>
+            </div>
+            <div style="background:#0f172a;border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:0.65rem;color:#64748B;margin-bottom:3px;">Assinaturas</div>
+              <div style="font-weight:800;color:#F1F5F9;">${detected.length}</div>
+            </div>
+          </div>
+        </div>` : ''
+
+      // Agrupamento por categoria de serviço (S3)
+      const categoriaGrupos = {}
+      detected.forEach(d => {
+        const cat = d.service_type || 'unknown'
+        if (!categoriaGrupos[cat]) categoriaGrupos[cat] = { label: cat, total: 0, qtd: 0, icone: serviceIcons[cat] || '📱' }
+        categoriaGrupos[cat].total += d.amount || 0
+        categoriaGrupos[cat].qtd++
+      })
+      const gruposArray = Object.values(categoriaGrupos).sort((a,b) => b.total - a.total)
+      const agrupamentoHtml = gruposArray.length > 1 ? `
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#94A3B8;margin-bottom:12px;">📂 Por Categoria de Serviço</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${gruposArray.map(g => {
+              const pct = totalMensal > 0 ? Math.round(g.total / totalMensal * 100) : 0
+              return `<div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:1.1rem;">${g.icone}</span>
+                <div style="flex:1;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-size:0.8rem;color:#F1F5F9;font-weight:600;">${g.label} (${g.qtd})</span>
+                    <span style="font-size:0.8rem;color:#A78BFA;font-weight:700;">R$ ${fmtBRL(g.total)}/mês</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:5px;overflow:hidden;">
+                    <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#8B5CF6,#7C3AED);border-radius:4px;"></div>
+                  </div>
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>` : ''
+
       content.innerHTML = `
         <div style="max-width:1000px;">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
@@ -16335,8 +16926,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">👻 Assinaturas Fantasma</h1>
               <p style="color:#64748B;margin:0;">O brasileiro médio desperdiça R$ 150-250/mês em serviços esquecidos. Vamos encontrar os seus.</p>
             </div>
-            <button onclick="VM.scanAssinaturas()" id="btn-scan-assin" style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Escanear Gastos</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button onclick="VM.scanAssinaturas()" id="btn-scan-assin" style="background:linear-gradient(135deg,#8B5CF6,#7C3AED);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Escanear Gastos</button>
+              ${detected.length > 0 ? `<button onclick="VM._exportarAssinaturasCSV()" style="background:rgba(139,92,246,0.12);color:#A78BFA;border:1px solid rgba(139,92,246,0.3);padding:12px 18px;border-radius:12px;font-weight:600;cursor:pointer;font-size:0.85rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-download"></i> CSV</button>` : ''}
+            </div>
           </div>
+          ${impactoAnualHtml}
+          ${abaAtiva === 'ativas' ? agrupamentoHtml : ''}
           <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;flex-wrap:wrap;">
             ${tabBtn('ativas','🔍 Ativas ('+detected.length+')', abaAtiva==='ativas')}
             ${tabBtn('reduzidas','💸 Preços Reduzidos ('+total_reduzidas+')', abaAtiva==='reduzidas')}
@@ -16371,6 +16967,34 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     } catch (err) {
       this.toast(err.message, 'error')
     }
+  },
+
+  async _exportarAssinaturasCSV() {
+    try {
+      const data = await this.api('GET', 'assinaturas-fantasma')
+      const detected = data.detected || []
+      if (detected.length === 0) { this.toast('Nenhuma assinatura para exportar', 'warning'); return }
+      const rows = [
+        ['Descrição', 'Tipo', 'Valor Mensal (R$)', 'Custo Anual (R$)', 'Frequência', 'Certeza (%)', '1ª Ocorrência', 'Última Ocorrência'],
+        ...detected.map(d => [
+          d.original_description || '',
+          d.service_type || '',
+          (d.amount || 0).toFixed(2).replace('.', ','),
+          (d.yearly_cost || 0).toFixed(2).replace('.', ','),
+          d.frequency || '',
+          Math.round(d.confidence || 0),
+          d.first_occurrence || '',
+          d.last_occurrence || ''
+        ])
+      ]
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n')
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `assinaturas_${new Date().toISOString().slice(0,10)}.csv`; a.click()
+      URL.revokeObjectURL(url)
+      this.toast('CSV de assinaturas exportado ✅', 'success')
+    } catch(e) { this.toast('Erro ao exportar CSV', 'error') }
   },
 
   async modalReduzirPrecoAssinatura(id, nome, valorAtual) {
@@ -16623,6 +17247,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div><h4 style="color:#FED7AA;font-size:0.82rem;font-weight:700;margin:0 0 4px;">📋 Lista de Desejos</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Crie uma lista e adicione itens que quiser. Após 30 dias, reavalie: ainda é uma prioridade?</p></div>
             <div><h4 style="color:#6EE7B7;font-size:0.82rem;font-weight:700;margin:0 0 4px;">💰 Custo em Horas de Trabalho</h4><p style="color:#94A3B8;font-size:0.8rem;line-height:1.5;margin:0;">Calcule quantas horas de trabalho equivale ao produto. Isso muda sua perspectiva de valor.</p></div>
           </div>
+        </div>
+
+        <!-- Regra dos 30 Dias (F2) -->
+        <div style="background:rgba(249,115,22,0.06);border:1px solid rgba(249,115,22,0.2);border-radius:14px;padding:16px 20px;margin-top:16px;">
+          <div style="font-size:0.88rem;font-weight:700;color:#FB923C;margin-bottom:10px;">📅 Desafio dos 30 Dias Anti-Impulso</div>
+          <p style="color:#94A3B8;font-size:0.82rem;margin:0 0 12px;line-height:1.5;">Anote uma compra impulsiva desejada por dia. No final de 30 dias, veja quantas ainda fazem sentido. Geralmente, menos de 20% continuam na lista.</p>
+          <div style="background:#0f172a;border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;">
+            <input type="text" id="cf-desejo-input" placeholder="Ex: Tênis novo, Videogame, Viagem..." class="form-input" style="flex:1;padding:7px 12px;font-size:0.84rem;">
+            <button onclick="VM._adicionarDesejo30dias()" style="background:rgba(249,115,22,0.2);color:#FB923C;border:1px solid rgba(249,115,22,0.4);padding:7px 14px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;white-space:nowrap;">+ Adicionar</button>
+          </div>
+          <div id="cf-lista-desejos" style="margin-top:10px;"></div>
         </div>`
 
       const tipoIcons = { assinatura:'📱', servico_recorrente:'🔄', alimentacao_recorrente:'🍔', transporte_recorrente:'🚗', outros:'📦' }
@@ -16699,6 +17334,60 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         </div>`}
       `
 
+      // Mapa de calor semanal (F1)
+      const mapaCalorHtml = compras_impulsivas.length > 0 ? (() => {
+        const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+        const contagem = new Array(7).fill(0)
+        const valores  = new Array(7).fill(0)
+        compras_impulsivas.forEach(c => {
+          if (c.data) { const d = new Date(c.data + 'T12:00:00').getDay(); contagem[d]++; valores[d] += c.valor || 0 }
+        })
+        const maxCont = Math.max(...contagem, 1)
+        return `<div style="background:rgba(15,23,42,0.85);border:1px solid rgba(249,115,22,0.2);border-radius:14px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#FB923C;margin-bottom:12px;">🔥 Mapa de Calor — Dia da Semana</div>
+          <div style="display:flex;gap:6px;align-items:flex-end;height:80px;">
+            ${dias.map((d, i) => {
+              const h = maxCont > 0 ? Math.max(8, Math.round(contagem[i] / maxCont * 70)) : 8
+              const cor = contagem[i] === 0 ? 'rgba(255,255,255,0.05)' : contagem[i] === Math.max(...contagem) ? '#F97316' : 'rgba(249,115,22,0.45)'
+              return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div title="${contagem[i]} compras · R$ ${valores[i].toLocaleString('pt-BR',{minimumFractionDigits:2})}" style="width:100%;height:${h}px;background:${cor};border-radius:4px 4px 0 0;transition:all 0.3s;cursor:default;"></div>
+                <div style="font-size:0.6rem;color:#475569;">${d}</div>
+                ${contagem[i] > 0 ? `<div style="font-size:0.6rem;color:#FB923C;font-weight:700;">${contagem[i]}</div>` : ''}
+              </div>`
+            }).join('')}
+          </div>
+        </div>`
+      })() : ''
+
+      // Meta de redução com progresso (F3)
+      const metaReducaoHtml = qtdImpulsivas > 0 ? `
+        <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#6EE7B7;margin-bottom:10px;">🎯 Meta de Redução de Impulsos</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <span style="font-size:0.82rem;color:#94A3B8;">Reduzir de ${qtdImpulsivas} para</span>
+            <input type="number" id="cf-meta-qtd" value="${Math.max(0,Math.floor(qtdImpulsivas * 0.7))}" min="0" max="${qtdImpulsivas}" style="width:70px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;color:#F1F5F9;font-size:0.85rem;" oninput="VM._atualizarMetaCompras()">
+            <span style="font-size:0.82rem;color:#94A3B8;">compras impulsivas</span>
+          </div>
+          <div id="cf-meta-resultado" style="font-size:0.82rem;color:#10B981;">
+            ${(() => {
+              const metaAlvo = Math.max(0, Math.floor(qtdImpulsivas * 0.7))
+              const economiaEst = (qtdImpulsivas - metaAlvo) * (totalImpulsivo / Math.max(qtdImpulsivas,1))
+              const pct = qtdImpulsivas > 0 ? Math.round((1 - metaAlvo / qtdImpulsivas) * 100) : 0
+              return `Redução de ${pct}% · Economia estimada: R$ ${economiaEst.toLocaleString('pt-BR',{minimumFractionDigits:2})}/período`
+            })()}
+          </div>
+          <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;overflow:hidden;margin-top:8px;">
+            <div id="cf-meta-barra" style="height:100%;width:${qtdImpulsivas > 0 ? Math.round((1-Math.floor(qtdImpulsivas*0.7)/qtdImpulsivas)*100) : 0}%;background:linear-gradient(90deg,#10B981,#059669);border-radius:4px;transition:width 0.4s;"></div>
+          </div>
+        </div>` : ''
+
+      // Comparativo percentual com mês anterior (F5)
+      const compAnteriorHtml = `
+        <div id="cf-comp-anterior" style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:14px;margin-bottom:16px;">
+          <div style="font-size:0.78rem;color:#64748B;margin-bottom:4px;">⚡ vs Mês Anterior</div>
+          <div style="font-size:0.8rem;color:#475569;">Carregando...</div>
+        </div>`
+
       content.innerHTML = `
         <div style="max-width:1000px;">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
@@ -16708,16 +17397,90 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             </div>
             <button onclick="VM.analisarComprasFantasma()" id="btn-analisar-compras" style="background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;">🔍 Analisar ${periodo_meses} Meses</button>
           </div>
+          ${abaAtiva === 'impulsos' ? compAnteriorHtml : ''}
           <div style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:16px;">
             ${tabBtn('impulsos','🛍️ Compras Impulsivas ('+qtdImpulsivas+')', abaAtiva==='impulsos')}
             ${tabBtn('recorrentes','🔄 Recorrentes ('+total_recorrentes+')', abaAtiva==='recorrentes')}
           </div>
-          ${abaAtiva === 'impulsos' ? htmlImpulsos : htmlRecorrentes}
+          ${abaAtiva === 'impulsos' ? mapaCalorHtml + metaReducaoHtml + htmlImpulsos : htmlRecorrentes}
         </div>
       `
+      // Carregar comparativo vs mês anterior
+      if (abaAtiva === 'impulsos') this._carregarCompAnteriorCompras(pctImpulsivo, totalImpulsivo)
+
     } catch (e) {
       document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar análise: ${e.message}</p></div>`
     }
+  },
+
+  _atualizarMetaCompras() {
+    const inp = document.getElementById('cf-meta-qtd')
+    const qtdAtual = parseInt(inp?.getAttribute('max') || '0')
+    const metaAlvo = parseInt(inp?.value || '0')
+    const el = document.getElementById('cf-meta-resultado')
+    const barra = document.getElementById('cf-meta-barra')
+    if (!el || !barra || isNaN(metaAlvo)) return
+    const pct = qtdAtual > 0 ? Math.round((1 - metaAlvo / qtdAtual) * 100) : 0
+    el.innerHTML = `Redução de ${pct}% · Meta definida para ${metaAlvo} compras impulsivas`
+    barra.style.width = `${Math.max(0, pct)}%`
+  },
+
+  async _carregarCompAnteriorCompras(pctAtual, totalAtual) {
+    const el = document.getElementById('cf-comp-anterior')
+    if (!el) return
+    try {
+      const prev = await this.api('GET', 'compras-fantasma/historico').catch(() => null)
+      if (!prev || !prev.historico || prev.historico.length < 2) {
+        el.innerHTML = `<div style="font-size:0.78rem;color:#64748B;">Dados do mês anterior não disponíveis</div>`; return
+      }
+      const mesAnt = prev.historico[prev.historico.length - 2]
+      const diff = pctAtual - (mesAnt.pct_impulsivo || 0)
+      const cor = diff < 0 ? '#10B981' : diff > 0 ? '#F43F5E' : '#F59E0B'
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="font-size:0.78rem;color:#64748B;">⚡ vs Mês Anterior</div>
+          <div style="font-size:1rem;font-weight:700;color:${cor};">${diff < 0 ? '▼' : diff > 0 ? '▲' : '→'} ${Math.abs(diff).toFixed(1)}% impulsos ${diff < 0 ? 'a menos' : diff > 0 ? 'a mais' : 'igual'}</div>
+          <div style="font-size:0.75rem;color:#475569;">Anterior: ${(mesAnt.pct_impulsivo||0).toFixed(1)}% · Atual: ${pctAtual.toFixed(1)}%</div>
+        </div>`
+    } catch(_) { el.innerHTML = '' }
+    // Carregar lista de desejos do localStorage
+    this._renderListaDesejos30dias()
+  },
+
+  _adicionarDesejo30dias() {
+    const inp = document.getElementById('cf-desejo-input')
+    const texto = inp?.value?.trim()
+    if (!texto) return
+    const lista = JSON.parse(localStorage.getItem('vm_desejos_30d') || '[]')
+    lista.push({ texto, data: new Date().toLocaleDateString('pt-BR'), ainda_quero: null })
+    localStorage.setItem('vm_desejos_30d', JSON.stringify(lista.slice(0, 30)))
+    inp.value = ''
+    this._renderListaDesejos30dias()
+    this.toast('Desejo anotado! 📋', 'success')
+  },
+
+  _renderListaDesejos30dias() {
+    const el = document.getElementById('cf-lista-desejos')
+    if (!el) return
+    const lista = JSON.parse(localStorage.getItem('vm_desejos_30d') || '[]')
+    if (lista.length === 0) return
+    el.innerHTML = `
+      <div style="font-size:0.75rem;color:#64748B;margin-bottom:6px;">📋 ${lista.length} desejo(s) anotado(s):</div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        ${lista.map((d, i) => `
+          <div style="display:flex;align-items:center;gap:8px;background:#0f172a;border-radius:8px;padding:6px 10px;">
+            <span style="font-size:0.78rem;color:#94A3B8;flex:1;">${this.escapeHtml(d.texto)}</span>
+            <span style="font-size:0.68rem;color:#475569;">${d.data}</span>
+            <button onclick="VM._removerDesejo30dias(${i})" style="background:none;border:none;color:#475569;cursor:pointer;font-size:0.75rem;">✕</button>
+          </div>`).join('')}
+      </div>`
+  },
+
+  _removerDesejo30dias(idx) {
+    const lista = JSON.parse(localStorage.getItem('vm_desejos_30d') || '[]')
+    lista.splice(idx, 1)
+    localStorage.setItem('vm_desejos_30d', JSON.stringify(lista))
+    this._renderListaDesejos30dias()
   },
 
   async reduzirRecorrente(id, nome, valorAtual) {
@@ -16922,6 +17685,56 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>` : ''}
         </div>` : ''}
         
+        <!-- Recomendação personalizada de corte (G2) -->
+        ${(() => {
+          const recomendacoes = []
+          if (current.needs.percentage > 50 + 5) recomendacoes.push(`💡 Suas Necessidades estão ${(current.needs.percentage - 50).toFixed(1)}% acima do ideal. Revise gastos fixos como plano de saúde, aluguel ou contas de consumo.`)
+          if (current.wants.percentage > 30 + 5) recomendacoes.push(`✂️ Desejos acima do recomendado em ${(current.wants.percentage - 30).toFixed(1)}%. Considere reduzir assinaturas, delivery ou lazer por 30 dias.`)
+          if (current.savings.percentage < 20 - 5) recomendacoes.push(`🎯 Poupança abaixo do ideal (${current.savings.percentage.toFixed(1)}% vs 20%). Tente automatizar uma transferência mensal para reservas.`)
+          if (recomendacoes.length === 0 && score >= 80) recomendacoes.push(`✅ Parabéns! Sua distribuição financeira está excelente este mês. Continue assim!`)
+          return recomendacoes.length > 0 ? `
+          <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:18px;margin-bottom:24px;">
+            <h3 style="color:#93C5FD;font-size:0.88rem;font-weight:700;margin:0 0 12px;">🎯 Recomendações Personalizadas</h3>
+            ${recomendacoes.map(r => `<div style="color:#CBD5E1;font-size:0.83rem;padding:7px 10px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid #3B82F6;margin-bottom:6px;line-height:1.5;">${r}</div>`).join('')}
+          </div>` : ''
+        })()}
+
+        <!-- Comparativo vs mês anterior (G4) e Histórico de score (G1) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;" id="503020-comp-anterior">
+            <div style="font-size:0.78rem;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">⚡ vs Mês Anterior</div>
+            <div style="color:#475569;font-size:0.8rem;">Carregando...</div>
+          </div>
+          <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;" id="503020-historico-score">
+            <div style="font-size:0.78rem;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📈 Histórico Score 6m</div>
+            <div style="height:80px;"><canvas id="chart-503020-hist"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Modo personalizável de % (G3) -->
+        <div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.15);border-radius:14px;padding:16px;margin-bottom:24px;">
+          <div style="font-size:0.82rem;font-weight:700;color:#A78BFA;margin-bottom:12px;">⚙️ Personalizar Percentuais (opcional)</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+            <div>
+              <label style="font-size:0.72rem;color:#64748B;display:block;margin-bottom:4px;">🏠 Necessidades %</label>
+              <input type="number" id="503020-pct-needs" value="50" min="0" max="100" class="form-input" style="padding:6px 10px;font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.72rem;color:#64748B;display:block;margin-bottom:4px;">🎮 Desejos %</label>
+              <input type="number" id="503020-pct-wants" value="30" min="0" max="100" class="form-input" style="padding:6px 10px;font-size:0.85rem;">
+            </div>
+            <div>
+              <label style="font-size:0.72rem;color:#64748B;display:block;margin-bottom:4px;">💰 Poupança %</label>
+              <input type="number" id="503020-pct-savings" value="20" min="0" max="100" class="form-input" style="padding:6px 10px;font-size:0.85rem;">
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:0.72rem;color:#475569;" id="503020-pct-soma">Total: 100% ✅</div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button onclick="VM._recalcularPcts503020(${mes},${ano})" style="background:rgba(139,92,246,0.15);color:#A78BFA;border:1px solid rgba(139,92,246,0.3);padding:6px 16px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">Recalcular</button>
+            <button onclick="document.getElementById('503020-pct-needs').value=50;document.getElementById('503020-pct-wants').value=30;document.getElementById('503020-pct-savings').value=20;VM._recalcularPcts503020(${mes},${ano})" style="background:rgba(100,116,139,0.1);color:#64748B;border:1px solid rgba(100,116,139,0.2);padding:6px 14px;border-radius:8px;font-size:0.8rem;cursor:pointer;">Reset</button>
+          </div>
+        </div>
+
         <!-- Como funciona -->
         <div style="background:linear-gradient(135deg,rgba(16,185,129,0.06),rgba(59,130,246,0.06));border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:22px;">
           <h3 style="color:#f1f5f9;font-size:0.95rem;font-weight:700;margin:0 0 14px;">📚 Entendendo a Regra 50/30/20</h3>
@@ -16951,6 +17764,88 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         </div>
       </div>
     `
+    // Carregar comparativo vs mês anterior (G4)
+    this._carregarComparativo503020(mes, ano, current, score)
+    // Carregar histórico de score (G1)
+    this._carregarHistoricoScore503020()
+    // Update soma percentuais ao digitar
+    setTimeout(() => {
+      ['needs','wants','savings'].forEach(k => {
+        const el = document.getElementById(`503020-pct-${k}`)
+        if (el) el.addEventListener('input', () => {
+          const n = parseInt(document.getElementById('503020-pct-needs')?.value||0)
+          const w = parseInt(document.getElementById('503020-pct-wants')?.value||0)
+          const s = parseInt(document.getElementById('503020-pct-savings')?.value||0)
+          const soma = n + w + s
+          const somaEl = document.getElementById('503020-pct-soma')
+          if (somaEl) somaEl.innerHTML = `Total: ${soma}% ${soma === 100 ? '✅' : '<span style="color:#F43F5E;">⚠️ deve somar 100%</span>'}`
+        })
+      })
+    }, 100)
+  },
+
+  async _carregarComparativo503020(mes, ano, current, score) {
+    const el = document.getElementById('503020-comp-anterior')
+    if (!el) return
+    try {
+      let mesPrev = mes - 1, anoPrev = ano
+      if (mesPrev < 1) { mesPrev = 12; anoPrev = ano - 1 }
+      const prev = await this.api('GET', `regra-503020?mes=${mesPrev}&ano=${anoPrev}`).catch(() => null)
+      if (!prev || !prev.score) { el.innerHTML = `<div style="color:#475569;font-size:0.8rem;">Dados do mês anterior não disponíveis</div>`; return }
+      const diff = score - prev.score
+      const cor = diff > 0 ? '#10B981' : diff < 0 ? '#F43F5E' : '#F59E0B'
+      const icon = diff > 0 ? '▲' : diff < 0 ? '▼' : '→'
+      const NOMES = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      el.innerHTML = `
+        <div style="font-size:0.78rem;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">⚡ vs ${NOMES[mesPrev]}/${anoPrev}</div>
+        <div style="font-size:1.6rem;font-weight:800;color:${cor};">${icon} ${Math.abs(diff)} pts</div>
+        <div style="font-size:0.75rem;color:#64748B;margin-top:4px;">Score anterior: <strong style="color:#94A3B8;">${prev.score}</strong> · Atual: <strong style="color:#F1F5F9;">${score}</strong></div>
+        <div style="margin-top:8px;">
+          <span style="background:${cor}18;color:${cor};font-size:0.7rem;padding:2px 8px;border-radius:50px;font-weight:700;">${diff > 0 ? '📈 Melhorou' : diff < 0 ? '📉 Piorou' : '➡️ Estável'}</span>
+        </div>`
+    } catch(_) { if(el) el.innerHTML = `<div style="color:#475569;font-size:0.8rem;">—</div>` }
+  },
+
+  async _carregarHistoricoScore503020() {
+    const canvas = document.getElementById('chart-503020-hist')
+    if (!canvas) return
+    try {
+      const meses = 6
+      const agora = new Date()
+      const promises = Array.from({ length: meses }, (_, i) => {
+        let m = agora.getMonth() + 1 - i, y = agora.getFullYear()
+        if (m < 1) { m += 12; y-- }
+        return this.api('GET', `regra-503020?mes=${m}&ano=${y}`).then(d => ({ label: `${m}/${y.toString().slice(2)}`, score: d.score || 0 })).catch(() => null)
+      })
+      const resultados = (await Promise.all(promises)).filter(Boolean).reverse()
+      if (resultados.length < 2) return
+      if (window._chart503020Hist) window._chart503020Hist.destroy()
+      window._chart503020Hist = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: resultados.map(r => r.label),
+          datasets: [{ data: resultados.map(r => r.score), borderColor: '#8B5CF6', backgroundColor: 'rgba(139,92,246,0.1)', fill: true, tension: 0.4, pointRadius: 3, borderWidth: 2 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#475569', font: { size: 9 } }, grid: { display: false } },
+            y: { min: 0, max: 100, ticks: { color: '#475569', font: { size: 9 }, stepSize: 25 }, grid: { color: 'rgba(255,255,255,0.04)' } }
+          }
+        }
+      })
+    } catch(_) {}
+  },
+
+  _recalcularPcts503020(mes, ano) {
+    const n = parseInt(document.getElementById('503020-pct-needs')?.value || 50)
+    const w = parseInt(document.getElementById('503020-pct-wants')?.value || 30)
+    const s = parseInt(document.getElementById('503020-pct-savings')?.value || 20)
+    if (n + w + s !== 100) { this.toast('A soma dos percentuais deve ser 100%', 'error'); return }
+    this.api('GET', `regra-503020?mes=${mes}&ano=${ano}&pct_needs=${n}&pct_wants=${w}&pct_savings=${s}`)
+      .then(data => this.renderRegra503020(data, mes, ano))
+      .catch(() => this.toast('Erro ao recalcular', 'error'))
   },
   
   async recarregar503020() {
@@ -17429,30 +18324,76 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     
     try {
       const data = await this.api('GET', 'assistente/historico')
-      historico = (data.historico || []).reverse() // mostrar em ordem cronológica
+      historico = (data.historico || []).reverse()
     } catch(_) {}
 
-    const renderHistorico = (msgs) => msgs.map(m => `
-      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:4px;">
-        <div style="display:flex;justify-content:flex-end;">
-          <div style="max-width:75%;background:linear-gradient(135deg,#10B981,#059669);color:#fff;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:0.87rem;line-height:1.5;word-break:break-word;">
-            ${this.escapeHtml(m.mensagem_usuario)}
-          </div>
-        </div>
-        <div style="display:flex;justify-content:flex-start;gap:8px;">
-          <div style="width:32px;height:32px;background:#1a2a1a;border:1px solid #2FBF71;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🤖</div>
-          <div style="max-width:80%;background:#1a2a1a;border:1px solid #2a3a2a;padding:12px 14px;border-radius:4px 18px 18px 18px;font-size:0.87rem;line-height:1.6;word-break:break-word;white-space:pre-line;">
-            ${this.markdownToHtml(m.resposta_ia)}
-          </div>
-        </div>
-      </div>
-    `).join('')
+    // Sugestões contextuais baseadas na tela anterior (A1)
+    const paginaAnterior = this._ultimaPaginaAntes || ''
+    const sugestoesPorTela = {
+      despesas: ['Quais minhas maiores despesas?', 'Como reduzir gastos?', 'Categoria mais cara do mês'],
+      receitas: ['Como aumentar minha renda?', 'Minhas receitas do mês', 'Meta de receita mensal'],
+      metas: ['Status das minhas metas', 'Dicas para atingir metas', 'Quando atinjo minha meta?'],
+      investimentos: ['Como diversificar investimentos?', 'Qual meu patrimônio investido?', 'Melhores estratégias para meu perfil'],
+      dashboard: ['Como está minha saúde financeira?', 'Resumo do mês', 'O que devo priorizar agora?'],
+    }
+    const sugestoesPadrao = sugestoesPorTela[paginaAnterior] || ['Ver saldo do mês', 'Como estão meus gastos?', 'Status das metas', 'Dicas para economizar', 'Ver investimentos', 'Ajuda']
 
-    const sugestoesPadrao = ['Ver saldo do mês', 'Como estão meus gastos?', 'Status das metas', 'Dicas para economizar', 'Ver investimentos', 'Ajuda']
+    // Plano free — limite de uso (A5)
+    const plano = this.user?.plano || 'free'
+    const limiteFree = plano === 'free'
+    const usosMes = historico.filter(m => {
+      if (!m.created_at) return false
+      const d = new Date(m.created_at)
+      const agora = new Date()
+      return d.getMonth() === agora.getMonth() && d.getFullYear() === agora.getFullYear()
+    }).length
+    const limiteMax = 20
+    const limiteBanner = limiteFree ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:8px 14px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="font-size:0.8rem;color:#FDE68A;">
+          ⚡ Plano Free — <strong>${usosMes}/${limiteMax}</strong> mensagens este mês
+        </div>
+        ${usosMes >= limiteMax ? `<button onclick="VM.upsellModal('assistente')" style="background:rgba(245,158,11,0.2);color:#F59E0B;border:1px solid rgba(245,158,11,0.4);padding:4px 12px;border-radius:8px;font-size:0.78rem;cursor:pointer;font-weight:600;">Desbloquear</button>` : ''}
+      </div>` : ''
+
+    // Agrupamento por data (A3)
+    const renderHistorico = (msgs) => {
+      let ultimaData = ''
+      return msgs.map(m => {
+        const dataMsg = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR', {day:'2-digit',month:'short',year:'numeric'}) : ''
+        const separador = dataMsg && dataMsg !== ultimaData ? `<div style="text-align:center;margin:12px 0;"><span style="background:#1a2a1a;border:1px solid #2a3a2a;color:#475569;font-size:0.72rem;padding:3px 12px;border-radius:12px;">${(ultimaData = dataMsg)}</span></div>` : ''
+        return `${separador}
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:4px;">
+          <div style="display:flex;justify-content:flex-end;">
+            <div style="max-width:75%;background:linear-gradient(135deg,#10B981,#059669);color:#fff;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:0.87rem;line-height:1.5;word-break:break-word;">
+              ${this.escapeHtml(m.mensagem_usuario)}
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-start;gap:8px;">
+            <div style="width:32px;height:32px;background:#1a2a1a;border:1px solid #2FBF71;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">🤖</div>
+            <div style="flex:1;">
+              <div style="max-width:80%;background:#1a2a1a;border:1px solid #2a3a2a;padding:12px 14px;border-radius:4px 18px 18px 18px;font-size:0.87rem;line-height:1.6;word-break:break-word;white-space:pre-line;">
+                ${this.markdownToHtml(m.resposta_ia)}
+              </div>
+              <!-- Botões de ação contextual (A2) -->
+              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+                ${this._extrairAcoesResposta(m.resposta_ia).map(a => `
+                  <button onclick="VM.navigate('${a.rota}')" style="background:rgba(47,191,113,0.1);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);padding:3px 10px;border-radius:8px;font-size:0.73rem;cursor:pointer;">
+                    ${a.label}
+                  </button>`).join('')}
+                <button onclick="VM._favoritarResposta(${m.id || 0},'${(m.mensagem_usuario||'').replace(/'/g,'\\\'').slice(0,50)}')" title="Favoritar" style="background:rgba(245,158,11,0.08);color:#F59E0B;border:1px solid rgba(245,158,11,0.2);padding:3px 8px;border-radius:8px;font-size:0.73rem;cursor:pointer;">
+                  ⭐
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>`
+      }).join('')
+    }
 
     content.innerHTML = `
       <div style="max-width:760px;margin:0 auto;display:flex;flex-direction:column;height:calc(100vh - 160px);">
-        
+        ${limiteBanner}
         <!-- Chat Area -->
         <div style="flex:1;overflow-y:auto;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:16px;padding:20px;margin-bottom:12px;display:flex;flex-direction:column;gap:16px;" id="chat-messages">
           ${historico.length === 0 ? `
@@ -18506,6 +19447,40 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     } catch(err) {
       this.toast(err.message, 'error')
     }
+  },
+
+  // Extrair ações contextuais da resposta (A2)
+  _extrairAcoesResposta(texto) {
+    if (!texto) return []
+    const acoes = []
+    const mapa = [
+      { palavras: ['meta','metas','objetivo'], rota: 'metas', label: '🎯 Ver Metas' },
+      { palavras: ['despesa','gasto','compra'], rota: 'despesas', label: '📤 Ver Despesas' },
+      { palavras: ['receita','salário','renda'], rota: 'receitas', label: '📥 Ver Receitas' },
+      { palavras: ['investimento','aplicação','renda fixa'], rota: 'investimentos', label: '📈 Ver Investimentos' },
+      { palavras: ['reserva','emergência'], rota: 'reserva-emergencia', label: '🛡️ Reserva' },
+      { palavras: ['relatório','relatórios','evolução'], rota: 'relatorios', label: '📋 Relatório' },
+      { palavras: ['diagnóstico','score','saúde'], rota: 'ia', label: '🧠 Diagnóstico' },
+    ]
+    const baixo = texto.toLowerCase()
+    for (const item of mapa) {
+      if (item.palavras.some(p => baixo.includes(p))) {
+        if (!acoes.find(a => a.rota === item.rota)) acoes.push(item)
+        if (acoes.length >= 2) break
+      }
+    }
+    return acoes
+  },
+
+  _favoritarResposta(id, preview) {
+    const favs = JSON.parse(localStorage.getItem('vm_chat_favs') || '[]')
+    const existe = favs.find(f => f.id === id)
+    if (existe) {
+      this.toast('Já favoritado!', 'warning'); return
+    }
+    favs.unshift({ id, preview, data: new Date().toLocaleDateString('pt-BR') })
+    localStorage.setItem('vm_chat_favs', JSON.stringify(favs.slice(0, 20)))
+    this.toast('⭐ Resposta favoritada!', 'success')
   },
 
   showModal(html) {
