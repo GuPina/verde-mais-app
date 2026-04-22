@@ -6241,6 +6241,7 @@ const VM = {
                   <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">${periodo.label}</th>
                   <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">Variação</th>
                   <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:right;">Barra</th>
+                  <th style="padding:10px 16px;font-size:0.75rem;color:#475569;font-weight:600;text-align:center;"></th>
                 </tr>
               </thead>
               <tbody>
@@ -6249,6 +6250,7 @@ const VM = {
                   const icon = cat.variacao > 10 ? '▲' : cat.variacao < -10 ? '▼' : '→'
                   const maxCat = Math.max(...categorias.map(c => Math.max(c.atual, c.anterior)))
                   const pct = maxCat > 0 ? Math.round((cat.atual / maxCat) * 100) : 0
+                  const catEnc = encodeURIComponent(cat.categoria)
                   return `
                     <tr style="border-top:1px solid rgba(255,255,255,0.04);${i % 2 === 0 ? '' : 'background:rgba(255,255,255,0.01);'}">
                       <td style="padding:11px 16px;font-size:0.85rem;color:#F8FAFC;font-weight:500;">${cat.categoria}</td>
@@ -6260,18 +6262,32 @@ const VM = {
                           <div style="height:100%;width:${pct}%;background:${cor};border-radius:3px;transition:width 0.4s;"></div>
                         </div>
                       </td>
+                      <td style="padding:11px 12px;text-align:center;">
+                        <button onclick="VM._irParaDespesasCat('${cat.categoria}',${mes},${ano})" title="Ver despesas desta categoria" style="background:rgba(248,250,252,0.04);border:1px solid rgba(248,250,252,0.1);color:#94A3B8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:0.68rem;white-space:nowrap;transition:all 0.15s;" onmouseover="this.style.borderColor='rgba(248,250,252,0.25)';this.style.color='#F8FAFC'" onmouseout="this.style.borderColor='rgba(248,250,252,0.1)';this.style.color='#94A3B8'">→ Ver</button>
+                      </td>
                     </tr>`
                 }).join('')}
               </tbody>
             </table>
           </div>`
 
+      // KPI de saldo acumulado (soma do histórico 6m)
+      const saldoAcum6m = historico.reduce((s, m) => s + (m.receitas - m.despesas), 0)
+      const corAcum = saldoAcum6m >= 0 ? '#10B981' : '#F43F5E'
+      const kpiAcum = `
+        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:18px 20px;">
+          <div style="font-size:0.78rem;color:#64748B;margin-bottom:8px;">Saldo Acumulado 6m</div>
+          <div style="font-size:1.35rem;font-weight:800;color:#F8FAFC;">${this.formatMoney(Math.abs(saldoAcum6m))}</div>
+          <div style="font-size:0.8rem;color:${corAcum};margin-top:5px;">${saldoAcum6m >= 0 ? '▲ Positivo' : '▼ Negativo'} nos últimos 6 meses</div>
+        </div>`
+
       cont.innerHTML = `
         <!-- KPIs -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px;">
           ${kpiCard('Receitas', resumo.receitas_atual, resumo.receitas_ant)}
           ${kpiCard('Despesas', resumo.despesas_atual, resumo.despesas_ant)}
           ${kpiCard('Saldo Líquido', resumo.saldo_atual, resumo.saldo_ant)}
+          ${kpiAcum}
         </div>
         ${barChart}
         ${alertasHtml}
@@ -6281,10 +6297,23 @@ const VM = {
       // Conquista
       this.api('GET', 'comparativo?mes=1&ano=2024').catch(() => {}) // disparo silencioso
       await this.api('POST', 'conquistas/verificar', { tipo: 'comparador' }).catch(() => {})
-
     } catch (err) {
       if (cont) cont.innerHTML = `<div class="empty-state"><div style="font-size:2rem;">📊</div><p>Erro ao carregar comparativo</p></div>`
     }
+  },
+
+  _irParaDespesasCat(categoria, mes, ano) {
+    this.navigate('despesas')
+    // Aguarda render da página e aplica filtros
+    setTimeout(() => {
+      const selMes  = document.getElementById('filtro-mes')
+      const selAno  = document.getElementById('filtro-ano')
+      const selCat  = document.getElementById('filtro-cat-d')
+      if (selMes) selMes.value = mes
+      if (selAno) selAno.value = ano
+      if (selCat) selCat.value = categoria
+      this.carregarDespesas()
+    }, 350)
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -6309,6 +6338,27 @@ const VM = {
           </button>
         </div>
       </div>
+
+      <!-- Barra de busca + ordenação -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;position:relative;">
+          <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.8rem;pointer-events:none;"></i>
+          <input type="text" id="tag-busca" class="form-input" placeholder="Buscar tag por nome..."
+            style="padding:8px 12px 8px 34px;font-size:0.85rem;"
+            oninput="VM._filtrarTagsLocal()">
+        </div>
+        <select id="tag-ordem" class="form-select" style="width:auto;padding:8px 12px;font-size:0.85rem;" onchange="VM._filtrarTagsLocal()">
+          <option value="uso">Ordenar por uso</option>
+          <option value="nome">Ordenar A→Z</option>
+          <option value="valor">Ordenar por valor</option>
+        </select>
+      </div>
+
+      <!-- Stats globais -->
+      <div id="tags-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+        ${[1,2,3,4].map(() => `<div class="skeleton" style="height:60px;border-radius:12px;"></div>`).join('')}
+      </div>
+
       <div id="tags-container">
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
           ${[1,2,3,4,5,6].map(() => `<div class="skeleton" style="height:72px;border-radius:14px;"></div>`).join('')}
@@ -6334,6 +6384,39 @@ const VM = {
       }).catch(() => {})
 
       const tags = await this.api('GET', 'tags')
+
+      // Guardar lista para filtro local
+      this._tagsCache = tags || []
+
+      // Stats globais
+      const statsEl = document.getElementById('tags-stats')
+      if (statsEl && tags && tags.length > 0) {
+        const totalTags   = tags.length
+        const comUsoCount = tags.filter(t => t.usos > 0).length
+        const totalUsos   = tags.reduce((s, t) => s + (t.usos || 0), 0)
+        const totalValor  = tags.reduce((s, t) => s + (t.total_valor || 0), 0)
+        statsEl.innerHTML = `
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:14px 16px;">
+            <div style="font-size:0.7rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total de Tags</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#10B981;">${totalTags}</div>
+          </div>
+          <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:14px 16px;">
+            <div style="font-size:0.7rem;color:#93C5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Tags em uso</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#3B82F6;">${comUsoCount}</div>
+          </div>
+          <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:14px 16px;">
+            <div style="font-size:0.7rem;color:#C4B5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Vínculos Totais</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#8B5CF6;">${totalUsos}</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:14px 16px;">
+            <div style="font-size:0.7rem;color:#FDE68A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Valor Tagueado</div>
+            <div style="font-size:1.3rem;font-weight:800;color:#F59E0B;">${this.formatMoney(totalValor)}</div>
+          </div>
+        `
+      } else if (statsEl) {
+        statsEl.innerHTML = ''
+      }
+
       if (!tags || tags.length === 0) {
         cont.innerHTML = `
           <div class="empty-state">
@@ -6347,9 +6430,33 @@ const VM = {
         return
       }
 
-      // Separar tags com uso e sem uso
-      const comUso = tags.filter(t => t.usos > 0).sort((a,b) => b.usos - a.usos)
-      const semUso = tags.filter(t => t.usos === 0)
+      this._filtrarTagsLocal()
+    } catch (err) {
+      cont.innerHTML = `<div class="empty-state"><p>Erro ao carregar tags</p></div>`
+    }
+  },
+
+  _filtrarTagsLocal() {
+    const cont  = document.getElementById('tags-container')
+    if (!cont) return
+    const tags  = this._tagsCache || []
+    const busca = (document.getElementById('tag-busca')?.value || '').toLowerCase().trim()
+    const ordem = document.getElementById('tag-ordem')?.value || 'uso'
+
+    let lista = busca ? tags.filter(t => t.nome.toLowerCase().includes(busca)) : [...tags]
+
+    if (ordem === 'nome')  lista.sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    else if (ordem === 'valor') lista.sort((a,b) => (b.total_valor||0) - (a.total_valor||0))
+    else lista.sort((a,b) => (b.usos||0) - (a.usos||0))
+
+    if (lista.length === 0) {
+      cont.innerHTML = `<div style="text-align:center;padding:40px;color:#475569;">Nenhuma tag encontrada para "<strong style="color:#94A3B8;">${busca}</strong>"</div>`
+      return
+    }
+
+    // Separar tags com uso e sem uso
+    const comUso = lista.filter(t => t.usos > 0)
+    const semUso = lista.filter(t => t.usos === 0)
 
       const renderCard = (tag) => `
         <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;transition:border-color 0.2s,background 0.2s;cursor:default;"
@@ -6361,12 +6468,12 @@ const VM = {
             <div style="width:12px;height:12px;border-radius:3px;background:${tag.cor};"></div>
           </div>
 
-          <!-- Nome + contagem -->
+          <!-- Nome + contagem + valor -->
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;color:#F1F5F9;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${tag.nome}">${tag.nome}</div>
             <div style="font-size:0.75rem;color:${tag.usos > 0 ? '#10B981' : '#475569'};margin-top:2px;">
               ${tag.usos > 0
-                ? `<i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} vinculada${tag.usos !== 1 ? 's' : ''}`
+                ? `<i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} · ${this.formatMoney(tag.total_valor||0)}`
                 : `<i class="fas fa-unlink" style="font-size:0.65rem;margin-right:3px;"></i>Sem despesas vinculadas`}
             </div>
           </div>
@@ -7454,6 +7561,17 @@ const VM = {
             </div>
           `}
         </div>
+
+        <!-- Top 5 Tags do Ano -->
+        <div class="card" id="rel-tags-container">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="font-weight:700;">🔖 Top Tags do Ano ${ano}</div>
+            <button onclick="VM._exportarRelatorioCSV()" class="btn-secondary" style="width:auto;padding:6px 14px;font-size:0.8rem;">
+              <i class="fas fa-download"></i> Exportar CSV
+            </button>
+          </div>
+          <div id="rel-tags-lista"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
+        </div>
       `
 
       if (temDados) {
@@ -7481,8 +7599,72 @@ const VM = {
           })
         }
       }
+      // Carregar Top Tags do ano em paralelo (não bloqueia)
+      this._carregarTopTagsRelatorio(ano)
+
     } catch (e) {
       this.toast('Erro ao carregar relatório', 'error')
+    }
+  },
+
+  async _carregarTopTagsRelatorio(ano) {
+    const el = document.getElementById('rel-tags-lista')
+    if (!el) return
+    try {
+      const data = await this.api('GET', `tags?ano=${ano}`)
+      const tags = (data || []).filter(t => (t.usos || 0) > 0).sort((a,b) => (b.total_valor||0)-(a.total_valor||0)).slice(0,5)
+      if (tags.length === 0) {
+        el.innerHTML = `<div style="text-align:center;padding:20px 0;color:#475569;font-size:0.84rem;">Nenhuma tag com uso registrada em ${ano}</div>`
+        return
+      }
+      const maxVal = Math.max(...tags.map(t => t.total_valor||0), 1)
+      el.innerHTML = tags.map((t, i) => {
+        const pct = Math.round((t.total_valor||0) / maxVal * 100)
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+            <div style="width:22px;height:22px;border-radius:6px;background:${t.cor||'#10B981'}22;border:2px solid ${t.cor||'#10B981'};display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:800;color:${t.cor||'#10B981'};flex-shrink:0;">${i+1}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:0.84rem;color:#f1f5f9;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.nome}</div>
+              <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:5px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:${t.cor||'#10B981'};border-radius:2px;"></div>
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:0.82rem;font-weight:700;color:#f1f5f9;">${this.formatMoney(t.total_valor||0)}</div>
+              <div style="font-size:0.7rem;color:#475569;">${t.usos}x</div>
+            </div>
+          </div>`
+      }).join('')
+    } catch(_) {
+      el.innerHTML = `<div style="text-align:center;padding:20px 0;color:#475569;font-size:0.84rem;">Tags não disponíveis</div>`
+    }
+  },
+
+  async _exportarRelatorioCSV() {
+    const ano = document.getElementById('rel-ano')?.value || new Date().getFullYear()
+    try {
+      const data = await this.api('GET', `dashboard/relatorio?ano=${ano}`)
+      const { relatorio = [], totais = {} } = data
+      const rows = [
+        ['Mês', 'Receitas (R$)', 'Despesas (R$)', 'Saldo (R$)'],
+        ...relatorio.map(m => [
+          `${m.mes}/${ano}`,
+          (m.receitas||0).toFixed(2).replace('.',','),
+          (m.despesas||0).toFixed(2).replace('.',','),
+          (m.saldo||0).toFixed(2).replace('.',',')
+        ]),
+        [],
+        ['TOTAL', (totais.receitas||0).toFixed(2).replace('.',','), (totais.despesas||0).toFixed(2).replace('.',','), (totais.saldo||0).toFixed(2).replace('.',',')]
+      ]
+      const csv = rows.map(r => r.join(';')).join('\n')
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `relatorio_${ano}.csv`; a.click()
+      URL.revokeObjectURL(url)
+      this.toast('CSV exportado ✅', 'success')
+    } catch(e) {
+      this.toast('Erro ao exportar CSV', 'error')
     }
   },
 
@@ -12288,8 +12470,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               const mod  = am[m.key] || {}
               const val  = mod.score || 0
               const cor  = corSt(mod.status || 'CRITICO')
+              const rotaModulo = m.key === 'fluxo_caixa' ? 'despesas'
+                : m.key === 'reserva_emergencia' ? 'reserva'
+                : m.key === 'dividas'            ? 'emprestimos'
+                : m.key === 'investimentos'      ? 'investimentos'
+                : 'metas'
               return `
-                <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                <div onclick="VM.navigate('${rotaModulo}')" title="Acessar ${m.label}" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;border-radius:10px;padding:6px 2px;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
                   ${miniScore(val, cor)}
                   <div style="font-size:0.65rem;color:#666;line-height:1.3;">${m.icon}<br>${m.label.split(' ')[0]}</div>
                   <div style="font-size:0.7rem;font-weight:700;color:${cor};">${val}</div>
@@ -12477,6 +12664,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 : p.hierarquia.includes('Dívid')   ? '#fd79a8'
                 : p.hierarquia.includes('Acumul')  ? '#74b9ff'
                 : '#2FBF71'
+              // Mapear hierarquia → rota e label de atalho
+              const atalho = p.hierarquia.includes('Sobreviv') ? { rota:'despesas',        label:'Ver Despesas',      icon:'fa-list' }
+                : p.hierarquia.includes('Segur')   ? { rota:'reserva',          label:'Reserva',          icon:'fa-shield-alt' }
+                : p.hierarquia.includes('Dívid')   ? { rota:'emprestimos',       label:'Dívidas',           icon:'fa-credit-card' }
+                : p.hierarquia.includes('Acumul')  ? { rota:'investimentos',     label:'Investimentos',     icon:'fa-chart-line' }
+                : p.hierarquia.includes('Realiz')  ? { rota:'metas',             label:'Metas',             icon:'fa-bullseye' }
+                : null
               return `
                 <div style="border:1px solid rgba(255,255,255,0.07);border-radius:12px;overflow:hidden;">
                   <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);">
@@ -12485,7 +12679,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                       <div style="font-size:0.6rem;color:${hierCor};font-weight:600;text-transform:uppercase;letter-spacing:1px;">${p.hierarquia}</div>
                       <div style="font-weight:700;font-size:0.88rem;">${p.titulo}</div>
                     </div>
-                    <div style="font-size:0.7rem;color:#555;white-space:nowrap;">⏱️ ${p.prazo}</div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      ${atalho ? `<button onclick="VM.navigate('${atalho.rota}')" title="Ir para ${atalho.label}" style="background:${hierCor}18;border:1px solid ${hierCor}40;color:${hierCor};border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.72rem;font-weight:700;white-space:nowrap;transition:background 0.15s;" onmouseover="this.style.background='${hierCor}30'" onmouseout="this.style.background='${hierCor}18'"><i class="fas ${atalho.icon}" style="margin-right:4px;"></i>${atalho.label} →</button>` : ''}
+                      <div style="font-size:0.7rem;color:#555;white-space:nowrap;">⏱️ ${p.prazo}</div>
+                    </div>
                   </div>
                   <div style="padding:12px 14px 14px;background:rgba(0,0,0,0.1);">
                     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
@@ -15120,9 +15317,25 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       </div>
 
       <!-- Gráfico -->
-      <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;margin-bottom:20px;">
+      <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;margin-bottom:16px;">
         <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">📈 Evolução Patrimonial</div>
         <div id="proj-chart-container" style="height:220px;"></div>
+      </div>
+
+      <!-- Resumo textual da projeção -->
+      <div style="background:${t.cor}08;border:1px solid ${t.cor}30;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+        <div style="font-size:0.72rem;color:${t.cor};text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;">📝 Resumo da Projeção</div>
+        <p style="color:#CBD5E1;font-size:0.87rem;line-height:1.6;margin:0;">
+          ${(() => {
+            const m12 = data.resumo?.projecao_12m || 0
+            const med = data.media_mensal || 0
+            const conf = data.confianca || 0
+            if (med === 0) return 'Adicione receitas e despesas dos últimos meses para gerar uma projeção personalizada.'
+            const sinal = m12 >= 0 ? 'positivo' : 'negativo'
+            const tendText = data.tendencia === 'positive' ? 'crescimento consistente' : data.tendencia === 'negative' ? 'queda no saldo' : 'estabilidade'
+            return `Com um saldo médio de <strong style="color:${med>=0?'#10B981':'#F43F5E'};">${this.fmt(med)}/mês</strong> e tendência de <strong style="color:${t.cor};">${tendText}</strong>, em 12 meses seu patrimônio acumulado estimado será <strong style="color:${m12>=0?'#10B981':'#F43F5E'};">${this.fmt(Math.abs(m12))} ${sinal}</strong>. Confiança desta estimativa: <strong style="color:${conf>=70?'#10B981':conf>=40?'#F59E0B':'#F43F5E'};">${conf}% (${conf>=70?'Alta':conf>=40?'Média':'Baixa'})</strong> — ${conf < 40 ? 'lance mais meses para aumentar a precisão.' : 'baseada em histórico suficiente.'}`
+          })()}
+        </p>
       </div>
 
       <!-- Insights -->
@@ -16550,11 +16763,45 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   },
 
   async reduzirRecorrente(id, nome, valorAtual) {
-    const novoValor = prompt(`Registrar redução para "${nome}"\nValor atual: R$ ${valorAtual.toFixed(2)}\n\nInforme o novo valor reduzido (R$):`)
-    if (!novoValor || isNaN(parseFloat(novoValor))) return
-    const pct = prompt('Qual o percentual de redução aplicado? (ex: 30 para 30%)', '30')
+    const fmtVal = valorAtual.toFixed(2).replace('.', ',')
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <h3 style="font-size:1rem;font-weight:700;">✂️ Registrar Redução</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 16px;">Gasto recorrente: <strong style="color:#f1f5f9;">${this.escapeHtml(nome)}</strong><br>Valor atual médio: <strong style="color:#F43F5E;">R$ ${fmtVal}</strong></p>
+          <div class="form-group">
+            <label class="form-label">Novo valor reduzido (R$) *</label>
+            <input type="number" id="red-novo-valor" class="form-input" placeholder="Ex: 29.90" min="0" step="0.01" value="">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Percentual de redução (%)</label>
+            <input type="number" id="red-pct" class="form-input" placeholder="Ex: 30" min="0" max="100" step="1" value="30">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;">Cancelar</button>
+            <button onclick="VM._confirmarReducaoRecorrente(${id})" class="btn-primary" style="flex:2;background:linear-gradient(135deg,#10B981,#059669);">✅ Confirmar Redução</button>
+          </div>
+        </div>
+      </div>`
+    modal.style.display = 'flex'
+    setTimeout(() => document.getElementById('red-novo-valor')?.focus(), 100)
+  },
+
+  async _confirmarReducaoRecorrente(id) {
+    const novoValorEl = document.getElementById('red-novo-valor')
+    const pctEl       = document.getElementById('red-pct')
+    const novoValor   = parseFloat(novoValorEl?.value)
+    const pct         = parseFloat(pctEl?.value || '0')
+    if (!novoValor || isNaN(novoValor) || novoValor <= 0) {
+      this.toast('Informe um valor válido', 'error'); return
+    }
+    this.closeModal()
     try {
-      const resp = await this.api('POST', `compras-fantasma/recorrentes/${id}/reduzir`, { novo_valor: parseFloat(novoValor), percentual_reducao: parseFloat(pct||'0') })
+      const resp = await this.api('POST', `compras-fantasma/recorrentes/${id}/reduzir`, { novo_valor: novoValor, percentual_reducao: pct })
       this.toast(resp.message || `✅ Economia de R$ ${(resp.economia_mensal||0).toFixed(2)}/mês registrada!`, 'success')
       this.pageComprasFantasma('recorrentes')
     } catch(err) {
@@ -16641,7 +16888,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <h1 style="font-size:1.8rem;font-weight:800;color:#f1f5f9;margin:0 0 6px;">⚖️ Regra 50/30/20</h1>
             <p style="color:#64748B;margin:0;">Análise do equilíbrio das suas finanças em ${MONTHS[mes]}/${ano}</p>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button onclick="VM._nav503020(-1)" title="Mês anterior"
+              style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+              onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">‹</button>
             <select id="sel-mes-503020" class="form-input" style="padding:8px 12px;font-size:0.82rem;width:auto;"
               onchange="VM.recarregar503020()">
               ${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===mes?'selected':''}>${MONTHS[i+1]}</option>`).join('')}
@@ -16650,6 +16900,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               onchange="VM.recarregar503020()">
               ${[ano-1,ano,ano+1].map(y=>`<option value="${y}" ${y===ano?'selected':''}>${y}</option>`).join('')}
             </select>
+            <button onclick="VM._nav503020(1)" title="Próximo mês"
+              style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+              onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">›</button>
           </div>
         </div>
         
@@ -16751,6 +17004,27 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     } catch (e) {
       this.toast('Erro ao recarregar', 'error')
     }
+  },
+
+  async _nav503020(delta) {
+    let mes = parseInt(document.getElementById('sel-mes-503020')?.value || new Date().getMonth()+1)
+    let ano = parseInt(document.getElementById('sel-ano-503020')?.value || new Date().getFullYear())
+    mes += delta
+    if (mes < 1) { mes = 12; ano-- }
+    if (mes > 12) { mes = 1; ano++ }
+    const selMes = document.getElementById('sel-mes-503020')
+    const selAno = document.getElementById('sel-ano-503020')
+    if (selMes) selMes.value = mes
+    if (selAno) {
+      // adicionar opção se necessário
+      if (![...selAno.options].some(o => parseInt(o.value) === ano)) {
+        const opt = document.createElement('option')
+        opt.value = ano; opt.textContent = ano
+        selAno.appendChild(opt)
+      }
+      selAno.value = ano
+    }
+    await this.recarregar503020()
   },
 
   // ═══════════════════════════════════════════════════════════════
