@@ -24,13 +24,37 @@ metas.get('/', requireAuth, async (c) => {
   query += ' ORDER BY COALESCE(prioridade,2) DESC, data_meta ASC'
   const result = await c.env.DB.prepare(query).bind(...params).all()
 
+  // Buscar aporte já realizado neste mês para cada meta (corrige cálculo de mensalidade)
+  const hoje = new Date()
+  const mesAtual  = hoje.getMonth() + 1
+  const anoAtual  = hoje.getFullYear()
+  const inicioMes = `${anoAtual}-${String(mesAtual).padStart(2, '0')}-01`
+  const fimMes    = `${anoAtual}-${String(mesAtual).padStart(2, '0')}-31`
+
+  // Buscar aportes do mês para todas as metas do usuário de uma vez
+  const aportesRes = await c.env.DB.prepare(
+    `SELECT meta_id, COALESCE(SUM(valor),0) as aporte_mes
+     FROM meta_historico
+     WHERE user_id = ? AND tipo = 'aporte' AND data >= ? AND data <= ?
+     GROUP BY meta_id`
+  ).bind(user.id, inicioMes, fimMes).all()
+
+  const aportesMap: Record<number, number> = {}
+  for (const r of aportesRes.results as any[]) {
+    aportesMap[Number(r.meta_id)] = Number(r.aporte_mes || 0)
+  }
+
   const metasComMetricas = (result.results as any[]).map(meta => {
     const percentual     = meta.valor_objetivo > 0 ? (meta.valor_atual / meta.valor_objetivo) * 100 : 0
-    const hoje           = new Date()
     const dataMeta       = new Date(meta.data_meta)
+    const atrasada       = dataMeta < hoje && meta.status === 'ativa'
     const mesesRestantes = Math.max(0, Math.ceil((dataMeta.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24 * 30)))
     const valorFaltante  = Math.max(0, meta.valor_objetivo - meta.valor_atual)
-    const mensalidade    = mesesRestantes > 0 ? valorFaltante / mesesRestantes : valorFaltante
+
+    // Corrigir: descontar o que já foi aportado neste mês do faltante antes de dividir
+    const aporteMesAtual  = aportesMap[Number(meta.id)] || 0
+    const faltanteAjustado = Math.max(0, valorFaltante - aporteMesAtual)
+    const mensalidade     = mesesRestantes > 0 ? faltanteAjustado / mesesRestantes : faltanteAjustado
 
     return {
       ...meta,
@@ -38,6 +62,8 @@ metas.get('/', requireAuth, async (c) => {
       meses_restantes: mesesRestantes,
       valor_faltante: Math.round(valorFaltante * 100) / 100,
       mensalidade_necessaria: Math.round(mensalidade * 100) / 100,
+      aporte_mes_atual: Math.round(aporteMesAtual * 100) / 100,
+      atrasada,
       prioridade: meta.prioridade ?? 2,
       prioridade_label: PRIORIDADE_LABEL[meta.prioridade ?? 2] || 'Média'
     }
@@ -222,7 +248,7 @@ metas.put('/:id', requireAuth, async (c) => {
 
   const { nome, descricao, valor_objetivo, valor_atual, data_meta, categoria, cor, icone, status, prioridade } = body
 
-  const STATUS_VALIDOS    = ['ativa', 'concluida', 'cancelada']
+  const STATUS_VALIDOS    = ['ativa', 'concluida', 'cancelada', 'arquivada']
   const PRIORIDADE_VALIDA = [1, 2, 3]
   const novoStatus        = status    ?? metaAtual.status    ?? 'ativa'
   const novaPrioridade    = prioridade !== undefined ? Number(prioridade) : (metaAtual.prioridade ?? 2)

@@ -4286,6 +4286,8 @@ const VM = {
 
   // ============== METAS ==============
   async pageMetas() {
+    this._metasOrdem = this._metasOrdem || 'prazo'
+    this._metasView  = this._metasView  || 'cards'
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
@@ -4296,6 +4298,20 @@ const VM = {
           <i class="fas fa-plus"></i> Nova Meta
         </button>
       </div>
+
+      <!-- Barra de controles -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px;">
+        <div style="display:flex;gap:6px;background:rgba(255,255,255,0.04);border-radius:10px;padding:4px;">
+          <button id="mord-prazo"    onclick="VM._setMetasOrdem('prazo')"      class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;">📅 Prazo</button>
+          <button id="mord-pct"      onclick="VM._setMetasOrdem('percentual')" class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;">📊 %</button>
+          <button id="mord-valor"    onclick="VM._setMetasOrdem('valor')"      class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;">💰 Valor</button>
+        </div>
+        <div style="display:flex;gap:6px;background:rgba(255,255,255,0.04);border-radius:10px;padding:4px;">
+          <button id="mview-cards"   onclick="VM._setMetasView('cards')"    class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-th-large"></i> Cards</button>
+          <button id="mview-timeline" onclick="VM._setMetasView('timeline')" class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-stream"></i> Linha do Tempo</button>
+        </div>
+      </div>
+
       <div id="metas-container">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
       </div>
@@ -4303,95 +4319,237 @@ const VM = {
     this.carregarMetas()
   },
 
+  _setMetasOrdem(ordem) {
+    this._metasOrdem = ordem
+    ;['prazo','percentual','valor'].forEach(o => {
+      const btn = document.getElementById(`mord-${o === 'percentual' ? 'pct' : o}`)
+      if (btn) btn.style.background = o === ordem ? 'rgba(47,191,113,0.2)' : ''
+    })
+    this._renderizarMetas(this._metasCached || [])
+  },
+
+  _setMetasView(view) {
+    this._metasView = view
+    ;['cards','timeline'].forEach(v => {
+      const btn = document.getElementById(`mview-${v}`)
+      if (btn) btn.style.background = v === view ? 'rgba(47,191,113,0.2)' : ''
+    })
+    this._renderizarMetas(this._metasCached || [])
+  },
+
+  _ordenarMetas(metas) {
+    const arr = [...metas]
+    const ord = this._metasOrdem || 'prazo'
+    if (ord === 'prazo')      return arr.sort((a,b) => new Date(a.data_meta) - new Date(b.data_meta))
+    if (ord === 'percentual') return arr.sort((a,b) => b.percentual - a.percentual)
+    if (ord === 'valor')      return arr.sort((a,b) => b.valor_objetivo - a.valor_objetivo)
+    return arr
+  },
+
   async carregarMetas() {
     try {
       const data = await this.api('GET', 'metas')
-      const container = document.getElementById('metas-container')
-      
-      if (data.metas.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎯</div><h3>Nenhuma meta ainda</h3><p>Crie sua primeira meta financeira!</p></div>`
-        return
-      }
-
-      const ativas = data.metas.filter(m => m.status === 'ativa')
-      const concluidas = data.metas.filter(m => m.status === 'concluida')
-
-      container.innerHTML = `
-        ${ativas.length > 0 ? `
-          <div style="margin-bottom:32px;">
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Ativas (${ativas.length})</div>
-            <div class="grid-3">
-              ${ativas.map(m => this.renderMetaCard(m)).join('')}
-            </div>
-          </div>
-        ` : ''}
-        ${concluidas.length > 0 ? `
-          <div>
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Concluídas (${concluidas.length})</div>
-            <div class="grid-3">
-              ${concluidas.map(m => this.renderMetaCard(m)).join('')}
-            </div>
-          </div>
-        ` : ''}
-      `
+      this._metasCached = data.metas || []
+      this._renderizarMetas(this._metasCached)
+      // Atualizar estado visual dos botões
+      this._setMetasOrdem(this._metasOrdem || 'prazo')
+      this._setMetasView(this._metasView || 'cards')
     } catch (e) {
       this.toast('Erro ao carregar metas', 'error')
     }
   },
 
+  _renderizarMetas(todas) {
+    const container = document.getElementById('metas-container')
+    if (!container) return
+
+    if (todas.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎯</div><h3>Nenhuma meta ainda</h3><p>Crie sua primeira meta financeira!</p></div>`
+      return
+    }
+
+    const ativas     = this._ordenarMetas(todas.filter(m => m.status === 'ativa'))
+    const concluidas = todas.filter(m => m.status === 'concluida')
+    const arquivadas = todas.filter(m => m.status === 'arquivada' || m.status === 'cancelada')
+    const atrasadas  = ativas.filter(m => m.atrasada)
+
+    if (this._metasView === 'timeline') {
+      container.innerHTML = this._renderMetasTimeline([...ativas, ...concluidas])
+      return
+    }
+
+    container.innerHTML = `
+      ${atrasadas.length > 0 ? `
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:14px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+          <span style="font-size:1.4rem;">⚠️</span>
+          <div>
+            <div style="font-weight:700;color:#f87171;font-size:0.9rem;">${atrasadas.length} meta${atrasadas.length>1?'s':''} atrasada${atrasadas.length>1?'s':''}!</div>
+            <div style="font-size:0.78rem;color:#fca5a5;">O prazo passou mas ainda não foram concluídas: ${atrasadas.map(m=>`<strong>${m.nome}</strong>`).join(', ')}</div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${ativas.length > 0 ? `
+        <div style="margin-bottom:32px;">
+          <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Ativas (${ativas.length})</div>
+          <div class="grid-3">
+            ${ativas.map(m => this.renderMetaCard(m)).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${concluidas.length > 0 ? `
+        <div style="margin-bottom:24px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;">🏆 Concluídas (${concluidas.length})</div>
+            <button onclick="VM._toggleArquivadas()" style="background:none;border:none;color:#888;font-size:0.78rem;cursor:pointer;text-decoration:underline;" id="btn-toggle-concluidas">Arquivar todas</button>
+          </div>
+          <div class="grid-3" id="grid-concluidas">
+            ${concluidas.map(m => this.renderMetaCard(m)).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${arquivadas.length > 0 ? `
+        <div>
+          <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="background:none;border:none;color:#555;font-size:0.8rem;cursor:pointer;margin-bottom:8px;">
+            📦 Arquivadas / Canceladas (${arquivadas.length}) <i class="fas fa-chevron-down"></i>
+          </button>
+          <div style="display:none;" class="grid-3">
+            ${arquivadas.map(m => this.renderMetaCard(m)).join('')}
+          </div>
+        </div>
+      ` : ''}
+    `
+  },
+
+  _renderMetasTimeline(metas) {
+    if (metas.length === 0) return '<div class="empty-state"><div class="empty-icon">📅</div><h3>Nenhuma meta para exibir</h3></div>'
+    const sorted = [...metas].sort((a,b) => new Date(a.data_meta) - new Date(b.data_meta))
+    return `
+      <div style="position:relative;padding-left:32px;">
+        <div style="position:absolute;left:14px;top:0;bottom:0;width:2px;background:rgba(255,255,255,0.08);border-radius:2px;"></div>
+        ${sorted.map((m, idx) => {
+          const cor = m.cor || '#2FBF71'
+          const atrasada = m.atrasada
+          const isConcluida = m.status === 'concluida'
+          const borderColor = isConcluida ? '#2FBF71' : atrasada ? '#ef4444' : cor
+          return `
+            <div style="position:relative;margin-bottom:24px;">
+              <div style="position:absolute;left:-26px;top:14px;width:12px;height:12px;border-radius:50%;background:${borderColor};box-shadow:0 0 0 3px rgba(0,0,0,0.6);"></div>
+              <div style="background:rgba(255,255,255,0.03);border:1px solid ${borderColor}30;border-radius:14px;padding:16px 20px;${atrasada?'border-left:3px solid #ef4444;':''}">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                  <div>
+                    <div style="font-weight:700;font-size:1rem;">${m.nome}</div>
+                    ${m.descricao ? `<div style="color:#666;font-size:0.78rem;">${m.descricao}</div>` : ''}
+                  </div>
+                  <div style="text-align:right;">
+                    ${isConcluida ? '<span class="badge badge-green">🏆 Concluída</span>' : atrasada ? '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:600;">⚠️ Atrasada</span>' : `<span style="background:rgba(47,191,113,0.1);color:#2FBF71;border:1px solid rgba(47,191,113,0.2);border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:600;">📅 ${this.formatDate(m.data_meta)}</span>`}
+                  </div>
+                </div>
+                <div style="margin-top:12px;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.8rem;">
+                    <span style="color:#888;">${this.formatMoney(m.valor_atual)} / ${this.formatMoney(m.valor_objetivo)}</span>
+                    <span style="font-weight:700;color:${borderColor};">${m.percentual}%</span>
+                  </div>
+                  <div class="progress-bar" style="height:6px;">
+                    <div style="width:${Math.min(100,m.percentual)}%;background:${borderColor};border-radius:4px;height:100%;"></div>
+                  </div>
+                </div>
+                ${!isConcluida ? `
+                  <div style="display:flex;gap:8px;margin-top:12px;">
+                    <button onclick="VM.modalDeposito(${m.id},'${m.nome.replace(/'/g,"&#39;")}')" class="btn-success" style="font-size:0.75rem;padding:5px 12px;"><i class="fas fa-plus"></i> Depositar</button>
+                    <button onclick="VM.modalHistoricoMeta(${m.id},'${m.nome.replace(/'/g,"&#39;")}')" class="btn-secondary" style="font-size:0.75rem;padding:5px 12px;"><i class="fas fa-history"></i> Histórico</button>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          `
+        }).join('')}
+      </div>
+    `
+  },
+
   renderMetaCard(m) {
     const isConcluida = m.status === 'concluida'
+    const isArquivada = m.status === 'arquivada' || m.status === 'cancelada'
+    const atrasada    = m.atrasada && !isConcluida
+    const cor = m.cor || '#2FBF71'
+    const borderColor = isConcluida ? '#2FBF71' : atrasada ? '#ef4444' : cor
+
     return `
-      <div class="card" style="border-color:${m.cor || '#2FBF71'}30;${isConcluida ? 'opacity:0.8;' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div class="card" style="border-color:${borderColor}40;position:relative;${isArquivada?'opacity:0.6;':''};${atrasada?'border-left:3px solid #ef4444;':''}">
+        <!-- Badge status topo-direito -->
+        <div style="position:absolute;top:14px;right:14px;">
+          ${isConcluida ? '<span class="badge badge-green" style="font-size:0.7rem;">🏆 Concluída</span>' : ''}
+          ${atrasada    ? '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:600;">⚠️ Atrasada</span>' : ''}
+          ${isArquivada ? '<span style="background:rgba(100,100,100,0.2);color:#888;border-radius:20px;padding:2px 8px;font-size:0.7rem;">📦 Arquivada</span>' : ''}
+        </div>
+
+        <!-- Cabeçalho -->
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;padding-right:90px;">
+          <div style="width:38px;height:38px;border-radius:12px;background:${cor}22;border:2px solid ${cor}44;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;">
+            ${this._iconeMeta(m.categoria)}
+          </div>
           <div>
-            <div style="font-size:1.1rem;font-weight:700;">${m.nome}</div>
-            ${m.descricao ? `<div style="color:#666;font-size:0.8rem;margin-top:2px;">${m.descricao}</div>` : ''}
-          </div>
-          ${isConcluida ? '<span class="badge badge-green">🏆 Concluída</span>' : ''}
-        </div>
-        
-        <div style="margin-bottom:16px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-            <span style="font-size:0.8rem;color:#888;">Progresso</span>
-            <span style="font-size:0.9rem;font-weight:700;color:${m.cor || '#2FBF71'};">${m.percentual}%</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${Math.min(100, m.percentual)}%;background:${m.cor || '#2FBF71'};"></div>
+            <div style="font-size:1rem;font-weight:700;line-height:1.3;">${m.nome}</div>
+            ${m.descricao ? `<div style="color:#666;font-size:0.75rem;margin-top:2px;">${m.descricao}</div>` : ''}
           </div>
         </div>
-        
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;">
-            <div style="color:#666;font-size:0.72rem;">Atual</div>
-            <div style="font-weight:700;font-size:0.9rem;color:${m.cor || '#2FBF71'};">${this.formatMoney(m.valor_atual)}</div>
+
+        <!-- Barra de progresso -->
+        <div style="margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:0.75rem;color:#888;">Progresso</span>
+            <span style="font-size:0.9rem;font-weight:700;color:${borderColor};">${m.percentual}%</span>
           </div>
-          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;">
-            <div style="color:#666;font-size:0.72rem;">Objetivo</div>
-            <div style="font-weight:700;font-size:0.9rem;">${this.formatMoney(m.valor_objetivo)}</div>
+          <div class="progress-bar" style="height:8px;border-radius:6px;background:rgba(255,255,255,0.06);">
+            <div style="width:${Math.min(100,m.percentual)}%;background:linear-gradient(90deg,${borderColor},${borderColor}cc);border-radius:6px;height:100%;transition:width 0.6s;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:0.72rem;color:#555;">
+            <span>${this.formatMoney(m.valor_atual)}</span>
+            <span>${this.formatMoney(m.valor_objetivo)}</span>
           </div>
         </div>
-        
-        ${!isConcluida ? `
-          <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;margin-bottom:16px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-              <span style="color:#666;">Meta: ${this.formatDate(m.data_meta)}</span>
-              <span style="color:#2FBF71;">${this.formatMoney(m.mensalidade_necessaria)}/mês</span>
+
+        <!-- Grid info -->
+        ${!isConcluida && !isArquivada ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+            <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:8px 10px;">
+              <div style="color:#666;font-size:0.68rem;margin-bottom:2px;">📅 Prazo</div>
+              <div style="font-weight:600;font-size:0.8rem;color:${atrasada?'#f87171':'#ccc'};">${this.formatDate(m.data_meta)}</div>
+              ${atrasada ? `<div style="font-size:0.65rem;color:#f87171;">Prazo vencido!</div>` : `<div style="font-size:0.65rem;color:#666;">${m.meses_restantes} ${m.meses_restantes === 1 ? 'mês' : 'meses'} restantes</div>`}
             </div>
-            <div style="color:#555;font-size:0.75rem;margin-top:2px;">${m.meses_restantes} meses restantes</div>
+            <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:8px 10px;">
+              <div style="color:#666;font-size:0.68rem;margin-bottom:2px;">💸 Necessário/mês</div>
+              <div style="font-weight:600;font-size:0.8rem;color:${cor};">${m.meses_restantes > 0 ? this.formatMoney(m.mensalidade_necessaria) : '—'}</div>
+              ${m.aporte_mes_atual > 0 ? `<div style="font-size:0.65rem;color:#4ade80;">✓ ${this.formatMoney(m.aporte_mes_atual)} já aportado</div>` : ''}
+            </div>
           </div>
         ` : ''}
-        
-        <div style="display:flex;gap:8px;">
-          ${!isConcluida ? `
-            <button onclick="VM.modalDeposito(${m.id}, '${m.nome}')" class="btn-success" style="flex:1;justify-content:center;font-size:0.8rem;">
+
+        <!-- Ações -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${!isConcluida && !isArquivada ? `
+            <button onclick="VM.modalDeposito(${m.id},'${m.nome.replace(/'/g,"&#39;")}')" class="btn-success" style="flex:1;justify-content:center;font-size:0.78rem;min-width:90px;">
               <i class="fas fa-plus"></i> Depositar
             </button>
+            <button onclick="VM.modalSimuladorMeta(${m.id},'${m.nome.replace(/'/g,"&#39;")}',${m.valor_objetivo},${m.valor_atual})" title="Simulador" class="btn-secondary" style="font-size:0.78rem;padding:6px 10px;">
+              <i class="fas fa-calculator"></i>
+            </button>
+            <button onclick="VM.modalHistoricoMeta(${m.id},'${m.nome.replace(/'/g,"&#39;")}')" title="Histórico" class="btn-secondary" style="font-size:0.78rem;padding:6px 10px;">
+              <i class="fas fa-history"></i>
+            </button>
           ` : ''}
-          <button onclick="VM.modalMeta(${JSON.stringify(m).replace(/"/g, '&quot;')})" class="btn-secondary" style="font-size:0.8rem;padding:6px 12px;">
+          ${isConcluida ? `
+            <button onclick="VM.arquivarMeta(${m.id})" class="btn-secondary" style="font-size:0.75rem;padding:5px 10px;" title="Arquivar">
+              <i class="fas fa-archive"></i> Arquivar
+            </button>
+          ` : ''}
+          <button onclick="VM.modalMeta(${JSON.stringify(m).replace(/"/g,'&quot;')})" class="btn-secondary" style="font-size:0.78rem;padding:6px 10px;" title="Editar">
             <i class="fas fa-edit"></i>
           </button>
-          <button onclick="VM.deleteMeta(${m.id})" class="btn-danger">
+          <button onclick="VM.deleteMeta(${m.id})" class="btn-danger" style="padding:6px 10px;" title="Excluir">
             <i class="fas fa-trash"></i>
           </button>
         </div>
@@ -4399,19 +4557,60 @@ const VM = {
     `
   },
 
-  modalDeposito(id, nome) {
+  _iconeMeta(cat) {
+    const map = { economia:'💰', imovel:'🏠', veiculo:'🚗', viagem:'✈️', educacao:'📚',
+      liberdade:'🗽', aposentadoria:'👴', emergencia:'🛡️', debt_payoff:'💳', outros:'📋' }
+    return map[cat] || '🎯'
+  },
+
+  async arquivarMeta(id) {
+    const ok = await this.vmConfirm('Arquivar esta meta? Ela ficará oculta mas não será excluída.', { titulo: 'Arquivar Meta', corBotao: '#6366f1', textoBotao: 'Arquivar', icone: '📦' })
+    if (!ok) return
+    try {
+      await this.api('PUT', `metas/${id}`, { status: 'arquivada' })
+      this.toast('Meta arquivada!')
+      this.carregarMetas()
+    } catch (e) {
+      this.toast('Erro ao arquivar', 'error')
+    }
+  },
+
+  async modalDeposito(id, nome) {
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:380px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.1rem;font-weight:700;">💰 Depositar em "${nome}"</h3>
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
-          <div class="form-group">
-            <label class="form-label">Valor a depositar (R$)</label>
-            <input type="number" id="dep-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01">
+
+          <!-- Tipo: Aporte ou Saque -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <div id="dep-tipo-aporte" onclick="VM._selDepTipo('aporte')"
+              style="flex:1;padding:10px;text-align:center;border-radius:10px;cursor:pointer;border:2px solid #2FBF71;background:rgba(47,191,113,0.12);font-weight:600;font-size:0.85rem;">
+              ➕ Aporte
+            </div>
+            <div id="dep-tipo-saque" onclick="VM._selDepTipo('saque')"
+              style="flex:1;padding:10px;text-align:center;border-radius:10px;cursor:pointer;border:2px solid rgba(255,255,255,0.08);color:#666;font-weight:600;font-size:0.85rem;">
+              ➖ Saque
+            </div>
           </div>
-          <div style="display:flex;gap:12px;margin-top:8px;">
+          <input type="hidden" id="dep-tipo" value="aporte">
+
+          <div class="form-group">
+            <label class="form-label">Valor (R$)</label>
+            <input type="number" id="dep-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" oninput="VM._calcDepSimulado(${id})">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descrição (opcional)</label>
+            <input type="text" id="dep-desc" class="form-input" placeholder="Ex: Salário de abril">
+          </div>
+
+          <!-- Preview -->
+          <div id="dep-preview" style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:16px;display:none;font-size:0.82rem;color:#aaa;">
+          </div>
+
+          <div style="display:flex;gap:12px;">
             <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
             <button onclick="VM.fazerDeposito(${id})" class="btn-primary" style="flex:1;" id="dep-btn">
               <i class="fas fa-check"></i> Confirmar
@@ -4420,22 +4619,192 @@ const VM = {
         </div>
       </div>
     `
+    // Carregar dados da meta para preview
+    const metaData = (this._metasCached || []).find(m => m.id === id)
+    if (metaData) {
+      document.getElementById('dep-preview')._metaData = metaData
+    }
+  },
+
+  _selDepTipo(tipo) {
+    document.getElementById('dep-tipo').value = tipo
+    const ea = document.getElementById('dep-tipo-aporte')
+    const es = document.getElementById('dep-tipo-saque')
+    if (tipo === 'aporte') {
+      ea.style.border='2px solid #2FBF71'; ea.style.background='rgba(47,191,113,0.12)'; ea.style.color=''
+      es.style.border='2px solid rgba(255,255,255,0.08)'; es.style.background=''; es.style.color='#666'
+    } else {
+      es.style.border='2px solid #ef4444'; es.style.background='rgba(239,68,68,0.1)'; es.style.color='#f87171'
+      ea.style.border='2px solid rgba(255,255,255,0.08)'; ea.style.background=''; ea.style.color='#666'
+    }
+    this._calcDepSimulado()
+  },
+
+  _calcDepSimulado(id) {
+    const val   = parseFloat(document.getElementById('dep-valor')?.value) || 0
+    const tipo  = document.getElementById('dep-tipo')?.value || 'aporte'
+    const prev  = document.getElementById('dep-preview')
+    const meta  = (this._metasCached || []).find(m => m.id === id) || prev?._metaData
+    if (!prev || !meta || val <= 0) { if(prev) prev.style.display='none'; return }
+
+    const novoVal = tipo === 'aporte' ? (meta.valor_atual + val) : Math.max(0, meta.valor_atual - val)
+    const novoP   = meta.valor_objetivo > 0 ? Math.min(100, (novoVal/meta.valor_objetivo)*100).toFixed(1) : 0
+    const diff    = novoVal - meta.valor_atual
+    prev.style.display = 'block'
+    prev.innerHTML = `
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span>Novo saldo:</span><strong style="color:#fff;">${this.formatMoney(novoVal)}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span>Novo progresso:</span><strong style="color:#2FBF71;">${novoP}%</strong>
+      </div>
+      ${tipo==='aporte'&&novoVal>=meta.valor_objetivo ? `<div style="color:#4ade80;font-weight:700;margin-top:4px;">🎉 Esse aporte vai concluir a meta!</div>` : ''}
+    `
   },
 
   async fazerDeposito(id) {
     const valor = parseFloat(document.getElementById('dep-valor').value)
+    const tipo  = document.getElementById('dep-tipo')?.value || 'aporte'
+    const descricao = document.getElementById('dep-desc')?.value || null
     if (!valor || valor <= 0) { this.toast('Informe um valor válido', 'warning'); return }
     const btn = document.getElementById('dep-btn')
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
     try {
-      const res = await this.api('PATCH', `metas/${id}/deposito`, { valor })
+      const res = await this.api('PATCH', `metas/${id}/deposito`, { valor, tipo, descricao })
       this.toast(res.message)
       this.closeModal()
       this.carregarMetas()
     } catch (e) {
-      this.toast('Erro ao depositar', 'error')
+      this.toast(e.response?.data?.error || 'Erro ao depositar', 'error')
       btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmar'
     }
+  },
+
+  // ── Histórico de aportes por meta ──────────────────────────────────────────
+  async modalHistoricoMeta(id, nome) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">📋 Histórico — ${nome}</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="hist-meta-body"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
+        </div>
+      </div>
+    `
+    try {
+      const data = await this.api('GET', `metas/${id}/historico?limit=30`)
+      const hist = data.historico || []
+      const el   = document.getElementById('hist-meta-body')
+      if (!el) return
+      if (hist.length === 0) {
+        el.innerHTML = '<div style="text-align:center;color:#555;padding:30px;">Nenhum depósito registrado ainda.</div>'
+        return
+      }
+      el.innerHTML = `
+        <div style="max-height:340px;overflow-y:auto;">
+          ${hist.map(h => {
+            const isAporte = h.tipo === 'aporte'
+            const cor = isAporte ? '#2FBF71' : '#ef4444'
+            const icon = isAporte ? 'fa-arrow-up' : 'fa-arrow-down'
+            return `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="width:30px;height:30px;border-radius:8px;background:${cor}18;border:1px solid ${cor}44;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas ${icon}" style="color:${cor};font-size:0.75rem;"></i>
+                  </div>
+                  <div>
+                    <div style="font-size:0.85rem;font-weight:600;">${h.descricao || (isAporte ? 'Aporte' : 'Saque')}</div>
+                    <div style="font-size:0.72rem;color:#666;">${this.formatDate(h.data?.split('T')[0] || h.data)} · ${h.valor_antes !== undefined ? `${this.formatMoney(h.valor_antes)} → ${this.formatMoney(h.valor_depois)}` : ''}</div>
+                  </div>
+                </div>
+                <div style="font-weight:700;color:${cor};">${isAporte?'+':'−'}${this.formatMoney(h.valor)}</div>
+              </div>
+            `
+          }).join('')}
+        </div>
+        <div style="font-size:0.72rem;color:#555;text-align:right;margin-top:8px;">Total de ${hist.length} registros</div>
+      `
+    } catch(e) {
+      const el = document.getElementById('hist-meta-body')
+      if (el) el.innerHTML = '<div style="color:#f87171;text-align:center;padding:20px;">Erro ao carregar histórico.</div>'
+    }
+  },
+
+  // ── Simulador de aportes ────────────────────────────────────────────────────
+  modalSimuladorMeta(id, nome, valorObj, valorAtual) {
+    const faltante = Math.max(0, valorObj - valorAtual)
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">🧮 Simulador — ${nome}</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+
+          <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <div style="color:#666;font-size:0.72rem;">Valor Objetivo</div>
+              <div style="font-weight:700;font-size:1rem;">${this.formatMoney(valorObj)}</div>
+            </div>
+            <div>
+              <div style="color:#666;font-size:0.72rem;">Valor Acumulado</div>
+              <div style="font-weight:700;font-size:1rem;color:#2FBF71;">${this.formatMoney(valorAtual)}</div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <div style="color:#666;font-size:0.72rem;">Falta acumular</div>
+              <div style="font-weight:700;font-size:1.1rem;color:#fbbf24;">${this.formatMoney(faltante)}</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Se eu depositar por mês (R$):</label>
+            <input type="number" id="sim-mensal" class="form-input" placeholder="0,00" step="10" min="1"
+              oninput="VM._calcSimulador(${faltante})">
+          </div>
+
+          <div id="sim-resultado" style="display:none;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:12px;padding:16px;margin-bottom:16px;"></div>
+
+          <div style="margin-bottom:20px;">
+            <label class="form-label" style="margin-bottom:8px;display:block;">Ou em quantos meses quero concluir:</label>
+            <input type="number" id="sim-meses" class="form-input" placeholder="Ex: 12" step="1" min="1"
+              oninput="VM._calcSimuladorInverso(${faltante})">
+            <div id="sim-resultado-inv" style="display:none;background:rgba(116,185,255,0.06);border:1px solid rgba(116,185,255,0.2);border-radius:12px;padding:12px;margin-top:10px;font-size:0.82rem;color:#74b9ff;"></div>
+          </div>
+
+          <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;">Fechar</button>
+        </div>
+      </div>
+    `
+  },
+
+  _calcSimulador(faltante) {
+    const mensal = parseFloat(document.getElementById('sim-mensal')?.value) || 0
+    const el = document.getElementById('sim-resultado')
+    if (!el || mensal <= 0) { if(el) el.style.display='none'; return }
+    const meses = Math.ceil(faltante / mensal)
+    const anos  = Math.floor(meses / 12)
+    const mRest = meses % 12
+    const label = anos > 0 ? `${anos} ano${anos>1?'s':''} e ${mRest} mês${mRest!==1?'es':''}` : `${meses} mês${meses!==1?'es':''}`
+    const hoje = new Date()
+    const termino = new Date(hoje)
+    termino.setMonth(termino.getMonth() + meses)
+    el.style.display = 'block'
+    el.innerHTML = `
+      <div style="font-weight:700;color:#2FBF71;font-size:1rem;margin-bottom:6px;">✅ Meta concluída em <span style="font-size:1.15rem;">${label}</span></div>
+      <div style="color:#aaa;font-size:0.82rem;">Previsão: <strong style="color:#fff;">${termino.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong></div>
+      <div style="color:#aaa;font-size:0.82rem;margin-top:4px;">Total de aportes: <strong style="color:#fff;">${this.formatMoney(mensal * meses)}</strong></div>
+    `
+  },
+
+  _calcSimuladorInverso(faltante) {
+    const meses = parseInt(document.getElementById('sim-meses')?.value) || 0
+    const el = document.getElementById('sim-resultado-inv')
+    if (!el || meses <= 0) { if(el) el.style.display='none'; return }
+    const mensal = faltante / meses
+    el.style.display = 'block'
+    el.innerHTML = `Você precisaria depositar <strong style="color:#fff;">${this.formatMoney(mensal)}/mês</strong> para concluir em ${meses} meses.`
   },
 
   async modalMeta(meta = null) {
