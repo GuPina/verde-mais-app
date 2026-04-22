@@ -7142,14 +7142,12 @@ const VM = {
         }
       } else if (r.nova_tag) {
         if (resultEl) {
-          resultEl.innerHTML = \`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="color:#A78BFA">💡 IA sugere criar tag:</span>
-            <strong style="color:#fff">\${r.nova_tag}</strong>
-            <button onclick="VM._criarTagSugeridaDespesa('\${r.nova_tag.replace(/'/g,"\\'")}', this)"
-              style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">
-              + Criar esta tag
-            </button>
-          </div>\`
+          resultEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+            + '<span style="color:#A78BFA">💡 IA sugere criar tag:</span>'
+            + '<strong style="color:#fff">' + r.nova_tag + '</strong>'
+            + '<button onclick="VM._criarTagSugeridaDespesa(\'' + r.nova_tag.replace(/'/g, "\\\\'") + '\', this)"'
+              + ' style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">'
+            + '+ Criar esta tag</button></div>'
           resultEl.style.display = 'block'
         }
       } else {
@@ -7192,6 +7190,20 @@ const VM = {
 
   // Toggle visual de tag no modal de despesa (legado - mantido por compatibilidade)
   _toggleTag(el) {
+    if (!el) return
+    const sel = el.dataset.tagSelected === '1'
+    const cor = el.dataset.tagCor || '#10B981'
+    el.dataset.tagSelected = sel ? '0' : '1'
+    if (!sel) {
+      el.style.border = '1.5px solid ' + cor
+      el.style.background = cor + '22'
+      el.style.color = cor
+    } else {
+      el.style.border = '1.5px solid rgba(255,255,255,0.1)'
+      el.style.background = 'transparent'
+      el.style.color = '#94A3B8'
+    }
+  },
 
   // Retorna IDs das tags selecionadas no modal de despesa
   _getTagsSelecionadas() {
