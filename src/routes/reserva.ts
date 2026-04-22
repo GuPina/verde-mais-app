@@ -6,16 +6,34 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const reserva = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// ─── Helper: média de gastos mensais ─────────────────────────────────────────
+// ─── Helper: média de gastos mensais (excluindo não-recorrentes eventuais) ────
 async function getMediaGastos(db: D1Database, userId: number): Promise<number> {
+  // Exclui categorias claramente eventuais: viagem, presente, lazer esporádico
   const r = await db.prepare(`
     SELECT COALESCE(AVG(total_mes), 0) as media FROM (
       SELECT SUM(valor) as total_mes FROM despesas
       WHERE user_id = ? AND status IN ('pago','pendente')
       AND data >= date('now', '-3 months')
+      AND categoria NOT IN ('viagem','presente','doacao','lazer_especial','outros_eventuais')
+      AND (fixa_ou_variavel = 'fixa' OR recorrente = 1 OR categoria IN (
+        'alimentacao','moradia','transporte','saude','educacao','utilidades',
+        'seguros','assinaturas','emprestimo','financiamento','cartao','investimento'
+      ))
       GROUP BY strftime('%Y-%m', data)
     )
   `).bind(userId).first() as any
+  // Fallback: se não houver despesas recorrentes, usa todas as despesas
+  if (!r?.media) {
+    const r2 = await db.prepare(`
+      SELECT COALESCE(AVG(total_mes), 0) as media FROM (
+        SELECT SUM(valor) as total_mes FROM despesas
+        WHERE user_id = ? AND status IN ('pago','pendente')
+        AND data >= date('now', '-3 months')
+        GROUP BY strftime('%Y-%m', data)
+      )
+    `).bind(userId).first() as any
+    return r2?.media || 0
+  }
   return r?.media || 0
 }
 
@@ -277,7 +295,7 @@ reserva.patch('/:id/meta-meses', requireAuth, async (c) => {
 reserva.patch('/:id/depositar', requireAuth, async (c) => {
   const user = c.get('user')
   const id   = c.req.param('id')
-  const { valor, descricao = 'Depósito' } = await c.req.json()
+  const { valor, descricao = 'Depósito', origem = null } = await c.req.json()
 
   if (!valor || parseFloat(valor) <= 0)
     return c.json({ error: 'Informe um valor positivo' }, 400)
@@ -292,11 +310,12 @@ reserva.patch('/:id/depositar', requireAuth, async (c) => {
     'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
   ).bind(novoValor, new Date().toISOString().split('T')[0], id, user.id).run()
 
-  // S-RE1: Registrar no histórico
+  // S-RE1: Registrar no histórico (inclui origem do dinheiro)
+  const descComOrigem = origem ? `${descricao} — Origem: ${origem}` : descricao
   await c.env.DB.prepare(
     `INSERT INTO reserva_historico (reserva_id, user_id, tipo, valor, descricao, saldo_antes, saldo_depois, data)
      VALUES (?, ?, 'deposito', ?, ?, ?, ?, date('now'))`
-  ).bind(id, user.id, parseFloat(valor), descricao, saldoAntes, novoValor).run()
+  ).bind(id, user.id, parseFloat(valor), descComOrigem, saldoAntes, novoValor).run()
 
   // Verificar conquistas
   const mediaGastos = await getMediaGastos(c.env.DB, user.id)
@@ -327,7 +346,7 @@ reserva.patch('/:id/depositar', requireAuth, async (c) => {
 reserva.patch('/:id/sacar', requireAuth, async (c) => {
   const user = c.get('user')
   const id   = c.req.param('id')
-  const { valor, descricao = 'Saque' } = await c.req.json()
+  const { valor, descricao = 'Saque', motivo = null } = await c.req.json()
 
   if (!valor || parseFloat(valor) <= 0)
     return c.json({ error: 'Informe um valor positivo' }, 400)
@@ -342,11 +361,12 @@ reserva.patch('/:id/sacar', requireAuth, async (c) => {
     'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
   ).bind(novoValor, new Date().toISOString().split('T')[0], id, user.id).run()
 
-  // S-RE1: Registrar no histórico
+  // S-RE1: Registrar no histórico (inclui motivo do saque)
+  const descComMotivo = motivo ? `${descricao} — Motivo: ${motivo}` : descricao
   await c.env.DB.prepare(
     `INSERT INTO reserva_historico (reserva_id, user_id, tipo, valor, descricao, saldo_antes, saldo_depois, data)
      VALUES (?, ?, 'saque', ?, ?, ?, ?, date('now'))`
-  ).bind(id, user.id, parseFloat(valor), descricao, saldoAntes, novoValor).run()
+  ).bind(id, user.id, parseFloat(valor), descComMotivo, saldoAntes, novoValor).run()
 
   return c.json({
     success: true,

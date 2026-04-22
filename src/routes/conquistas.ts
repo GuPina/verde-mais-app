@@ -6,7 +6,7 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const conquistas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// GET /api/conquistas — Todas as conquistas (ganhas + disponíveis)
+// GET /api/conquistas — Todas as conquistas (ganhas + disponíveis + progresso parcial)
 conquistas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
 
@@ -18,13 +18,48 @@ conquistas.get('/', requireAuth, async (c) => {
   const ganhasCodigos = new Set((ganhas.results as any[]).map(g => g.conquista_codigo))
   const ganhassMap = Object.fromEntries((ganhas.results as any[]).map(g => [g.conquista_codigo, g]))
 
-  const resultado = (todas.results as any[]).map(def => ({
-    ...def,
-    conquistada: ganhasCodigos.has(def.codigo),
-    data_conquista: ganhassMap[def.codigo]?.data_conquista || null,
-    // visualizado: null = não conquistada (trata como 1), 0 = nova não vista, 1 = já vista
-    visualizado: ganhasCodigos.has(def.codigo) ? (ganhassMap[def.codigo]?.visualizado ?? 0) : 1
-  }))
+  // ── Calcular progresso parcial para conquistas com threshold ──────────────
+  const [despesasPagas, investimentos, lembreteCount, receitas, emprestimosQ, finQ] = await Promise.all([
+    c.env.DB.prepare(`SELECT COUNT(*) as n FROM despesas WHERE user_id = ? AND status = 'pago'`).bind(user.id).first() as any,
+    c.env.DB.prepare(`SELECT COUNT(*) as n, COUNT(DISTINCT tipo) as tipos FROM investimentos WHERE user_id = ?`).bind(user.id).first() as any,
+    c.env.DB.prepare(`SELECT COUNT(*) as n FROM lembretes WHERE user_id = ?`).bind(user.id).first() as any,
+    c.env.DB.prepare(`SELECT COUNT(*) as n FROM receitas WHERE user_id = ?`).bind(user.id).first() as any,
+    c.env.DB.prepare(`SELECT COUNT(*) as n FROM emprestimos WHERE user_id = ? AND status = 'quitado'`).bind(user.id).first() as any,
+    c.env.DB.prepare(`SELECT id, parcelas_pagas, numero_parcelas FROM financiamentos WHERE user_id = ? AND status != 'quitado' ORDER BY id DESC LIMIT 1`).bind(user.id).first() as any,
+  ])
+
+  // Mapa: codigo → { atual, total }
+  const progressos: Record<string, { atual: number; total: number }> = {
+    disciplinado:      { atual: Math.min(Number(despesasPagas?.n || 0), 10), total: 10 },
+    lembrete_mestre:   { atual: Math.min(Number(lembreteCount?.n || 0), 5), total: 5 },
+    investidor_diversificado: { atual: Math.min(Number(investimentos?.tipos || 0), 3), total: 3 },
+    poupador_dedicado: { atual: 0, total: 10000 }, // preenchido abaixo
+    milionario:        { atual: 0, total: 100000 }, // preenchido abaixo
+    quitou_10pct: finQ ? { atual: Math.round((finQ.parcelas_pagas / finQ.numero_parcelas) * 100), total: 10 } : { atual: 0, total: 10 },
+    quitou_30pct: finQ ? { atual: Math.round((finQ.parcelas_pagas / finQ.numero_parcelas) * 100), total: 30 } : { atual: 0, total: 30 },
+    quitou_50pct: finQ ? { atual: Math.round((finQ.parcelas_pagas / finQ.numero_parcelas) * 100), total: 50 } : { atual: 0, total: 50 },
+  }
+
+  // Total investido para conquistas de saldo
+  try {
+    const invTotal = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor_atual), 0) as total FROM investimentos WHERE user_id = ?`
+    ).bind(user.id).first() as any
+    const totalInv = Number(invTotal?.total || 0)
+    progressos['poupador_dedicado'] = { atual: Math.min(totalInv, 10000), total: 10000 }
+    progressos['milionario'] = { atual: Math.min(totalInv, 100000), total: 100000 }
+  } catch { }
+
+  const resultado = (todas.results as any[]).map(def => {
+    const prog = progressos[def.codigo]
+    return {
+      ...def,
+      conquistada: ganhasCodigos.has(def.codigo),
+      data_conquista: ganhassMap[def.codigo]?.data_conquista || null,
+      visualizado: ganhasCodigos.has(def.codigo) ? (ganhassMap[def.codigo]?.visualizado ?? 0) : 1,
+      progresso: prog ? { atual: prog.atual, total: prog.total, pct: Math.round(prog.atual / prog.total * 100) } : null
+    }
+  })
 
   const totalPontos = resultado.filter(r => r.conquistada).reduce((s, r) => s + r.pontos, 0)
   const naoVisualizadas = (ganhas.results as any[]).filter(g => !g.visualizado).length

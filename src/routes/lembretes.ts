@@ -29,13 +29,39 @@ lembretes.get('/', requireAuth, async (c) => {
   const lembretesComStatus = (result.results as any[]).map(l => {
     let urgente = false
     let diasParaVencer = null
+    let atrasado = false
+
     if (l.dia_vencimento) {
-      const dataVenc = new Date(hoje.getFullYear(), hoje.getMonth(), l.dia_vencimento)
-      if (dataVenc < hoje) dataVenc.setMonth(dataVenc.getMonth() + 1)
-      diasParaVencer = Math.ceil((dataVenc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
-      urgente = diasParaVencer <= (l.alertar_dias_antes || 3)
+      // Calcular próximo vencimento real (se não tiver, calcular agora)
+      let dataVenc = new Date(hoje.getFullYear(), hoje.getMonth(), l.dia_vencimento)
+      // Se a data deste mês já passou, o próximo é no próximo mês
+      if (dataVenc < hoje) {
+        // Verificar se está atrasado (passou e não foi pago)
+        if (l.status_mes === 'aguardando') {
+          atrasado = true
+          diasParaVencer = -Math.floor((hoje.getTime() - dataVenc.getTime()) / (1000 * 60 * 60 * 24))
+        } else {
+          dataVenc.setMonth(dataVenc.getMonth() + 1)
+          diasParaVencer = Math.ceil((dataVenc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+        }
+      } else {
+        diasParaVencer = Math.ceil((dataVenc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+      }
+      // Urgente = vence em breve OU está atrasado E não foi pago
+      urgente = (atrasado || diasParaVencer <= (l.alertar_dias_antes || 3)) && l.status_mes === 'aguardando'
+    } else if (!l.proximo_vencimento && l.frequencia) {
+      // Sem dia_vencimento: recalcular proximo_vencimento
+      diasParaVencer = null
     }
-    return { ...l, urgente, dias_para_vencer: diasParaVencer }
+
+    return { ...l, urgente, atrasado, dias_para_vencer: diasParaVencer }
+  })
+
+  // Ordenar por vencimento mais próximo (atrasados primeiro, depois por dias)
+  lembretesComStatus.sort((a, b) => {
+    const da = a.atrasado ? -9999 : (a.dias_para_vencer ?? 9999)
+    const db_ = b.atrasado ? -9999 : (b.dias_para_vencer ?? 9999)
+    return da - db_
   })
 
   const urgentes = lembretesComStatus.filter(l => l.urgente && l.status_mes === 'aguardando')
@@ -246,7 +272,16 @@ lembretes.patch('/:id/registrar', requireAuth, async (c) => {
     'UPDATE lembretes SET status_mes=?, ultimo_recebimento=?, proximo_vencimento=? WHERE id=? AND user_id=?'
   ).bind(status || 'pago', hoje, proximo, id, user.id).run()
 
-  return c.json({ success: true, proximo_vencimento: proximo, message: `Lembrete marcado como ${status}!` })
+  // Recorrência automática: ao pagar, resetar status_mes para 'aguardando' no próximo ciclo
+  // O status_mes volta para 'aguardando' automaticamente quando proximo_vencimento chegar
+  // (isso é gerenciado pelo frontend ao exibir, ou por um cron job futuro)
+
+  return c.json({ 
+    success: true, 
+    proximo_vencimento: proximo, 
+    message: `Lembrete marcado como ${status}! Próximo: ${proximo}`,
+    proximo_criado: true
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,13 +368,27 @@ lembretes.get('/urgentes', requireAuth, async (c) => {
   const hoje = new Date()
   const urgentes = (result.results as any[]).map(l => {
     let diasParaVencer = null
+    let atrasado = false
     if (l.dia_vencimento) {
       const dv = new Date(hoje.getFullYear(), hoje.getMonth(), l.dia_vencimento)
-      if (dv < hoje) dv.setMonth(dv.getMonth() + 1)
-      diasParaVencer = Math.ceil((dv.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+      if (dv < hoje) {
+        // Passou sem pagamento — está atrasado
+        atrasado = true
+        diasParaVencer = -Math.floor((hoje.getTime() - dv.getTime()) / (1000 * 60 * 60 * 24))
+      } else {
+        diasParaVencer = Math.ceil((dv.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+      }
     }
-    return { ...l, dias_para_vencer: diasParaVencer, urgente: diasParaVencer !== null && diasParaVencer <= (l.alertar_dias_antes || 3) }
+    const urgente = atrasado || (diasParaVencer !== null && diasParaVencer <= (l.alertar_dias_antes || 3))
+    return { ...l, dias_para_vencer: diasParaVencer, atrasado, urgente }
   }).filter(l => l.urgente)
+
+  // Atrasados primeiro, depois por dias para vencer
+  urgentes.sort((a, b) => {
+    if (a.atrasado && !b.atrasado) return -1
+    if (!a.atrasado && b.atrasado) return 1
+    return (a.dias_para_vencer ?? 9999) - (b.dias_para_vencer ?? 9999)
+  })
 
   return c.json({ urgentes, total: urgentes.length })
 })
@@ -409,6 +458,33 @@ lembretes.get('/calendario', requireAuth, async (c) => {
 
   const totalValor = eventos.reduce((s, e) => s + e.valor_estimado, 0)
   return c.json({ mes, ano, eventos, total_eventos: eventos.length, total_valor_estimado: Math.round(totalValor * 100) / 100 })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/lembretes/reset-status — resetar status_mes de lembretes cujo
+// proximo_vencimento já passou (recorrência automática)
+// ─────────────────────────────────────────────────────────────────────────────
+lembretes.post('/reset-status', requireAuth, async (c) => {
+  const user = c.get('user')
+  const hoje = new Date().toISOString().split('T')[0]
+
+  // Buscar lembretes com status pago/ignorado e proximo_vencimento <= hoje
+  const vencidos = await c.env.DB.prepare(
+    `SELECT id, dia_vencimento, frequencia FROM lembretes 
+     WHERE user_id = ? AND ativo = 1 AND status_mes IN ('pago','ignorado','recebido')
+     AND proximo_vencimento <= ?`
+  ).bind(user.id, hoje).all()
+
+  let resetados = 0
+  for (const l of (vencidos.results as any[])) {
+    const novoProximo = calcProximoVencimento(l.dia_vencimento || 1, l.frequencia || 'mensal')
+    await c.env.DB.prepare(
+      `UPDATE lembretes SET status_mes = 'aguardando', proximo_vencimento = ? WHERE id = ? AND user_id = ?`
+    ).bind(novoProximo, l.id, user.id).run()
+    resetados++
+  }
+
+  return c.json({ success: true, resetados, message: `${resetados} lembrete(s) renovado(s) para o próximo ciclo` })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

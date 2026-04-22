@@ -10433,10 +10433,14 @@ const VM = {
 
   async carregarLembretes() {
     try {
+      // Resetar status de recorrências vencidas antes de carregar
+      try { await this.api('POST', 'lembretes/reset-status') } catch(e) {}
+
       const data = await this.api('GET', 'lembretes')
       const container = document.getElementById('lembretes-container')
       
-      const tipoIcons = { conta: '📃', imposto: '🏛️', mensalidade: '📅', seguro: '🛡️', aluguel: '🏠', investimento: '📈', outros: '🔔' }
+      const tipoIcons = { conta: '📃', imposto: '🏛️', mensalidade: '📅', seguro: '🛡️', aluguel: '🏠', investimento: '📈', despesa: '💸', receita: '💰', saude: '🏥', educacao: '🎓', transporte: '🚗', revisao: '🔧', reuniao: '📋', tarefa: '✅', outros: '🔔' }
+      const tipoLabel = { conta: 'Contas', imposto: 'Impostos', mensalidade: 'Mensalidades', seguro: 'Seguros', aluguel: 'Aluguel', investimento: 'Investimentos', despesa: 'Despesas', receita: 'Receitas', saude: 'Saúde', educacao: 'Educação', transporte: 'Transporte', revisao: 'Revisões', reuniao: 'Reuniões', tarefa: 'Tarefas', outros: 'Outros' }
       const freqLabel = { semanal: 'Semanal', quinzenal: 'Quinzenal', mensal: 'Mensal', bimestral: 'Bimestral', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' }
 
       if (!data.lembretes || data.lembretes.length === 0) {
@@ -10453,68 +10457,125 @@ const VM = {
         return
       }
 
-      const urgentes = data.lembretes.filter(l => {
-        if (!l.proximo_vencimento) return false
-        const diff = (new Date(l.proximo_vencimento) - new Date()) / 86400000
-        return diff <= 3 && diff >= 0
+      // Urgentes: atrasados + vence em breve + status aguardando
+      const hoje = new Date()
+      const urgentes = data.lembretes.filter(l => l.urgente && l.status_mes === 'aguardando' && l.ativo)
+      const atrasados = urgentes.filter(l => l.atrasado)
+
+      // Agrupar por tipo
+      const grupos = {}
+      data.lembretes.forEach(l => {
+        const g = l.tipo || 'outros'
+        if (!grupos[g]) grupos[g] = []
+        grupos[g].push(l)
       })
 
+      // Calcular total mensal
+      const totalMensal = data.lembretes.filter(l => l.ativo).reduce((s,l) => s + (l.valor_estimado||0), 0)
+
+      const renderDiasTag = (l) => {
+        if (!l.ativo) return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:#555;">⏸️ Inativo</span>`
+        if (l.status_mes === 'pago') return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(47,191,113,0.15);border-radius:20px;color:#2FBF71;">✅ Pago</span>`
+        if (l.atrasado) {
+          const d = Math.abs(l.dias_para_vencer || 0)
+          return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(244,63,94,0.15);border-radius:20px;color:#f43f5e;font-weight:700;">🔴 ${d}d atrasado</span>`
+        }
+        if (l.dias_para_vencer !== null && l.dias_para_vencer <= (l.alertar_dias_antes || 3)) {
+          return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,196,0,0.15);border-radius:20px;color:#ffc400;font-weight:700;">⚠️ ${l.dias_para_vencer}d</span>`
+        }
+        if (l.dias_para_vencer !== null) {
+          return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(116,185,255,0.12);border-radius:20px;color:#74b9ff;">${l.dias_para_vencer}d</span>`
+        }
+        return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:#666;">📅 Ativo</span>`
+      }
+
+      const renderLembreteRow = (l, compact = false) => `
+        <div style="display:flex;align-items:center;gap:12px;padding:${compact?'10px':'14px'};background:${l.atrasado&&l.status_mes==='aguardando'?'rgba(244,63,94,0.04)':l.urgente&&l.status_mes==='aguardando'?'rgba(255,196,0,0.04)':'rgba(255,255,255,0.02)'};border-radius:12px;border:1px solid ${l.atrasado&&l.status_mes==='aguardando'?'rgba(244,63,94,0.2)':l.urgente&&l.status_mes==='aguardando'?'rgba(255,196,0,0.15)':'rgba(255,255,255,0.04)'};">
+          <div style="width:40px;height:40px;background:rgba(47,191,113,0.12);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">${tipoIcons[l.tipo]||'🔔'}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:0.88rem;display:flex;align-items:center;gap:6px;">
+              ${l.titulo}
+              ${renderDiasTag(l)}
+            </div>
+            <div style="font-size:0.72rem;color:#666;margin-top:2px;">${freqLabel[l.frequencia]||'Mensal'} • ${l.dia_vencimento ? 'Dia '+l.dia_vencimento : 'Sem dia fixo'}${l.proximo_vencimento ? ' • Próx: '+this.formatDate(l.proximo_vencimento) : ''}</div>
+          </div>
+          <div style="font-weight:700;font-size:0.9rem;flex-shrink:0;">${this.formatMoney(l.valor_estimado)}</div>
+          <div style="display:flex;gap:5px;flex-shrink:0;">
+            ${l.ativo && l.status_mes === 'aguardando' ? `<button onclick="VM.marcarLembretePago(${l.id})" title="Marcar como Pago" style="background:rgba(47,191,113,0.15);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-check"></i></button>` : ''}
+            <button onclick="VM.modalConverterLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" title="Converter em Despesa" style="background:rgba(116,185,255,0.1);border:1px solid rgba(116,185,255,0.25);color:#74b9ff;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-exchange-alt"></i></button>
+            <button onclick="VM.modalLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" class="btn-success" style="padding:5px 9px;font-size:0.72rem;"><i class="fas fa-edit"></i></button>
+            <button onclick="VM.deleteLembrete(${l.id})" class="btn-danger" style="padding:5px 9px;font-size:0.72rem;"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+      `
+
       container.innerHTML = `
+        <!-- RESUMO TOPO -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:20px;">
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:1.6rem;margin-bottom:4px;">🔔</div>
+            <div style="font-size:1.3rem;font-weight:800;">${data.lembretes.filter(l=>l.ativo).length}</div>
+            <div style="color:#666;font-size:0.75rem;">Ativos</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:1.6rem;margin-bottom:4px;">📅</div>
+            <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${this.formatMoney(totalMensal)}</div>
+            <div style="color:#666;font-size:0.75rem;">Total Mensal</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:1.6rem;margin-bottom:4px;">${urgentes.length>0?'⚠️':'✅'}</div>
+            <div style="font-size:1.3rem;font-weight:800;color:${urgentes.length>0?(atrasados.length>0?'#f43f5e':'#ffc400'):'#2FBF71'};">${urgentes.length}</div>
+            <div style="color:#666;font-size:0.75rem;">${atrasados.length>0?atrasados.length+' Atrasado(s)':'Urgentes'}</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:1.6rem;margin-bottom:4px;">✅</div>
+            <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${data.lembretes.filter(l=>l.status_mes==='pago').length}</div>
+            <div style="color:#666;font-size:0.75rem;">Pagos este mês</div>
+          </div>
+        </div>
+
+        <!-- URGENTES / ATRASADOS -->
         ${urgentes.length > 0 ? `
-          <div class="card" style="border-color:rgba(255,196,0,0.4);margin-bottom:20px;">
-            <div style="font-size:1rem;font-weight:700;color:#ffc400;margin-bottom:16px;">⚠️ Vencimentos Próximos (${urgentes.length})</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              ${urgentes.map(l => `
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:rgba(255,196,0,0.06);border-radius:10px;">
-                  <div style="display:flex;align-items:center;gap:10px;">
-                    <span style="font-size:1.3rem;">${tipoIcons[l.tipo] || '🔔'}</span>
-                    <div>
-                      <div style="font-weight:600;font-size:0.9rem;">${l.titulo}</div>
-                      <div style="font-size:0.75rem;color:#888;">Vence: ${this.formatDate(l.proximo_vencimento)}</div>
-                    </div>
-                  </div>
-                  <div style="font-weight:700;color:#ffc400;">${this.formatMoney(l.valor_estimado)}</div>
-                </div>
-              `).join('')}
+          <div class="card" style="border-color:${atrasados.length>0?'rgba(244,63,94,0.3)':'rgba(255,196,0,0.3)'};margin-bottom:20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+              <div style="font-size:0.95rem;font-weight:700;color:${atrasados.length>0?'#f43f5e':'#ffc400'};">
+                ${atrasados.length>0?'🔴 Atrasados + Urgentes':'⚠️ Vencimentos Próximos'} (${urgentes.length})
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${urgentes.map(l => renderLembreteRow(l, true)).join('')}
             </div>
           </div>
         ` : ''}
 
-        <div class="card">
-          <div style="font-weight:700;margin-bottom:16px;">📋 Todos os Lembretes</div>
-          <div style="display:flex;flex-direction:column;gap:12px;">
-            ${data.lembretes.map(l => `
-              <div style="display:flex;align-items:center;gap:14px;padding:14px;background:rgba(255,255,255,0.02);border-radius:12px;border:1px solid rgba(255,255,255,0.04);">
-                <div style="width:44px;height:44px;background:rgba(47,191,113,0.12);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;">
-                  ${tipoIcons[l.tipo] || '🔔'}
-                </div>
-                <div style="flex:1;min-width:0;">
-                  <div style="font-weight:600;font-size:0.9rem;">${l.titulo}</div>
-                  <div style="font-size:0.75rem;color:#666;margin-top:2px;">
-                    ${freqLabel[l.frequencia] || 'Mensal'} • Dia ${l.dia_vencimento || '-'} 
-                    ${l.proximo_vencimento ? '• Próximo: ' + this.formatDate(l.proximo_vencimento) : ''}
-                  </div>
-                </div>
-                <div style="text-align:right;flex-shrink:0;">
-                  <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(l.valor_estimado)}</div>
-                  <div style="margin-top:6px;">
-                    <span class="badge ${l.ativo ? 'badge-green' : 'badge-red'}" style="font-size:0.7rem;">
-                      ${l.ativo ? '✅ Ativo' : '⏸️ Inativo'}
-                    </span>
-                  </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-shrink:0;">
-                  <button onclick="VM.modalConverterLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" title="Converter em Despesa" style="background:rgba(47,191,113,0.12);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:0.75rem;"><i class="fas fa-exchange-alt"></i></button>
-                  <button onclick="VM.modalLembrete(${JSON.stringify(l).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
-                  <button onclick="VM.deleteLembrete(${l.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
-                </div>
+        <!-- AGRUPADO POR TIPO -->
+        ${Object.entries(grupos).map(([tipo, itens]) => `
+          <div class="card" style="margin-bottom:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:1.2rem;">${tipoIcons[tipo]||'🔔'}</span>
+                <span style="font-weight:700;font-size:0.9rem;">${tipoLabel[tipo]||tipo} (${itens.length})</span>
               </div>
-            `).join('')}
+              <div style="font-size:0.8rem;color:#888;">${this.formatMoney(itens.filter(l=>l.ativo).reduce((s,l)=>s+(l.valor_estimado||0),0))}/mês</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${itens.map(l => renderLembreteRow(l)).join('')}
+            </div>
           </div>
-        </div>
+        `).join('')}
       `
     } catch (e) {
       this.toast('Erro ao carregar lembretes', 'error')
+    }
+  },
+
+  async marcarLembretePago(id) {
+    try {
+      const r = await this.api('PATCH', `lembretes/${id}/registrar`, { status: 'pago' })
+      this.toast(`✅ Lembrete pago! Próximo: ${this.formatDate(r.proximo_vencimento)}`)
+      this.carregarLembretes()
+    } catch(e) {
+      this.toast('Erro ao marcar como pago', 'error')
     }
   },
 
@@ -12701,13 +12762,25 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   async carregarReserva() {
     try {
-      const data = await this.api('GET', 'reserva')
+      // Buscar reserva e investimentos tipo Caixinha em paralelo
+      const [data, invData] = await Promise.all([
+        this.api('GET', 'reserva'),
+        this.api('GET', 'investimentos').catch(() => ({ investimentos: [] }))
+      ])
       const container = document.getElementById('reserva-container')
       const r = data.reserva
       const mediaGastos = data.media_gastos_mensais || 0
       const valorIdeal = data.valor_ideal || 0
       const cobertura = data.cobertura_pct || 0
       const mesesCobertos = data.meses_cobertos || 0
+
+      // Caixinhas CDI disponíveis
+      const caixinhas = (invData.investimentos || []).filter(i => i.tipo === 'caixinha' || i.tipo === 'poupanca')
+      const saldoCaixinha = caixinhas.reduce((s, i) => s + (i.valor_atual || i.valor_investido || 0), 0)
+
+      // CDI atual (para sugestão de local)
+      let cdiAtual = 13.65
+      try { const cdiData = await this.api('GET', 'cdi'); cdiAtual = cdiData.taxa_selic || cdiData.cdi || 13.65 } catch(e){}
 
       const barColor = cobertura >= 100 ? '#2FBF71' : cobertura >= 60 ? '#ffc400' : '#ff6b6b'
       const statusIcon = cobertura >= 100 ? '✅' : cobertura >= 60 ? '⚠️' : '🔴'
@@ -12794,27 +12867,65 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               </div>
             </div>
 
-            <!-- Barra de progresso -->
-            <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:14px;overflow:hidden;margin-bottom:10px;">
-              <div style="height:100%;width:${Math.min(100,cobertura)}%;background:${barColor};border-radius:50px;transition:width 0.6s ease;"></div>
+            <!-- Termômetro Visual com marcos 3m/6m/9m/12m -->
+            <div style="position:relative;margin-bottom:8px;">
+              <!-- Barra base -->
+              <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:20px;overflow:visible;position:relative;">
+                <!-- Preenchimento -->
+                <div style="height:100%;width:${Math.min(100,cobertura)}%;background:linear-gradient(90deg,${barColor},${cobertura>=100?'#a8e6cf':barColor});border-radius:50px;transition:width 0.8s ease;position:relative;z-index:1;"></div>
+                <!-- Marcadores de marcos -->
+                ${[{m:3,l:'3m',pct:Math.round(3/objetivoMeses*100)},{m:6,l:'6m',pct:Math.round(6/objetivoMeses*100)},{m:9,l:'9m',pct:Math.round(9/objetivoMeses*100)},{m:12,l:'12m',pct:Math.round(12/objetivoMeses*100)}].filter(mk=>mk.m<=objetivoMeses||mk.m<=12).map(mk => {
+                  const pLeft = Math.min(100, mk.pct)
+                  const atingido = mesesCobertos >= mk.m
+                  return `<div style="position:absolute;left:${pLeft}%;top:50%;transform:translate(-50%,-50%);z-index:2;">
+                    <div style="width:3px;height:28px;background:${atingido?'#fff':'rgba(255,255,255,0.3)'};border-radius:2px;"></div>
+                  </div>
+                  <div style="position:absolute;left:${pLeft}%;top:100%;transform:translateX(-50%);margin-top:4px;font-size:0.6rem;color:${atingido?barColor:'#555'};font-weight:${atingido?'700':'400'};white-space:nowrap;">${mk.l}</div>`
+                }).join('')}
+              </div>
             </div>
-            <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#888;">
+            <!-- Labels abaixo do termômetro -->
+            <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#888;margin-top:22px;margin-bottom:8px;">
               <span>${this.formatMoney(r.valor_atual)} guardados</span>
-              <span style="color:${barColor};font-weight:700;">${cobertura}% da meta</span>
+              <span style="color:${barColor};font-weight:700;">${cobertura}% (${mesesCobertos.toFixed(1)} meses)</span>
               <span>Meta: ${this.formatMoney(valorIdeal)}</span>
             </div>
 
-            <!-- Faltante -->
-            ${cobertura < 100 ? `
-              <div style="margin-top:14px;padding:12px 16px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:10px;font-size:0.82rem;color:#cca800;">
-                <i class="fas fa-info-circle"></i> Faltam <strong>${this.formatMoney(Math.max(0,valorIdeal - r.valor_atual))}</strong> para completar sua reserva de ${objetivoMeses} meses.
-                ${mediaGastos > 0 ? `Poupando <strong>${this.formatMoney((valorIdeal - r.valor_atual) / 12)}/mês</strong>, você completa em 12 meses.` : ''}
-              </div>
-            ` : `
-              <div style="margin-top:14px;padding:12px 16px;background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;font-size:0.82rem;color:#2FBF71;">
+            <!-- Meta de aporte mensal + Faltante -->
+            ${cobertura < 100 ? (() => {
+              const falta = Math.max(0, valorIdeal - r.valor_atual)
+              const aportes = [3, 6, 12, 24]
+              return `
+              <div style="margin-top:10px;padding:14px 16px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:10px;font-size:0.82rem;color:#cca800;">
+                <div style="margin-bottom:8px;"><i class="fas fa-info-circle"></i> Faltam <strong>${this.formatMoney(falta)}</strong> para completar sua reserva de ${objetivoMeses} meses.</div>
+                <div style="font-size:0.75rem;color:#888;margin-bottom:6px;font-weight:600;">💡 Meta de aporte mensal para atingir em:</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  ${aportes.map(m => `<div style="background:rgba(255,196,0,0.1);border-radius:8px;padding:6px 10px;text-align:center;min-width:80px;">
+                    <div style="font-size:0.65rem;color:#888;">${m} meses</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ffc400;">${this.formatMoney(falta/m)}/mês</div>
+                  </div>`).join('')}
+                </div>
+              </div>`
+            })() : `
+              <div style="margin-top:10px;padding:12px 16px;background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;font-size:0.82rem;color:#2FBF71;">
                 🎉 <strong>Parabéns!</strong> Sua reserva está completa! Considere aumentar a meta para ${objetivoMeses + 3} meses.
               </div>
             `}
+
+            <!-- Botão sacar com alerta -->
+            ${r.valor_atual > 0 ? `
+            <div style="margin-top:10px;">
+              <button onclick="VM.modalReservaSaque(${r.id}, ${r.valor_atual})" style="width:100%;padding:10px;background:rgba(255,107,107,0.08);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;">
+                <i class="fas fa-hand-holding-usd"></i> Usar Reserva (registrar retirada)
+              </button>
+            </div>` : ''}
+
+            <!-- Histórico de movimentações -->
+            <div style="margin-top:14px;" id="res-historico-container">
+              <button onclick="VM.carregarHistoricoReserva(${r.id})" style="width:100%;padding:8px;background:rgba(255,255,255,0.04);color:#888;border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;font-size:0.78rem;">
+                <i class="fas fa-history"></i> Ver histórico de movimentações
+              </button>
+            </div>
           </div>
 
           <!-- MARCOS -->
@@ -12831,6 +12942,57 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               }).join('')}
             </div>
           </div>
+
+          <!-- INTEGRAÇÃO CAIXINHA CDI -->
+          ${saldoCaixinha > 0 ? `
+            <div class="stat-card" style="margin-bottom:24px;border-color:rgba(47,191,113,0.3);">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                <span style="font-size:1.4rem;">💰</span>
+                <div>
+                  <div style="font-weight:700;font-size:0.9rem;">Caixinha CDI detectada</div>
+                  <div style="font-size:0.75rem;color:#888;">Você tem ${caixinhas.length} investimento(s) de liquidez diária</div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                ${caixinhas.map(c => `
+                  <div style="padding:10px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:8px;">
+                    <div style="font-size:0.75rem;color:#888;margin-bottom:2px;">${c.nome||'Caixinha'}</div>
+                    <div style="font-weight:700;color:#2FBF71;font-size:0.9rem;">${this.formatMoney(c.valor_atual||c.valor_investido||0)}</div>
+                    ${c.percentual_cdi ? `<div style="font-size:0.68rem;color:#888;">${c.percentual_cdi}% CDI</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+              ${saldoCaixinha >= (r.valor_atual || 0) * 0.5 ? `
+                <div style="padding:10px 14px;background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:8px;font-size:0.78rem;color:#2FBF71;">
+                  ✅ Sua Caixinha CDI cobre parte significativa da reserva com liquidez imediata. Ótima estratégia!
+                </div>
+              ` : `
+                <div style="padding:10px 14px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:8px;font-size:0.78rem;color:#cca800;">
+                  💡 Considere mover parte da reserva para a Caixinha CDI (${cdiAtual.toFixed(1)}% a.a.) para render mais que a poupança com liquidez diária.
+                </div>
+              `}
+            </div>
+          ` : mediaGastos > 0 && (r?.valor_atual || 0) > 0 ? `
+            <div class="stat-card" style="margin-bottom:24px;border-color:rgba(116,185,255,0.2);">
+              <div style="font-weight:700;font-size:0.88rem;margin-bottom:10px;">💡 Sugestão: Onde guardar sua reserva</div>
+              <div style="font-size:0.8rem;color:#888;margin-bottom:12px;">CDI atual: <strong style="color:#74b9ff;">${cdiAtual.toFixed(2)}% a.a.</strong></div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                ${[
+                  { nome: 'Caixinha CDI (inter/nubank)', pct: '100% CDI', destaque: true, obs: 'Liquidez diária, sem IR para curto prazo' },
+                  { nome: 'Tesouro Selic', pct: '~100% Selic', destaque: false, obs: 'Segurança máxima, D+1' },
+                  { nome: 'CDB com liquidez diária', pct: '100-105% CDI', destaque: false, obs: 'Verificar cobertura FGC' },
+                ].map(s => `
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:${s.destaque?'rgba(47,191,113,0.08)':'rgba(255,255,255,0.03)'};border:1px solid ${s.destaque?'rgba(47,191,113,0.2)':'rgba(255,255,255,0.05)'};border-radius:8px;">
+                    <div>
+                      <div style="font-size:0.8rem;font-weight:600;${s.destaque?'color:#2FBF71;':''}">${s.nome}</div>
+                      <div style="font-size:0.68rem;color:#666;">${s.obs}</div>
+                    </div>
+                    <div style="font-size:0.8rem;font-weight:700;color:#74b9ff;">${s.pct}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
 
           ${this.renderEducacaoReserva()}
         `
@@ -12940,31 +13102,41 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   modalReservaDeposito(id, valorAtual) {
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:400px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-            <h3 style="font-size:1.1rem;font-weight:700;">💰 Atualizar Reserva</h3>
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">💰 Depositar na Reserva</h3>
             <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
-          <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.82rem;color:#2FBF71;">
-            Valor atual: <strong>${this.formatMoney(valorAtual)}</strong>
+          <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.82rem;color:#2FBF71;">
+            Saldo atual: <strong>${this.formatMoney(valorAtual)}</strong>
           </div>
           <form id="deposito-form">
             <div class="form-group">
-              <label class="form-label">Tipo de Operação</label>
-              <select id="dep-tipo" class="form-select" onchange="VM.atualizarPreviewDeposito(${valorAtual})">
-                <option value="deposito">💰 Depósito (adicionar)</option>
-                <option value="saque">📤 Retirada (subtrair)</option>
-                <option value="ajuste">✏️ Definir valor total</option>
+              <label class="form-label">Valor do Depósito (R$) *</label>
+              <input type="number" id="dep-valor" class="form-input" step="0.01" min="0.01" placeholder="0.00" required oninput="VM._previewDeposito(${valorAtual})">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Origem do dinheiro *</label>
+              <select id="dep-origem" class="form-select">
+                <option value="Salário/Renda mensal">💼 Salário / Renda mensal</option>
+                <option value="13º salário">🎄 13º Salário</option>
+                <option value="Férias">🏖️ Férias</option>
+                <option value="PLR / Bônus">🎯 PLR / Bônus</option>
+                <option value="Venda de bem">🏷️ Venda de bem</option>
+                <option value="Herança / Doação">🎁 Herança / Doação</option>
+                <option value="Freela / Extra">💡 Freela / Renda extra</option>
+                <option value="Restituição IR">📄 Restituição IR</option>
+                <option value="Outro">📋 Outro</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Valor (R$) *</label>
-              <input type="number" id="dep-valor" class="form-input" step="0.01" min="0.01" placeholder="0.00" required oninput="VM.atualizarPreviewDeposito(${valorAtual})">
+              <label class="form-label">Observação (opcional)</label>
+              <input type="text" id="dep-obs" class="form-input" placeholder="Ex: Poupei do salário de abril">
             </div>
-            <div id="dep-preview" style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:0.82rem;color:#888;margin-bottom:16px;display:none;"></div>
+            <div id="dep-preview" style="padding:10px 14px;background:rgba(47,191,113,0.06);border-radius:8px;font-size:0.82rem;color:#2FBF71;margin-bottom:14px;display:none;"></div>
             <div style="display:flex;gap:12px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
-              <button type="submit" class="btn-primary" style="flex:1;" id="dep-submit"><i class="fas fa-check"></i> Confirmar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="dep-submit"><i class="fas fa-piggy-bank"></i> Depositar</button>
             </div>
           </form>
         </div>
@@ -12973,29 +13145,148 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     document.getElementById('deposito-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('dep-submit')
-      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Depositando...'
       try {
-        const tipo = document.getElementById('dep-tipo').value
         const valor = parseFloat(document.getElementById('dep-valor').value)
-        let novoValor = valorAtual
-        if (tipo === 'deposito') novoValor = valorAtual + valor
-        else if (tipo === 'saque') novoValor = Math.max(0, valorAtual - valor)
-        else novoValor = valor
-
-        // Precisamos pegar os dados completos da reserva para o PUT
-        const data = await this.api('GET', 'reserva')
-        const res = data.reserva
-        await this.api('PUT', `reserva/${id}`, {
-          nome: res.nome, objetivo_meses: res.objetivo_meses,
-          valor_atual: novoValor, observacoes: res.observacoes
+        const origem = document.getElementById('dep-origem').value
+        const obs = document.getElementById('dep-obs').value
+        await this.api('PATCH', `reserva/${id}/depositar`, {
+          valor,
+          origem,
+          descricao: obs || `Depósito via app`
         })
-        this.toast('Reserva atualizada! 🛡️')
+        this.toast(`💰 ${this.formatMoney(valor)} depositado! Origem: ${origem}`, 'success')
         this.closeModal(); this.carregarReserva()
       } catch(err) {
-        this.toast(err.response?.data?.error || 'Erro', 'error')
-        btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmar'
+        this.toast(err.response?.data?.error || 'Erro ao depositar', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-piggy-bank"></i> Depositar'
       }
     })
+  },
+
+  _previewDeposito(valorAtual) {
+    const v = parseFloat(document.getElementById('dep-valor')?.value) || 0
+    const el = document.getElementById('dep-preview')
+    if (!el) return
+    if (v > 0) {
+      el.style.display = 'block'
+      el.innerHTML = `Novo saldo: <strong>${this.formatMoney(valorAtual + v)}</strong>`
+    } else {
+      el.style.display = 'none'
+    }
+  },
+
+  modalReservaSaque(id, valorAtual) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.1rem;font-weight:700;">📤 Usar Reserva de Emergência</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.82rem;color:#ff6b6b;">
+            ⚠️ Você está retirando dinheiro da sua proteção financeira. Utilize apenas em emergências reais e reponha assim que possível.<br>
+            Saldo atual: <strong>${this.formatMoney(valorAtual)}</strong>
+          </div>
+          <form id="saque-form">
+            <div class="form-group">
+              <label class="form-label">Valor da Retirada (R$) *</label>
+              <input type="number" id="saq-valor" class="form-input" step="0.01" min="0.01" max="${valorAtual}" placeholder="0.00" required oninput="VM._previewSaque(${valorAtual})">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Motivo do uso *</label>
+              <select id="saq-motivo" class="form-select">
+                <option value="Perda de emprego / Renda">🚨 Perda de emprego / Queda de renda</option>
+                <option value="Saúde / Médico">🏥 Saúde / Médico / Hospital</option>
+                <option value="Reparo urgente">🔧 Reparo urgente (carro, casa)</option>
+                <option value="Emergência familiar">👨‍👩‍👧 Emergência familiar</option>
+                <option value="Despesa inesperada">💸 Despesa inesperada</option>
+                <option value="Outro motivo">📋 Outro motivo</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Detalhe adicional (opcional)</label>
+              <input type="text" id="saq-obs" class="form-input" placeholder="Ex: Conserto do carro — pneu furado">
+            </div>
+            <div id="saq-preview" style="padding:10px 14px;background:rgba(255,107,107,0.06);border-radius:8px;font-size:0.82rem;color:#ff6b6b;margin-bottom:14px;display:none;"></div>
+            <div style="display:flex;gap:12px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" style="flex:1;padding:12px;background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.9rem;" id="saq-submit"><i class="fas fa-hand-holding-usd"></i> Confirmar Retirada</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('saque-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('saq-submit')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...'
+      try {
+        const valor = parseFloat(document.getElementById('saq-valor').value)
+        const motivo = document.getElementById('saq-motivo').value
+        const obs = document.getElementById('saq-obs').value
+        await this.api('PATCH', `reserva/${id}/sacar`, {
+          valor,
+          motivo,
+          descricao: obs || 'Retirada da reserva'
+        })
+        this.toast(`📤 ${this.formatMoney(valor)} retirado. Lembre-se de repor! Motivo: ${motivo}`, 'warning')
+        this.closeModal(); this.carregarReserva()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao registrar retirada', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-hand-holding-usd"></i> Confirmar Retirada'
+      }
+    })
+  },
+
+  _previewSaque(valorAtual) {
+    const v = parseFloat(document.getElementById('saq-valor')?.value) || 0
+    const el = document.getElementById('saq-preview')
+    if (!el) return
+    if (v > 0) {
+      el.style.display = 'block'
+      const novo = Math.max(0, valorAtual - v)
+      el.innerHTML = `Saldo após retirada: <strong>${this.formatMoney(novo)}</strong> — Lembre-se de repor!`
+    } else {
+      el.style.display = 'none'
+    }
+  },
+
+  async carregarHistoricoReserva(id) {
+    const el = document.getElementById('res-historico-container')
+    if (!el) return
+    el.innerHTML = '<div style="text-align:center;padding:16px;color:#888;font-size:0.82rem;"><i class="fas fa-spinner fa-spin"></i> Carregando histórico...</div>'
+    try {
+      const d = await this.api('GET', 'reserva/historico')
+      const hist = d.historico || []
+      if (hist.length === 0) {
+        el.innerHTML = '<div style="text-align:center;color:#555;font-size:0.8rem;padding:12px;">Nenhuma movimentação registrada ainda.</div>'
+        return
+      }
+      el.innerHTML = `
+        <div style="margin-top:8px;">
+          <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:8px;">📜 Histórico de Movimentações</div>
+          <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+            ${hist.map(h => {
+              const isDeposito = h.tipo === 'deposito'
+              const isSaque = h.tipo === 'saque'
+              const cor = isDeposito ? '#2FBF71' : isSaque ? '#ff6b6b' : '#ffc400'
+              const icone = isDeposito ? '💰' : isSaque ? '📤' : '✏️'
+              const data = h.data || h.created_at?.substring(0,10) || '—'
+              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;border-left:3px solid ${cor};">
+                <span style="font-size:1rem;">${icone}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:0.78rem;font-weight:600;color:${cor};">${isDeposito?'+':isSaque?'-':''}${this.formatMoney(h.valor || h.amount || 0)}</div>
+                  <div style="font-size:0.68rem;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${h.descricao || h.notes || h.tipo} • ${this.formatDate(data)}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;font-size:0.68rem;color:#555;">${this.formatMoney(h.saldo_depois || 0)}</div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>`
+    } catch(e) {
+      el.innerHTML = '<div style="color:#ff6b6b;font-size:0.78rem;text-align:center;padding:12px;">Erro ao carregar histórico.</div>'
+    }
   },
 
   atualizarPreviewDeposito(valorAtual) {
@@ -13031,6 +13322,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div class="section-title">🏆 Conquistas</div>
           <div style="color:#666;font-size:0.85rem;margin-top:2px;">Sua jornada de evolução financeira</div>
         </div>
+        <button onclick="VM.verificarNovasConquistas()" class="btn-primary" style="width:auto;padding:10px 20px;">
+          <i class="fas fa-sync-alt"></i> Verificar Novas
+        </button>
       </div>
       <div id="conq-container">
         <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
@@ -13039,138 +13333,265 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     this.carregarConquistas()
   },
 
+  async verificarNovasConquistas() {
+    try {
+      const btn = document.querySelector('#page-content .btn-primary')
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...' }
+      const r = await this.api('POST', 'conquistas/verificar')
+      if (r.novas_conquistadas > 0) {
+        this.toast(`🏆 ${r.novas_conquistadas} nova(s) conquista(s) desbloqueada(s)!`, 'success')
+      } else {
+        this.toast('Nenhuma conquista nova no momento', 'info')
+      }
+      this.carregarConquistas()
+    } catch(e) {
+      this.toast('Erro ao verificar conquistas', 'error')
+    } finally {
+      const btn = document.querySelector('#page-content .btn-primary')
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i> Verificar Novas' }
+    }
+  },
+
   async carregarConquistas() {
     try {
       const data = await this.api('GET', 'conquistas')
       const container = document.getElementById('conq-container')
-      const conquistadas = (data.conquistas || []).filter(c => c.conquistada)
-      const disponiveis = (data.conquistas || []).filter(c => !c.conquistada)
+      const todas = data.conquistas || []
+      const conquistadas = todas.filter(c => c.conquistada)
+      const disponiveis = todas.filter(c => !c.conquistada)
       const pontos_total = data.total_pontos || 0
+      const naoVisualizadas = data.nao_visualizadas || 0
+
+      // Marcar como visualizadas
+      if (naoVisualizadas > 0) { try { await this.api('PATCH', 'conquistas/visualizar') } catch(e){} }
 
       const raridadeCores = { comum: '#888', raro: '#74b9ff', epico: '#a29bfe', lendario: '#ffc400' }
-      const raridadeGradients = {
-        comum: 'rgba(136,136,136,0.1)',
-        raro: 'rgba(116,185,255,0.12)',
-        epico: 'rgba(162,155,254,0.12)',
-        lendario: 'rgba(255,196,0,0.12)'
+      const raridadeGradients = { comum:'rgba(136,136,136,0.08)', raro:'rgba(116,185,255,0.1)', epico:'rgba(162,155,254,0.12)', lendario:'rgba(255,196,0,0.12)' }
+      const raridadeLabel = { comum:'Comum', raro:'Raro', epico:'Épico', lendario:'Lendário' }
+
+      // Categorias para abas
+      const CATEGORIAS = {
+        todas: { label: 'Todas', icon: '🏆' },
+        dividas: { label: 'Dívidas', icon: '💸' },
+        investimentos: { label: 'Investimentos', icon: '📈' },
+        poupanca: { label: 'Poupança', icon: '🛡️' },
+        metas: { label: 'Metas', icon: '🎯' },
+        comportamento: { label: 'Comportamento', icon: '⭐' },
+      }
+      const categoriaCodigo = {
+        dividas: ['primeiro_carro','carro_quitado','primeiro_imovel','imovel_quitado','financiamento_veiculo','financiamento_outros','quitou_10pct','quitou_15pct','quitou_20pct','quitou_30pct','quitou_50pct','sem_dividas','sem_dividas_total','amortizou'],
+        investimentos: ['investidor','poupador_dedicado','milionario','investidor_cdi','investidor_cdb','investidor_acoes','investidor_fii','investidor_cripto','investidor_tesouro','investidor_diversificado'],
+        poupanca: ['reserva_iniciada','reserva_1_mes','reserva_3_meses','reserva_6_meses','reserva_9_meses','reserva_12_meses','reserva_completa'],
+        metas: ['sonhador','meta_concluida','meta_casa','meta_carro','meta_viagem','meta_educacao','meta_liberdade','meta_aposentadoria'],
+        comportamento: ['primeira_receita','organizador','carteirinha','planejador','lembrete_mestre','cartao_zero','disciplinado','analista','poupador'],
       }
 
-      // Tooltip helper — como desbloquear cada conquista
-      const dicas = {
-        primeira_receita: 'Cadastre sua primeira receita no sistema.',
-        organizador: 'Cadastre sua primeira despesa.',
-        sonhador: 'Crie sua primeira meta financeira.',
-        investidor: 'Cadastre qualquer investimento.',
-        carteirinha: 'Adicione um cartão de crédito.',
-        planejador: 'Complete seu perfil ou cadastre uma meta/financiamento.',
-        meta_concluida: 'Conclua uma meta (valor atual ≥ valor alvo).',
-        lembrete_mestre: 'Cadastre pelo menos 5 lembretes.',
-        cartao_zero: 'Marque uma fatura de cartão como paga.',
-        disciplinado: 'Marque 10 despesas como pagas no mesmo mês.',
-        analista: 'Acesse o relatório anual.',
-        poupador: 'Poupe mais de 20% da renda em um mês.',
-        poupador_dedicado: 'Tenha mais de R$ 10.000 investidos.',
-        milionario: 'Acumule mais de R$ 100.000 investidos.',
-        investidor_cdi: 'Cadastre um investimento do tipo Caixinha/CDI.',
-        investidor_cdb: 'Cadastre um CDB.',
-        investidor_acoes: 'Cadastre um investimento em ações.',
-        investidor_fii: 'Cadastre um FII (Fundo Imobiliário).',
-        investidor_cripto: 'Cadastre criptomoedas.',
-        investidor_tesouro: 'Cadastre um Tesouro Direto.',
-        investidor_diversificado: 'Tenha 3 ou mais tipos diferentes de investimentos.',
-        meta_casa: 'Crie uma meta com categoria Imóvel.',
-        meta_carro: 'Crie uma meta com categoria Veículo.',
-        meta_viagem: 'Crie uma meta com categoria Viagem.',
-        meta_educacao: 'Crie uma meta com categoria Educação.',
-        meta_liberdade: 'Crie uma meta com categoria Liberdade Financeira.',
-        meta_aposentadoria: 'Crie uma meta com categoria Aposentadoria.',
-        primeiro_imovel: 'Cadastre um financiamento de imóvel.',
-        primeiro_carro: 'Cadastre um empréstimo do tipo veículo.',
-        financiamento_veiculo: 'Cadastre um financiamento de veículo.',
-        financiamento_outros: 'Cadastre um financiamento rural ou outros bens.',
-        quitou_10pct: 'Quite 10% do seu financiamento.',
-        quitou_15pct: 'Quite 15% do seu financiamento.',
-        quitou_20pct: 'Quite 20% do seu financiamento.',
-        quitou_30pct: 'Quite 30% do seu financiamento.',
-        quitou_50pct: 'Quite 50% do seu financiamento.',
-        imovel_quitado: 'Quite completamente um financiamento de imóvel.',
-        carro_quitado: 'Quite completamente um empréstimo de veículo.',
-        sem_dividas: 'Quite um empréstimo ou financiamento por completo.',
-        sem_dividas_total: 'Quite TODOS os empréstimos e financiamentos.',
-        amortizou: 'Realize uma amortização extraordinária em qualquer dívida.',
-        reserva_iniciada: 'Crie sua reserva de emergência.',
-        reserva_1_mes: 'Acumule 1 mês de despesas na reserva.',
-        reserva_3_meses: 'Acumule 3 meses de despesas na reserva.',
-        reserva_6_meses:  'Acumule 6 meses de despesas na reserva.',
-        reserva_9_meses:  'Acumule 9 meses de despesas na reserva de emergência.',
-        reserva_12_meses: 'Acumule 12 meses de despesas na reserva — nível máximo!',
-        reserva_completa: 'Atinja 100% da meta da sua reserva.',
+      const getCatConq = (cod) => {
+        for (const [cat, lista] of Object.entries(categoriaCodigo)) {
+          if (lista.includes(cod)) return cat
+        }
+        return 'comportamento'
       }
 
-      const renderCard = (c, bloqueada) => {
+      // Estado de filtro — guardado em data do container
+      const filtroAtivo = container.dataset.filtro || 'todas'
+      const abaAtiva = container.dataset.aba || 'todas'
+
+      const filtrarPorAba = (lista, aba) => {
+        if (aba === 'todas') return lista
+        return lista.filter(c => getCatConq(c.codigo) === aba)
+      }
+      const filtrarPorEstado = (lista, filtro) => {
+        if (filtro === 'desbloqueadas') return lista.filter(c => c.conquistada)
+        if (filtro === 'bloqueadas') return lista.filter(c => !c.conquistada && (!c.progresso || c.progresso.pct < 50))
+        if (filtro === 'proximas') return lista.filter(c => !c.conquistada && c.progresso && c.progresso.pct >= 10)
+        return lista
+      }
+
+      const listaFiltrada = filtrarPorEstado(filtrarPorAba(todas, abaAtiva), filtroAtivo)
+      const conquistadasFiltradas = listaFiltrada.filter(c => c.conquistada)
+      const disponiveisFiltradas = listaFiltrada.filter(c => !c.conquistada)
+
+      // Próximas (com progresso > 0)
+      const proximas = disponiveis.filter(c => c.progresso && c.progresso.pct > 0).sort((a,b) => b.progresso.pct - a.progresso.pct)
+
+      const renderCard = (c) => {
+        const bloqueada = !c.conquistada
+        const cor = raridadeCores[c.raridade] || '#888'
         const bg = bloqueada ? 'rgba(255,255,255,0.02)' : (raridadeGradients[c.raridade] || 'rgba(255,255,255,0.04)')
-        const border = bloqueada ? 'rgba(255,255,255,0.06)' : (raridadeCores[c.raridade] || '#444') + '44'
-        const opacity = bloqueada ? 'opacity:0.55;' : ''
-        const dica = dicas[c.codigo] || c.descricao
+        const border = bloqueada ? 'rgba(255,255,255,0.06)' : cor + '44'
+        const opacity = bloqueada ? 'opacity:0.6;' : ''
+        const isLendario = c.raridade === 'lendario'
+        const isEpico = c.raridade === 'epico'
+        const shimmer = !bloqueada && (isLendario || isEpico) ? `box-shadow:0 0 18px ${cor}33;` : ''
+        const prog = c.progresso
+        const isProximo = !bloqueada && prog && prog.pct > 0
+
         return `
-          <div style="${opacity}background:${bg};border:1px solid ${border};border-radius:16px;padding:18px;text-align:center;position:relative;cursor:default;"
-               title="${dica}" data-tooltip="${dica}" onmouseenter="VM.showConqTooltip(event)" onmouseleave="VM.hideConqTooltip()">
-            <div style="font-size:2.2rem;margin-bottom:8px;${bloqueada?'filter:grayscale(80%);':'' }">${c.icone || (bloqueada?'🔒':'🏆')}</div>
-            <div style="font-weight:700;font-size:0.88rem;margin-bottom:4px;${bloqueada?'color:#555;':''}">${c.titulo}</div>
-            <div style="font-size:0.72rem;color:${bloqueada?'#444':'#888'};margin-bottom:10px;line-height:1.4;">${c.descricao}</div>
-            ${bloqueada
-              ? `<div style="font-size:0.68rem;color:#555;">⭐ ${c.pontos} pts • ${c.raridade}</div>`
-              : `<div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
-                   <span style="font-size:0.68rem;background:${raridadeCores[c.raridade]}22;color:${raridadeCores[c.raridade]};padding:2px 8px;border-radius:50px;border:1px solid ${raridadeCores[c.raridade]}44;">${c.raridade}</span>
-                   <span style="font-size:0.68rem;color:#ffc400;">⭐ ${c.pontos} pts</span>
-                 </div>`
-            }
+          <div style="${opacity}background:${bg};border:1px solid ${border};border-radius:16px;padding:16px;text-align:center;position:relative;transition:transform 0.2s,box-shadow 0.2s;${shimmer}"
+               onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px ${cor}22'"
+               onmouseout="this.style.transform='';this.style.boxShadow='${shimmer.includes('box-shadow')?`0 0 18px ${cor}33`:'none'}'">
+            ${!bloqueada && naoVisualizadas > 0 && !c.visualizado ? '<div style="position:absolute;top:10px;right:10px;width:8px;height:8px;background:#2FBF71;border-radius:50%;"></div>' : ''}
+            <div style="font-size:${isLendario?'2.8':'2.2'}rem;margin-bottom:8px;${bloqueada?'filter:grayscale(80%);':''}${isLendario&&!bloqueada?'animation:pulse 2s infinite;':''}">${c.icone || (bloqueada?'🔒':'🏆')}</div>
+            <div style="font-weight:700;font-size:0.85rem;margin-bottom:4px;${bloqueada?'color:#555;':isLendario?'color:#ffc400;':isEpico?'color:#a29bfe;':''}">${c.titulo}</div>
+            <div style="font-size:0.7rem;color:${bloqueada?'#444':'#777'};margin-bottom:8px;line-height:1.4;">${c.descricao}</div>
+            ${prog && !c.conquistada ? `
+              <div style="margin:0 0 8px;background:rgba(255,255,255,0.06);border-radius:20px;height:6px;overflow:hidden;">
+                <div style="height:100%;width:${prog.pct}%;background:linear-gradient(90deg,${cor},${cor}cc);border-radius:20px;transition:width 0.5s;"></div>
+              </div>
+              <div style="font-size:0.65rem;color:${cor};margin-bottom:6px;">${prog.atual} / ${prog.total} — ${prog.pct}%</div>
+            ` : ''}
+            <div style="display:flex;justify-content:center;gap:5px;flex-wrap:wrap;">
+              <span style="font-size:0.65rem;background:${cor}22;color:${cor};padding:2px 7px;border-radius:50px;border:1px solid ${cor}33;">${raridadeLabel[c.raridade]||c.raridade}</span>
+              <span style="font-size:0.65rem;color:${bloqueada?'#444':'#ffc400'};">⭐ ${c.pontos} pts</span>
+              ${!bloqueada && c.data_conquista ? `<span style="font-size:0.62rem;color:#555;">${this.formatDate(c.data_conquista)}</span>` : ''}
+            </div>
           </div>
         `
       }
 
+      // Calcular pontos por raridade
+      const ptsPorRar = conquistadas.reduce((a,c) => { a[c.raridade]=(a[c.raridade]||0)+c.pontos; return a }, {})
+
       container.innerHTML = `
-        <div id="conq-tooltip" style="display:none;position:fixed;z-index:9999;background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:10px 14px;font-size:0.78rem;color:#ddd;max-width:240px;line-height:1.5;pointer-events:none;"></div>
+        <style>@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}</style>
         <!-- HEADER STATS -->
-        <div class="grid-3" style="margin-bottom:28px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin-bottom:24px;">
           <div class="stat-card" style="text-align:center;">
-            <div style="font-size:2.5rem;margin-bottom:8px;">🏆</div>
-            <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">${conquistadas.length}</div>
-            <div style="color:#888;font-size:0.8rem;">Conquistas Desbloqueadas</div>
+            <div style="font-size:2rem;margin-bottom:6px;">🏆</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#2FBF71;">${conquistadas.length}<span style="font-size:0.8rem;color:#555;">/${todas.length}</span></div>
+            <div style="color:#888;font-size:0.75rem;">Desbloqueadas</div>
           </div>
           <div class="stat-card" style="text-align:center;">
-            <div style="font-size:2.5rem;margin-bottom:8px;">⭐</div>
-            <div style="font-size:1.8rem;font-weight:800;color:#ffc400;">${pontos_total}</div>
-            <div style="color:#888;font-size:0.8rem;">Pontos Acumulados</div>
+            <div style="font-size:2rem;margin-bottom:6px;">⭐</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#ffc400;">${pontos_total}</div>
+            <div style="color:#888;font-size:0.75rem;">Pontos</div>
           </div>
           <div class="stat-card" style="text-align:center;">
-            <div style="font-size:2.5rem;margin-bottom:8px;">🎯</div>
-            <div style="font-size:1.8rem;font-weight:800;">${disponiveis.length}</div>
-            <div style="color:#888;font-size:0.8rem;">Para Desbloquear</div>
+            <div style="font-size:2rem;margin-bottom:6px;">🌟</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#a29bfe;">${conquistadas.filter(c=>c.raridade==='epico').length}</div>
+            <div style="color:#888;font-size:0.75rem;">Épicas</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:2rem;margin-bottom:6px;">👑</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#ffc400;">${conquistadas.filter(c=>c.raridade==='lendario').length}</div>
+            <div style="color:#888;font-size:0.75rem;">Lendárias</div>
+          </div>
+          <div class="stat-card" style="text-align:center;">
+            <div style="font-size:2rem;margin-bottom:6px;">📊</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#74b9ff;">${Math.round(conquistadas.length/Math.max(1,todas.length)*100)}%</div>
+            <div style="color:#888;font-size:0.75rem;">Progresso</div>
           </div>
         </div>
 
-        ${conquistadas.length > 0 ? `
-          <div style="margin-bottom:28px;">
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">✅ Desbloqueadas (${conquistadas.length})</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
-              ${conquistadas.map(c => renderCard(c, false)).join('')}
+        <!-- BARRA GERAL DE PROGRESSO -->
+        <div class="card" style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-weight:700;font-size:0.9rem;">Jornada de Conquistas</div>
+            <div style="font-size:0.8rem;color:#888;">${conquistadas.length} de ${todas.length} desbloqueadas</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.06);border-radius:20px;height:12px;overflow:hidden;margin-bottom:8px;">
+            <div style="height:100%;width:${Math.round(conquistadas.length/Math.max(1,todas.length)*100)}%;background:linear-gradient(90deg,#2FBF71,#74b9ff);border-radius:20px;transition:width 0.8s;"></div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            ${['lendario','epico','raro','comum'].map(r => `
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div style="width:8px;height:8px;border-radius:50%;background:${raridadeCores[r]};"></div>
+                <span style="font-size:0.7rem;color:#666;">${raridadeLabel[r]}: ${conquistadas.filter(c=>c.raridade===r).length}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- PRÓXIMAS (com progresso) -->
+        ${proximas.length > 0 ? `
+          <div class="card" style="margin-bottom:20px;border-color:rgba(116,185,255,0.2);">
+            <div style="font-weight:700;font-size:0.9rem;margin-bottom:14px;color:#74b9ff;">🚀 Próximas de Desbloquear</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${proximas.slice(0,5).map(c => `
+                <div style="display:flex;align-items:center;gap:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:10px;">
+                  <div style="font-size:1.6rem;flex-shrink:0;">${c.icone||'🏆'}</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.85rem;">${c.titulo}</div>
+                    <div style="background:rgba(255,255,255,0.06);border-radius:20px;height:5px;overflow:hidden;margin-top:5px;">
+                      <div style="height:100%;width:${c.progresso.pct}%;background:${raridadeCores[c.raridade]||'#74b9ff'};border-radius:20px;"></div>
+                    </div>
+                    <div style="font-size:0.65rem;color:#888;margin-top:3px;">${c.progresso.atual}/${c.progresso.total} — ${c.progresso.pct}%</div>
+                  </div>
+                  <div style="font-size:0.7rem;color:#ffc400;flex-shrink:0;">⭐ ${c.pontos} pts</div>
+                </div>
+              `).join('')}
             </div>
           </div>
         ` : ''}
 
-        ${disponiveis.length > 0 ? `
-          <div>
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">🔒 A Desbloquear (${disponiveis.length}) — passe o mouse para ver como</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;">
-              ${disponiveis.map(c => renderCard(c, true)).join('')}
+        <!-- ABAS DE CATEGORIA -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;" id="conq-abas">
+          ${Object.entries(CATEGORIAS).map(([k,v]) => `
+            <button onclick="VM._conqFiltroAba('${k}')" id="conq-aba-${k}"
+              style="padding:7px 14px;border-radius:20px;border:1px solid ${abaAtiva===k?'#2FBF71':'rgba(255,255,255,0.1)'};background:${abaAtiva===k?'rgba(47,191,113,0.15)':'transparent'};color:${abaAtiva===k?'#2FBF71':'#888'};font-size:0.78rem;cursor:pointer;transition:all 0.2s;white-space:nowrap;">
+              ${v.icon} ${v.label}
+              <span style="margin-left:4px;font-size:0.65rem;opacity:0.7;">(${filtrarPorAba(todas,k).filter(c=>c.conquistada).length}/${filtrarPorAba(todas,k).length})</span>
+            </button>
+          `).join('')}
+        </div>
+
+        <!-- FILTROS DE ESTADO -->
+        <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;" id="conq-filtros">
+          ${[{k:'todas',l:'Todas'},{k:'desbloqueadas',l:'✅ Desbloqueadas'},{k:'proximas',l:'🚀 Próximas'},{k:'bloqueadas',l:'🔒 Bloqueadas'}].map(f => `
+            <button onclick="VM._conqFiltroEstado('${f.k}')" id="conq-filtro-${f.k}"
+              style="padding:5px 12px;border-radius:20px;border:1px solid ${filtroAtivo===f.k?'#74b9ff':'rgba(255,255,255,0.08)'};background:${filtroAtivo===f.k?'rgba(116,185,255,0.12)':'transparent'};color:${filtroAtivo===f.k?'#74b9ff':'#666'};font-size:0.74rem;cursor:pointer;">
+              ${f.l}
+            </button>
+          `).join('')}
+        </div>
+
+        <!-- CONQUISTAS DESBLOQUEADAS -->
+        ${conquistadasFiltradas.length > 0 ? `
+          <div style="margin-bottom:28px;">
+            <div style="font-size:0.8rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">✅ Desbloqueadas (${conquistadasFiltradas.length})</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;">
+              ${conquistadasFiltradas.map(c => renderCard(c)).join('')}
             </div>
           </div>
         ` : ''}
+
+        <!-- CONQUISTAS BLOQUEADAS -->
+        ${disponiveisFiltradas.length > 0 ? `
+          <div>
+            <div style="font-size:0.8rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">🔒 Para Desbloquear (${disponiveisFiltradas.length})</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;">
+              ${disponiveisFiltradas.map(c => renderCard(c)).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        ${listaFiltrada.length === 0 ? `
+          <div style="text-align:center;padding:40px;color:#555;">
+            <div style="font-size:2.5rem;margin-bottom:12px;">🔍</div>
+            <div>Nenhuma conquista neste filtro</div>
+          </div>
+        ` : ''}
       `
+
+      // Salvar estado para re-render
+      container.dataset.filtro = filtroAtivo
+      container.dataset.aba = abaAtiva
+
     } catch(e) {
       this.toast('Erro ao carregar conquistas', 'error')
     }
+  },
+
+  _conqFiltroAba(aba) {
+    const container = document.getElementById('conq-container')
+    if (container) { container.dataset.aba = aba; container.dataset.filtro = 'todas' }
+    this.carregarConquistas()
+  },
+
+  _conqFiltroEstado(filtro) {
+    const container = document.getElementById('conq-container')
+    if (container) container.dataset.filtro = filtro
+    this.carregarConquistas()
   },
 
   showConqTooltip(event) {
