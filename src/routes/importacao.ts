@@ -1325,4 +1325,151 @@ importacao.post('/criar-investimento', requireAuth, async (c) => {
   }
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TEMPLATES DE BANCO — GET/POST/DELETE /api/importacao/templates
+// Permite salvar e recuperar mapeamento de colunas por banco
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/importacao/templates — lista templates do usuário + templates globais
+importacao.get('/templates', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  // Templates do usuário
+  const userTpls = await c.env.DB.prepare(
+    `SELECT * FROM csv_templates WHERE user_id = ? AND ativo = 1 ORDER BY nome`
+  ).bind(user.id).all()
+
+  // Templates globais (user_id = 0)
+  const globalTpls = await c.env.DB.prepare(
+    `SELECT * FROM csv_templates WHERE user_id = 0 AND ativo = 1 ORDER BY nome`
+  ).all()
+
+  // Merge: template do usuário sobrescreve o global de mesmo banco
+  const bancosComUsuario = new Set((userTpls.results as any[]).map(t => t.banco))
+  const merged = [
+    ...(userTpls.results as any[]),
+    ...(globalTpls.results as any[]).filter(t => !bancosComUsuario.has(t.banco))
+  ]
+
+  return c.json({ templates: merged })
+})
+
+// POST /api/importacao/templates — salvar/atualizar template do usuário
+importacao.post('/templates', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json()
+  const {
+    nome, banco, col_data = 'data', col_desc = 'descricao',
+    col_valor = 'valor', col_tipo = null,
+    separador = ';', decimal_sep = ',', skip_rows = 1, filtro_tipo = null
+  } = body
+
+  if (!nome || !banco) return c.json({ error: 'nome e banco são obrigatórios' }, 400)
+
+  await c.env.DB.prepare(
+    `INSERT INTO csv_templates (user_id, nome, banco, col_data, col_desc, col_valor, col_tipo, separador, decimal_sep, skip_rows, filtro_tipo, ativo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+     ON CONFLICT(user_id, banco)
+     DO UPDATE SET nome=excluded.nome, col_data=excluded.col_data, col_desc=excluded.col_desc,
+       col_valor=excluded.col_valor, col_tipo=excluded.col_tipo, separador=excluded.separador,
+       decimal_sep=excluded.decimal_sep, skip_rows=excluded.skip_rows, filtro_tipo=excluded.filtro_tipo`
+  ).bind(user.id, nome, banco, col_data, col_desc, col_valor, col_tipo, separador, decimal_sep, skip_rows, filtro_tipo).run()
+
+  const saved = await c.env.DB.prepare(
+    `SELECT * FROM csv_templates WHERE user_id=? AND banco=?`
+  ).bind(user.id, banco).first()
+
+  return c.json({ success: true, template: saved })
+})
+
+// DELETE /api/importacao/templates/:banco — remover template do usuário
+importacao.delete('/templates/:banco', requireAuth, async (c) => {
+  const user = c.get('user')
+  const banco = c.req.param('banco')
+
+  await c.env.DB.prepare(
+    `DELETE FROM csv_templates WHERE user_id=? AND banco=?`
+  ).bind(user.id, banco).run()
+
+  return c.json({ success: true })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEDUPLICAÇÃO — POST /api/importacao/verificar-duplicatas
+// Verifica se registros já foram importados anteriormente
+// Body: { registros: [{data, descricao, valor}] }
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/verificar-duplicatas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json()
+  const registros: Array<{ data: string; descricao: string; valor: number; linha?: number }> = body.registros || []
+
+  if (!Array.isArray(registros) || registros.length === 0)
+    return c.json({ duplicatas: [], total: 0 })
+
+  const duplicatas: Array<{ hash: string; linha?: number; data: string; descricao: string; valor: number; importado_em: string }> = []
+
+  for (const reg of registros) {
+    const hashStr = `${reg.data}|${(reg.descricao || '').toLowerCase().trim()}|${Number(reg.valor).toFixed(2)}`
+    // Usar Web Crypto API (disponível no Cloudflare Workers)
+    const encoder = new TextEncoder()
+    const data = encoder.encode(hashStr)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+    const exists = await c.env.DB.prepare(
+      `SELECT hash, importado_em FROM importacao_log WHERE user_id=? AND hash=?`
+    ).bind(user.id, hash).first() as any
+
+    if (exists) {
+      duplicatas.push({
+        hash,
+        linha: reg.linha,
+        data: reg.data,
+        descricao: reg.descricao,
+        valor: reg.valor,
+        importado_em: exists.importado_em
+      })
+    }
+  }
+
+  return c.json({ duplicatas, total: duplicatas.length })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REGISTRAR LOG — POST /api/importacao/registrar-log
+// Salva hashes das transações importadas para deduplicação futura
+// Body: { registros: [{data, descricao, valor}] }
+// ═══════════════════════════════════════════════════════════════════════════════
+importacao.post('/registrar-log', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json()
+  const registros: Array<{ data: string; descricao: string; valor: number }> = body.registros || []
+
+  let salvos = 0
+  let ignorados = 0
+
+  for (const reg of registros) {
+    const hashStr = `${reg.data}|${(reg.descricao || '').toLowerCase().trim()}|${Number(reg.valor).toFixed(2)}`
+    const encoder = new TextEncoder()
+    const data = encoder.encode(hashStr)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+    try {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO importacao_log (user_id, hash, data_transacao, descricao, valor)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(user.id, hash, reg.data, reg.descricao, Number(reg.valor)).run()
+      salvos++
+    } catch (e) {
+      ignorados++
+    }
+  }
+
+  return c.json({ success: true, salvos, ignorados })
+})
+
 export default importacao

@@ -106,6 +106,71 @@ const VM = {
           }
         }).observe(modalCont, { childList: true })
       }
+
+      // ── Atalhos de teclado globais ─────────────────────────────────────────
+      document.addEventListener('keydown', (e) => {
+        // Ignorar se estiver digitando em input/textarea/select
+        const tag = document.activeElement?.tagName?.toLowerCase()
+        if (['input','textarea','select'].includes(tag)) return
+
+        // ESC — fechar modal ou voltar
+        if (e.key === 'Escape') {
+          const mc = document.getElementById('modal-container')
+          if (mc && mc.innerHTML !== '') {
+            e.preventDefault()
+            this.closeModal()
+            return
+          }
+          // Fechar modais custom (fora do modal-container)
+          const custom = document.querySelector('[id^="modal-"]:not(#modal-container)')
+          if (custom) { custom.remove(); return }
+        }
+
+        // N — nova despesa (apenas na tela de despesas ou dashboard)
+        if (e.key === 'n' || e.key === 'N') {
+          const page = this.currentPage
+          if (['dashboard','despesas'].includes(page)) {
+            e.preventDefault()
+            if (typeof this.modalNovaDespesa === 'function') this.modalNovaDespesa()
+            else if (typeof this.abrirModalDespesa === 'function') this.abrirModalDespesa()
+            return
+          }
+        }
+
+        // R — nova receita (apenas na tela de receitas ou dashboard)
+        if (e.key === 'r' || e.key === 'R') {
+          const page = this.currentPage
+          if (['dashboard','receitas'].includes(page)) {
+            e.preventDefault()
+            if (typeof this.modalNovaReceita === 'function') this.modalNovaReceita()
+            else if (typeof this.abrirModalReceita === 'function') this.abrirModalReceita()
+            return
+          }
+        }
+
+        // ? — mostrar atalhos disponíveis
+        if (e.key === '?') {
+          e.preventDefault()
+          this.showModal(`
+            <div style="font-size:1rem;font-weight:700;margin-bottom:16px;">⌨️ Atalhos de Teclado</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${[
+                ['ESC', 'Fechar modal ou popup'],
+                ['N', 'Nova despesa (tela Despesas / Dashboard)'],
+                ['R', 'Nova receita (tela Receitas / Dashboard)'],
+                ['?', 'Mostrar esta tela de atalhos'],
+              ].map(([key, desc]) => `
+                <div style="display:flex;align-items:center;gap:14px;">
+                  <kbd style="background:#1a1a2e;border:1px solid #2a2a3e;border-radius:6px;padding:4px 10px;font-family:monospace;font-size:0.85rem;color:#10B981;min-width:40px;text-align:center;">${key}</kbd>
+                  <span style="font-size:0.82rem;color:#94a3b8;">${desc}</span>
+                </div>`).join('')}
+            </div>
+            <div style="margin-top:16px;">
+              <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;padding:9px;">Fechar</button>
+            </div>
+          `)
+        }
+      })
     }
   },
 
@@ -13625,7 +13690,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     if (plano === 'free') {
       content.innerHTML = this.upsellBlock('orcamentos', '📊 Orçamentos por Categoria',
         'Defina limites mensais por categoria e veja em tempo real quanto você ainda pode gastar.',
-        ['Alertas automáticos ao atingir 80% do limite', 'Barras de progresso visuais por categoria', 'Histórico e comparativo mensal', 'Proteja seu orçamento antes de gastar demais'])
+        ['Alertas progressivos: 70%, 90% e 100% do limite', 'Orçamento global + por categoria', 'Rollover: saldo não gasto vai para o próximo mês', 'Sugestão baseada nos últimos 3 meses', 'Aviso antes de lançar despesa que excede limite'])
       return
     }
 
@@ -13633,63 +13698,120 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     let mesSel = hoje.getMonth() + 1
     let anoSel = hoje.getFullYear()
 
+    const catLabel = {
+      alimentacao:'🍽️ Alimentação', moradia:'🏠 Moradia', transporte:'🚗 Transporte',
+      saude:'🏥 Saúde', educacao:'📚 Educação', lazer:'🎮 Lazer', vestuario:'👕 Vestuário',
+      beleza:'💄 Beleza', pets:'🐾 Pets', assinaturas:'📱 Assinaturas',
+      tecnologia:'💻 Tecnologia', viagem:'✈️ Viagens', outros:'📦 Outros',
+      fixo:'📌 Gastos Fixos', supermercado:'🛒 Supermercado'
+    }
+
     const renderPage = async () => {
       content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
       const data = await this.api('GET', `orcamentos?mes=${mesSel}&ano=${anoSel}`)
       const orcs = data.orcamentos || []
       const sem  = data.semOrcamento || []
+      const globalOrc = data.global || null
 
       const mesNomes = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+      // Config de status ampliada com alertas progressivos
       const statusCfg = {
-        ok:        { cor: '#10B981', bg: 'rgba(16,185,129,0.12)', txt: '✅ OK' },
-        attention: { cor: '#F59E0B', bg: 'rgba(245,158,11,0.12)', txt: '⚠️ Atenção' },
-        warning:   { cor: '#F97316', bg: 'rgba(249,115,22,0.12)', txt: '🔶 Alerta' },
-        exceeded:  { cor: '#F43F5E', bg: 'rgba(244,63,94,0.12)', txt: '🚨 Excedido' }
+        ok:          { cor: '#10B981', bg: 'rgba(16,185,129,0.12)', txt: '✅ OK', borda: 'rgba(16,185,129,0.2)' },
+        attention:   { cor: '#F59E0B', bg: 'rgba(245,158,11,0.12)', txt: '⚠️ Atenção', borda: 'rgba(245,158,11,0.3)' },
+        warning_70:  { cor: '#F59E0B', bg: 'rgba(245,158,11,0.12)', txt: '🟡 70%+', borda: 'rgba(245,158,11,0.3)' },
+        warning_90:  { cor: '#F97316', bg: 'rgba(249,115,22,0.12)', txt: '🔶 90%+', borda: 'rgba(249,115,22,0.3)' },
+        warning:     { cor: '#F97316', bg: 'rgba(249,115,22,0.12)', txt: '🔶 Alerta', borda: 'rgba(249,115,22,0.3)' },
+        exceeded:    { cor: '#F43F5E', bg: 'rgba(244,63,94,0.12)', txt: '🚨 Excedido', borda: 'rgba(244,63,94,0.4)' }
       }
 
-      const totalLimite = orcs.reduce((s, o) => s + o.limite, 0)
+      // Barra de progresso tricolor (70%=amarelo, 90%=laranja, 100%=vermelho)
+      const buildProgressBar = (pct, cor) => {
+        const w = Math.min(pct, 100)
+        const barCor = pct >= 100 ? '#F43F5E' : pct >= 90 ? '#F97316' : pct >= 70 ? '#F59E0B' : '#10B981'
+        return `
+          <div style="position:relative;background:#1a1a2e;border-radius:20px;height:8px;overflow:visible;margin-bottom:4px;">
+            <div style="background:${barCor};height:8px;border-radius:20px;width:${w}%;transition:width 0.6s ease;position:relative;">
+              ${pct >= 100 ? `<div style="position:absolute;right:-4px;top:-4px;width:16px;height:16px;background:#F43F5E;border-radius:50%;border:2px solid #0d1117;display:flex;align-items:center;justify-content:center;font-size:8px;">!</div>` : ''}
+            </div>
+            ${pct >= 70 && pct < 100 ? `<div style="position:absolute;left:70%;top:-2px;width:1px;height:12px;background:rgba(245,158,11,0.5);"></div>` : ''}
+            ${pct >= 90 && pct < 100 ? `<div style="position:absolute;left:90%;top:-2px;width:1px;height:12px;background:rgba(249,115,22,0.5);"></div>` : ''}
+          </div>`
+      }
+
+      // Totais dos orçamentos por categoria
+      const totalLimite = orcs.reduce((s, o) => s + (o.limite_efetivo || o.limite), 0)
       const totalGasto  = orcs.reduce((s, o) => s + o.gasto, 0)
       const pctGlobal   = totalLimite > 0 ? Math.round(totalGasto / totalLimite * 100) : 0
-      const corGlobal   = pctGlobal > 100 ? '#F43F5E' : pctGlobal >= 80 ? '#F97316' : '#10B981'
+      const corGlobal   = pctGlobal > 100 ? '#F43F5E' : pctGlobal >= 90 ? '#F97316' : pctGlobal >= 70 ? '#F59E0B' : '#10B981'
 
       content.innerHTML = `
+        <!-- Cabeçalho -->
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
           <div>
             <div style="font-size:1.1rem;font-weight:700;">📊 Orçamentos por Categoria</div>
-            <div style="color:#666;font-size:0.82rem;margin-top:2px;">Defina e acompanhe limites mensais de gastos</div>
+            <div style="color:#666;font-size:0.82rem;margin-top:2px;">Limites mensais com alertas progressivos e rollover</div>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <select id="sel-mes" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
               ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${m===mesSel?'selected':''}>${mesNomes[m]}</option>`).join('')}
             </select>
             <select id="sel-ano" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
               ${[2024,2025,2026,2027].map(a => `<option value="${a}" ${a===anoSel?'selected':''}>${a}</option>`).join('')}
             </select>
+            <button onclick="VM._abrirOrcamentoGlobal()" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
+              🌐 Global
+            </button>
+            <button onclick="VM._calcularRollover()" style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;" title="Calcular rollover do mês anterior">
+              🔄 Rollover
+            </button>
             <button onclick="VM._abrirNovoOrcamento()" class="btn-primary" style="padding:8px 16px;font-size:0.82rem;gap:6px;">
-              <i class="fas fa-plus"></i> Novo Orçamento
+              <i class="fas fa-plus"></i> Novo
             </button>
           </div>
         </div>
 
+        <!-- Orçamento Global (se configurado) -->
+        ${globalOrc ? `
+        <div style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.06));border:1px solid rgba(99,102,241,0.25);border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:0.72rem;color:#818CF8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🌐 Orçamento Global do Mês</div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:0.82rem;color:#94a3b8;">Gasto: <strong style="color:${globalOrc.percentual>=100?'#F43F5E':globalOrc.percentual>=90?'#F97316':'#818CF8'};">${this.fmt(globalOrc.gasto)}</strong></span>
+                <span style="font-size:0.82rem;color:#94a3b8;">Limite efetivo: <strong style="color:#e0e0e0;">${this.fmt(globalOrc.limite_efetivo)}</strong></span>
+              </div>
+              ${buildProgressBar(globalOrc.percentual, '#818CF8')}
+              <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-top:4px;">
+                <span style="color:#818CF8;font-weight:700;">${globalOrc.percentual}%</span>
+                <span style="color:#555;">Restam: ${this.fmt(globalOrc.restante)}${globalOrc.rollover>0?` (+${this.fmt(globalOrc.rollover)} rollover)`:''}</span>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="VM._abrirOrcamentoGlobal()" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-edit"></i> Editar</button>
+              <button onclick="VM._deletarOrcamentoGlobal()" style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:0.72rem;"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
         ${orcs.length > 0 ? `
-        <!-- Resumo Global -->
-        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <!-- Resumo dos orçamentos por categoria -->
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
-            <div style="font-size:0.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Visão Geral do Mês</div>
+            <div style="font-size:0.72rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Soma das Categorias</div>
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
               <span style="font-size:0.82rem;color:#94a3b8;">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
               <span style="font-size:0.82rem;color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLimite)}</strong></span>
             </div>
-            <div style="background:#1a1a2e;border-radius:20px;height:10px;overflow:hidden;">
-              <div style="background:${corGlobal};height:100%;border-radius:20px;width:${Math.min(pctGlobal,100)}%;transition:width 0.5s ease;"></div>
-            </div>
-            <div style="font-size:0.75rem;color:${corGlobal};margin-top:4px;font-weight:700;">${pctGlobal}% utilizado</div>
+            ${buildProgressBar(pctGlobal, corGlobal)}
+            <div style="font-size:0.72rem;color:${corGlobal};font-weight:700;">${pctGlobal}% utilizado</div>
           </div>
           <div style="display:flex;gap:16px;flex-wrap:wrap;">
             ${[
-              { label: 'Orçamentos', val: orcs.length, cor: '#74b9ff' },
+              { label: 'Categorias', val: orcs.length, cor: '#74b9ff' },
               { label: 'Excedidos', val: orcs.filter(o=>o.status==='exceeded').length, cor: '#F43F5E' },
-              { label: 'Em Alerta', val: orcs.filter(o=>['warning','attention'].includes(o.status)).length, cor: '#F59E0B' },
+              { label: 'Em Alerta', val: orcs.filter(o=>['warning','warning_90','warning_70','attention'].includes(o.status)).length, cor: '#F59E0B' },
               { label: 'No Verde', val: orcs.filter(o=>o.status==='ok').length, cor: '#10B981' }
             ].map(s => `
               <div style="text-align:center;">
@@ -13699,13 +13821,16 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>
         </div>
 
-        <!-- Cards de Orçamento -->
+        <!-- Cards de Orçamento por Categoria -->
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px;">
           ${orcs.map(o => {
             const cfg = statusCfg[o.status] || statusCfg.ok
             const pct = Math.min(o.percentual, 100)
+            const temRollover = o.rollover && o.rollover !== 0
+            const temSugestao = o.sugestao !== null && o.sugestao !== undefined
             return `
-            <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${cfg.cor}'" onmouseout="this.style.borderColor='#1f2937'">
+            <div style="background:#111827;border:1px solid ${cfg.borda||'#1f2937'};border-radius:12px;padding:18px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${cfg.cor}'" onmouseout="this.style.borderColor='${cfg.borda||'#1f2937'}'">
+              <!-- Cabeçalho do card -->
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                 <div style="display:flex;align-items:center;gap:10px;">
                   <div style="font-size:1.6rem;">${o.label.split(' ')[0]}</div>
@@ -13716,20 +13841,39 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 </div>
                 <div style="display:flex;gap:4px;">
                   <button onclick="VM._editarOrcamento(${o.id},'${o.categoria}',${o.limite},${o.alerta_percentual})" style="background:rgba(255,255,255,0.06);border:1px solid #333;color:#aaa;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
-                  <button onclick="VM._deletarOrcamento(${o.id},'${o.label}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                  <button onclick="VM._deletarOrcamento(${o.id},'${o.label.replace(/'/g,"\\'")}',${o.gasto})" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                 </div>
               </div>
+
+              <!-- Valores -->
               <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:6px;">
                 <span style="color:#94a3b8;">Gasto: <strong style="color:${cfg.cor};">${this.fmt(o.gasto)}</strong></span>
-                <span style="color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(o.limite)}</strong></span>
+                <span style="color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(o.limite_efetivo||o.limite)}</strong></span>
               </div>
-              <div style="background:#1a1a2e;border-radius:20px;height:8px;overflow:hidden;margin-bottom:6px;">
-                <div style="background:${cfg.cor};height:100%;border-radius:20px;width:${pct}%;transition:width 0.6s ease;"></div>
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:0.72rem;">
+
+              <!-- Barra tricolor -->
+              ${buildProgressBar(o.percentual, cfg.cor)}
+
+              <!-- Percentual e restante -->
+              <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-top:2px;">
                 <span style="color:${cfg.cor};font-weight:700;">${o.percentual}%</span>
-                <span style="color:#555;">Restam: ${this.fmt(o.restante)}</span>
+                <span style="color:#555;">Restam: <strong style="color:${o.restante_real<0?'#F43F5E':'#94a3b8'};">${this.fmt(Math.abs(o.restante_real||o.restante))}${o.restante_real<0?' excedido':''}</strong></span>
               </div>
+
+              <!-- Rollover (se houver) -->
+              ${temRollover ? `
+              <div style="margin-top:8px;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;padding:6px 10px;display:flex;align-items:center;gap:6px;">
+                <span style="font-size:0.7rem;color:#fbbf24;">🔄 Rollover do mês anterior:</span>
+                <span style="font-size:0.72rem;font-weight:700;color:${o.rollover>0?'#10B981':'#F43F5E'};">${o.rollover>0?'+':''}${this.fmt(o.rollover)}</span>
+              </div>
+              ` : ''}
+
+              <!-- Sugestão baseada nos 3 meses anteriores -->
+              ${temSugestao && Math.abs(o.sugestao - o.limite) > 10 ? `
+              <div style="margin-top:8px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:8px;padding:5px 10px;font-size:0.7rem;color:#818CF8;">
+                💡 Média 3 meses: ${this.fmt(o.sugestao)} ${o.sugestao > o.limite ? '(seu limite está baixo)' : '(limite acima da média ✓)'}
+              </div>
+              ` : ''}
             </div>`
           }).join('')}
         </div>
@@ -13744,68 +13888,61 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         </div>
         `}
 
+        <!-- Categorias sem orçamento com sugestão -->
         ${sem.length > 0 ? `
         <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;">
           <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">💡 Categorias sem orçamento</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
             ${sem.map(s => `
-              <button onclick="VM._abrirNovoOrcamento('${s.categoria}')" style="background:rgba(255,255,255,0.04);border:1px solid #1f2937;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.78rem;transition:all 0.2s;" onmouseover="this.style.borderColor='#10B981';this.style.color='#10B981'" onmouseout="this.style.borderColor='#1f2937';this.style.color='#888'">
-                ${s.label} <span style="color:#10B981;margin-left:4px;">+</span>
+              <button onclick="VM._abrirNovoOrcamento('${s.categoria}'${s.sugestao?`,${s.sugestao}`:''})" style="background:rgba(255,255,255,0.04);border:1px solid #1f2937;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.78rem;transition:all 0.2s;" onmouseover="this.style.borderColor='#10B981';this.style.color='#10B981'" onmouseout="this.style.borderColor='#1f2937';this.style.color='#888'">
+                ${s.label}${s.sugestao?` · ${this.fmt(s.sugestao)}/mês`:''} <span style="color:#10B981;margin-left:4px;">+</span>
               </button>`).join('')}
           </div>
         </div>
         ` : ''}
       `
-
-      // Guardar estado para os selects
-      document.getElementById('sel-mes').onchange = () => {
-        mesSel = parseInt(document.getElementById('sel-mes').value)
-        anoSel = parseInt(document.getElementById('sel-ano').value)
-        renderPage()
-      }
-      document.getElementById('sel-ano').onchange = () => {
-        mesSel = parseInt(document.getElementById('sel-mes').value)
-        anoSel = parseInt(document.getElementById('sel-ano').value)
-        renderPage()
-      }
     }
 
-    // Métodos auxiliares
+    // ── Auxiliares ──────────────────────────────────────────────────────────
+
     this._orcMesChange = () => {
       mesSel = parseInt(document.getElementById('sel-mes')?.value || mesSel)
       anoSel = parseInt(document.getElementById('sel-ano')?.value || anoSel)
       renderPage()
     }
 
-    this._abrirNovoOrcamento = (catPre = '') => {
-      const catLabel = {
-        alimentacao:'🍽️ Alimentação', moradia:'🏠 Moradia', transporte:'🚗 Transporte',
-        saude:'🏥 Saúde', educacao:'📚 Educação', lazer:'🎮 Lazer', vestuario:'👕 Vestuário',
-        beleza:'💄 Beleza', pets:'🐾 Pets', assinaturas:'📱 Assinaturas',
-        tecnologia:'💻 Tecnologia', viagem:'✈️ Viagens', outros:'📦 Outros',
-        fixo:'📌 Gastos Fixos', supermercado:'🛒 Supermercado'
-      }
+    this._abrirNovoOrcamento = async (catPre = '', sugestao = 0) => {
+      // Buscar sugestões da API para preencher automaticamente
+      let sugestoes = {}
+      try {
+        const sug = await this.api('GET', `orcamentos/sugestoes?mes=${mesSel}&ano=${anoSel}`)
+        sugestoes = sug.sugestoes || {}
+      } catch(e) {}
+
+      const catSel = catPre || 'alimentacao'
+      const sugVal = sugestoes[catSel]?.sugestao_com_margem || sugestao || ''
+
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">📊 Novo Orçamento</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Defina o limite mensal para uma categoria</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Defina o limite mensal para uma categoria · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
-            <select id="orc-cat" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-              ${Object.entries(catLabel).map(([v,l]) => `<option value="${v}" ${v===catPre?'selected':''}>${l}</option>`).join('')}
+            <select id="orc-cat" onchange="VM._onOrcCatChange(this.value)" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+              ${Object.entries(catLabel).map(([v,l]) => `<option value="${v}" ${v===catSel?'selected':''}>${l}</option>`).join('')}
             </select>
           </div>
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite (R$)</label>
-            <input id="orc-limite" type="number" min="1" step="0.01" placeholder="Ex: 500,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            <input id="orc-limite" type="number" min="1" step="0.01" value="${sugVal}" placeholder="Ex: 500,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            <div id="orc-sugestao-hint" style="font-size:0.7rem;color:#818CF8;margin-top:3px;${sugVal?'':'display:none'}">
+              💡 Sugerido baseado nos últimos 3 meses (+10% margem)
+            </div>
           </div>
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
             <input id="orc-alerta" type="number" min="50" max="100" value="80" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-          </div>
-          <div style="display:flex;gap:8px;margin-top:4px;">
-            <span style="font-size:0.75rem;color:#888;">Mês/Ano:</span>
-            <span style="font-size:0.75rem;color:#10B981;font-weight:600;">${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</span>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button onclick="VM._salvarOrcamento(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
@@ -13813,16 +13950,24 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>
         </div>
       `)
+
+      // Expor sugestões para callback
+      window.__orcSugestoes = sugestoes
+    }
+
+    this._onOrcCatChange = (cat) => {
+      const sug = (window.__orcSugestoes || {})[cat]
+      const input = document.getElementById('orc-limite')
+      const hint  = document.getElementById('orc-sugestao-hint')
+      if (sug?.sugestao_com_margem) {
+        if (!input.value || parseFloat(input.value) === 0) input.value = sug.sugestao_com_margem
+        if (hint) hint.style.display = 'block'
+      } else {
+        if (hint) hint.style.display = 'none'
+      }
     }
 
     this._editarOrcamento = (id, cat, limite, alerta) => {
-      const catLabel = {
-        alimentacao:'🍽️ Alimentação', moradia:'🏠 Moradia', transporte:'🚗 Transporte',
-        saude:'🏥 Saúde', educacao:'📚 Educação', lazer:'🎮 Lazer', vestuario:'👕 Vestuário',
-        beleza:'💄 Beleza', pets:'🐾 Pets', assinaturas:'📱 Assinaturas',
-        tecnologia:'💻 Tecnologia', viagem:'✈️ Viagens', outros:'📦 Outros',
-        fixo:'📌 Gastos Fixos', supermercado:'🛒 Supermercado'
-      }
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">✏️ Editar Orçamento</div>
         <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">${catLabel[cat] || cat}</div>
@@ -13836,9 +13981,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div>
             <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
             <input id="orc-alerta" type="number" min="50" max="100" value="${alerta}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;">
-            <button onclick="VM._salvarOrcamento(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
+            <button onclick="VM._salvarOrcamentoById(${id},${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
             <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
           </div>
         </div>
@@ -13855,12 +14001,102 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       else this.toast(r.error || 'Erro ao salvar', 'error')
     }
 
-    this._deletarOrcamento = async (id, label) => {
-      const ok = await this.vmConfirm(`Deseja excluir o orçamento <strong>"${label}"</strong>?`, { titulo: 'Excluir Orçamento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
+    this._salvarOrcamentoById = async (id, mes, ano) => {
+      const limite = parseFloat(document.getElementById('orc-limite').value)
+      const alerta = parseInt(document.getElementById('orc-alerta').value) || 80
+      if (!limite || limite <= 0) { this.toast('Informe um limite válido', 'error'); return }
+      const r = await this.api('PUT', `orcamentos/${id}`, { limite, alerta_percentual: alerta })
+      if (r.success) { this.closeModal(); this.toast('✅ Orçamento atualizado!'); renderPage() }
+      else this.toast(r.error || 'Erro ao atualizar', 'error')
+    }
+
+    this._deletarOrcamento = async (id, label, gasto) => {
+      const nome = label.replace(/<[^>]*>/g,'').trim()
+      let msg = `Deseja excluir o orçamento <strong>"${nome}"</strong>?`
+      if (gasto > 0) msg += `<br><span style="font-size:0.8rem;color:#F59E0B;">⚠️ Já foram gastos ${this.fmt(gasto)} nesta categoria este mês.</span>`
+      const ok = await this.vmConfirm(msg, { titulo: 'Excluir Orçamento', corBotao: '#ef4444', textoBotao: 'Excluir', icone: '🗑️' })
       if (!ok) return
       const r = await this.api('DELETE', `orcamentos/${id}`)
       if (r.success) { this.toast('✅ Orçamento removido'); renderPage() }
       else this.toast('Erro ao remover', 'error')
+    }
+
+    // ── Modal Orçamento Global ───────────────────────────────────────────────
+
+    this._abrirOrcamentoGlobal = async () => {
+      let atual = null
+      try {
+        const d = await this.api('GET', `orcamentos?mes=${mesSel}&ano=${anoSel}`)
+        atual = d.global
+      } catch(e) {}
+
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">🌐 Orçamento Global</div>
+        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Limite total de gastos para o mês · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite Global (R$)</label>
+            <input id="orc-global-limite" type="number" min="1" step="0.01" value="${atual?.limite||''}" placeholder="Ex: 5000,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+          </div>
+          <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:10px;padding:12px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
+              <input type="checkbox" id="orc-global-rollover" ${atual?.rollover_ativo?'checked':''} style="width:18px;height:18px;accent-color:#fbbf24;cursor:pointer;">
+              🔄 Ativar Rollover
+            </label>
+            <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+              O saldo não gasto do mês anterior é somado ao limite do próximo mês.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="VM._salvarOrcamentoGlobal(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
+            <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 16px;">Cancelar</button>
+          </div>
+        </div>
+      `)
+    }
+
+    this._salvarOrcamentoGlobal = async (mes, ano) => {
+      const limite  = parseFloat(document.getElementById('orc-global-limite').value)
+      const rollover = document.getElementById('orc-global-rollover')?.checked || false
+      if (!limite || limite <= 0) { this.toast('Informe um limite válido', 'error'); return }
+      const r = await this.api('POST', 'orcamentos/global', { mes, ano, limite_global: limite, rollover })
+      if (r.success) { this.closeModal(); this.toast('✅ Orçamento global salvo!'); renderPage() }
+      else this.toast(r.error || 'Erro ao salvar', 'error')
+    }
+
+    this._deletarOrcamentoGlobal = async () => {
+      const ok = await this.vmConfirm(`Remover o orçamento global de ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}?`,
+        { titulo: 'Remover Orçamento Global', corBotao: '#ef4444', textoBotao: 'Remover', icone: '🌐' })
+      if (!ok) return
+      await this.api('DELETE', `orcamentos/global?mes=${mesSel}&ano=${anoSel}`)
+      this.toast('✅ Orçamento global removido')
+      renderPage()
+    }
+
+    // ── Rollover ─────────────────────────────────────────────────────────────
+
+    this._calcularRollover = async () => {
+      // Mês anterior ao selecionado
+      const d = new Date(anoSel, mesSel - 2, 1)
+      const mesAnt = d.getMonth() + 1
+      const anoAnt = d.getFullYear()
+      const ok = await this.vmConfirm(
+        `Calcular rollover de <strong>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesAnt-1]}/${anoAnt}</strong> para o mês selecionado?<br><span style="font-size:0.8rem;color:#94a3b8;">O saldo não gasto será transportado para ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}.</span>`,
+        { titulo: '🔄 Calcular Rollover', corBotao: '#fbbf24', textoBotao: 'Calcular', icone: '🔄' }
+      )
+      if (!ok) return
+      try {
+        const r = await this.api('POST', 'orcamentos/calcular-rollover', { mes_origem: mesAnt, ano_origem: anoAnt })
+        if (r.success) {
+          const total = r.rollovers?.length || 0
+          this.toast(`✅ Rollover calculado! ${total} categoria(s) atualizada(s)`)
+          renderPage()
+        } else {
+          this.toast(r.error || 'Erro ao calcular rollover', 'error')
+        }
+      } catch(e) {
+        this.toast('Erro ao calcular rollover', 'error')
+      }
     }
 
     renderPage()
@@ -14072,7 +14308,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                         ${r.descricao}
                         ${isVar ? `<span style="background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:1px 7px;font-size:0.65rem;font-weight:700;">↕ Variável</span>` : ''}
                       </div>
-                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}${r.ultimo_gerado ? ` · Último: ${r.ultimo_gerado.slice(0,7)}` : ''}</div>
+                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}</div>
+                      ${r.ativa && !r.valor_variavel ? `<div style="font-size:0.67rem;color:#475569;margin-top:2px;">📅 Próximo: ${valorLabel} · dia ${Math.min(r.dia_vencimento||1, new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate())}</div>` : r.ativa && r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">📅 Próximo: valor a definir</div>' : ''}</div
                     </td>
                     <td style="padding:12px 16px;">
                       <span style="background:${cfg.bg};color:${cfg.cor};border:1px solid ${cfg.cor}33;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
@@ -14093,8 +14330,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                           ${jaGerada ? 'opacity:0.5;' : ''}>
                           <i class="fas fa-paper-plane"></i>${jaGerada ? ' ✓' : ''}
                         </button>
+                        <button onclick="VM._verHistoricoRecorrencia(${r.id},'${r.descricao.replace(/'/g,\'\\\\'\')}')" title="Ver histórico" style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-history"></i></button>
                         <button onclick="VM._toggleRecorrencia(${r.id},${r.ativa})" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
-                        <button onclick="VM._editarRecorrencia(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Editar" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                        <button onclick="VM._editarRecorrencia(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
                         <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                       </div>
                     </td>
@@ -14459,6 +14697,73 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       if (r.variaveis_pendentes > 0) msg += ` · ${r.variaveis_pendentes} variável(is) aguardam lançamento manual`
       this.toast(msg, r.variaveis_pendentes > 0 ? 'warning' : 'success')
       renderRec()
+    }
+
+    // ── Modal histórico de execuções ─────────────────────────────────────────
+    this._verHistoricoRecorrencia = async (id, descricao) => {
+      const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      let hist = []
+      let rec = null
+      try {
+        const [hData, all] = await Promise.all([
+          this.api('GET', `recorrencias/${id}/historico?limit=24`),
+          this.api('GET', 'recorrencias')
+        ])
+        hist = hData.historico || []
+        rec = (all.recorrencias || []).find(r => r.id === id)
+      } catch(e) {}
+
+      const tipo = rec?.tipo || 'despesa'
+      const corTipo = tipo === 'receita' ? '#10B981' : '#F43F5E'
+      const isVar = rec?.valor_variavel
+
+      const totalGasto = hist.reduce((s, h) => s + Number(h.valor), 0)
+      const media = hist.length > 0 ? totalGasto / hist.length : 0
+
+      this.showModal(`
+        <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">📊 Histórico: ${descricao}</div>
+        <div style="font-size:0.78rem;color:#888;margin-bottom:16px;">${hist.length} lançamento(s) registrado(s)${isVar?' · Valor variável':''}</div>
+
+        ${hist.length > 0 ? `
+        <!-- Resumo -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+          ${[
+            { label: 'Total lançado', val: this.fmt(totalGasto), cor: corTipo },
+            { label: 'Média/mês', val: this.fmt(media), cor: '#94a3b8' },
+            { label: 'Meses', val: hist.length, cor: '#74b9ff' }
+          ].map(s => `
+            <div style="background:#0d1117;border:1px solid #1f2937;border-radius:10px;padding:12px;text-align:center;">
+              <div style="font-size:1.1rem;font-weight:800;color:${s.cor};">${s.val}</div>
+              <div style="font-size:0.68rem;color:#555;margin-top:3px;">${s.label}</div>
+            </div>`).join('')}
+        </div>
+
+        <!-- Lista de lançamentos -->
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;">
+          ${hist.map(h => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid #1f2937;border-radius:8px;padding:10px 14px;">
+              <div>
+                <div style="font-size:0.82rem;font-weight:600;color:#e0e0e0;">${MESES[(h.mes||1)-1]} ${h.ano}</div>
+                ${h.observacao ? `<div style="font-size:0.7rem;color:#555;margin-top:2px;">${h.observacao}</div>` : ''}
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:1rem;font-weight:700;color:${corTipo};">${this.fmt(h.valor)}</div>
+                <div style="font-size:0.65rem;color:#555;margin-top:1px;">${h.lancado_em ? new Date(h.lancado_em).toLocaleDateString('pt-BR') : ''}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        ` : `
+        <div style="text-align:center;padding:30px;color:#555;">
+          <div style="font-size:2.5rem;margin-bottom:10px;">📭</div>
+          <div>Nenhum lançamento registrado ainda</div>
+        </div>
+        `}
+
+        <div style="margin-top:16px;">
+          <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;padding:10px;">Fechar</button>
+        </div>
+      `)
     }
 
     this._abrirGerarMesFuturo = () => {
@@ -16912,6 +17217,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // ── IMPORTAÇÃO CSV ──────────────────────────────────────────────────────────
   async pageImportacao() {
     const content = document.getElementById('page-content')
+    // Carregar templates de banco em background
+    this._impCarregarTemplates().catch(() => {})
     content.innerHTML = `
       <div style="max-width:900px;margin:0 auto;padding:16px;">
         <h2 style="color:#fff;font-size:1.3rem;font-weight:700;margin-bottom:20px;">
@@ -17008,6 +17315,23 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 <span style="color:#e0e0e0;font-size:0.9rem;">Receitas</span>
               </label>
             </div>
+            <!-- Seletor de banco/template -->
+            <div style="margin-bottom:14px;">
+              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">🏦 Banco / Template (detecta colunas automaticamente)</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;" id="imp-banco-chips">
+                ${(window.__impTemplates||[{nome:'Nubank',banco:'nubank'},{nome:'Itaú',banco:'itau'},{nome:'Bradesco',banco:'bradesco'},{nome:'Inter',banco:'inter'},{nome:'C6 Bank',banco:'c6'},{nome:'Genérico',banco:'generico'}]).map(t => `
+                  <button onclick="VM._impSelecionarBanco('${t.banco}','${t.nome}')" id="imp-banco-${t.banco}"
+                    style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:#888;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;">
+                    ${t.nome}
+                  </button>`).join('')}
+                <button onclick="VM._impSalvarTemplate()" title="Salvar template atual"
+                  style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;">
+                  💾 Salvar template
+                </button>
+              </div>
+              <div id="imp-banco-info" style="font-size:0.7rem;color:#555;margin-top:5px;"></div>
+            </div>
+
             <textarea id="imp-csv" placeholder="Cole aqui o conteúdo do CSV..." rows="10"
               style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:#e0e0e0;padding:12px;font-size:0.82rem;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
             <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
@@ -17086,6 +17410,135 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       document.getElementById('imp-csv').value = e.target.result
     }
     reader.readAsText(file, 'UTF-8')
+  },
+
+  // ── Templates de banco ────────────────────────────────────────────────────
+  async _impCarregarTemplates() {
+    try {
+      const data = await this.api('GET', 'importacao/templates')
+      window.__impTemplates = data.templates || []
+      window.__impTemplateSelecionado = null
+    } catch(e) {
+      window.__impTemplates = []
+    }
+  },
+
+  _impSelecionarBanco(banco, nome) {
+    window.__impBancoSelecionado = banco
+
+    // Reset highlight
+    document.querySelectorAll('#imp-banco-chips button[id^="imp-banco-"]').forEach(btn => {
+      btn.style.background = 'rgba(255,255,255,0.05)'
+      btn.style.borderColor = '#1f2937'
+      btn.style.color = '#888'
+    })
+
+    // Highlight selecionado
+    const btn = document.getElementById(`imp-banco-${banco}`)
+    if (btn) {
+      btn.style.background = 'rgba(47,191,113,0.1)'
+      btn.style.borderColor = 'rgba(47,191,113,0.3)'
+      btn.style.color = '#2FBF71'
+    }
+
+    // Mostrar info do template
+    const tpl = (window.__impTemplates || []).find(t => t.banco === banco)
+    const info = document.getElementById('imp-banco-info')
+    if (info) {
+      if (tpl) {
+        info.innerHTML = `✅ Template: data="${tpl.col_data}" · desc="${tpl.col_desc}" · valor="${tpl.col_valor}" · sep="${tpl.separador}"`
+        info.style.color = '#10B981'
+        window.__impTemplateSelecionado = tpl
+      } else if (banco !== 'generico') {
+        info.innerHTML = `⚙️ Usando template padrão para ${nome}`
+        info.style.color = '#94a3b8'
+        window.__impTemplateSelecionado = null
+      } else {
+        info.innerHTML = `ℹ️ Detecção automática de colunas`
+        info.style.color = '#555'
+        window.__impTemplateSelecionado = null
+      }
+    }
+  },
+
+  async _impSalvarTemplate() {
+    const banco = window.__impBancoSelecionado || 'custom'
+    this.showModal(`
+      <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">💾 Salvar Template de Banco</div>
+      <div style="color:#666;font-size:0.82rem;margin-bottom:16px;">Defina como as colunas do seu CSV estão nomeadas</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Nome do banco</label>
+          <input id="tpl-nome" type="text" placeholder="Ex: Bradesco, Banco do Brasil" value="${banco!=='custom'?banco:''}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Identificador (banco ID)</label>
+          <input id="tpl-banco" type="text" placeholder="ex: bradesco" value="${banco!=='custom'?banco:''}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Data</label>
+            <input id="tpl-col-data" type="text" value="data" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Descrição</label>
+            <input id="tpl-col-desc" type="text" value="descricao" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Valor</label>
+            <input id="tpl-col-valor" type="text" value="valor" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Separador</label>
+            <select id="tpl-sep" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
+              <option value=";">Ponto-e-vírgula (;)</option>
+              <option value=",">Vírgula (,)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button onclick="VM._impConfirmarSalvarTemplate()" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
+          <button onclick="VM.closeModal()" class="btn-secondary" style="padding:10px 14px;">Cancelar</button>
+        </div>
+      </div>
+    `)
+  },
+
+  async _impConfirmarSalvarTemplate() {
+    const nome  = document.getElementById('tpl-nome')?.value?.trim()
+    const banco = document.getElementById('tpl-banco')?.value?.trim()
+    const colData  = document.getElementById('tpl-col-data')?.value?.trim() || 'data'
+    const colDesc  = document.getElementById('tpl-col-desc')?.value?.trim() || 'descricao'
+    const colValor = document.getElementById('tpl-col-valor')?.value?.trim() || 'valor'
+    const sep      = document.getElementById('tpl-sep')?.value || ';'
+
+    if (!nome || !banco) { this.toast('Nome e identificador são obrigatórios', 'error'); return }
+
+    try {
+      const r = await this.api('POST', 'importacao/templates', {
+        nome, banco, col_data: colData, col_desc: colDesc, col_valor: colValor, separador: sep
+      })
+      if (r.success) {
+        this.closeModal()
+        this.toast(`✅ Template "${nome}" salvo!`)
+        await this._impCarregarTemplates()
+        // Reatualizar chips na página
+        const chipsEl = document.getElementById('imp-banco-chips')
+        if (chipsEl) {
+          const tpls = window.__impTemplates || []
+          chipsEl.innerHTML = tpls.map(t => `
+            <button onclick="VM._impSelecionarBanco('${t.banco}','${t.nome}')" id="imp-banco-${t.banco}"
+              style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:#888;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;">
+              ${t.nome}
+            </button>`).join('') +
+            `<button onclick="VM._impSalvarTemplate()" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;">💾 Salvar template</button>`
+        }
+      } else {
+        this.toast(r.error || 'Erro ao salvar', 'error')
+      }
+    } catch(e) {
+      this.toast('Erro ao salvar template', 'error')
+    }
   },
 
   // ── OCR: foto ou PDF de extrato ───────────────────────────────────────────
@@ -17306,7 +17759,34 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         alertasEl.innerHTML = alertas.join('')
       }
 
-      // Renderizar linhas
+      // ── Verificação de duplicatas via hash (importacao_log) ────────────────
+      const preview10 = (resp.preview || []).slice(0, 10)
+      if (preview10.length > 0) {
+        try {
+          const regsParaVerif = preview10.map((p, i) => ({
+            data: p.data, descricao: p.descricao, valor: p.valor, linha: i
+          }))
+          const dupCheck = await this.api('POST', 'importacao/verificar-duplicatas', { registros: regsParaVerif })
+          if ((dupCheck.duplicatas || []).length > 0) {
+            const dupHashes = new Set(dupCheck.duplicatas.map(d => `${d.data}|${d.descricao?.toLowerCase().trim()}|${Number(d.valor).toFixed(2)}`))
+            // Marcar registros duplicados no preview
+            this._impData.preview = this._impData.preview.map(p => ({
+              ...p,
+              duplicata_log: dupHashes.has(`${p.data}|${p.descricao?.toLowerCase().trim()}|${Number(p.valor).toFixed(2)}`)
+            }))
+            const nDup = dupCheck.duplicatas.length
+            const alertasEl = document.getElementById('imp-alertas')
+            if (alertasEl) {
+              alertasEl.style.display = 'block'
+              alertasEl.innerHTML += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;color:#F59E0B;font-size:0.82rem;margin-top:8px;">
+                ⚠️ <b>${nDup} transação(ões) possivelmente duplicada(s)</b> — já foram importadas anteriormente. Linhas marcadas em laranja.
+              </div>`
+            }
+          }
+        } catch(e2) { /* silencioso */ }
+      }
+
+      // Renderizar linhas (primeiros 10 em destaque)
       this._impRenderizarLinhas()
 
     } catch(e) {
@@ -17346,6 +17826,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         borderColor = 'rgba(168,85,247,0.4)'
         bgColor = 'rgba(168,85,247,0.06)'
         dupBadge = `<span style="background:rgba(168,85,247,0.15);color:#a855f7;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🔄 Recorrente Existente</span>`
+        decisao = false
+      } else if (item.duplicata_log) {
+        // Duplicata detectada via importacao_log (importação anterior)
+        borderColor = 'rgba(245,158,11,0.35)'
+        bgColor = 'rgba(245,158,11,0.05)'
+        dupBadge = `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:600;">🟠 Já importado antes</span>`
         decisao = false
       }
 
