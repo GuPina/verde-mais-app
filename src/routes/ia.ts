@@ -1038,20 +1038,45 @@ Retorne EXCLUSIVAMENTE um JSON válido:
     const apiKey  = c.env.OPENAI_API_KEY
     const baseUrl = (c.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
 
-    const aiRes = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 2500,
-        temperature: 0.6,
+    // Verificar se chave de IA está configurada antes de chamar
+    if (!apiKey || apiKey.trim() === '') {
+      return c.json({
+        error: 'Serviço de IA não configurado. Entre em contato com o suporte.',
+        error_code: 'IA_NOT_CONFIGURED',
+        insights: []
+      }, 503)
+    }
+
+    let aiRes: Response
+    try {
+      aiRes = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 2500,
+          temperature: 0.6,
+        })
       })
-    })
+    } catch (fetchErr: any) {
+      return c.json({
+        error: 'Não foi possível conectar ao serviço de IA. Verifique sua conexão e tente novamente.',
+        error_code: 'IA_CONNECTION_ERROR',
+        insights: []
+      }, 502)
+    }
 
     if (!aiRes.ok) {
       const errBody = await aiRes.text().catch(() => '')
-      return c.json({ error: `Erro na API de IA (${aiRes.status}): ${errBody.substring(0,200)}`, insights: [] }, 500)
+      const statusMsg = aiRes.status === 401
+        ? 'Chave de API inválida ou expirada.'
+        : aiRes.status === 429
+          ? 'Limite de uso da IA atingido. Tente novamente em alguns minutos.'
+          : aiRes.status >= 500
+            ? 'Serviço de IA temporariamente indisponível. Tente novamente.'
+            : `Erro na IA (${aiRes.status})`
+      return c.json({ error: statusMsg, error_code: `AI_HTTP_${aiRes.status}`, insights: [] }, 500)
     }
 
     const aiData: any = await aiRes.json()

@@ -18,7 +18,11 @@ tags.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const rows = await c.env.DB.prepare(
     `SELECT t.id, t.nome, t.cor,
-            COUNT(dt.despesa_id) as usos
+            COUNT(dt.despesa_id) as usos,
+            COALESCE(SUM(CASE WHEN d.id IS NOT NULL
+              AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
+              AND COALESCE(d.tipo,'normal') != 'aporte'
+              THEN d.valor ELSE 0 END), 0) as total_valor
      FROM tags t
      LEFT JOIN despesa_tags dt ON dt.tag_id = t.id
      LEFT JOIN despesas d ON d.id = dt.despesa_id
@@ -26,7 +30,7 @@ tags.get('/', requireAuth, async (c) => {
        AND (dt.despesa_id IS NULL OR (d.categoria NOT IN ('Financiamento','Investimento','Aporte') AND d.tipo != 'aporte'))
      GROUP BY t.id
      ORDER BY usos DESC, t.nome ASC`
-  ).bind(user.id).all<{id:number;nome:string;cor:string;usos:number}>()
+  ).bind(user.id).all<{id:number;nome:string;cor:string;usos:number;total_valor:number}>()
 
   return c.json(rows.results || [])
 })
@@ -384,6 +388,36 @@ tags.get('/analise', requireAuth, async (c) => {
   })
 })
 
+// ─── GET /api/tags/analise-anual — Top gastos por tag no ano inteiro ─────────
+tags.get('/analise-anual', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { ano } = c.req.query()
+  const anoStr = ano || String(new Date().getFullYear())
+
+  const rows = await c.env.DB.prepare(`
+    SELECT t.id, t.nome, t.cor,
+           COUNT(DISTINCT dt.despesa_id) as usos,
+           COALESCE(SUM(d.valor), 0) as total_valor
+    FROM tags t
+    JOIN despesa_tags dt ON dt.tag_id = t.id
+    JOIN despesas d ON d.id = dt.despesa_id
+    WHERE t.user_id = ? AND d.user_id = ?
+      AND strftime('%Y', d.data) = ?
+      AND d.status != 'cancelado'
+      AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
+      AND COALESCE(d.tipo,'normal') != 'aporte'
+    GROUP BY t.id, t.nome, t.cor
+    ORDER BY total_valor DESC
+    LIMIT 20
+  `).bind(user.id, user.id, anoStr).all<any>()
+
+  return c.json((rows.results || []).map((t: any) => ({
+    ...t,
+    total_valor: parseFloat(t.total_valor || 0),
+    usos: parseInt(t.usos || 0),
+  })))
+})
+
 // ─── POST /api/tags/mesclar — Mesclar tags: migra lançamentos da tag origem para destino ──
 // Body: { tag_origem_id: number, tag_destino_id: number }
 tags.post('/mesclar', requireAuth, async (c) => {
@@ -463,40 +497,127 @@ tags.get('/sugestoes-mesclar', requireAuth, async (c) => {
 
   const tags_list = allTags.results || []
 
-  // Detectar tags similares por normalização
+  // ── Helpers de similaridade ────────────────────────────────────────────────
   const normalizar = (s: string) =>
-    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '').trim()
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim()
 
-  const sugestoes: Array<{ tag_a: any; tag_b: any; similaridade: string }> = []
+  // Levenshtein para detectar erros de digitação
+  function levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i])
+    for (let j = 0; j <= n; j++) dp[0][j] = j
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1]
+          ? dp[i-1][j-1]
+          : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+      }
+    }
+    return dp[m][n]
+  }
+
+  // Dice coefficient de bigramas (detecta palavras em ordem diferente e substrings)
+  function diceBigramas(a: string, b: string): number {
+    if (a.length < 2 || b.length < 2) return a === b ? 1 : 0
+    const bigrams = (s: string) => {
+      const set = new Set<string>()
+      for (let i = 0; i < s.length - 1; i++) set.add(s[i] + s[i+1])
+      return set
+    }
+    const bA = bigrams(a), bB = bigrams(b)
+    let inter = 0
+    bA.forEach(b => { if (bB.has(b)) inter++ })
+    return (2 * inter) / (bA.size + bB.size)
+  }
+
+  // Conjunto de palavras em comum (detecta "Mercado Mensal" vs "Mensal Mercado")
+  function palavrasComuns(a: string, b: string): number {
+    const wA = new Set(a.split(/\s+/).filter(w => w.length >= 3))
+    const wB = new Set(b.split(/\s+/).filter(w => w.length >= 3))
+    let inter = 0
+    wA.forEach(w => { if (wB.has(w)) inter++ })
+    const union = new Set([...wA, ...wB]).size
+    return union > 0 ? inter / union : 0
+  }
+
+  const sugestoes: Array<{ tag_a: any; tag_b: any; similaridade: string; score: number }> = []
   const processados = new Set<string>()
 
   for (let i = 0; i < tags_list.length; i++) {
     for (let j = i + 1; j < tags_list.length; j++) {
       const a = tags_list[i], b = tags_list[j]
+      // Normaliza removendo acentos e especiais, mantém espaços
       const nA = normalizar(a.nome), nB = normalizar(b.nome)
+      // Versão compacta (sem espaços) para Levenshtein
+      const cA = nA.replace(/\s+/g, ''), cB = nB.replace(/\s+/g, '')
       const chave = `${Math.min(a.id,b.id)}-${Math.max(a.id,b.id)}`
       if (processados.has(chave)) continue
 
       let motivo = ''
-      // Substring de 3+ chars
-      if (nA.length >= 3 && nB.includes(nA)) motivo = `"${b.nome}" contém "${a.nome}"`
-      else if (nB.length >= 3 && nA.includes(nB)) motivo = `"${a.nome}" contém "${b.nome}"`
-      // Normalização idêntica
-      else if (nA === nB) motivo = 'Nomes idênticos após normalização'
-      // Prefixo comum longo (>= 4 chars)
-      else {
-        const minLen = Math.min(nA.length, nB.length)
+      let score = 0
+
+      // 1. Idênticos após normalização completa
+      if (cA === cB) {
+        motivo = 'Nomes idênticos (apenas acentuação diferente)'
+        score = 100
+      }
+      // 2. Um contém o outro (substring)
+      else if (cA.length >= 3 && cB.includes(cA)) {
+        motivo = `"${b.nome}" contém "${a.nome}"`
+        score = 90
+      }
+      else if (cB.length >= 3 && cA.includes(cB)) {
+        motivo = `"${a.nome}" contém "${b.nome}"`
+        score = 90
+      }
+      // 3. Levenshtein ≤ 2 (erros de digitação, letras trocadas)
+      else if (cA.length >= 4 && cB.length >= 4) {
+        const dist = levenshtein(cA, cB)
+        const maxLen = Math.max(cA.length, cB.length)
+        if (dist <= 2 && dist / maxLen <= 0.25) {
+          motivo = `Erro de digitação (diferença de ${dist} caracter${dist > 1 ? 'es' : ''})`
+          score = Math.round((1 - dist / maxLen) * 100)
+        }
+      }
+
+      // 4. Se ainda sem motivo: Dice coefficient ≥ 0.75
+      if (!motivo) {
+        const dice = diceBigramas(cA, cB)
+        if (dice >= 0.75) {
+          motivo = `Muito similares (${Math.round(dice * 100)}% de semelhança)`
+          score = Math.round(dice * 100)
+        }
+      }
+
+      // 5. Palavras em comum ≥ 0.67 (ex: "Mercado Mensal" vs "Mensal Mercado")
+      if (!motivo && nA.includes(' ') && nB.includes(' ')) {
+        const jaccard = palavrasComuns(nA, nB)
+        if (jaccard >= 0.67) {
+          motivo = `Mesmas palavras, ordem diferente (${Math.round(jaccard * 100)}% de sobreposição)`
+          score = Math.round(jaccard * 100)
+        }
+      }
+
+      // 6. Prefixo comum longo (fallback anterior, mantido)
+      if (!motivo) {
+        const minLen = Math.min(cA.length, cB.length)
         let prefixo = 0
-        for (let k = 0; k < minLen; k++) { if (nA[k] === nB[k]) prefixo++; else break }
-        if (prefixo >= 4 && prefixo >= minLen * 0.7) motivo = `Prefixo comum: "${nA.substring(0, prefixo)}"`
+        for (let k = 0; k < minLen; k++) { if (cA[k] === cB[k]) prefixo++; else break }
+        if (prefixo >= 4 && prefixo >= minLen * 0.75) {
+          motivo = `Início idêntico: "${cA.substring(0, prefixo)}"`
+          score = Math.round(prefixo / Math.max(cA.length, cB.length) * 100)
+        }
       }
 
       if (motivo) {
         processados.add(chave)
-        sugestoes.push({ tag_a: a, tag_b: b, similaridade: motivo })
+        sugestoes.push({ tag_a: a, tag_b: b, similaridade: motivo, score })
       }
     }
   }
+
+  // Ordenar por score decrescente (mais similares primeiro)
+  sugestoes.sort((a, b) => b.score - a.score)
 
   return c.json({ sugestoes, total: sugestoes.length })
 })
@@ -519,7 +640,8 @@ tags.get('/despesas-sem-tag', requireAuth, async (c) => {
             d.purchase_group_id
      FROM despesas d
      WHERE d.user_id = ?
-       AND d.tipo != 'aporte'
+       AND COALESCE(d.tipo,'normal') != 'aporte'
+       AND d.categoria NOT IN ('Empréstimo','Financiamento','Investimento','Aporte')
        AND NOT EXISTS (
          SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
        )

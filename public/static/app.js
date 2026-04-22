@@ -7234,8 +7234,23 @@ const VM = {
     const entradas = Object.entries(sugestoes)
     if (entradas.length === 0) { this.toast('Nenhuma tag selecionada', 'warning'); return }
 
+    // Calcular quantas parcelas serão afetadas no total
+    const despesaMap2 = {}
+    for (const d of this._semTagState.despesas) despesaMap2[d.id] = d
+    let totalParcelas = 0
+    let totalGrupos = 0
+    for (const [despesa_id] of entradas) {
+      const desp = despesaMap2[parseInt(despesa_id)]
+      if (desp?.eh_grupo && (desp.grupo_ids?.length || 0) > 1) {
+        totalGrupos++
+        totalParcelas += desp.grupo_ids.length
+      }
+    }
+    const avisoGrupo = totalGrupos > 0
+      ? `<br><br><span style="color:#F59E0B;font-size:0.85rem;">⚠️ <strong>${totalGrupos} compra${totalGrupos > 1 ? 's' : ''} parcelada${totalGrupos > 1 ? 's' : ''}</strong> — a tag será aplicada em todas as <strong>${totalParcelas} parcelas</strong> automaticamente.</span>`
+      : ''
     const ok = await this.vmConfirm(
-      `Serão aplicadas tags em <strong>${entradas.length} despesa${entradas.length !== 1 ? 's' : ''}</strong>.<br>Tags novas serão criadas automaticamente.`,
+      `Serão aplicadas tags em <strong>${entradas.length} despesa${entradas.length !== 1 ? 's' : ''}</strong>.<br>Tags novas serão criadas automaticamente.${avisoGrupo}`,
       { titulo: 'Aplicar Tags em Lote', corBotao: '#10B981', textoBotao: 'Aplicar', icone: '🏷️' }
     )
     if (!ok) return
@@ -7675,7 +7690,6 @@ const VM = {
           // Cards de melhor/pior mês (R1, R2) e economias vs média (R5)
           const mesesComDados = relatorio.filter(m => m.receitas > 0 || m.despesas > 0)
           if (mesesComDados.length === 0) return ''
-          const NOMES_MES = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
           const melhorMes = mesesComDados.reduce((mx, m) => m.saldo > mx.saldo ? m : mx, mesesComDados[0])
           const piorMes   = mesesComDados.reduce((mn, m) => m.saldo < mn.saldo ? m : mn, mesesComDados[0])
           const mediaSaldo = mesesComDados.reduce((s,m) => s + m.saldo, 0) / mesesComDados.length
@@ -7683,20 +7697,22 @@ const VM = {
           const maisGastador = mesesComDados.reduce((mx, m) => m.despesas > mx.despesas ? m : mx, mesesComDados[0])
           const economiaVsMedia = mesesComDados.map(m => ({ mes: m.mes, diff: mediaDespesa - m.despesas })).filter(m => m.diff > 0)
           const totalEconomia = economiaVsMedia.reduce((s,m) => s + m.diff, 0)
+          // backend retorna m.mes como nome abreviado (ex: "Jan") e m.numero_mes como inteiro
+          const nomeMes = (m) => m.mes || ''
 
           return `
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px;">
             <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:14px;padding:18px;text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">🏆</div>
               <div style="font-size:0.72rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Melhor Mês</div>
-              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${NOMES_MES[melhorMes.mes]}/${ano}</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${nomeMes(melhorMes)}/${ano}</div>
               <div style="font-size:0.95rem;color:#10B981;font-weight:700;">${this.formatMoney(melhorMes.saldo)}</div>
               <div style="font-size:0.72rem;color:#475569;margin-top:3px;">Saldo mais alto do ano</div>
             </div>
             <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:18px;text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">📉</div>
               <div style="font-size:0.72rem;color:#FDA4AF;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Mês Mais Gastador</div>
-              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${NOMES_MES[maisGastador.mes]}/${ano}</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#F1F5F9;">${nomeMes(maisGastador)}/${ano}</div>
               <div style="font-size:0.95rem;color:#F43F5E;font-weight:700;">${this.formatMoney(maisGastador.despesas)}</div>
               <div style="font-size:0.72rem;color:#475569;margin-top:3px;">Maiores despesas do ano</div>
             </div>
@@ -7910,8 +7926,8 @@ const VM = {
     const el = document.getElementById('rel-tags-lista')
     if (!el) return
     try {
-      const data = await this.api('GET', `tags?ano=${ano}`)
-      const tags = (data || []).filter(t => (t.usos || 0) > 0).sort((a,b) => (b.total_valor||0)-(a.total_valor||0)).slice(0,5)
+      const data = await this.api('GET', `tags/analise-anual?ano=${ano}`)
+      const tags = (data || []).filter(t => (t.total_valor || 0) > 0).sort((a,b) => (b.total_valor||0)-(a.total_valor||0)).slice(0,5)
       if (tags.length === 0) {
         el.innerHTML = `<div style="text-align:center;padding:20px 0;color:#475569;font-size:0.84rem;">Nenhuma tag com uso registrada em ${ano}</div>`
         return
@@ -13174,7 +13190,36 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       }
       this.toast(`✅ ${insights.length} insights gerados para o perfil ${perfilLabel[perfil]||perfil}`, 'success')
     } catch(e) {
-      this.toast('Erro ao gerar insights: ' + e.message, 'error')
+      const errData = e.response?.data
+      const msg = errData?.error || e.message || 'Erro desconhecido'
+      const code = errData?.error_code || ''
+
+      let msgAmigavel = '⚠️ Não foi possível gerar insights.'
+      if (code === 'IA_NOT_CONFIGURED') {
+        msgAmigavel = '🔧 Serviço de IA não configurado. Tente novamente ou contate o suporte.'
+      } else if (code === 'IA_CONNECTION_ERROR') {
+        msgAmigavel = '📡 Sem conexão com o serviço de IA. Verifique sua internet e tente novamente.'
+      } else if (code?.startsWith('AI_HTTP_429')) {
+        msgAmigavel = '⏳ Limite de requisições atingido. Aguarde alguns minutos.'
+      } else if (code?.startsWith('AI_HTTP_401')) {
+        msgAmigavel = '🔑 API de IA com credenciais inválidas. Contate o suporte.'
+      } else if (msg.includes('fetch') || msg.includes('network')) {
+        msgAmigavel = '📡 Problema de conexão ao gerar insights. Tente novamente.'
+      }
+
+      const container = document.getElementById('ia-insights-container')
+      if (container) {
+        container.innerHTML = `
+          <div style="background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.2);border-radius:12px;padding:20px;text-align:center;">
+            <div style="font-size:2rem;margin-bottom:8px;">⚠️</div>
+            <div style="color:#F43F5E;font-weight:600;font-size:0.9rem;margin-bottom:6px;">Não foi possível gerar insights</div>
+            <div style="color:#64748B;font-size:0.8rem;margin-bottom:14px;">${msgAmigavel}</div>
+            <button onclick="VM.gerarInsightsIA()" style="background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);padding:7px 18px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;">
+              <i class="fas fa-redo"></i> Tentar novamente
+            </button>
+          </div>`
+      }
+      this.toast(msgAmigavel, 'error')
     } finally {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-robot" style="margin-right:6px;"></i>Gerar Insights com IA' }
     }
@@ -17334,50 +17379,79 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         </div>`}
       `
 
-      // Mapa de calor semanal (F1)
-      const mapaCalorHtml = compras_impulsivas.length > 0 ? (() => {
+      // Mapa de calor semanal (F1) — robusto para campos data nulos ou inválidos
+      const mapaCalorHtml = (() => {
         const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
         const contagem = new Array(7).fill(0)
         const valores  = new Array(7).fill(0)
-        compras_impulsivas.forEach(c => {
-          if (c.data) { const d = new Date(c.data + 'T12:00:00').getDay(); contagem[d]++; valores[d] += c.valor || 0 }
+        let totalMapeadas = 0
+        ;(compras_impulsivas || []).forEach(c => {
+          if (!c.data) return
+          try {
+            // Normalizar: suporta 'YYYY-MM-DD', 'DD/MM/YYYY' e ISO
+            let dataStr = c.data
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) {
+              const [d2,m2,y2] = dataStr.split('/')
+              dataStr = `${y2}-${m2}-${d2}`
+            }
+            const dt = new Date(dataStr + 'T12:00:00')
+            if (isNaN(dt.getTime())) return
+            const dow = dt.getDay()
+            contagem[dow]++
+            valores[dow] += parseFloat(c.valor) || 0
+            totalMapeadas++
+          } catch(_) {}
         })
+        if (totalMapeadas === 0) return ''
         const maxCont = Math.max(...contagem, 1)
+        const diaPico = contagem.indexOf(Math.max(...contagem))
         return `<div style="background:rgba(15,23,42,0.85);border:1px solid rgba(249,115,22,0.2);border-radius:14px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:0.82rem;font-weight:700;color:#FB923C;margin-bottom:12px;">🔥 Mapa de Calor — Dia da Semana</div>
-          <div style="display:flex;gap:6px;align-items:flex-end;height:80px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:0.82rem;font-weight:700;color:#FB923C;">🔥 Mapa de Calor — Dia da Semana</div>
+            ${maxCont > 0 ? `<div style="font-size:0.72rem;color:#64748B;">Pico: <span style="color:#F97316;font-weight:700;">${dias[diaPico]}</span> (${contagem[diaPico]} compra${contagem[diaPico]>1?'s':''})</div>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;align-items:flex-end;height:90px;">
             ${dias.map((d, i) => {
-              const h = maxCont > 0 ? Math.max(8, Math.round(contagem[i] / maxCont * 70)) : 8
-              const cor = contagem[i] === 0 ? 'rgba(255,255,255,0.05)' : contagem[i] === Math.max(...contagem) ? '#F97316' : 'rgba(249,115,22,0.45)'
+              const h = maxCont > 0 ? Math.max(6, Math.round(contagem[i] / maxCont * 74)) : 6
+              const isPico = contagem[i] > 0 && contagem[i] === maxCont
+              const cor = contagem[i] === 0 ? 'rgba(255,255,255,0.04)' : isPico ? '#F97316' : `rgba(249,115,22,${0.25 + (contagem[i]/maxCont)*0.55})`
+              const border = isPico ? '2px solid #F97316' : '1px solid transparent'
               return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">
-                <div title="${contagem[i]} compras · R$ ${valores[i].toLocaleString('pt-BR',{minimumFractionDigits:2})}" style="width:100%;height:${h}px;background:${cor};border-radius:4px 4px 0 0;transition:all 0.3s;cursor:default;"></div>
-                <div style="font-size:0.6rem;color:#475569;">${d}</div>
-                ${contagem[i] > 0 ? `<div style="font-size:0.6rem;color:#FB923C;font-weight:700;">${contagem[i]}</div>` : ''}
+                <div title="${d}: ${contagem[i]} compra${contagem[i]>1?'s':''} · R$ ${valores[i].toLocaleString('pt-BR',{minimumFractionDigits:2})}" style="width:100%;height:${h}px;background:${cor};border:${border};border-radius:4px 4px 0 0;cursor:default;"></div>
+                <div style="font-size:0.62rem;color:${isPico?'#FB923C':'#475569'};font-weight:${isPico?'700':'400'}">${d}</div>
+                ${contagem[i] > 0 ? `<div style="font-size:0.62rem;color:${isPico?'#F97316':'#94A3B8'};font-weight:700;">${contagem[i]}x</div>` : '<div style="font-size:0.62rem;color:#1f2937;">-</div>'}
               </div>`
             }).join('')}
           </div>
+          <div style="margin-top:8px;font-size:0.7rem;color:#475569;text-align:center;">${totalMapeadas} compra${totalMapeadas>1?'s':''} mapeada${totalMapeadas>1?'s':''} nos últimos ${periodo_meses} meses</div>
         </div>`
-      })() : ''
+      })()
 
-      // Meta de redução com progresso (F3)
+      // Meta de redução com progresso (F3) — persiste no localStorage
+      const metaSalva = parseInt(localStorage.getItem('vm_meta_compras_alvo') || '') || Math.max(0, Math.floor(qtdImpulsivas * 0.7))
+      const metaAlvoInicial = qtdImpulsivas > 0 ? Math.min(metaSalva, qtdImpulsivas) : 0
+      const ticketMedio = qtdImpulsivas > 0 ? totalImpulsivo / qtdImpulsivas : 0
+      const economiaEstInicial = (qtdImpulsivas - metaAlvoInicial) * ticketMedio
+      const pctInicial = qtdImpulsivas > 0 ? Math.round((1 - metaAlvoInicial / qtdImpulsivas) * 100) : 0
       const metaReducaoHtml = qtdImpulsivas > 0 ? `
         <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:0.82rem;font-weight:700;color:#6EE7B7;margin-bottom:10px;">🎯 Meta de Redução de Impulsos</div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-            <span style="font-size:0.82rem;color:#94A3B8;">Reduzir de ${qtdImpulsivas} para</span>
-            <input type="number" id="cf-meta-qtd" value="${Math.max(0,Math.floor(qtdImpulsivas * 0.7))}" min="0" max="${qtdImpulsivas}" style="width:70px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;color:#F1F5F9;font-size:0.85rem;" oninput="VM._atualizarMetaCompras()">
-            <span style="font-size:0.82rem;color:#94A3B8;">compras impulsivas</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:0.82rem;font-weight:700;color:#6EE7B7;">🎯 Meta de Redução de Impulsos</div>
+            <div style="font-size:0.7rem;color:#475569;">Ticket médio: R$ ${ticketMedio.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
           </div>
-          <div id="cf-meta-resultado" style="font-size:0.82rem;color:#10B981;">
-            ${(() => {
-              const metaAlvo = Math.max(0, Math.floor(qtdImpulsivas * 0.7))
-              const economiaEst = (qtdImpulsivas - metaAlvo) * (totalImpulsivo / Math.max(qtdImpulsivas,1))
-              const pct = qtdImpulsivas > 0 ? Math.round((1 - metaAlvo / qtdImpulsivas) * 100) : 0
-              return `Redução de ${pct}% · Economia estimada: R$ ${economiaEst.toLocaleString('pt-BR',{minimumFractionDigits:2})}/período`
-            })()}
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+            <span style="font-size:0.82rem;color:#94A3B8;">Atual: <strong style="color:#F1F5F9;">${qtdImpulsivas}</strong> · Meta:</span>
+            <input type="number" id="cf-meta-qtd" value="${metaAlvoInicial}" min="0" max="${qtdImpulsivas}"
+              data-qtd-atual="${qtdImpulsivas}" data-ticket="${ticketMedio.toFixed(2)}"
+              style="width:70px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;color:#F1F5F9;font-size:0.85rem;"
+              oninput="VM._atualizarMetaCompras()">
+            <span style="font-size:0.82rem;color:#94A3B8;">compras</span>
           </div>
-          <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;overflow:hidden;margin-top:8px;">
-            <div id="cf-meta-barra" style="height:100%;width:${qtdImpulsivas > 0 ? Math.round((1-Math.floor(qtdImpulsivas*0.7)/qtdImpulsivas)*100) : 0}%;background:linear-gradient(90deg,#10B981,#059669);border-radius:4px;transition:width 0.4s;"></div>
+          <div id="cf-meta-resultado" style="font-size:0.82rem;color:#10B981;margin-bottom:8px;">
+            Redução de ${pctInicial}% · Economia estimada: R$ ${economiaEstInicial.toLocaleString('pt-BR',{minimumFractionDigits:2})}
+          </div>
+          <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
+            <div id="cf-meta-barra" style="height:100%;width:${pctInicial}%;background:linear-gradient(90deg,#10B981,#059669);border-radius:4px;transition:width 0.4s;"></div>
           </div>
         </div>` : ''
 
@@ -17405,8 +17479,14 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           ${abaAtiva === 'impulsos' ? mapaCalorHtml + metaReducaoHtml + htmlImpulsos : htmlRecorrentes}
         </div>
       `
-      // Carregar comparativo vs mês anterior
-      if (abaAtiva === 'impulsos') this._carregarCompAnteriorCompras(pctImpulsivo, totalImpulsivo)
+      // Renderizar lista de desejos do localStorage imediatamente após o DOM ser criado
+      if (abaAtiva === 'impulsos') {
+        // Aguarda microtask para garantir que o DOM foi renderizado
+        Promise.resolve().then(() => {
+          this._renderListaDesejos30dias()
+          this._carregarCompAnteriorCompras(pctImpulsivo, totalImpulsivo)
+        })
+      }
 
     } catch (e) {
       document.getElementById('page-content').innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar análise: ${e.message}</p></div>`
@@ -17415,14 +17495,20 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   _atualizarMetaCompras() {
     const inp = document.getElementById('cf-meta-qtd')
-    const qtdAtual = parseInt(inp?.getAttribute('max') || '0')
-    const metaAlvo = parseInt(inp?.value || '0')
+    if (!inp) return
+    const qtdAtual = parseInt(inp.dataset.qtdAtual || inp.getAttribute('max') || '0')
+    const ticket   = parseFloat(inp.dataset.ticket || '0')
+    const metaAlvo = Math.max(0, Math.min(qtdAtual, parseInt(inp.value || '0')))
     const el = document.getElementById('cf-meta-resultado')
     const barra = document.getElementById('cf-meta-barra')
     if (!el || !barra || isNaN(metaAlvo)) return
     const pct = qtdAtual > 0 ? Math.round((1 - metaAlvo / qtdAtual) * 100) : 0
-    el.innerHTML = `Redução de ${pct}% · Meta definida para ${metaAlvo} compras impulsivas`
+    const economiaEst = (qtdAtual - metaAlvo) * ticket
+    el.innerHTML = `Redução de ${pct}% · Economia estimada: R$ ${economiaEst.toLocaleString('pt-BR',{minimumFractionDigits:2})}`
+    el.style.color = pct >= 30 ? '#10B981' : pct >= 10 ? '#F59E0B' : '#94A3B8'
     barra.style.width = `${Math.max(0, pct)}%`
+    // Persistir meta no localStorage
+    localStorage.setItem('vm_meta_compras_alvo', String(metaAlvo))
   },
 
   async _carregarCompAnteriorCompras(pctAtual, totalAtual) {
@@ -17442,9 +17528,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div style="font-size:1rem;font-weight:700;color:${cor};">${diff < 0 ? '▼' : diff > 0 ? '▲' : '→'} ${Math.abs(diff).toFixed(1)}% impulsos ${diff < 0 ? 'a menos' : diff > 0 ? 'a mais' : 'igual'}</div>
           <div style="font-size:0.75rem;color:#475569;">Anterior: ${(mesAnt.pct_impulsivo||0).toFixed(1)}% · Atual: ${pctAtual.toFixed(1)}%</div>
         </div>`
-    } catch(_) { el.innerHTML = '' }
-    // Carregar lista de desejos do localStorage
-    this._renderListaDesejos30dias()
+    } catch(_) { if (el) el.innerHTML = '' }
   },
 
   _adicionarDesejo30dias() {
@@ -17463,16 +17547,41 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     const el = document.getElementById('cf-lista-desejos')
     if (!el) return
     const lista = JSON.parse(localStorage.getItem('vm_desejos_30d') || '[]')
-    if (lista.length === 0) return
+    if (lista.length === 0) {
+      el.innerHTML = `<div style="color:#475569;font-size:0.75rem;padding:8px 0;font-style:italic;">Nenhum desejo anotado ainda. Use o campo acima para começar.</div>`
+      return
+    }
+    const agora = new Date()
+    const prontos = lista.filter(d => {
+      try {
+        const [dd,mm,yyyy] = d.data.split('/')
+        const dt = new Date(`${yyyy}-${mm}-${dd}`)
+        return (agora - dt) >= 30 * 24 * 60 * 60 * 1000
+      } catch { return false }
+    }).length
     el.innerHTML = `
-      <div style="font-size:0.75rem;color:#64748B;margin-bottom:6px;">📋 ${lista.length} desejo(s) anotado(s):</div>
-      <div style="display:flex;flex-direction:column;gap:4px;">
-        ${lista.map((d, i) => `
-          <div style="display:flex;align-items:center;gap:8px;background:#0f172a;border-radius:8px;padding:6px 10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
+        <div style="font-size:0.75rem;color:#64748B;">📋 ${lista.length} desejo${lista.length>1?'s':''} anotado${lista.length>1?'s':''}</div>
+        ${prontos > 0 ? `<div style="font-size:0.7rem;color:#10B981;font-weight:600;">✅ ${prontos} pronto${prontos>1?'s':''} para reavaliação (≥30 dias)</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;">
+        ${lista.map((d, i) => {
+          let diasPassados = 0
+          let pronto = false
+          try {
+            const [dd,mm,yyyy] = d.data.split('/')
+            const dt = new Date(`${yyyy}-${mm}-${dd}`)
+            diasPassados = Math.floor((agora - dt) / (1000*60*60*24))
+            pronto = diasPassados >= 30
+          } catch {}
+          const corDias = pronto ? '#10B981' : diasPassados >= 15 ? '#F59E0B' : '#64748B'
+          return `
+          <div style="display:flex;align-items:center;gap:8px;background:${pronto?'rgba(16,185,129,0.06)':'#0f172a'};border:1px solid ${pronto?'rgba(16,185,129,0.2)':'rgba(255,255,255,0.04)'};border-radius:8px;padding:7px 10px;">
             <span style="font-size:0.78rem;color:#94A3B8;flex:1;">${this.escapeHtml(d.texto)}</span>
-            <span style="font-size:0.68rem;color:#475569;">${d.data}</span>
-            <button onclick="VM._removerDesejo30dias(${i})" style="background:none;border:none;color:#475569;cursor:pointer;font-size:0.75rem;">✕</button>
-          </div>`).join('')}
+            <span style="font-size:0.65rem;color:${corDias};white-space:nowrap;">${pronto?'✅ '+diasPassados+'d':'⏳ '+diasPassados+'d'}</span>
+            <button onclick="VM._removerDesejo30dias(${i})" title="Remover" style="background:none;border:none;color:#475569;cursor:pointer;font-size:0.75rem;padding:0 2px;">✕</button>
+          </div>`
+        }).join('')}
       </div>`
   },
 

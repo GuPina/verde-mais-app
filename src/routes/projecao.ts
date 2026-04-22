@@ -112,11 +112,31 @@ projecao.get('/', requireAuth, async (c) => {
   const mediaPonderada = saldos.reduce((acc, val, i) => acc + val * pesos[i], 0) / totalPeso
 
   // Variância para calcular confiança
-  const temDados = saldos.some(s => s !== 0)
-  const variancia = saldos.reduce((acc, val) => acc + Math.pow(val - mediaPonderada, 2), 0) / n
-  const desvio = Math.sqrt(variancia)
-  const coefVar = (temDados && mediaPonderada !== 0) ? Math.abs(desvio / mediaPonderada) : 1
-  const confianca = temDados ? Math.max(20, Math.min(95, Math.round((1 - Math.min(coefVar, 1)) * 100))) : 10
+  // Usar apenas meses com dados reais para o cálculo (evita zeros inflacionarem a variância)
+  const mesesComDados = meses.filter(m => m.receitas > 0 || m.despesas > 0)
+  const temDados = mesesComDados.length > 0
+  const qtdMesesReais = mesesComDados.length
+
+  let confianca: number
+  if (!temDados) {
+    confianca = 10
+  } else if (qtdMesesReais >= 5) {
+    // Calcular variância apenas sobre os saldos dos meses com dados
+    const saldosMesesReais = mesesComDados.map(m => m.saldo)
+    const mediaReal = saldosMesesReais.reduce((a, b) => a + b, 0) / qtdMesesReais
+    const varReal = saldosMesesReais.reduce((acc, val) => acc + Math.pow(val - mediaReal, 2), 0) / qtdMesesReais
+    const desReal = Math.sqrt(varReal)
+    const cvReal = mediaReal !== 0 ? Math.abs(desReal / mediaReal) : 0.5
+    confianca = Math.max(45, Math.min(95, Math.round((1 - Math.min(cvReal, 1)) * 95)))
+  } else if (qtdMesesReais >= 3) {
+    // 3–4 meses de dados: confiança moderada (40–65)
+    confianca = 40 + (qtdMesesReais - 3) * 12
+  } else if (qtdMesesReais >= 1) {
+    // 1–2 meses: confiança baixa mas funcional
+    confianca = 25 + (qtdMesesReais - 1) * 10
+  } else {
+    confianca = 15
+  }
 
   // Tendência
   const tendencia = slope > 50 ? 'positive' : slope < -50 ? 'negative' : 'stable'
@@ -310,7 +330,7 @@ projecao.get('/', requireAuth, async (c) => {
       pessimista: cenarioPessimista
     },
     tendencia,
-    media_mensal: Math.round(mediaPonderada * 100) / 100,
+    media_mensal: Math.round((avgReceitas - avgDespesas) * 100) / 100,
     media_receitas: Math.round(avgReceitas * 100) / 100,
     media_despesas: Math.round(avgDespesas * 100) / 100,
     saldo_atual: Math.round(saldoAtual * 100) / 100,
