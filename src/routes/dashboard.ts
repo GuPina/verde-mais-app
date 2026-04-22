@@ -11,8 +11,16 @@ const dashboard = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 dashboard.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const now = new Date()
-  const mes = String(now.getMonth() + 1).padStart(2, '0')
-  const ano = String(now.getFullYear())
+  // Suporte a filtro de mês/ano via query string (?mes=04&ano=2026)
+  const qMes = c.req.query('mes')
+  const qAno = c.req.query('ano')
+  const mes = qMes ? String(qMes).padStart(2, '0') : String(now.getMonth() + 1).padStart(2, '0')
+  const ano = qAno ? String(qAno) : String(now.getFullYear())
+  // Mês anterior para comparativo
+  const refDate = new Date(parseInt(ano), parseInt(mes) - 1, 1)
+  refDate.setMonth(refDate.getMonth() - 1)
+  const mesAnt = String(refDate.getMonth() + 1).padStart(2, '0')
+  const anoAnt = String(refDate.getFullYear())
 
   // ── M2: batch das queries principais (1 round-trip ao D1) ──────────────────
   const [
@@ -32,6 +40,8 @@ dashboard.get('/', requireAuth, async (c) => {
     categoriasReceitasR,
     ultimasTransacoesR,
     proximosVencimentosR,
+    receitasAntR,
+    despesasAntR,
   ] = await c.env.DB.batch([
     // receitas do mês
     c.env.DB.prepare(
@@ -137,10 +147,27 @@ dashboard.get('/', requireAuth, async (c) => {
     ).bind(user.id, user.id),
     // próximos vencimentos
     c.env.DB.prepare(
-      `SELECT * FROM despesas WHERE user_id = ? AND status = 'pendente' 
+      `SELECT id, descricao, categoria, valor, vencimento, status, meio_pagamento FROM despesas WHERE user_id = ? AND status = 'pendente' 
        AND vencimento BETWEEN date('now') AND date('now', '+7 days')
        ORDER BY vencimento ASC LIMIT 5`
     ).bind(user.id),
+    // receitas mês anterior (comparativo)
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total FROM receitas 
+       WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+    ).bind(user.id, mesAnt, anoAnt),
+    // despesas mês anterior (comparativo)
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+       WHERE user_id = ?
+         AND COALESCE(tipo,'normal') != 'aporte'
+         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+         AND CASE WHEN status = 'pago'
+                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             END`
+    ).bind(user.id, mesAnt, anoAnt, mesAnt, anoAnt),
   ])
 
   const receitasMes        = receitasMesR.results?.[0]        ?? receitasMesR as any
@@ -159,10 +186,16 @@ dashboard.get('/', requireAuth, async (c) => {
   const categoriasReceitas = categoriasReceitasR
   const ultimasTransacoes  = ultimasTransacoesR
   const proximosVencimentos = proximosVencimentosR
+  const receitasAntTotal   = Math.round(((receitasAntR as any).results?.[0]?.total || 0) * 100) / 100
+  const despesasAntTotal   = Math.round(((despesasAntR as any).results?.[0]?.total || 0) * 100) / 100
 
   const totalReceitas = Math.round((receitasMes?.total || 0) * 100) / 100
   const totalDespesas = Math.round((despesasMes?.total || 0) * 100) / 100
   const saldoLiquido = Math.round((totalReceitas - totalDespesas) * 100) / 100
+  // Variações vs mês anterior
+  const varReceitas = receitasAntTotal > 0 ? Math.round(((totalReceitas - receitasAntTotal) / receitasAntTotal) * 1000) / 10 : null
+  const varDespesas = despesasAntTotal > 0 ? Math.round(((totalDespesas - despesasAntTotal) / despesasAntTotal) * 1000) / 10 : null
+  const saldoAnt = Math.round((receitasAntTotal - despesasAntTotal) * 100) / 100
   const totalInvest = Math.round((totalInvestimentos?.total || 0) * 100) / 100
   const totalInvestido = Math.round((totalInvestimentos?.investido || 0) * 100) / 100
 
@@ -352,7 +385,11 @@ dashboard.get('/', requireAuth, async (c) => {
       patrimonio_liquido: Math.round(patrimonioLiquido * 100) / 100,
       total_reservas_esp: Math.round(totalReservasEsp * 100) / 100,
       meta_reservas_esp: Math.round(metaReservasEsp * 100) / 100,
-      progresso_reservas_pct: progressoReservas
+      progresso_reservas_pct: progressoReservas,
+      // Variações vs mês anterior
+      var_receitas_pct: varReceitas,
+      var_despesas_pct: varDespesas,
+      total_reservas: totalReservas
     },
     // Score e fatores: disponível apenas para Premium/Pro
     // B1-fix: score_saude como objeto {score, fatores} para compatibilidade com frontend
@@ -430,7 +467,17 @@ dashboard.get('/', requireAuth, async (c) => {
     proximos_vencimentos: proximosVencimentos.results,
     despesas_status: despesasStatus.results,
     top_tags: topTags,  // Bloco 4.2: widget Gastos por Tag
-    periodo: { mes, ano }
+    periodo: { mes, ano },
+    // Comparativo com mês anterior
+    mes_anterior: {
+      mes: mesAnt,
+      ano: anoAnt,
+      total_receitas: receitasAntTotal,
+      total_despesas: despesasAntTotal,
+      saldo_liquido: saldoAnt,
+      var_receitas_pct: varReceitas,
+      var_despesas_pct: varDespesas
+    }
   })
 })
 

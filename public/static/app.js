@@ -1816,16 +1816,68 @@ const VM = {
 
     if (pages[page]) pages[page]()
     else this.pageDashboard()
+
+    // Mostrar/ocultar FAB de lançamento rápido (sempre visível exceto em páginas de edição)
+    this._atualizarFAB(page)
+  },
+
+  _atualizarFAB(page) {
+    const paginasSemFAB = ['perfil', 'importacao', 'assistente']
+    let fab = document.getElementById('fab-lancamento-rapido')
+    if (!fab) {
+      fab = document.createElement('div')
+      fab.id = 'fab-lancamento-rapido'
+      fab.style.cssText = 'position:fixed;bottom:90px;right:20px;z-index:900;display:flex;flex-direction:column;align-items:flex-end;gap:10px;'
+      document.body.appendChild(fab)
+    }
+    if (paginasSemFAB.includes(page)) {
+      fab.style.display = 'none'
+      return
+    }
+    fab.style.display = 'flex'
+    fab.innerHTML = `
+      <div id="fab-menu" style="display:none;flex-direction:column;gap:8px;align-items:flex-end;margin-bottom:4px;">
+        <button onclick="VM.modalReceita();document.getElementById('fab-menu').style.display='none'" style="display:flex;align-items:center;gap:8px;background:rgba(47,191,113,0.9);border:none;color:#fff;border-radius:12px;padding:10px 18px;cursor:pointer;font-size:0.85rem;font-weight:700;box-shadow:0 4px 20px rgba(47,191,113,0.4);white-space:nowrap;">
+          <i class="fas fa-arrow-down"></i> Nova Receita
+        </button>
+        <button onclick="VM.modalDespesa();document.getElementById('fab-menu').style.display='none'" style="display:flex;align-items:center;gap:8px;background:rgba(255,107,107,0.9);border:none;color:#fff;border-radius:12px;padding:10px 18px;cursor:pointer;font-size:0.85rem;font-weight:700;box-shadow:0 4px 20px rgba(255,107,107,0.4);white-space:nowrap;">
+          <i class="fas fa-arrow-up"></i> Nova Despesa
+        </button>
+      </div>
+      <button onclick="const m=document.getElementById('fab-menu');m.style.display=m.style.display==='flex'?'none':'flex'" style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#2FBF71,#10B981);border:none;color:#fff;font-size:1.4rem;cursor:pointer;box-shadow:0 4px 20px rgba(47,191,113,0.5);display:flex;align-items:center;justify-content:center;transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+        <i class="fas fa-plus"></i>
+      </button>
+    `
+    // Fechar FAB ao clicar fora
+    document.addEventListener('click', (e) => {
+      if (!fab.contains(e.target)) {
+        const m = document.getElementById('fab-menu')
+        if (m) m.style.display = 'none'
+      }
+    }, { once: true })
   },
 
   // ============== DASHBOARD ==============
-  async pageDashboard() {
+  // Estado do filtro de mês do dashboard
+  _dashMes: null,
+  _dashAno: null,
+
+  async pageDashboard(mesFiltro = null, anoFiltro = null) {
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:200px;margin-bottom:20px;border-radius:16px;"></div></div>`
 
+    // Guardar filtro ativo
+    const now = new Date()
+    this._dashMes = mesFiltro || this._dashMes || String(now.getMonth() + 1).padStart(2, '0')
+    this._dashAno = anoFiltro || this._dashAno || String(now.getFullYear())
+    const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
+    const anoAtual = String(now.getFullYear())
+    const ehMesAtual = this._dashMes === mesAtual && this._dashAno === anoAtual
+
     try {
-      const data = await this.api('GET', 'dashboard')
-      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52, top_tags = [] } = data
+      const qs = ehMesAtual ? '' : `?mes=${this._dashMes}&ano=${this._dashAno}`
+      const data = await this.api('GET', `dashboard${qs}`)
+      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52, top_tags = [], mes_anterior } = data
 
       // Salvar limites do plano para uso no frontend
       if (limites) this.limites = limites
@@ -1849,10 +1901,30 @@ const VM = {
       const assinaturasTem = alerta_assinaturas?.tem_alerta || false
       const assinaturasGasto = alerta_assinaturas?.custo_mensal_estimado || 0
 
+      // Variações vs mês anterior
+      const varReceitas = resumo.var_receitas_pct
+      const varDespesas = resumo.var_despesas_pct
+      const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const mesNomeAtual = mesesNomes[parseInt(this._dashMes) - 1] + '/' + this._dashAno
+      const _fmtVar = (v) => v === null || v === undefined ? '' :
+        `<span style="color:${v > 0 ? '#ff6b6b' : v < 0 ? '#2FBF71' : '#888'};font-size:0.7rem;margin-left:4px;">${v > 0 ? '▲' : v < 0 ? '▼' : '='} ${Math.abs(v).toFixed(1)}% vs mês ant.</span>`
+
       // Detectar conta nova (dashboard completamente vazio)
       const contaNova = resumo.total_receitas === 0 && resumo.total_despesas === 0 &&
                         resumo.total_investido === 0 && resumo.patrimonio_liquido === 0 &&
                         ultimas_transacoes?.length === 0
+
+      // Helper: navegar para mês anterior/próximo
+      const _navMes = (delta) => {
+        let m = parseInt(VM._dashMes) + delta
+        let a = parseInt(VM._dashAno)
+        if (m < 1) { m = 12; a-- }
+        if (m > 12) { m = 1; a++ }
+        VM._dashMes = String(m).padStart(2, '0')
+        VM._dashAno = String(a)
+        VM.pageDashboard(VM._dashMes, VM._dashAno)
+      }
+      window._dashNavMes = _navMes
 
       content.innerHTML = `
         ${contaNova ? `
@@ -1889,6 +1961,29 @@ const VM = {
           </div>
         </div>
         ` : ''}
+
+        <!-- FILTRO DE MÊS DO DASHBOARD -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button onclick="_dashNavMes(-1)" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:1rem;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">‹</button>
+            <div style="font-size:1rem;font-weight:700;color:#f1f5f9;min-width:110px;text-align:center;">
+              📅 ${mesNomeAtual}
+              ${!ehMesAtual ? `<span style="font-size:0.65rem;color:#ffc400;margin-left:6px;background:rgba(255,196,0,0.12);padding:2px 8px;border-radius:10px;">filtrado</span>` : ''}
+            </div>
+            <button onclick="_dashNavMes(1)" ${ehMesAtual ? 'disabled style="opacity:0.3;cursor:default;' : 'style="'}background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:1rem;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">›</button>
+            ${!ehMesAtual ? `<button onclick="VM._dashMes=null;VM._dashAno=null;VM.pageDashboard()" style="font-size:0.72rem;background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:8px;padding:4px 12px;cursor:pointer;">Voltar ao atual</button>` : ''}
+          </div>
+          <!-- BOTÃO LANÇAMENTO RÁPIDO -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="VM.modalReceita()" style="display:flex;align-items:center;gap:6px;background:rgba(47,191,113,0.15);border:1px solid rgba(47,191,113,0.4);color:#2FBF71;border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.2s;" onmouseover="this.style.background='rgba(47,191,113,0.25)'" onmouseout="this.style.background='rgba(47,191,113,0.15)'">
+              <i class="fas fa-plus-circle"></i> Receita
+            </button>
+            <button onclick="VM.modalDespesa()" style="display:flex;align-items:center;gap:6px;background:rgba(255,107,107,0.12);border:1px solid rgba(255,107,107,0.35);color:#ff6b6b;border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,107,107,0.22)'" onmouseout="this.style.background='rgba(255,107,107,0.12)'">
+              <i class="fas fa-minus-circle"></i> Despesa
+            </button>
+          </div>
+        </div>
+
         <!-- STATS ROW — 4 cards principais -->
         <div class="grid-4" style="margin-bottom:16px;">
           <div class="stat-card">
@@ -1896,19 +1991,26 @@ const VM = {
             <div class="stat-value ${resumo.saldo_liquido >= 0 ? 'positive' : 'negative'}">${this.formatMoney(resumo.saldo_liquido)}</div>
             <div class="stat-change ${resumo.taxa_poupanca >= 0 ? 'positive' : 'negative'}">
               ${resumo.taxa_poupanca >= 0 ? '▲' : '▼'} ${Math.abs(resumo.taxa_poupanca)}% da renda
+              ${mes_anterior?.saldo_liquido !== undefined ? `<span style="font-size:0.65rem;color:#555;margin-left:4px;">ant: ${this.formatMoney(mes_anterior.saldo_liquido)}</span>` : ''}
             </div>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:8px;">📥 Receitas</div>
             <div class="stat-value positive">${this.formatMoney(resumo.total_receitas)}</div>
-            <div class="stat-change neutral">Este mês</div>
+            <div class="stat-change neutral">
+              ${mesNomeAtual}
+              ${_fmtVar(varReceitas)}
+            </div>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:8px;">📤 Despesas</div>
             <div class="stat-value negative">${this.formatMoney(resumo.total_despesas)}</div>
-            <div class="stat-change neutral">Este mês</div>
+            <div class="stat-change neutral">
+              ${mesNomeAtual}
+              ${_fmtVar(varDespesas)}
+            </div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;">
             <div class="stat-label" style="margin-bottom:8px;">📈 Investimentos</div>
             <div class="stat-value positive">${this.formatMoney(resumo.total_investimentos)}</div>
             <div class="stat-change positive">${resumo.percentual_investido}% da renda</div>
@@ -2037,7 +2139,14 @@ const VM = {
           
           <!-- EVOLUÇÃO -->
           <div class="card" style="grid-column:1/3;">
-            <div style="font-size:1rem;font-weight:700;margin-bottom:20px;">📊 Evolução dos Últimos 6 Meses</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:8px;">
+              <div style="font-size:1rem;font-weight:700;">📊 Evolução dos Últimos 6 Meses</div>
+              <div style="display:flex;gap:12px;font-size:0.72rem;">
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:rgba(47,191,113,0.7);display:inline-block;"></span>Receitas</span>
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:rgba(255,107,107,0.7);display:inline-block;"></span>Despesas</span>
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:3px;border-radius:2px;background:#74b9ff;display:inline-block;"></span>Saldo</span>
+              </div>
+            </div>
             <div style="height:220px;"><canvas id="chart-evolucao"></canvas></div>
           </div>
           
@@ -2111,28 +2220,53 @@ const VM = {
           
           <!-- CATEGORIAS -->
           <div class="card">
-            <div style="font-size:1rem;font-weight:700;margin-bottom:20px;">🏷️ Gastos por Categoria</div>
-            ${categorias_despesas.length > 0 ? `<div style="height:200px;"><canvas id="chart-categorias"></canvas></div>` : `<div class="empty-state" style="padding:40px 0;"><div class="empty-icon" style="font-size:2rem;">📭</div><p>Nenhum gasto este mês</p></div>`}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+              <div style="font-size:1rem;font-weight:700;">🏷️ Gastos por Categoria</div>
+              ${categorias_despesas.length > 0 ? `<span style="font-size:0.7rem;color:#555;">Clique no gráfico para filtrar</span>` : ''}
+            </div>
+            ${categorias_despesas.length > 0 ? `
+              <div style="height:200px;"><canvas id="chart-categorias" style="cursor:pointer;"></canvas></div>
+              <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;" id="dash-cat-legend">
+                ${(() => {
+                  const colors = ['#2FBF71','#ff6b6b','#ffc400','#a29bfe','#74b9ff','#fd79a8','#ff8c42','#4ecdc4']
+                  return categorias_despesas.map((c, i) => `
+                    <div onclick="VM.navigate('despesas')" title="Ver despesas de '${c.categoria}'" style="cursor:pointer;display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:${colors[i%colors.length]}18;border:1px solid ${colors[i%colors.length]}44;">
+                      <span style="width:7px;height:7px;border-radius:50%;background:${colors[i%colors.length]};flex-shrink:0;"></span>
+                      <span style="font-size:0.7rem;color:#aaa;">${c.categoria}</span>
+                      <span style="font-size:0.7rem;font-weight:600;color:#ccc;">${this.formatMoney(c.total)}</span>
+                    </div>
+                  `).join('')
+                })()}
+              </div>
+            ` : `<div class="empty-state" style="padding:40px 0;"><div class="empty-icon" style="font-size:2rem;">📭</div><p>Nenhum gasto em ${mesNomeAtual}</p></div>`}
           </div>
 
           <!-- ÚLTIMAS TRANSAÇÕES -->
           <div class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
               <div style="font-size:1rem;font-weight:700;">⚡ Últimas Transações</div>
-              <button onclick="VM.navigate('despesas')" class="btn-secondary" style="font-size:0.75rem;padding:6px 12px;">Ver tudo</button>
+              <div style="display:flex;gap:6px;">
+                <button onclick="VM.navigate('receitas')" class="btn-secondary" style="font-size:0.72rem;padding:4px 10px;">📥 Receitas</button>
+                <button onclick="VM.navigate('despesas')" class="btn-secondary" style="font-size:0.72rem;padding:4px 10px;">📤 Despesas</button>
+              </div>
             </div>
             ${ultimas_transacoes.length > 0 ? `
-              <div style="display:flex;flex-direction:column;gap:10px;">
-                ${ultimas_transacoes.slice(0, 6).map(t => `
-                  <div style="display:flex;align-items:center;gap:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:12px;">
-                    <div style="width:36px;height:36px;border-radius:10px;background:${t.tipo === 'receita' ? 'rgba(47,191,113,0.15)' : 'rgba(255,80,80,0.1)'};display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
-                      ${t.tipo === 'receita' ? '📥' : '📤'}
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                ${ultimas_transacoes.slice(0, 8).map(t => `
+                  <div onclick="VM.navigate('${t.tipo === 'receita' ? 'receitas' : 'despesas'}')" style="display:flex;align-items:center;gap:12px;padding:10px;background:rgba(255,255,255,0.02);border-radius:12px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.02)'">
+                    <div style="width:34px;height:34px;border-radius:10px;background:${t.tipo === 'receita' ? 'rgba(47,191,113,0.15)' : 'rgba(255,80,80,0.1)'};display:flex;align-items:center;justify-content:center;font-size:0.95rem;flex-shrink:0;">
+                      ${t.tipo === 'receita' ? '📥' : (t.status === 'pendente' ? '⏳' : '📤')}
                     </div>
                     <div style="flex:1;min-width:0;">
-                      <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.descricao}</div>
-                      <div style="font-size:0.72rem;color:#666;">${t.categoria} • ${this.formatDate(t.data)}</div>
+                      <div style="font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.descricao}</div>
+                      <div style="font-size:0.68rem;color:#555;display:flex;align-items:center;gap:4px;">
+                        <span>${t.categoria}</span>
+                        <span style="color:#333;">•</span>
+                        <span>${this.formatDate(t.data)}</span>
+                        ${t.status === 'pendente' ? `<span style="color:#ffc400;font-size:0.65rem;">● pendente</span>` : ''}
+                      </div>
                     </div>
-                    <div style="font-size:0.9rem;font-weight:700;${t.tipo === 'receita' ? 'color:#2FBF71' : 'color:#ff6b6b'}">
+                    <div style="font-size:0.88rem;font-weight:700;${t.tipo === 'receita' ? 'color:#2FBF71' : 'color:#ff6b6b'};flex-shrink:0;">
                       ${t.tipo === 'receita' ? '+' : '-'}${this.formatMoney(t.valor)}
                     </div>
                   </div>
@@ -2144,17 +2278,34 @@ const VM = {
 
         ${proximos_vencimentos.length > 0 ? `
           <div class="card" style="margin-top:20px;border-color:rgba(255,196,0,0.3);">
-            <div style="font-size:1rem;font-weight:700;margin-bottom:16px;color:#ffc400;">⏰ Vencimentos Próximos (7 dias)</div>
-            <div style="display:flex;flex-wrap:wrap;gap:12px;">
-              ${proximos_vencimentos.map(v => `
-                <div style="background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
-                  <i class="fas fa-exclamation-circle" style="color:#ffc400;"></i>
-                  <div>
-                    <div style="font-size:0.85rem;font-weight:600;">${v.descricao}</div>
-                    <div style="font-size:0.75rem;color:#888;">Vence: ${this.formatDate(v.vencimento)} • ${this.formatMoney(v.valor)}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+              <div style="font-size:1rem;font-weight:700;color:#ffc400;">⏰ Vencimentos Próximos (7 dias)</div>
+              <span style="font-size:0.72rem;color:#666;">${proximos_vencimentos.length} pendente${proximos_vencimentos.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${proximos_vencimentos.map(v => {
+                const diasRestantes = Math.ceil((new Date(v.vencimento).getTime() - Date.now()) / 86400000)
+                const urgente = diasRestantes <= 2
+                return `
+                <div style="background:rgba(255,196,0,0.06);border:1px solid ${urgente ? 'rgba(255,107,107,0.4)' : 'rgba(255,196,0,0.2)'};border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                  <div style="width:36px;height:36px;border-radius:10px;background:${urgente ? 'rgba(255,107,107,0.15)' : 'rgba(255,196,0,0.12)'};display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
+                    ${urgente ? '🚨' : '⏰'}
                   </div>
-                </div>
-              `).join('')}
+                  <div style="flex:1;min-width:140px;">
+                    <div style="font-size:0.85rem;font-weight:600;">${v.descricao}</div>
+                    <div style="font-size:0.72rem;color:#888;display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">
+                      <span>Vence: ${this.formatDate(v.vencimento)}</span>
+                      <span style="color:${urgente ? '#ff6b6b' : '#ffc400'};font-weight:600;">${diasRestantes === 0 ? 'Hoje!' : diasRestantes === 1 ? 'Amanhã!' : `em ${diasRestantes} dias`}</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                    <span style="font-size:0.95rem;font-weight:700;color:#ffc400;">${this.formatMoney(v.valor)}</span>
+                    <button onclick="VM._pagarVencimento(${v.id}, '${v.descricao}', event)" style="background:rgba(47,191,113,0.15);border:1px solid rgba(47,191,113,0.4);color:#2FBF71;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:0.75rem;font-weight:600;white-space:nowrap;transition:all 0.2s;" onmouseover="this.style.background='rgba(47,191,113,0.25)'" onmouseout="this.style.background='rgba(47,191,113,0.15)'">
+                      ✓ Pagar
+                    </button>
+                  </div>
+                </div>`
+              }).join('')}
             </div>
           </div>
         ` : ''}
@@ -2257,7 +2408,7 @@ const VM = {
         this.carregarWidgetOrcamentos()
       }
 
-      // Chart Evolução
+      // Chart Evolução (barras + linha de saldo)
       const ctxEv = document.getElementById('chart-evolucao')
       if (ctxEv) {
         if (this.charts.evolucao) this.charts.evolucao.destroy()
@@ -2266,42 +2417,85 @@ const VM = {
           data: {
             labels: evolucao.map(e => e.mes),
             datasets: [
-              { label: 'Receitas', data: evolucao.map(e => e.receitas), backgroundColor: 'rgba(47,191,113,0.7)', borderRadius: 6 },
-              { label: 'Despesas', data: evolucao.map(e => e.despesas), backgroundColor: 'rgba(255,107,107,0.7)', borderRadius: 6 }
+              { label: 'Receitas', data: evolucao.map(e => e.receitas), backgroundColor: 'rgba(47,191,113,0.7)', borderRadius: 6, order: 2 },
+              { label: 'Despesas', data: evolucao.map(e => e.despesas), backgroundColor: 'rgba(255,107,107,0.7)', borderRadius: 6, order: 2 },
+              {
+                label: 'Saldo', type: 'line',
+                data: evolucao.map(e => Math.round((e.receitas - e.despesas) * 100) / 100),
+                borderColor: '#74b9ff', backgroundColor: 'rgba(116,185,255,0.08)',
+                borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#74b9ff',
+                tension: 0.3, fill: true, order: 1, yAxisID: 'y'
+              }
             ]
           },
           options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `${ctx.dataset.label}: R$ ${Number(ctx.parsed.y).toLocaleString('pt-BR', {minimumFractionDigits:2})}`
+                }
+              }
+            },
             scales: {
               x: { ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-              y: { ticks: { color: '#888', callback: v => 'R$ ' + v.toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } }
+              y: { ticks: { color: '#888', callback: v => 'R$' + Number(v).toLocaleString('pt-BR') }, grid: { color: 'rgba(255,255,255,0.04)' } }
             }
           }
         })
       }
 
-      // Chart Categorias
+      // Chart Categorias (clicável — navega para despesas)
       if (categorias_despesas.length > 0) {
         const ctxCat = document.getElementById('chart-categorias')
         if (ctxCat) {
           if (this.charts.categorias) this.charts.categorias.destroy()
           const colors = ['#2FBF71', '#ff6b6b', '#ffc400', '#a29bfe', '#74b9ff', '#fd79a8', '#ff8c42', '#4ecdc4']
+          const catLabels = categorias_despesas.map(c => c.categoria)
           this.charts.categorias = new Chart(ctxCat, {
             type: 'doughnut',
             data: {
-              labels: categorias_despesas.map(c => c.categoria),
-              datasets: [{ data: categorias_despesas.map(c => c.total), backgroundColor: colors, borderWidth: 0 }]
+              labels: catLabels,
+              datasets: [{ data: categorias_despesas.map(c => c.total), backgroundColor: colors, borderWidth: 0, hoverOffset: 8 }]
             },
             options: {
               responsive: true, maintainAspectRatio: false,
               plugins: {
-                legend: { position: 'right', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 8 } }
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.label}: R$ ${Number(ctx.parsed).toLocaleString('pt-BR', {minimumFractionDigits:2})}`
+                  }
+                }
+              },
+              onClick: (evt, elements) => {
+                if (elements.length > 0) {
+                  VM.navigate('despesas')
+                  VM.toast(`Filtrando por: ${catLabels[elements[0].index]}`, 'info', 2500)
+                }
               }
             }
           })
         }
       }
+
+      // Método para pagar vencimento inline
+      if (!VM._pagarVencimento) {
+        VM._pagarVencimento = async (id, descricao, evt) => {
+          evt.stopPropagation()
+          if (!confirm(`Marcar "${descricao}" como pago?`)) return
+          try {
+            await VM.api('PATCH', `despesas/${id}`, { status: 'pago', data: new Date().toISOString().split('T')[0] })
+            VM.toast('✅ Pagamento registrado!', 'success')
+            VM.pageDashboard(VM._dashMes, VM._dashAno)
+          } catch(e) {
+            VM.toast('Erro ao registrar pagamento', 'error')
+          }
+        }
+      }
+
     } catch (e) {
       content.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Erro ao carregar</h3><p>${e.response?.data?.error || 'Tente novamente'}</p></div>`
     }
