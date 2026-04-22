@@ -1201,3 +1201,388 @@ cartoes.get('/:id/info', requireAuth, async (c) => {
 })
 
 export default cartoes
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/cartoes/:id/contestar/:chargeId — Contestar lançamento
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.post('/:id/contestar/:chargeId', requireAuth, async (c) => {
+  const user    = c.get('user')
+  const cardId  = c.req.param('id')
+  const chargeId= c.req.param('chargeId')
+
+  // Validar posse do charge
+  const charge = await c.env.DB.prepare(
+    `SELECT cc.* FROM card_charges cc
+     INNER JOIN cartoes ca ON ca.id = cc.card_id AND ca.user_id = ?
+     WHERE cc.id = ? AND cc.card_id = ?`
+  ).bind(user.id, chargeId, cardId).first() as any
+  if (!charge) return c.json({ error: 'Lançamento não encontrado' }, 404)
+
+  const { motivo, observacao } = await c.req.json()
+  if (!motivo || motivo.trim().length < 5)
+    return c.json({ error: 'Motivo é obrigatório (mín. 5 caracteres)' }, 400)
+
+  // Verificar se já existe contestação aberta para este charge
+  const jaContest = await c.env.DB.prepare(
+    `SELECT id FROM card_contestacoes WHERE charge_id = ? AND status IN ('aberta','em_analise')`
+  ).bind(chargeId).first()
+
+  if (jaContest) return c.json({ error: 'Já existe uma contestação aberta para este lançamento' }, 409)
+
+  const r = await c.env.DB.prepare(
+    `INSERT INTO card_contestacoes (charge_id, user_id, motivo, observacao)
+     VALUES (?, ?, ?, ?)`
+  ).bind(chargeId, user.id, motivo.trim(), observacao?.trim() || null).run()
+
+  return c.json({
+    success: true,
+    contestacao_id: r.meta.last_row_id,
+    message: 'Contestação registrada! Verifique com seu banco.'
+  }, 201)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/:id/contestacoes — Listar contestações do cartão
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/:id/contestacoes', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const cardId = c.req.param('id')
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(cardId, user.id).first()
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const rows = await c.env.DB.prepare(
+    `SELECT cc2.id as contestacao_id, cc2.motivo, cc2.status, cc2.observacao, cc2.created_at,
+            cc.descricao as lancamento_descricao, cc.valor, cc.data_compra
+     FROM card_contestacoes cc2
+     INNER JOIN card_charges cc ON cc.id = cc2.charge_id
+     WHERE cc.card_id = ? AND cc2.user_id = ?
+     ORDER BY cc2.created_at DESC`
+  ).bind(cardId, user.id).all()
+
+  return c.json({ contestacoes: rows.results })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/cartoes/split-compra — Divide compra entre dois cartões
+// Body: { descricao, categoria, valor_total, data_compra, parcelas_cartao1, 
+//          cartao1_id, cartao1_parcelas, cartao2_id, cartao2_parcelas, observacoes }
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.post('/split-compra', requireAuth, async (c) => {
+  const user = c.get('user')
+  const {
+    descricao, categoria, valor_total, data_compra, observacoes,
+    cartao1_id, cartao1_valor, cartao1_parcelas = 1,
+    cartao2_id, cartao2_valor, cartao2_parcelas = 1
+  } = await c.req.json()
+
+  if (!descricao || !categoria || !valor_total || !data_compra || !cartao1_id || !cartao2_id)
+    return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, data_compra, cartao1_id, cartao2_id' }, 400)
+
+  if (cartao1_id === cartao2_id)
+    return c.json({ error: 'Os dois cartões devem ser diferentes' }, 400)
+
+  // Validar soma dos valores
+  const v1 = parseFloat(cartao1_valor)
+  const v2 = parseFloat(cartao2_valor)
+  const vTotal = parseFloat(valor_total)
+  if (isNaN(v1) || isNaN(v2) || v1 <= 0 || v2 <= 0)
+    return c.json({ error: 'Valores dos cartões inválidos' }, 400)
+  if (Math.abs((v1 + v2) - vTotal) > 0.02)
+    return c.json({ error: `Soma dos valores (${v1+v2}) difere do total (${vTotal})` }, 400)
+
+  // Verificar posse dos dois cartões
+  const c1 = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?').bind(cartao1_id, user.id).first() as any
+  const c2 = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?').bind(cartao2_id, user.id).first() as any
+  if (!c1) return c.json({ error: 'Cartão 1 não encontrado' }, 404)
+  if (!c2) return c.json({ error: 'Cartão 2 não encontrado' }, 404)
+
+  const splitGroupId = uuid()
+  const results: any[] = []
+
+  // Função helper para lançar parcelas em um cartão
+  const lancarNoCartao = async (cartao: any, valor: number, numParcelas: number, sufixo: string) => {
+    const valorParc = Math.round((valor / numParcelas) * 100) / 100
+    const groupId = uuid()
+    const chargeIds: number[] = []
+
+    for (let i = 1; i <= numParcelas; i++) {
+      const parcelaDate = new Date(data_compra + 'T12:00:00')
+      parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
+      const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
+
+      const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
+      const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+      const descParcela = numParcelas > 1
+        ? `${descricao} ${sufixo} (${i}/${numParcelas})`
+        : `${descricao} ${sufixo}`
+
+      const dr = await c.env.DB.prepare(
+        `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado,
+         numero_parcelas, parcela_atual, status, fixa_ou_variavel, vencimento,
+         observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 'variavel', ?, ?, ?, 'cartao_credito', ?, ?, ?)`
+      ).bind(
+        user.id, descParcela, dataVenc, categoria,
+        valorParc, numParcelas > 1 ? 1 : 0, numParcelas, i,
+        dataVenc, observacoes ? `[Split] ${observacoes}` : '[Split]',
+        cartao.id, bMonth, bYear, groupId
+      ).run()
+
+      const cr = await c.env.DB.prepare(
+        `INSERT INTO card_charges (card_id, expense_id, descricao, valor, data_compra,
+         data_vencimento, billing_month, billing_year, parcela_atual, total_parcelas,
+         purchase_group_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
+      ).bind(
+        cartao.id, dr.meta.last_row_id, descParcela, valorParc,
+        parcelaDateStr, dataVenc, bMonth, bYear,
+        numParcelas > 1 ? i : null, numParcelas > 1 ? numParcelas : null, groupId
+      ).run()
+      chargeIds.push(cr.meta.last_row_id as number)
+    }
+
+    // Atualizar limite
+    await c.env.DB.prepare(
+      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+    ).bind(valor, cartao.id, user.id).run()
+
+    return { cartao_id: cartao.id, cartao_nome: cartao.nome, valor, parcelas: numParcelas, group_id: groupId, charge_ids: chargeIds }
+  }
+
+  results.push(await lancarNoCartao(c1, v1, parseInt(cartao1_parcelas), '[Cartão 1]'))
+  results.push(await lancarNoCartao(c2, v2, parseInt(cartao2_parcelas), '[Cartão 2]'))
+
+  return c.json({
+    success: true,
+    split_group_id: splitGroupId,
+    descricao,
+    valor_total: vTotal,
+    splits: results,
+    message: `Compra dividida entre ${c1.nome} e ${c2.nome}!`
+  }, 201)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/:id/limites-categoria?mes=&ano=
+// Lista limites por categoria e uso atual no mês
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/:id/limites-categoria', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const cardId = c.req.param('id')
+  const now    = new Date()
+  const mes    = parseInt(c.req.query('mes') || String(now.getMonth() + 1))
+  const ano    = parseInt(c.req.query('ano') || String(now.getFullYear()))
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(cardId, user.id).first()
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  // Limites configurados
+  const limites = await c.env.DB.prepare(
+    'SELECT * FROM card_category_limits WHERE card_id = ? AND user_id = ? ORDER BY categoria ASC'
+  ).bind(cardId, user.id).all()
+
+  // Uso por categoria no mês
+  const usos = await c.env.DB.prepare(
+    `SELECT d.categoria, COALESCE(SUM(cc.valor), 0) as gasto
+     FROM card_charges cc
+     LEFT JOIN despesas d ON d.id = cc.expense_id
+     WHERE cc.card_id = ? AND cc.billing_month = ? AND cc.billing_year = ?
+     GROUP BY d.categoria`
+  ).bind(cardId, mes, ano).all()
+
+  const mapaUsos: Record<string, number> = {}
+  for (const u of usos.results as any[]) {
+    mapaUsos[u.categoria] = Number(u.gasto)
+  }
+
+  const resultado = (limites.results as any[]).map(l => ({
+    id: l.id,
+    categoria: l.categoria,
+    limite_mensal: l.limite_mensal,
+    gasto_mes: mapaUsos[l.categoria] || 0,
+    disponivel: Math.max(0, l.limite_mensal - (mapaUsos[l.categoria] || 0)),
+    percentual: l.limite_mensal > 0
+      ? Math.round(((mapaUsos[l.categoria] || 0) / l.limite_mensal) * 100)
+      : 0,
+    status: (mapaUsos[l.categoria] || 0) >= l.limite_mensal ? 'estourado'
+          : (mapaUsos[l.categoria] || 0) >= l.limite_mensal * 0.8 ? 'atencao' : 'ok'
+  }))
+
+  return c.json({ limites: resultado, mes, ano })
+})
+
+// POST /api/cartoes/:id/limites-categoria — Criar/atualizar limite por categoria
+cartoes.post('/:id/limites-categoria', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const cardId = c.req.param('id')
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(cardId, user.id).first()
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const { categoria, limite_mensal } = await c.req.json()
+  if (!categoria || !limite_mensal) return c.json({ error: 'categoria e limite_mensal são obrigatórios' }, 400)
+  const lim = parseFloat(limite_mensal)
+  if (isNaN(lim) || lim <= 0) return c.json({ error: 'Limite inválido' }, 400)
+
+  await c.env.DB.prepare(
+    `INSERT INTO card_category_limits (card_id, user_id, categoria, limite_mensal)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(card_id, categoria) DO UPDATE SET limite_mensal = excluded.limite_mensal`
+  ).bind(cardId, user.id, categoria, lim).run()
+
+  return c.json({ success: true, message: `Limite de R$ ${lim.toFixed(2)}/mês definido para "${categoria}"` }, 201)
+})
+
+// DELETE /api/cartoes/:id/limites-categoria/:categoria — Remover limite
+cartoes.delete('/:id/limites-categoria/:categoria', requireAuth, async (c) => {
+  const user      = c.get('user')
+  const cardId    = c.req.param('id')
+  const categoria = decodeURIComponent(c.req.param('categoria'))
+
+  await c.env.DB.prepare(
+    'DELETE FROM card_category_limits WHERE card_id = ? AND user_id = ? AND categoria = ?'
+  ).bind(cardId, user.id, categoria).run()
+
+  return c.json({ success: true, message: 'Limite removido!' })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/cartoes/:id/fatura-pdf?mes=&ano= — HTML formatado para impressão/PDF
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.get('/:id/fatura-pdf', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const cardId = c.req.param('id')
+  const now    = new Date()
+  const mes    = parseInt(c.req.query('mes') || String(now.getMonth() + 1))
+  const ano    = parseInt(c.req.query('ano') || String(now.getFullYear()))
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+  ).bind(cardId, user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const charges = await c.env.DB.prepare(
+    `SELECT cc.*, d.categoria, d.observacoes as obs_despesa
+     FROM card_charges cc
+     LEFT JOIN despesas d ON d.id = cc.expense_id
+     WHERE cc.card_id = ? AND cc.billing_month = ? AND cc.billing_year = ?
+     ORDER BY cc.data_compra ASC`
+  ).bind(cardId, mes, ano).all()
+
+  const lista = charges.results as any[]
+  const total   = lista.reduce((s, r) => s + Number(r.valor), 0)
+  const pago    = lista.filter(r => r.status === 'pago').reduce((s, r) => s + Number(r.valor), 0)
+  const pendente= total - pago
+  const dataVenc= calcDueDate(mes, ano, cartao.dia_vencimento, cartao.dia_fechamento)
+
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const fmt = (v: number) => `R$ ${v.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.')}`
+  const fmtDate = (s: string) => { if(!s) return '-'; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}` }
+
+  // Agrupar por categoria
+  const grupos: Record<string, any[]> = {}
+  for (const ch of lista) {
+    const cat = ch.categoria || 'Outros'
+    if (!grupos[cat]) grupos[cat] = []
+    grupos[cat].push(ch)
+  }
+
+  let rowsHtml = ''
+  for (const [cat, items] of Object.entries(grupos)) {
+    const subTotal = items.reduce((s, r) => s + Number(r.valor), 0)
+    rowsHtml += `<tr class="cat-header"><td colspan="5">${cat}</td><td class="val">${fmt(subTotal)}</td></tr>`
+    for (const ch of items) {
+      const parc = ch.total_parcelas > 1 ? ` (${ch.parcela_atual}/${ch.total_parcelas})` : ''
+      rowsHtml += `
+      <tr>
+        <td>${fmtDate(ch.data_compra)}</td>
+        <td>${ch.descricao?.replace(/\s*\(\d+\/\d+\)$/,'') || '-'}${parc}</td>
+        <td>${cat}</td>
+        <td>${ch.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}</td>
+        <td>${ch.total_parcelas > 1 ? `${ch.total_parcelas - (ch.parcela_atual||0) + 1} restam` : '—'}</td>
+        <td class="val">${fmt(Number(ch.valor))}</td>
+      </tr>`
+    }
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Fatura ${meses[mes-1]}/${ano} — ${cartao.nome}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #222; padding: 20px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 3px solid ${cartao.cor || '#2FBF71'}; padding-bottom: 16px; }
+  .header h1 { font-size: 20px; color: ${cartao.cor || '#2FBF71'}; }
+  .header .meta { text-align: right; color: #555; line-height: 1.6; }
+  .totais { display: flex; gap: 16px; margin-bottom: 20px; }
+  .totais .box { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 12px; text-align: center; }
+  .totais .box .label { font-size: 10px; color: #888; text-transform: uppercase; }
+  .totais .box .val { font-size: 18px; font-weight: bold; margin-top: 4px; }
+  .totais .box.destaque .val { color: ${cartao.cor || '#2FBF71'}; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: ${cartao.cor || '#2FBF71'}; color: white; text-align: left; padding: 8px 6px; font-size: 11px; }
+  td { padding: 6px; border-bottom: 1px solid #eee; font-size: 11px; }
+  td.val { text-align: right; font-weight: bold; }
+  tr:hover td { background: #fafafa; }
+  .cat-header td { background: #f0f0f0; font-weight: bold; font-size: 11px; color: #444; padding: 5px 6px; }
+  .cat-header td.val { text-align: right; }
+  .footer { margin-top: 24px; font-size: 10px; color: #aaa; text-align: center; }
+  @media print { body { padding: 10px; } .footer { display: none; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>💳 ${cartao.nome}${cartao.apelido ? ` — ${cartao.apelido}` : ''}</h1>
+    <div style="color:#555;margin-top:4px;">${cartao.banco} · ${cartao.bandeira?.toUpperCase()} · ${cartao.tipo_cartao || 'PF'}${cartao.ultimos_digitos ? ` ···· ${cartao.ultimos_digitos}` : ''}</div>
+  </div>
+  <div class="meta">
+    <div><strong>Fatura de ${meses[mes-1]}/${ano}</strong></div>
+    <div>Vencimento: ${fmtDate(dataVenc)}</div>
+    <div>Fechamento: dia ${cartao.dia_fechamento}</div>
+    <div>Gerado em: ${fmtDate(new Date().toISOString().split('T')[0])}</div>
+  </div>
+</div>
+<div class="totais">
+  <div class="box destaque">
+    <div class="label">Total Fatura</div>
+    <div class="val">${fmt(total)}</div>
+  </div>
+  <div class="box">
+    <div class="label">Pago</div>
+    <div class="val" style="color:#10b981">${fmt(pago)}</div>
+  </div>
+  <div class="box">
+    <div class="label">Pendente</div>
+    <div class="val" style="color:#ef4444">${fmt(pendente)}</div>
+  </div>
+  <div class="box">
+    <div class="label">Lançamentos</div>
+    <div class="val">${lista.length}</div>
+  </div>
+</div>
+<table>
+  <thead><tr>
+    <th>Data Compra</th><th>Descrição</th><th>Categoria</th><th>Status</th><th>Parcelas</th><th style="text-align:right">Valor</th>
+  </tr></thead>
+  <tbody>${rowsHtml}</tbody>
+  <tfoot><tr>
+    <td colspan="5" style="text-align:right;font-weight:bold;padding:10px 6px;">TOTAL</td>
+    <td class="val" style="font-size:15px;">${fmt(total)}</td>
+  </tr></tfoot>
+</table>
+<div class="footer">VerdeMais · Fatura exportada automaticamente · ${new Date().toLocaleString('pt-BR')}</div>
+</body>
+</html>`
+
+  return c.text(html, 200, { 'Content-Type': 'text/html; charset=utf-8' })
+})

@@ -10,47 +10,56 @@ const receitas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 // GET /api/receitas
 receitas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, limit = '50', offset = '0' } = c.req.query()
+  const { mes, ano, categoria, busca, limit = '50', offset = '0' } = c.req.query()
 
-  let query = 'SELECT * FROM receitas WHERE user_id = ?'
-  const params: any[] = [user.id]
+  // Filtros dinâmicos
+  const filtrosMes = (mes && ano)
+    ? ` AND strftime('%m', data) = '${mes.padStart(2, '0')}' AND strftime('%Y', data) = '${ano}'`
+    : ano ? ` AND strftime('%Y', data) = '${ano}'` : ''
+  const filtroCategoria = categoria ? ` AND categoria = '${categoria.replace(/'/g, "''")}'` : ''
+  const filtroBusca = busca ? ` AND descricao LIKE '%${busca.replace(/'/g, "''").replace(/%/g, '\\%')}%'` : ''
+  const filtros = filtrosMes + filtroCategoria + filtroBusca
 
-  if (mes && ano) {
-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    params.push(mes.padStart(2, '0'), ano)
-  } else if (ano) {
-    query += ' AND strftime("%Y", data) = ?'
-    params.push(ano)
-  }
+  // Buscar registros + métricas em batch
+  const [resultR, metricsR, catBreakdownR] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT * FROM receitas WHERE user_id = ?${filtros} ORDER BY data DESC LIMIT ? OFFSET ?`
+    ).bind(user.id, parseInt(limit), parseInt(offset)),
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total,
+              COUNT(*) as total_count,
+              COALESCE(AVG(valor), 0) as media,
+              COALESCE(MAX(valor), 0) as maior,
+              COALESCE(MIN(valor), 0) as menor,
+              SUM(CASE WHEN recorrente = 1 THEN valor ELSE 0 END) as total_recorrente,
+              SUM(CASE WHEN recorrente = 0 OR recorrente IS NULL THEN valor ELSE 0 END) as total_avulso
+       FROM receitas WHERE user_id = ?${filtros}`
+    ).bind(user.id),
+    c.env.DB.prepare(
+      `SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
+       FROM receitas WHERE user_id = ?${filtrosMes}
+       GROUP BY categoria ORDER BY total DESC`
+    ).bind(user.id),
+  ])
 
-  if (categoria) {
-    query += ' AND categoria = ?'
-    params.push(categoria)
-  }
-
-  query += ' ORDER BY data DESC LIMIT ? OFFSET ?'
-  params.push(parseInt(limit), parseInt(offset))
-
-  const result = await c.env.DB.prepare(query).bind(...params).all()
-  
-  // Total do período
-  let totalQuery = 'SELECT COALESCE(SUM(valor), 0) as total, COUNT(*) as total_count FROM receitas WHERE user_id = ?'
-  const totalParams: any[] = [user.id]
-  if (mes && ano) {
-    totalQuery += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    totalParams.push(mes.padStart(2, '0'), ano)
-  }
-  if (categoria) {
-    totalQuery += ' AND categoria = ?'
-    totalParams.push(categoria)
-  }
-  const total = await c.env.DB.prepare(totalQuery).bind(...totalParams).first() as any
+  const metrics = (metricsR.results?.[0] ?? metricsR) as any
+  const catBreakdown = catBreakdownR.results || []
 
   return c.json({ 
-    receitas: result.results, 
-    total: total?.total || 0,
-    count: result.results.length,
-    total_count: total?.total_count || 0
+    receitas: resultR.results || [], 
+    total: metrics?.total || 0,
+    count: (resultR.results || []).length,
+    total_count: metrics?.total_count || 0,
+    metrics: {
+      total: Math.round((metrics?.total || 0) * 100) / 100,
+      media: Math.round((metrics?.media || 0) * 100) / 100,
+      maior: Math.round((metrics?.maior || 0) * 100) / 100,
+      menor: Math.round((metrics?.menor || 0) * 100) / 100,
+      total_recorrente: Math.round((metrics?.total_recorrente || 0) * 100) / 100,
+      total_avulso: Math.round((metrics?.total_avulso || 0) * 100) / 100,
+      count: metrics?.total_count || 0
+    },
+    categorias_breakdown: catBreakdown
   })
 })
 
@@ -72,7 +81,7 @@ receitas.post('/', requireAuth, async (c) => {
   }
 
   const body = await c.req.json()
-  const { descricao, data, categoria, valor, recorrente = false, frequencia, observacoes } = body
+  const { descricao, data, categoria, valor, recorrente = false, frequencia, observacoes, meio_pagamento } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
@@ -84,8 +93,8 @@ receitas.post('/', requireAuth, async (c) => {
   }
 
   const result = await c.env.DB.prepare(
-    'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(user.id, descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null).run()
+    'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(user.id, descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || 'pix').run()
 
   // Conquista: primeira receita
   try {
@@ -100,7 +109,7 @@ receitas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { descricao, data, categoria, valor, recorrente, frequencia, observacoes } = body
+  const { descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
@@ -115,8 +124,8 @@ receitas.put('/:id', requireAuth, async (c) => {
   if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)
 
   await c.env.DB.prepare(
-    'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ? WHERE id = ? AND user_id = ?'
-  ).bind(descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, id, user.id).run()
+    'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ?, meio_pagamento = ? WHERE id = ? AND user_id = ?'
+  ).bind(descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || null, id, user.id).run()
 
   return c.json({ success: true, message: 'Receita atualizada!' })
 })

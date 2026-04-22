@@ -9206,12 +9206,13 @@ const VM = {
                   <div>
                     <div style="font-size:1rem;font-weight:700;">${c.nome}</div>
                     ${c.apelido ? '<div style="font-size:0.72rem;color:#6366f1;margin-top:1px;">"' + c.apelido + '"</div>' : ''}
-                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}</div>
+                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}${c.tipo_cartao === 'PJ' ? ' <span style=\"background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);border-radius:4px;padding:0 4px;font-size:0.65rem;font-weight:700;\">PJ</span>' : ''}</div>
                     ${c.ultimos_digitos ? '<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• ' + c.ultimos_digitos + '</div>' : ''}
                   </div>
                   <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end;" onclick="event.stopPropagation()">
                     <div style="display:flex;gap:4px;">
                       <button onclick="VM.modalAjustarLimite(${c.id},'${nomeSeguro}',${c.limite_total},${r.limite_disponivel??c.limite_disponivel??0})" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Ajustar limite disponível"><i class="fas fa-sliders-h"></i></button>
+                      <button onclick="VM.modalLimitesCategoria(${c.id},'${nomeSeguro}')" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Limites por categoria"><i class="fas fa-tags"></i></button>
                       <button onclick="VM.modalCartao(${JSON.stringify({...c, apelido: c.apelido||''}).replace(/&quot;/g,'"').replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
                       <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                     </div>
@@ -9224,8 +9225,8 @@ const VM = {
                     <span style="font-size:0.78rem;color:#888;">Limite usado</span>
                     <span style="font-size:0.78rem;font-weight:700;color:${pctColor};">${pct}%</span>
                   </div>
-                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:6px;overflow:hidden;">
-                    <div style="background:${pctColor};width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.6s ease;"></div>
+                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,0.2);">
+                    <div class="limite-bar-fill" data-pct="${Math.min(pct,100)}" style="background:linear-gradient(90deg,${pctColor}cc,${pctColor});width:0%;height:100%;border-radius:50px;transition:width 1.2s cubic-bezier(0.25,0.46,0.45,0.94);box-shadow:0 0 6px ${pctColor}66;"></div>
                   </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
@@ -9244,7 +9245,10 @@ const VM = {
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
                   <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
-                  <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <button onclick="event.stopPropagation();VM.modalSplitCompra(${c.id})" style="background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.25);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.72rem;" title="Dividir compra entre cartões"><i class="fas fa-code-branch"></i> Split</button>
+                    <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
+                  </div>
                 </div>
               </div>
             `
@@ -9255,6 +9259,16 @@ const VM = {
           ${cartoesHtml}
         </div>
       `
+
+      // Animar barras de limite com delay escalonado
+      setTimeout(() => {
+        document.querySelectorAll('.limite-bar-fill').forEach((el, i) => {
+          setTimeout(() => {
+            const pct = el.getAttribute('data-pct') || '0'
+            el.style.width = pct + '%'
+          }, i * 120)
+        })
+      }, 80)
 
       // Item 5: auto-abrir fatura do mês atual se há apenas 1 cartão
       // e a fatura não está já visível (não é chamada de refresh)
@@ -9393,17 +9407,34 @@ const VM = {
         </div>
       `
 
-      // Botão pagar fatura completa
-      const btnPagarFatura = fatura.total_pendente > 0 ? `
-        <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
-          <button onclick="VM._pagarFaturaCompleta(${cartaoId}, ${mes}, ${ano})"
-            style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:10px;padding:9px 18px;cursor:pointer;font-size:0.85rem;font-weight:600;">
-            <i class="fas fa-check-double"></i> Pagar Fatura Completa (${this.formatMoney(fatura.total_pendente)})
+      // Botões de ação da fatura
+      const btnAcoesFatura = `
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:16px;flex-wrap:wrap;">
+          ${fatura.total_pendente > 0 ? `<button onclick="VM._pagarFaturaCompleta(${cartaoId}, ${mes}, ${ano})"
+            style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;">
+            <i class="fas fa-check-double"></i> Pagar Fatura (${this.formatMoney(fatura.total_pendente)})
+          </button>` : ''}
+          <button onclick="VM._exportarFaturaPDF(${cartaoId}, ${mes}, ${ano})"
+            style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;">
+            <i class="fas fa-file-pdf"></i> Exportar PDF
+          </button>
+          <button onclick="VM.modalNovaCompraCartao(${cartaoId})"
+            style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;">
+            <i class="fas fa-plus"></i> Nova Compra
           </button>
         </div>
-      ` : ''
+      `
 
-      // Lista de lançamentos estilo extrato bancário
+      // Lista de lançamentos — 2 modos: por Categoria (padrão) ou por Data
+      const _viewMode = this._faturaViewMode || 'categoria'
+      const toggleBtn = `
+        <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;">
+          <span style="font-size:0.75rem;color:#888;">Agrupar por:</span>
+          <button onclick="VM._setFaturaView('categoria')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='categoria'?'background:rgba(99,102,241,0.2);color:#a78bfa;border-color:rgba(99,102,241,0.4);':'background:none;color:#666;'}"><i class="fas fa-tags"></i> Categoria</button>
+          <button onclick="VM._setFaturaView('data')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='data'?'background:rgba(47,191,113,0.15);color:#2FBF71;border-color:rgba(47,191,113,0.4);':'background:none;color:#666;'}"><i class="fas fa-calendar-alt"></i> Data</button>
+        </div>
+      `
+
       let listaHtml = ''
       if (lancamentos.length === 0) {
         listaHtml = `
@@ -9416,58 +9447,87 @@ const VM = {
           </div>
         `
       } else {
-        // Agrupar por data de compra (extrato cronológico)
-        const grupoDatas = {}
-        for (const l of lancamentos) {
-          const key = l.data_compra || 'sem-data'
-          if (!grupoDatas[key]) grupoDatas[key] = []
-          grupoDatas[key].push(l)
-        }
-        const datasOrdenadas = Object.keys(grupoDatas).sort((a,b) => b.localeCompare(a))
-
-        listaHtml = `<div style="display:flex;flex-direction:column;gap:2px;">`
-        for (const data of datasOrdenadas) {
-          const itens = grupoDatas[data]
-          listaHtml += `
-            <div style="font-size:0.72rem;color:#555;padding:10px 4px 6px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">
-              ${this.formatDate(data)}
-            </div>
-          `
-          for (const l of itens) {
-            const isPago = l.status === 'pago'
-            const sColor = isPago ? '#2FBF71' : '#ffc400'
-            const parcelaInfo = (l.total_parcelas && l.total_parcelas > 1)
-              ? `<span style="background:rgba(255,255,255,0.06);border-radius:4px;padding:1px 6px;font-size:0.68rem;">${l.parcela_atual}/${l.total_parcelas}</span>`
-              : ''
-            const catLabel = l.categoria ? `<span style="color:#777;font-size:0.72rem;">${l.categoria}</span>` : ''
-
-            listaHtml += `
-              <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;margin-bottom:2px;border-left:3px solid ${sColor};">
-                <div style="width:36px;height:36px;background:rgba(255,255,255,0.05);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
-                  ${this._catIcon(l.categoria)}
+        const renderLancamento = (l) => {
+          const isPago = l.status === 'pago'
+          const sColor = isPago ? '#2FBF71' : '#ffc400'
+          const parcelasRestantes = (l.total_parcelas && l.total_parcelas > 1)
+            ? l.total_parcelas - l.parcela_atual
+            : 0
+          const parcelaInfo = (l.total_parcelas && l.total_parcelas > 1)
+            ? `<span style="background:rgba(99,102,241,0.15);color:#a78bfa;border:1px solid rgba(99,102,241,0.25);border-radius:4px;padding:1px 6px;font-size:0.68rem;">${l.parcela_atual}/${l.total_parcelas}</span>`
+            : ''
+          const restanteBadge = parcelasRestantes > 0
+            ? `<span style="background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.25);border-radius:4px;padding:1px 6px;font-size:0.65rem;">${parcelasRestantes} ${parcelasRestantes===1?'parcela restante':'parcelas restantes'}</span>`
+            : ''
+          const descSemParcela = (l.descricao || '').replace(/\s*\(\d+\/\d+\)$/, '')
+          return `
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:10px;margin-bottom:2px;border-left:3px solid ${sColor};">
+              <div style="width:34px;height:34px;background:rgba(255,255,255,0.05);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:0.95rem;flex-shrink:0;">
+                ${this._catIcon(l.categoria)}
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                  <span style="font-size:0.87rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;">${descSemParcela}</span>
+                  ${parcelaInfo}
                 </div>
-                <div style="flex:1;min-width:0;">
-                  <div style="font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                    ${l.descricao} ${parcelaInfo}
-                  </div>
-                  <div style="display:flex;gap:8px;align-items:center;margin-top:2px;">${catLabel}</div>
-                </div>
-                <div style="text-align:right;flex-shrink:0;">
-                  <div style="font-weight:700;font-size:0.95rem;">${this.formatMoney(l.valor)}</div>
-                  <div style="font-size:0.7rem;color:${sColor};">${isPago ? '✅ Pago' : '⏳ Pendente'}</div>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;" onclick="event.stopPropagation()">
-                  ${!isPago ? `<button onclick="VM._pagarCharge(${l.id})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;white-space:nowrap;">Pagar</button>` : '<div style="width:50px;"></div>'}
-                  <button onclick="VM._excluirCharge(${l.id})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap;">
+                  <span style="color:#777;font-size:0.7rem;">${this.formatDate(l.data_compra)}</span>
+                  ${restanteBadge}
                 </div>
               </div>
+              <div style="text-align:right;flex-shrink:0;">
+                <div style="font-weight:700;font-size:0.93rem;">${this.formatMoney(l.valor)}</div>
+                <div style="font-size:0.68rem;color:${sColor};">${isPago ? '✅ Pago' : '⏳ Pendente'}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;" onclick="event.stopPropagation()">
+                ${!isPago ? `<button onclick="VM._pagarCharge(${l.id})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.68rem;white-space:nowrap;">Pagar</button>` : ''}
+                <button onclick="VM._contestarCharge(${l.id},'${descSemParcela.replace(/'/g,"\\'")}',${l.valor})" style="background:rgba(255,196,0,0.1);color:#ffc400;border:1px solid rgba(255,196,0,0.25);border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.68rem;" title="Contestar lançamento"><i class="fas fa-flag"></i></button>
+                <button onclick="VM._excluirCharge(${l.id})" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.68rem;"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+          `
+        }
+
+        listaHtml = `<div style="display:flex;flex-direction:column;gap:2px;">`
+
+        if (_viewMode === 'categoria') {
+          // Agrupar por categoria
+          const grupoCats = {}
+          for (const l of lancamentos) {
+            const key = l.categoria || 'Outros'
+            if (!grupoCats[key]) grupoCats[key] = { itens: [], total: 0 }
+            grupoCats[key].itens.push(l)
+            grupoCats[key].total += Number(l.valor)
+          }
+          const catsOrdenadas = Object.keys(grupoCats).sort()
+          for (const cat of catsOrdenadas) {
+            const g = grupoCats[cat]
+            listaHtml += `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 4px;font-size:0.72rem;font-weight:700;color:#888;letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.04);margin-top:8px;">
+                <span>${this._catIcon(cat)} ${cat}</span>
+                <span style="color:#aaa;">${this.formatMoney(g.total)}</span>
+              </div>
             `
+            for (const l of g.itens) listaHtml += renderLancamento(l)
+          }
+        } else {
+          // Agrupar por data
+          const grupoDatas = {}
+          for (const l of lancamentos) {
+            const key = l.data_compra || 'sem-data'
+            if (!grupoDatas[key]) grupoDatas[key] = []
+            grupoDatas[key].push(l)
+          }
+          const datasOrdenadas = Object.keys(grupoDatas).sort((a,b) => b.localeCompare(a))
+          for (const data of datasOrdenadas) {
+            listaHtml += `<div style="font-size:0.72rem;color:#555;padding:10px 4px 6px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">${this.formatDate(data)}</div>`
+            for (const l of grupoDatas[data]) listaHtml += renderLancamento(l)
           }
         }
         listaHtml += `</div>`
       }
 
-      body.innerHTML = resumoHtml + btnPagarFatura + listaHtml
+      body.innerHTML = resumoHtml + btnAcoesFatura + toggleBtn + listaHtml
 
     } catch(e) {
       if (body) body.innerHTML = `
@@ -9560,7 +9620,8 @@ const VM = {
               </div>
               <div class="form-group">
                 <label class="form-label">Data da Compra *</label>
-                <input type="date" id="nc-data" class="form-input" value="${hoje}" required>
+                <input type="date" id="nc-data" class="form-input" value="${hoje}" required oninput="VM._ncPreviewFatura(${cartaoId})">
+                <div id="nc-fatura-preview" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);border-radius:8px;font-size:0.76rem;color:#a78bfa;"></div>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -9621,6 +9682,383 @@ const VM = {
       await this.abrirFaturaCartao(cartaoId, this._faturaState.nomeCartao, this._faturaState.cor, this._faturaState.diaFechamento)
     } else {
       this.closeModal()
+    }
+  },
+
+  // ─── AUTO-PREVIEW DA FATURA CALCULADA ─────────────────────────────────────
+  async _ncPreviewFatura(cartaoId) {
+    const dataInput = document.getElementById('nc-data')
+    const previewEl = document.getElementById('nc-fatura-preview')
+    if (!dataInput || !previewEl) return
+    const data = dataInput.value
+    if (!data) { previewEl.style.display = 'none'; return }
+    try {
+      const r = await this.api('GET', `cartoes/${cartaoId}/info?data=${data}`)
+      const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+      const m = meses[(r.billing_month || 1) - 1]
+      const y = r.billing_year || new Date().getFullYear()
+      const venc = r.data_vencimento ? this.formatDate(r.data_vencimento) : '—'
+      previewEl.style.display = 'block'
+      previewEl.innerHTML = `📅 Esta compra cai na <strong>fatura de ${m}/${y}</strong> · Vencimento: <strong>${venc}</strong>`
+    } catch(e) {
+      previewEl.style.display = 'none'
+    }
+  },
+
+  // ─── TOGGLE DE VISUALIZAÇÃO DA FATURA ──────────────────────────────────────
+  _setFaturaView(mode) {
+    this._faturaViewMode = mode
+    this._carregarFatura()
+  },
+
+  // ─── CONTESTAR LANÇAMENTO ──────────────────────────────────────────────────
+  async _contestarCharge(chargeId, descricao, valor) {
+    const { cartaoId } = this._faturaState || {}
+    if (!cartaoId) return
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:440px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;">🚩 Contestar Lançamento</h3>
+              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Registre a contestação para acompanhamento</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="padding:12px 14px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:0.82rem;font-weight:600;">${descricao}</div>
+            <div style="font-size:0.75rem;color:#ff6b6b;font-weight:700;margin-top:4px;">${this.formatMoney(valor)}</div>
+          </div>
+          <form id="contest-form">
+            <div class="form-group">
+              <label class="form-label">Motivo da Contestação *</label>
+              <select id="ct-motivo-sel" class="form-select" onchange="document.getElementById('ct-motivo-txt').value=this.value==='outro'?'':this.value">
+                <option value="">Selecione...</option>
+                <option value="Compra não reconhecida">Compra não reconhecida</option>
+                <option value="Valor incorreto cobrado">Valor incorreto cobrado</option>
+                <option value="Serviço não prestado">Serviço não prestado</option>
+                <option value="Produto não recebido">Produto não recebido</option>
+                <option value="Compra duplicada">Compra duplicada</option>
+                <option value="Fraude ou golpe">Fraude ou golpe</option>
+                <option value="outro">Outro motivo...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Descreva o problema *</label>
+              <input type="text" id="ct-motivo-txt" class="form-input" placeholder="Detalhe o motivo..." required minlength="5">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observação adicional</label>
+              <textarea id="ct-obs-txt" class="form-input" rows="3" style="resize:none;" placeholder="Protocolo do banco, data da ligação, outros detalhes..."></textarea>
+            </div>
+            <div style="padding:10px 14px;background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);border-radius:8px;margin-bottom:16px;font-size:0.78rem;color:#cca800;">
+              💡 A contestação é registrada no sistema. Você ainda precisa contatar seu banco para efetuar a disputa oficial.
+            </div>
+            <div style="display:flex;gap:12px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="ct-btn-sub"><i class="fas fa-flag"></i> Registrar Contestação</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    document.getElementById('contest-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const motivo = document.getElementById('ct-motivo-txt').value.trim()
+      const obs    = document.getElementById('ct-obs-txt').value.trim()
+      if (motivo.length < 5) { this.toast('Descreva o motivo (mín. 5 caracteres)', 'error'); return }
+      const btn = document.getElementById('ct-btn-sub')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+      try {
+        const r = await this.api('POST', `cartoes/${cartaoId}/contestar/${chargeId}`, { motivo, observacao: obs || null })
+        this.toast(r.message || 'Contestação registrada!', 'success')
+        this.closeModal()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao registrar contestação', 'error')
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-flag"></i> Registrar Contestação'
+      }
+    })
+  },
+
+  // ─── EXPORTAR FATURA PDF ────────────────────────────────────────────────────
+  async _exportarFaturaPDF(cartaoId, mes, ano) {
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const nomeMes = meses[mes - 1]
+    // Abrir em nova aba — o servidor retorna HTML pronto para impressão
+    const w = window.open('', '_blank')
+    if (!w) { this.toast('Permita pop-ups para exportar o PDF', 'warning'); return }
+    w.document.write('<html><body style="font-family:Arial;text-align:center;padding:40px;color:#333;"><p>⏳ Gerando fatura...</p></body></html>')
+    try {
+      const resp = await fetch(`/api/cartoes/${cartaoId}/fatura-pdf?mes=${mes}&ano=${ano}`, {
+        headers: { 'Authorization': `Bearer ${this.token || ''}` }
+      })
+      const html = await resp.text()
+      w.document.open()
+      w.document.write(html)
+      w.document.close()
+      setTimeout(() => w.print(), 800)
+    } catch(e) {
+      w.close()
+      this.toast('Erro ao gerar fatura', 'error')
+    }
+  },
+
+  // ─── MODAL LIMITES POR CATEGORIA ───────────────────────────────────────────
+  async modalLimitesCategoria(cartaoId, nomeCartao) {
+    const cats = ['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Eletrônicos','Pets','Viagem','Beleza','Outros']
+    const now = new Date()
+    let limites = []
+    try {
+      const r = await this.api('GET', `cartoes/${cartaoId}/limites-categoria?mes=${now.getMonth()+1}&ano=${now.getFullYear()}`)
+      limites = r.limites || []
+    } catch(e) {}
+
+    const renderLimites = () => {
+      if (limites.length === 0) return `<div style="text-align:center;padding:24px;color:#666;font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>`
+      return limites.map(l => {
+        const cor = l.status === 'estourado' ? '#ff6b6b' : l.status === 'atencao' ? '#ffc400' : '#2FBF71'
+        return `
+          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.06);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:0.85rem;font-weight:600;">${this._catIcon(l.categoria)} ${l.categoria}</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="font-size:0.75rem;color:${cor};">${this.formatMoney(l.gasto_mes)} / ${this.formatMoney(l.limite_mensal)}</span>
+                <button onclick="VM._removerLimiteCategoria(${cartaoId},'${l.categoria}')" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+            <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
+              <div style="background:${cor};width:${Math.min(l.percentual,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
+            </div>
+            <div style="font-size:0.7rem;color:#666;margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
+          </div>
+        `
+      }).join('')
+    }
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;">🏷️ Limites por Categoria</h3>
+              <div style="font-size:0.75rem;color:#888;margin-top:2px;">${nomeCartao}</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="lcl-lista">${renderLimites()}</div>
+          <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;margin-top:8px;">
+            <div style="font-size:0.8rem;font-weight:600;color:#aaa;margin-bottom:10px;">Adicionar / Atualizar Limite</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">Categoria</label>
+                <select id="lcl-cat" class="form-select">
+                  ${cats.map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">Limite mensal (R$)</label>
+                <input type="number" id="lcl-valor" class="form-input" step="0.01" min="1" placeholder="500,00">
+              </div>
+              <button onclick="VM._salvarLimiteCategoria(${cartaoId})" style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:8px;padding:9px 14px;cursor:pointer;font-size:0.82rem;white-space:nowrap;"><i class="fas fa-plus"></i> Salvar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  },
+
+  async _salvarLimiteCategoria(cartaoId) {
+    const cat = document.getElementById('lcl-cat')?.value
+    const val = parseFloat(document.getElementById('lcl-valor')?.value || 0)
+    if (!cat || isNaN(val) || val <= 0) { this.toast('Preencha categoria e valor válido', 'error'); return }
+    try {
+      const r = await this.api('POST', `cartoes/${cartaoId}/limites-categoria`, { categoria: cat, limite_mensal: val })
+      this.toast(r.message || 'Limite salvo!', 'success')
+      const nomeEl = document.querySelector('#modal-container .modal div:nth-child(1) div:nth-child(2)')
+      const nome = nomeEl?.textContent?.trim() || ''
+      await this.modalLimitesCategoria(cartaoId, nome)
+    } catch(err) {
+      this.toast(err.response?.data?.error || 'Erro ao salvar limite', 'error')
+    }
+  },
+
+  async _removerLimiteCategoria(cartaoId, categoria) {
+    try {
+      await this.api('DELETE', `cartoes/${cartaoId}/limites-categoria/${encodeURIComponent(categoria)}`)
+      this.toast('Limite removido!', 'success')
+      // Re-render sem recarregar o modal inteiro
+      const now = new Date()
+      const r = await this.api('GET', `cartoes/${cartaoId}/limites-categoria?mes=${now.getMonth()+1}&ano=${now.getFullYear()}`)
+      const lista = document.getElementById('lcl-lista')
+      if (lista) {
+        const limites = r.limites || []
+        lista.innerHTML = limites.length === 0 ? '<div style="text-align:center;padding:24px;color:#666;font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>'
+          : limites.map(l => {
+            const cor = l.status === 'estourado' ? '#ff6b6b' : l.status === 'atencao' ? '#ffc400' : '#2FBF71'
+            return `<div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:0.85rem;font-weight:600;">${this._catIcon(l.categoria)} ${l.categoria}</span>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <span style="font-size:0.75rem;color:${cor};">${this.formatMoney(l.gasto_mes)} / ${this.formatMoney(l.limite_mensal)}</span>
+                  <button onclick="VM._removerLimiteCategoria(${cartaoId},'${l.categoria}')" style="background:rgba(255,80,80,0.1);color:#ff6b6b;border:1px solid rgba(255,80,80,0.2);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+              <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
+                <div style="background:${cor};width:${Math.min(l.percentual,100)}%;height:100%;border-radius:50px;"></div>
+              </div>
+              <div style="font-size:0.7rem;color:#666;margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
+            </div>`
+          }).join('')
+      }
+    } catch(err) {
+      this.toast('Erro ao remover', 'error')
+    }
+  },
+
+  // ─── MODAL SPLIT DE COMPRA ─────────────────────────────────────────────────
+  async modalSplitCompra(cartaoPreSelecionadoId) {
+    let cartoes = []
+    try { const r = await this.api('GET', 'cartoes'); cartoes = r.cartoes || [] } catch(e) {}
+    if (cartoes.length < 2) { this.toast('Você precisa ter pelo menos 2 cartões para usar o split', 'warning'); return }
+
+    const cats = ['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Eletrônicos','Pets','Outros']
+    const hoje = new Date().toISOString().split('T')[0]
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:520px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;">🔀 Split de Compra</h3>
+              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Divida uma compra entre dois cartões</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <form id="split-form">
+            <div class="form-group">
+              <label class="form-label">Descrição *</label>
+              <input type="text" id="sp-desc" class="form-input" placeholder="Ex: Jantar restaurante, Viagem..." required>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Categoria *</label>
+                <select id="sp-cat" class="form-select">${cats.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Data da Compra *</label>
+                <input type="date" id="sp-data" class="form-input" value="${hoje}" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Valor Total da Compra (R$) *</label>
+              <input type="number" id="sp-total" class="form-input" step="0.01" min="0.01" placeholder="0,00" oninput="VM._spCalcSplit()" required>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;margin-bottom:14px;">
+              <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:10px;">📇 Cartão 1</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Cartão</label>
+                  <select id="sp-c1" class="form-select" onchange="VM._spCalcSplit()">
+                    ${cartoes.map(c=>`<option value="${c.id}" ${c.id == cartaoPreSelecionadoId ? 'selected' : ''}>${c.nome}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Valor (R$)</label>
+                  <input type="number" id="sp-v1" class="form-input" step="0.01" min="0.01" placeholder="0,00" oninput="VM._spCalcSplit()">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Parcelas</label>
+                  <select id="sp-p1" class="form-select">${[1,2,3,4,5,6,12].map(n=>`<option value="${n}">${n===1?'À vista':n+'x'}</option>`).join('')}</select>
+                </div>
+              </div>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;margin-bottom:14px;">
+              <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:10px;">📇 Cartão 2</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Cartão</label>
+                  <select id="sp-c2" class="form-select" onchange="VM._spCalcSplit()">
+                    ${cartoes.map((c,i)=>`<option value="${c.id}" ${i===1?'selected':''}>${c.nome}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Valor (R$)</label>
+                  <input type="number" id="sp-v2" class="form-input" step="0.01" min="0.01" placeholder="0,00" oninput="VM._spCalcSplit()">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.72rem;">Parcelas</label>
+                  <select id="sp-p2" class="form-select">${[1,2,3,4,5,6,12].map(n=>`<option value="${n}">${n===1?'À vista':n+'x'}</option>`).join('')}</select>
+                </div>
+              </div>
+            </div>
+            <div id="sp-preview" style="display:none;padding:10px 14px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.2);border-radius:10px;font-size:0.78rem;margin-bottom:14px;"></div>
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <input type="text" id="sp-obs" class="form-input" placeholder="Opcional...">
+            </div>
+            <div style="display:flex;gap:12px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;" id="sp-btn"><i class="fas fa-code-branch"></i> Dividir Compra</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+
+    document.getElementById('split-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const btn = document.getElementById('sp-btn')
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...'
+      const c1id = parseInt(document.getElementById('sp-c1').value)
+      const c2id = parseInt(document.getElementById('sp-c2').value)
+      if (c1id === c2id) { this.toast('Selecione cartões diferentes', 'error'); btn.disabled=false; btn.innerHTML='<i class="fas fa-code-branch"></i> Dividir Compra'; return }
+      try {
+        const r = await this.api('POST', 'cartoes/split-compra', {
+          descricao:       document.getElementById('sp-desc').value,
+          categoria:       document.getElementById('sp-cat').value,
+          valor_total:     parseFloat(document.getElementById('sp-total').value),
+          data_compra:     document.getElementById('sp-data').value,
+          observacoes:     document.getElementById('sp-obs').value || null,
+          cartao1_id:      c1id,
+          cartao1_valor:   parseFloat(document.getElementById('sp-v1').value),
+          cartao1_parcelas:parseInt(document.getElementById('sp-p1').value),
+          cartao2_id:      c2id,
+          cartao2_valor:   parseFloat(document.getElementById('sp-v2').value),
+          cartao2_parcelas:parseInt(document.getElementById('sp-p2').value)
+        })
+        this.toast(r.message || 'Compra dividida!', 'success')
+        this.closeModal()
+        this.carregarCartoes()
+      } catch(err) {
+        this.toast(err.response?.data?.error || 'Erro ao dividir compra', 'error')
+        btn.disabled=false; btn.innerHTML='<i class="fas fa-code-branch"></i> Dividir Compra'
+      }
+    })
+  },
+
+  _spCalcSplit() {
+    const total = parseFloat(document.getElementById('sp-total')?.value || 0)
+    const v1    = parseFloat(document.getElementById('sp-v1')?.value || 0)
+    const v2    = parseFloat(document.getElementById('sp-v2')?.value || 0)
+    const prev  = document.getElementById('sp-preview')
+    if (!prev) return
+    if (total > 0 && (v1 > 0 || v2 > 0)) {
+      const soma = v1 + v2
+      const diff = Math.abs(soma - total)
+      prev.style.display = 'block'
+      if (diff < 0.02) {
+        prev.innerHTML = `✅ <strong>Divisão OK:</strong> ${this.formatMoney(v1)} + ${this.formatMoney(v2)} = ${this.formatMoney(total)}`
+        prev.style.borderColor = 'rgba(47,191,113,0.3)'
+        prev.style.background  = 'rgba(47,191,113,0.07)'
+        prev.style.color       = '#2FBF71'
+      } else {
+        prev.innerHTML = `⚠️ <strong>Diferença:</strong> ${this.formatMoney(v1)} + ${this.formatMoney(v2)} = ${this.formatMoney(soma)} (faltam ${this.formatMoney(Math.abs(total-soma))})`
+        prev.style.borderColor = 'rgba(255,196,0,0.3)'
+        prev.style.background  = 'rgba(255,196,0,0.07)'
+        prev.style.color       = '#ffc400'
+      }
+    } else {
+      prev.style.display = 'none'
     }
   },
 
@@ -9820,6 +10258,17 @@ const VM = {
               <input type="text" id="ct-apelido" class="form-input" placeholder='Ex: "day-to-day", "viagens", "assinaturas"' value="${cartao?.apelido || ''}">
             </div>
             <div class="form-group">
+              <label class="form-label">Tipo do Cartão</label>
+              <div style="display:flex;gap:10px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);flex:1;justify-content:center;${cartao?.tipo_cartao !== 'PJ' ? 'background:rgba(47,191,113,0.1);border-color:rgba(47,191,113,0.4);' : ''}">
+                  <input type="radio" name="ct-tipo" value="PF" ${cartao?.tipo_cartao !== 'PJ' ? 'checked' : ''}> 👤 Pessoal (PF)
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);flex:1;justify-content:center;${cartao?.tipo_cartao === 'PJ' ? 'background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);' : ''}">
+                  <input type="radio" name="ct-tipo" value="PJ" ${cartao?.tipo_cartao === 'PJ' ? 'checked' : ''}> 🏢 Empresarial (PJ)
+                </label>
+              </div>
+            </div>
+            <div class="form-group">
               <label class="form-label">Cor</label>
               <div style="display:flex;gap:10px;flex-wrap:wrap;">
                 ${cores.map(c => `
@@ -9851,6 +10300,7 @@ const VM = {
           bandeira: document.getElementById('ct-bandeira').value,
           banco: document.getElementById('ct-banco').value,
           apelido: document.getElementById('ct-apelido')?.value || null,  // S-C6
+          tipo_cartao: document.querySelector('input[name="ct-tipo"]:checked')?.value || 'PF',
           limite_total: limite,
           limite_disponivel: isEdit ? cartao.limite_disponivel : limite,
           dia_fechamento: parseInt(document.getElementById('ct-fecha').value),
