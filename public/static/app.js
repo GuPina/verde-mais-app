@@ -14295,21 +14295,22 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Ações</th>
               </tr></thead>
               <tbody>
-                ${recs.map(r => {
+                ${recs.map((r, idx) => {
                   const cfg = tipoConfig[r.tipo] || tipoConfig.despesa
                   const isVar = r.valor_variavel
                   const valorLabel = isVar
                     ? (r.ultimo_valor ? `~${this.fmt(r.ultimo_valor)}` : '— variável')
                     : this.fmt(r.valor)
                   const jaGerada = r.gerada_mes_atual
-                  return `<tr style="border-bottom:1px solid #1a1a2e;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+                  const recJson = encodeURIComponent(JSON.stringify(r))
+                  return `<tr data-rec-idx="${idx}" style="border-bottom:1px solid #1a1a2e;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
                     <td style="padding:12px 16px;">
                       <div style="font-weight:600;display:flex;align-items:center;gap:6px;">
                         ${r.descricao}
-                        ${isVar ? `<span style="background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:1px 7px;font-size:0.65rem;font-weight:700;">↕ Variável</span>` : ''}
+                        ${isVar ? '<span style="background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:1px 7px;font-size:0.65rem;font-weight:700;">&#8597; Variável</span>' : ''}
                       </div>
                       <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}</div>
-                      ${r.ativa && !r.valor_variavel ? `<div style="font-size:0.67rem;color:#475569;margin-top:2px;">📅 Próximo: ${valorLabel} · dia ${Math.min(r.dia_vencimento||1, new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate())}</div>` : r.ativa && r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">📅 Próximo: valor a definir</div>' : ''}</div
+                      ${r.ativa && !r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">&#128197; Próximo: ' + valorLabel + ' · dia ' + Math.min(r.dia_vencimento||1, new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()) + '</div>' : r.ativa && r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">&#128197; Próximo: valor a definir</div>' : ''}
                     </td>
                     <td style="padding:12px 16px;">
                       <span style="background:${cfg.bg};color:${cfg.cor};border:1px solid ${cfg.cor}33;border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
@@ -14320,20 +14321,19 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     <td style="padding:12px 16px;text-align:center;color:#94a3b8;">${r.dia_vencimento}</td>
                     <td style="padding:12px 16px;text-align:center;">
                       <span style="background:${r.ativa?'rgba(16,185,129,0.1)':'rgba(100,116,139,0.1)'};color:${r.ativa?'#10B981':'#64748b'};border-radius:20px;padding:3px 10px;font-size:0.7rem;font-weight:700;">
-                        ${r.ativa ? '● Ativa' : '○ Pausada'}
+                        ${r.ativa ? '&#9679; Ativa' : '&#9675; Pausada'}
                       </span>
                     </td>
                     <td style="padding:12px 16px;text-align:center;">
                       <div style="display:flex;gap:4px;justify-content:center;">
-                        <button onclick="VM._abrirLancarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" title="Lançar no mês"
-                          style="background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"
-                          ${jaGerada ? 'opacity:0.5;' : ''}>
-                          <i class="fas fa-paper-plane"></i>${jaGerada ? ' ✓' : ''}
+                        <button data-action="lancar" data-id="${r.id}" data-desc="${encodeURIComponent(r.descricao)}" title="Lançar no mês"
+                          style="background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;${jaGerada ? 'opacity:0.5;' : ''}">
+                          <i class="fas fa-paper-plane"></i>${jaGerada ? ' &#10003;' : ''}
                         </button>
-                        <button onclick="VM._verHistoricoRecorrencia(${r.id},'${r.descricao.replace(/'/g,\'\\\\'\')}')" title="Ver histórico" style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-history"></i></button>
-                        <button onclick="VM._toggleRecorrencia(${r.id},${r.ativa})" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
-                        <button onclick="VM._editarRecorrencia(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
-                        <button onclick="VM._deletarRecorrencia(${r.id},'${r.descricao.replace(/'/g,'\\\'')}')" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
+                        <button data-action="historico" data-id="${r.id}" data-desc="${encodeURIComponent(r.descricao)}" title="Ver histórico" style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-history"></i></button>
+                        <button data-action="toggle" data-id="${r.id}" data-ativa="${r.ativa?1:0}" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
+                        <button data-action="editar" data-rec="${recJson}" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                        <button data-action="deletar" data-id="${r.id}" data-desc="${encodeURIComponent(r.descricao)}" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                       </div>
                     </td>
                   </tr>`
@@ -14343,6 +14343,26 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>
         `}
       `
+
+      // Delegação de eventos para botões de ação da tabela (evita escaping em onclick)
+      content.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action
+          const id     = parseInt(btn.dataset.id || '0', 10)
+          const desc   = btn.dataset.desc ? decodeURIComponent(btn.dataset.desc) : ''
+          if (action === 'lancar')   this._abrirLancarRecorrencia(id, desc)
+          if (action === 'historico') this._verHistoricoRecorrencia(id, desc)
+          if (action === 'toggle') {
+            const ativa = parseInt(btn.dataset.ativa || '0', 10)
+            this._toggleRecorrencia(id, ativa)
+          }
+          if (action === 'editar') {
+            try { this._editarRecorrencia(JSON.parse(decodeURIComponent(btn.dataset.rec || '{}'))) }
+            catch(e) { this.toast('Erro ao abrir edição', 'error') }
+          }
+          if (action === 'deletar')  this._deletarRecorrencia(id, desc)
+        })
+      })
     }
 
     this._abrirNovaRecorrencia = () => {
