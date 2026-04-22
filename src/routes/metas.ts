@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -232,7 +233,20 @@ metas.post('/', requireAuth, async (c) => {
   await verificarConquista(c.env.DB, user.id, 'planejador')
   await verificarConquista(c.env.DB, user.id, 'sonhador')
 
-  return c.json({ success: true, id: result.meta.last_row_id, message: 'Meta criada!' }, 201)
+  // ── Tags automáticas para a meta ─────────────────────────────
+  // Metas não geram despesas diretamente, mas criamos a tag para ser usada
+  // ao marcar aportes manuais e despesas relacionadas à meta
+  const metaId = result.meta.last_row_id as number
+  try {
+    await ensureTag(c.env.DB, user.id, 'Meta', COR_MODULO.meta)
+    await ensureTag(c.env.DB, user.id, nome.trim().slice(0, 30), COR_MODULO.meta)
+    if (categoria && categoria !== 'outros') {
+      const catNome = categoria.charAt(0).toUpperCase() + categoria.slice(1)
+      await ensureTag(c.env.DB, user.id, catNome, COR_MODULO.meta)
+    }
+  } catch (_) { /* best-effort */ }
+
+  return c.json({ success: true, id: metaId, message: 'Meta criada!' }, 201)
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

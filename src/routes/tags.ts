@@ -20,14 +20,14 @@ tags.get('/', requireAuth, async (c) => {
     `SELECT t.id, t.nome, t.cor,
             COUNT(dt.despesa_id) as usos,
             COALESCE(SUM(CASE WHEN d.id IS NOT NULL
-              AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
+              AND d.categoria NOT IN ('Investimento','Aporte')
               AND COALESCE(d.tipo,'normal') != 'aporte'
               THEN d.valor ELSE 0 END), 0) as total_valor
      FROM tags t
      LEFT JOIN despesa_tags dt ON dt.tag_id = t.id
      LEFT JOIN despesas d ON d.id = dt.despesa_id
      WHERE t.user_id = ?
-       AND (dt.despesa_id IS NULL OR (d.categoria NOT IN ('Financiamento','Investimento','Aporte') AND d.tipo != 'aporte'))
+       AND (dt.despesa_id IS NULL OR (d.categoria NOT IN ('Investimento','Aporte') AND d.tipo != 'aporte'))
      GROUP BY t.id
      ORDER BY usos DESC, t.nome ASC`
   ).bind(user.id).all<{id:number;nome:string;cor:string;usos:number;total_valor:number}>()
@@ -319,7 +319,48 @@ tags.get('/receita/:receitaId', requireAuth, async (c) => {
   return c.json(rows.results || [])
 })
 
-// GET /api/tags/analise — Top gastos por tag (Melhoria 3.3 Dashboard)
+// ─── PUT /api/tags/investimento/:investimentoId — vincula tags a um investimento ──
+tags.put('/investimento/:investimentoId', requireAuth, async (c) => {
+  const user          = c.get('user')
+  const investimentoId = parseInt(c.req.param('investimentoId'))
+  const { tag_ids }   = await c.req.json().catch(() => ({} as any))
+
+  const inv = await c.env.DB.prepare(
+    `SELECT id FROM investimentos WHERE id=? AND user_id=?`
+  ).bind(investimentoId, user.id).first()
+  if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
+
+  await c.env.DB.prepare(`DELETE FROM investimento_tags WHERE investimento_id=?`).bind(investimentoId).run().catch(() => {})
+  if (tag_ids && tag_ids.length > 0) {
+    await c.env.DB.batch(
+      tag_ids.map((tid: number) =>
+        c.env.DB.prepare(`INSERT OR IGNORE INTO investimento_tags (investimento_id, tag_id) VALUES (?, ?)`).bind(investimentoId, tid)
+      )
+    ).catch(() => {})
+  }
+  return c.json({ success: true, vinculadas: tag_ids?.length || 0 })
+})
+
+// GET /api/tags/investimento/:investimentoId — buscar tags de um investimento
+tags.get('/investimento/:investimentoId', requireAuth, async (c) => {
+  const user          = c.get('user')
+  const investimentoId = parseInt(c.req.param('investimentoId'))
+
+  const inv = await c.env.DB.prepare(
+    `SELECT id FROM investimentos WHERE id=? AND user_id=?`
+  ).bind(investimentoId, user.id).first()
+  if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
+
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.nome, t.cor FROM tags t
+     JOIN investimento_tags it ON it.tag_id = t.id
+     WHERE it.investimento_id=?`
+  ).bind(investimentoId).all<{id:number;nome:string;cor:string}>().catch(() => ({ results: [] }))
+
+  return c.json(rows.results || [])
+})
+
+// ─── GET /api/tags/analise — Top gastos por tag (Melhoria 3.3 Dashboard)
 tags.get('/analise', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, limit = '10' } = c.req.query()
@@ -465,10 +506,32 @@ tags.post('/mesclar', requireAuth, async (c) => {
     `UPDATE receita_tags SET tag_id = ? WHERE tag_id = ? AND receita_id NOT IN
      (SELECT receita_id FROM receita_tags WHERE tag_id = ?)`
   ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run()
-
   await c.env.DB.prepare(
     `DELETE FROM receita_tags WHERE tag_id = ?`
   ).bind(tag_origem_id).run()
+
+  // Migrar investimento_tags
+  await c.env.DB.prepare(
+    `UPDATE investimento_tags SET tag_id = ? WHERE tag_id = ? AND investimento_id NOT IN
+     (SELECT investimento_id FROM investimento_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run().catch(() => {})
+  await c.env.DB.prepare(
+    `DELETE FROM investimento_tags WHERE tag_id = ?`
+  ).bind(tag_origem_id).run().catch(() => {})
+
+  // Migrar meta_tags
+  await c.env.DB.prepare(
+    `UPDATE meta_tags SET tag_id = ? WHERE tag_id = ? AND meta_id NOT IN
+     (SELECT meta_id FROM meta_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run().catch(() => {})
+  await c.env.DB.prepare(`DELETE FROM meta_tags WHERE tag_id = ?`).bind(tag_origem_id).run().catch(() => {})
+
+  // Migrar reserva_tags
+  await c.env.DB.prepare(
+    `UPDATE reserva_tags SET tag_id = ? WHERE tag_id = ? AND reserva_id NOT IN
+     (SELECT reserva_id FROM reserva_tags WHERE tag_id = ?)`
+  ).bind(tag_destino_id, tag_origem_id, tag_destino_id).run().catch(() => {})
+  await c.env.DB.prepare(`DELETE FROM reserva_tags WHERE tag_id = ?`).bind(tag_origem_id).run().catch(() => {})
 
   // Deletar a tag de origem
   await c.env.DB.prepare(
@@ -641,7 +704,7 @@ tags.get('/despesas-sem-tag', requireAuth, async (c) => {
      FROM despesas d
      WHERE d.user_id = ?
        AND COALESCE(d.tipo,'normal') != 'aporte'
-       AND d.categoria NOT IN ('Empréstimo','Financiamento','Investimento','Aporte')
+       AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
        AND NOT EXISTS (
          SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id
        )

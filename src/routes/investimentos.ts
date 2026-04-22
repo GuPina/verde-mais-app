@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { ensureTag, tagInvestimento, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -696,7 +697,18 @@ investimentos.post('/', requireAuth, async (c) => {
   if ((totalInv?.total || 0) >= 100000) await verificarConquista(c.env.DB, user.id, 'milionario')
   if ((tiposDistintos?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'investidor_diversificado')
 
-  return c.json({ success: true, id: result.meta.last_row_id, message: 'Investimento adicionado!' }, 201)
+  // ── Tags automáticas para o investimento ────────────────────────────
+  const invId = result.meta.last_row_id as number
+  try {
+    const tagInvId   = await ensureTag(c.env.DB, user.id, 'Investimento', COR_MODULO.investimento)
+    const tagTipoId  = await ensureTag(c.env.DB, user.id, tipoFinal.charAt(0).toUpperCase() + tipoFinal.slice(1), COR_MODULO.investimento)
+    const tagNomeId  = await ensureTag(c.env.DB, user.id, nome.trim().slice(0, 30), COR_MODULO.investimento)
+    await tagInvestimento(c.env.DB, invId, tagInvId)
+    if (tagTipoId !== tagInvId) await tagInvestimento(c.env.DB, invId, tagTipoId)
+    if (tagNomeId !== tagInvId && tagNomeId !== tagTipoId) await tagInvestimento(c.env.DB, invId, tagNomeId)
+  } catch (_) { /* best-effort */ }
+
+  return c.json({ success: true, id: invId, message: 'Investimento adicionado!' }, 201)
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

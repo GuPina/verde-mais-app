@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -229,7 +230,17 @@ recorrencias.post('/', requireAuth, async (c) => {
   ).bind(user.id).first() as any
   if ((count?.n || 0) >= 3) await verificarConquista(c.env.DB, user.id, '3_recorrencias')
 
-  return c.json({ success: true, id: res.meta.last_row_id })
+  // ── Tags automáticas para a recorrência ────────────────────────
+  const recId = res.meta.last_row_id as number
+  try {
+    await ensureTag(c.env.DB, user.id, 'Recorrência', COR_MODULO.recorrencia)
+    await ensureTag(c.env.DB, user.id, descricao.trim().slice(0, 30), COR_MODULO.recorrencia)
+    if (categoria) {
+      await ensureTag(c.env.DB, user.id, categoria.trim().slice(0, 30), COR_MODULO.recorrencia)
+    }
+  } catch (_) { /* best-effort */ }
+
+  return c.json({ success: true, id: recId })
 })
 
 // ─── PUT /api/recorrencias/:id — S-R5: suporte a notas e tags ────────────────

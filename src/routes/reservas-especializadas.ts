@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites } from './planos'
+import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -149,6 +150,16 @@ reservasEsp.post('/', requireAuth, async (c) => {
 
   const activeCount = (count?.n || 0) + 1
   if (activeCount >= 3) await checkConquista(c.env.DB, user.id, 'multi_3_reservas')
+
+  // ── Tags automáticas para a reserva ───────────────────────────
+  try {
+    await ensureTag(c.env.DB, user.id, 'Reserva', COR_MODULO.reserva)
+    await ensureTag(c.env.DB, user.id, name.trim().slice(0, 30), COR_MODULO.reserva)
+    if (type && type !== 'custom') {
+      const tipoNome = type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ')
+      await ensureTag(c.env.DB, user.id, tipoNome.slice(0, 30), COR_MODULO.reserva)
+    }
+  } catch (_) { /* best-effort */ }
 
   return c.json({ success: true, id, message: `Reserva "${name}" criada com sucesso!` }, 201)
 })

@@ -1053,7 +1053,7 @@ Retorne EXCLUSIVAMENTE um JSON válido:
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-5.4-mini',
           messages: [{ role: 'user', content: prompt }],
           max_tokens: 2500,
           temperature: 0.6,
@@ -1080,19 +1080,43 @@ Retorne EXCLUSIVAMENTE um JSON válido:
     }
 
     const aiData: any = await aiRes.json()
-    // gpt-5-mini usa reasoning tokens — content pode estar em choices[0].message.content
-    // ou em choices[0].message.reasoning_content. Tentar ambos.
+    // Tentar content, depois reasoning_content (modelos reasoning)
     const rawContent = aiData?.choices?.[0]?.message?.content
       || aiData?.choices?.[0]?.message?.reasoning_content
       || ''
-    const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent)
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/(\{[\s\S]*\})/)
+    const content = typeof rawContent === 'string' ? rawContent.trim() : JSON.stringify(rawContent)
+
+    // Se content vazio, log e retornar erro claro
+    if (!content) {
+      console.error('[IA Insights] Modelo retornou content vazio. aiData:', JSON.stringify(aiData).slice(0, 500))
+      return c.json({ error: 'O modelo de IA não retornou conteúdo. Tente novamente.', error_code: 'IA_EMPTY_RESPONSE', insights: [] }, 500)
+    }
+
+    // Extrair JSON — suporta markdown e JSON puro
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/)
+      || content.match(/```\s*([\s\S]*?)\s*```/)
+      || content.match(/(\{[\s\S]*\})/)
     const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content
 
     let parsed: any
-    try { parsed = JSON.parse(jsonStr) } catch { parsed = { insights: [] } }
+    try {
+      parsed = JSON.parse(jsonStr)
+    } catch {
+      // Tentar extrair array diretamente
+      const arrMatch = content.match(/\[[\s\S]*\]/)
+      if (arrMatch) {
+        try { parsed = { insights: JSON.parse(arrMatch[0]) } } catch { parsed = { insights: [] } }
+      } else {
+        console.error('[IA Insights] Falha ao parsear JSON. Content:', content.slice(0, 300))
+        parsed = { insights: [] }
+      }
+    }
 
     const insights = (parsed.insights || []).slice(0, 5)
+
+    if (insights.length === 0) {
+      return c.json({ error: 'IA não gerou insights válidos. Tente novamente em instantes.', error_code: 'IA_NO_INSIGHTS', insights: [] }, 500)
+    }
 
     // Salvar insights no banco (substituindo os do dia)
     await c.env.DB.prepare(`DELETE FROM ia_insights WHERE user_id=? AND date(data_criacao)=date('now')`).bind(uid).run().catch(() => {})
@@ -1254,7 +1278,7 @@ OU
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 60,
         temperature: 0.1

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { ensureTag, tagDespesa, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -236,6 +237,22 @@ emprestimos.post('/', requireAuth, async (c) => {
     }
     await c.env.DB.batch(stmts)
   }
+
+  // ── Tags automáticas para as despesas geradas ──────────────────────────
+  try {
+    const despGeradas = await c.env.DB.prepare(
+      `SELECT id FROM despesas WHERE user_id=? AND observacoes LIKE ? ORDER BY id ASC`
+    ).bind(user.id, `Empréstimo automático #${empId}%`).all<{id:number}>()
+    const despIds = (despGeradas.results || []).map(r => r.id)
+    if (despIds.length > 0) {
+      const tagEmpId  = await ensureTag(c.env.DB, user.id, 'Empréstimo', COR_MODULO.emprestimo)
+      const tagItemId = await ensureTag(c.env.DB, user.id, descricao.trim().slice(0, 30), COR_MODULO.emprestimo)
+      for (const did of despIds) {
+        await tagDespesa(c.env.DB, did, tagEmpId)
+        if (tagItemId !== tagEmpId) await tagDespesa(c.env.DB, did, tagItemId)
+      }
+    }
+  } catch (_) { /* tag automática é best-effort */ }
 
   return c.json({ success: true, id: empId, message: 'Empréstimo cadastrado e despesas criadas automaticamente!' }, 201)
 })

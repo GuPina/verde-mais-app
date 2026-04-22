@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { ensureTag, tagDespesa, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -291,6 +292,23 @@ financiamentos.post('/', requireAuth, async (c) => {
   if (tipoBem === 'imovel' || tipoBem === 'imovel_comercial') await verificarConquista(c.env.DB, user.id, 'primeiro_imovel')
   if (tipoBem === 'veiculo') await verificarConquista(c.env.DB, user.id, 'financiamento_veiculo')
   if (tipoBem === 'outros' || tipoBem === 'rural') await verificarConquista(c.env.DB, user.id, 'financiamento_outros')
+
+  // ── Tags automáticas para as despesas geradas ──────────────────────────
+  try {
+    const despGeradas = await c.env.DB.prepare(
+      `SELECT id FROM despesas WHERE user_id=? AND observacoes LIKE ? ORDER BY id ASC`
+    ).bind(user.id, `Financiamento automático #${finId}%`).all<{id:number}>()
+    const despIds = (despGeradas.results || []).map(r => r.id)
+    if (despIds.length > 0) {
+      const tagFinId  = await ensureTag(c.env.DB, user.id, 'Financiamento', COR_MODULO.financiamento)
+      const tagItemId = await ensureTag(c.env.DB, user.id, descricao.trim().slice(0, 30), COR_MODULO.financiamento)
+      for (const did of despIds) {
+        await tagDespesa(c.env.DB, did, tagFinId)
+        if (tagItemId !== tagFinId) await tagDespesa(c.env.DB, did, tagItemId)
+      }
+    }
+  } catch (_) { /* tag automática é best-effort */ }
+
   return c.json({ success: true, id: finId, message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
