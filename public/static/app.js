@@ -248,10 +248,12 @@ const VM = {
     }
     const t = document.createElement('div')
     t.className = `toast ${type}`
+    t.style.cssText = 'display:flex;align-items:center;gap:8px;position:relative;padding-right:32px;'
     const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' }
-    t.innerHTML = `<span>${icons[type] || '💬'}</span><span>${msg}</span>`
+    t.innerHTML = `<span>${icons[type] || '💬'}</span><span style="flex:1;">${msg}</span><button onclick="this.parentElement.remove()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:inherit;opacity:0.6;cursor:pointer;font-size:1rem;line-height:1;padding:2px 4px;" title="Fechar">✕</button>`
     container.appendChild(t)
-    setTimeout(() => t.remove(), duration)
+    const timer = setTimeout(() => t.remove(), duration)
+    t.querySelector('button').addEventListener('click', () => clearTimeout(timer))
   },
 
   formatMoney(v, compact = false) {
@@ -430,7 +432,11 @@ const VM = {
 
   formatDate(d) {
     if (!d) return '-'
-    return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR')
+    // Se a string já contém hora (ex: "2026-04-22 11:08:05"), extrai só a data
+    const soData = typeof d === 'string' ? d.split('T')[0].split(' ')[0] : d
+    const dt = new Date(soData + 'T00:00:00')
+    if (isNaN(dt.getTime())) return '-'
+    return dt.toLocaleDateString('pt-BR')
   },
 
   logout() {
@@ -1592,15 +1598,19 @@ const VM = {
     if (!desc) { this.toast('Informe uma descrição', 'error'); return }
     try {
       if (this._lrTipoAtual === 'despesa') {
-        await this.api('despesas', { method:'POST', body: JSON.stringify({ descricao:desc, valor, categoria:cat, data, status:'pago', tipo:'normal' }) })
+        await this.api('POST', 'despesas', { descricao:desc, valor, categoria:cat, data, status:'pago', tipo:'normal' })
       } else {
-        await this.api('receitas', { method:'POST', body: JSON.stringify({ descricao:desc, valor, categoria:cat, data, tipo:'outros' }) })
+        await this.api('POST', 'receitas', { descricao:desc, valor, categoria:cat, data, tipo:'outros' })
       }
       this.closeModal()
       this.toast(`✅ ${this._lrTipoAtual === 'despesa' ? 'Despesa' : 'Receita'} lançada com sucesso!`)
-      if (this.currentPage === 'dashboard') this.renderDashboard()
-      else if (this.currentPage === 'despesas') this.carregarDespesas()
-      else if (this.currentPage === 'receitas') this.carregarReceitas()
+      // Recarregar a página atual, qualquer que seja ela
+      const pg = this.currentPage
+      if (pg === 'dashboard') this.pageDashboard()
+      else if (pg === 'despesas') this.carregarDespesas()
+      else if (pg === 'receitas') this.carregarReceitas()
+      else if (pg === 'orcamentos') this.pageOrcamentos()
+      else if (pg === 'relatorios') this.pageRelatorios()
     } catch(e) {
       this.toast('Erro ao salvar lançamento', 'error')
     }
@@ -2611,7 +2621,8 @@ const VM = {
       if (!VM._pagarVencimento) {
         VM._pagarVencimento = async (id, descricao, evt) => {
           evt.stopPropagation()
-          if (!confirm(`Marcar "${descricao}" como pago?`)) return
+          const ok = await VM.vmConfirm({ titulo: 'Confirmar Pagamento', texto: `Marcar "${descricao}" como pago?`, textoBotao: 'Confirmar', corBotao: '#2FBF71', icone: '✅' })
+          if (!ok) return
           try {
             await VM.api('PATCH', `despesas/${id}`, { status: 'pago', data: new Date().toISOString().split('T')[0] })
             VM.toast('✅ Pagamento registrado!', 'success')
@@ -2786,8 +2797,10 @@ const VM = {
   // ============== RECEITAS ==============
   async pageReceitas() {
     const now = new Date()
-    const mes = String(now.getMonth() + 1)
-    const ano = String(now.getFullYear())
+    const savedRec = this._receitaFiltro || {}
+    const mes = savedRec.mes || String(now.getMonth() + 1)
+    const ano = savedRec.ano || String(now.getFullYear())
+    const catSalva = savedRec.cat || ''
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
@@ -2833,7 +2846,7 @@ const VM = {
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
             <select id="filtro-cat-rec" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
               <option value="">Todas</option>
-              ${['Salário','Freelance','Renda Extra','Investimentos','Aluguel','Dividendos','Vendas','Bônus','13º Salário','Férias','Reembolso','Presente','Outros'].map(c => `<option value="${c}">${c}</option>`).join('')}
+              ${['Salário','Freelance','Renda Extra','Investimentos','Aluguel','Dividendos','Vendas','Bônus','13º Salário','Férias','Reembolso','Presente','Outros'].map(c => `<option value="${c}" ${c === catSalva ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
@@ -2922,6 +2935,8 @@ const VM = {
     const busca = document.getElementById('filtro-busca-rec')?.value || ''
     const limit = 20
     const offset = (pagina - 1) * limit
+
+    this._receitaFiltro = { mes, ano, cat }
 
     let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
     if (cat) qs += `&categoria=${encodeURIComponent(cat)}`
@@ -3142,7 +3157,7 @@ const VM = {
             <!-- Descrição -->
             <div class="form-group">
               <label class="form-label">Descrição *</label>
-              <input type="text" id="r-desc" class="form-input" placeholder="Ex: Salário de abril, Freelance design..." value="${receita?.descricao || ''}" required autocomplete="off">
+              <input type="text" id="r-desc" class="form-input" placeholder="Ex: Salário de abril, Freelance design..." value="${receita?.descricao || ''}" required autocomplete="off" autofocus>
             </div>
 
             <!-- Categoria: seletor visual em grid -->
@@ -3355,9 +3370,11 @@ const VM = {
   async pageDespesas() {
     const now = new Date()
     const saved = this._despesaFiltro || {}
-    const mes  = saved.mes  || String(now.getMonth() + 1)
-    const ano  = saved.ano  || String(now.getFullYear())
-    const stat = saved.status || ''
+    const mes   = saved.mes    || String(now.getMonth() + 1)
+    const ano   = saved.ano    || String(now.getFullYear())
+    const stat  = saved.status || ''
+    const catD  = saved.cat    || ''
+    const busca = saved.busca  || ''
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
@@ -3412,13 +3429,13 @@ const VM = {
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
             <select id="filtro-cat-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               <option value="">Todas</option>
-              ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Beleza','Tecnologia','Viagem','Academia','Serviços','Presentes','Outros'].map(c => `<option value="${c}">${c}</option>`).join('')}
+              ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Beleza','Tecnologia','Viagem','Academia','Serviços','Presentes','Outros'].map(c => `<option value="${c}" ${c === catD ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
             <div style="position:relative;">
-              <input type="text" id="filtro-busca-d" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" oninput="clearTimeout(VM._buscaDespTimer);VM._buscaDespTimer=setTimeout(()=>VM.carregarDespesas(),400)">
+              <input type="text" id="filtro-busca-d" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" value="${busca}" oninput="clearTimeout(VM._buscaDespTimer);VM._buscaDespTimer=setTimeout(()=>VM.carregarDespesas(),400)">
               <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#555;font-size:0.75rem;pointer-events:none;"></i>
             </div>
           </div>
@@ -3512,7 +3529,7 @@ const VM = {
     const limit  = 20
     const offset = (pagina - 1) * limit
 
-    this._despesaFiltro = { mes, ano, status }
+    this._despesaFiltro = { mes, ano, status, cat, busca }
 
     let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
     if (status) qs += `&status=${status}`
@@ -3907,7 +3924,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:14px;">
               <div class="form-group" style="margin:0;">
                 <label class="form-label">Descrição *</label>
-                <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado, Conta de luz..." value="${despesa?.descricao || ''}" required autocomplete="off">
+                <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado, Conta de luz..." value="${despesa?.descricao || ''}" required autocomplete="off" autofocus>
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label">Data *</label>
@@ -13396,12 +13413,16 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
       </div>
     `
-    // Verificar conquistas automaticamente ao abrir a página (silencioso)
+    // Carregar conquistas imediatamente do cache (se disponível) ou da API
+    this.carregarConquistas()
+    // Verificar conquistas em background (silencioso) — invalida cache se houver novas
     this.api('POST', 'conquistas/verificar').then(r => {
       if ((r.total_novas || 0) > 0) {
+        this._conqCache = null // força reload com as novas conquistas
         this.toast(`🏆 ${r.total_novas} nova(s) conquista(s) desbloqueada(s)!`, 'success')
+        this.carregarConquistas()
       }
-    }).catch(() => {}).finally(() => this.carregarConquistas())
+    }).catch(() => {})
   },
 
   async verificarNovasConquistas() {
@@ -13414,6 +13435,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       } else {
         this.toast('Nenhuma conquista nova no momento', 'info')
       }
+      this._conqCache = null // invalidar cache para forçar reload
       this.carregarConquistas()
     } catch(e) {
       this.toast('Erro ao verificar conquistas', 'error')
@@ -13423,9 +13445,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     }
   },
 
-  async carregarConquistas() {
+  async carregarConquistas(forcarReload = false) {
     try {
-      const data = await this.api('GET', 'conquistas')
+      // Cache local: evita nova requisição HTTP ao trocar aba/filtro
+      let data
+      if (!forcarReload && this._conqCache && (Date.now() - this._conqCacheTs < 60000)) {
+        data = this._conqCache
+      } else {
+        data = await this.api('GET', 'conquistas')
+        this._conqCache = data
+        this._conqCacheTs = Date.now()
+      }
       const container = document.getElementById('conq-container')
       const todas = data.conquistas || []
       const conquistadas = todas.filter(c => c.conquistada)
@@ -13656,13 +13686,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   _conqFiltroAba(aba) {
     const container = document.getElementById('conq-container')
     if (container) { container.dataset.aba = aba; container.dataset.filtro = 'todas' }
-    this.carregarConquistas()
+    this.carregarConquistas() // usa cache — sem nova requisição HTTP
   },
 
   _conqFiltroEstado(filtro) {
     const container = document.getElementById('conq-container')
     if (container) container.dataset.filtro = filtro
-    this.carregarConquistas()
+    this.carregarConquistas() // usa cache — sem nova requisição HTTP
   },
 
   showConqTooltip(event) {
@@ -18994,4 +19024,32 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 }
 
 // Init
-document.addEventListener('DOMContentLoaded', () => VM.init())
+document.addEventListener('DOMContentLoaded', () => {
+  VM.init()
+
+  // ── Detecção de offline ─────────────────────────────────────────────────
+  function _showOfflineBanner(show) {
+    let banner = document.getElementById('offline-banner')
+    if (show) {
+      if (!banner) {
+        banner = document.createElement('div')
+        banner.id = 'offline-banner'
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#ef4444;color:#fff;text-align:center;padding:8px 16px;font-size:0.85rem;font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;justify-content:center;gap:8px;'
+        banner.innerHTML = '📡 Sem conexão com a internet — verifique sua rede'
+        document.body.appendChild(banner)
+        document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0') + 40) + 'px'
+      }
+    } else {
+      if (banner) {
+        banner.remove()
+        document.body.style.paddingTop = Math.max(0, parseInt(document.body.style.paddingTop || '0') - 40) + 'px'
+      }
+    }
+  }
+  window.addEventListener('offline', () => _showOfflineBanner(true))
+  window.addEventListener('online',  () => {
+    _showOfflineBanner(false)
+    VM.toast('✅ Conexão restabelecida!', 'success', 3000)
+  })
+  if (!navigator.onLine) _showOfflineBanner(true)
+})
