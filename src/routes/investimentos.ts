@@ -810,6 +810,121 @@ investimentos.patch('/:id/rebalancear', requireAuth, async (c) => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/investimentos/:id/historico — histórico de aportes (despesas de aporte)
+// ─────────────────────────────────────────────────────────────────────────────
+investimentos.get('/:id/historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+  const limit  = Math.min(parseInt(c.req.query('limit')  || '50'), 200)
+  const offset = parseInt(c.req.query('offset') || '0')
+
+  const inv = await c.env.DB.prepare(
+    'SELECT id, nome, valor_investido, valor_atual, tipo FROM investimentos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
+
+  // Aportes registrados como despesas do tipo aporte
+  const hist = await c.env.DB.prepare(
+    `SELECT id, descricao, data, valor, status, meio_pagamento
+     FROM despesas
+     WHERE user_id = ? AND eh_aporte_patrimonial = 1
+       AND (descricao LIKE ? OR descricao LIKE ?)
+     ORDER BY data DESC LIMIT ? OFFSET ?`
+  ).bind(user.id, `%${inv.nome}%`, `Aporte%`, limit, offset).all()
+
+  const total = await c.env.DB.prepare(
+    `SELECT COUNT(*) as n FROM despesas
+     WHERE user_id = ? AND eh_aporte_patrimonial = 1
+       AND (descricao LIKE ? OR descricao LIKE ?)`
+  ).bind(user.id, `%${inv.nome}%`, `Aporte%`).first() as any
+
+  const somaAportes = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(valor),0) as total FROM despesas
+     WHERE user_id = ? AND eh_aporte_patrimonial = 1 AND descricao LIKE ?`
+  ).bind(user.id, `%${inv.nome}%`).first() as any
+
+  return c.json({
+    investimento: { id: inv.id, nome: inv.nome, valor_investido: inv.valor_investido, valor_atual: inv.valor_atual },
+    historico: hist.results,
+    total_registros: Number(total?.n || 0),
+    total_aportado: Math.round(Number(somaAportes?.total || 0) * 100) / 100,
+    limit,
+    offset
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/investimentos/:id/resgate — resgate parcial (deduz valor_investido e valor_atual)
+// ─────────────────────────────────────────────────────────────────────────────
+investimentos.patch('/:id/resgate', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+
+  const inv = await c.env.DB.prepare('SELECT * FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
+
+  const { valor, descricao = 'Resgate parcial', registrar_receita = false } = await c.req.json()
+  const valorNum = parseFloat(valor)
+  if (!valorNum || valorNum <= 0)
+    return c.json({ error: 'Informe um valor de resgate maior que zero' }, 400)
+
+  const valorAtualCalc = Number(inv.valor_atual) || Number(inv.valor_investido)
+  if (valorNum > valorAtualCalc)
+    return c.json({ error: `Saldo insuficiente. Disponível: R$ ${valorAtualCalc.toFixed(2)}` }, 400)
+
+  // Proporção resgatada para deduzir do valor_investido proporcionalmente
+  const proporcao = valorAtualCalc > 0 ? valorNum / valorAtualCalc : 1
+  const deduzInvestido = Math.min(Number(inv.valor_investido), Number(inv.valor_investido) * proporcao)
+
+  const novoValorInvestido = Math.max(0, Number(inv.valor_investido) - deduzInvestido)
+  const novoValorAtual     = Math.max(0, valorAtualCalc - valorNum)
+
+  await c.env.DB.prepare(
+    'UPDATE investimentos SET valor_investido=?, valor_atual=? WHERE id=? AND user_id=?'
+  ).bind(Math.round(novoValorInvestido * 100)/100, Math.round(novoValorAtual * 100)/100, id, user.id).run()
+
+  if (registrar_receita) {
+    await c.env.DB.prepare(
+      `INSERT INTO receitas (user_id, descricao, data, categoria, valor)
+       VALUES (?, ?, ?, 'Investimentos', ?)`
+    ).bind(user.id, descricao || `Resgate: ${inv.nome}`, new Date().toISOString().split('T')[0], valorNum).run()
+  }
+
+  return c.json({
+    success: true,
+    resgatado: Math.round(valorNum * 100) / 100,
+    novo_valor_investido: Math.round(novoValorInvestido * 100) / 100,
+    novo_valor_atual:     Math.round(novoValorAtual * 100) / 100,
+    message: `Resgate de R$ ${valorNum.toFixed(2)} realizado em ${inv.nome}!`
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/investimentos/vencimentos — CDB/LCI/LCA vencendo nos próximos 30 dias
+// ─────────────────────────────────────────────────────────────────────────────
+investimentos.get('/vencimentos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const dias = parseInt(c.req.query('dias') || '30')
+
+  const res = await c.env.DB.prepare(
+    `SELECT id, nome, tipo, valor_investido, valor_atual, data_vencimento, instituicao
+     FROM investimentos
+     WHERE user_id = ? AND data_vencimento IS NOT NULL
+       AND data_vencimento BETWEEN date('now') AND date('now', '+' || ? || ' days')
+     ORDER BY data_vencimento ASC`
+  ).bind(user.id, dias).all()
+
+  const lista = (res.results as any[]).map(inv => {
+    const hoje = new Date()
+    const venc = new Date(inv.data_vencimento + 'T00:00:00')
+    const diasRestantes = Math.ceil((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+    return { ...inv, dias_para_vencer: diasRestantes }
+  })
+
+  return c.json({ vencimentos: lista, total: lista.length })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/investimentos/:id
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.delete('/:id', requireAuth, async (c) => {

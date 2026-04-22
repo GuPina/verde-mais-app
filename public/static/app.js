@@ -5176,72 +5176,586 @@ const VM = {
 
   async carregarInvestimentos() {
     try {
-      const data = await this.api('GET', 'investimentos')
+      const [data, vencData] = await Promise.all([
+        this.api('GET', 'investimentos'),
+        this.api('GET', 'investimentos/vencimentos?dias=30').catch(() => ({ vencimentos: [] }))
+      ])
       const container = document.getElementById('invest-container')
-      const { investimentos, resumo } = data
+      const { investimentos, resumo, cdi_atual } = data
+      const vencimentos = vencData.vencimentos || []
 
-      const tipoLabels = { tesouro_direto: 'Tesouro Direto', cdb: 'CDB', lci: 'LCI', lca: 'LCA', acoes: 'Ações', fii: 'FII', cripto: 'Cripto', poupanca: 'Poupança', caixinha: 'Caixinha CDI', outros: 'Outros' }
-      const tipoEmojis = { tesouro_direto: '🏛️', cdb: '🏦', lci: '📋', lca: '🌱', acoes: '📊', fii: '🏢', cripto: '₿', poupanca: '🐷', caixinha: '💰', outros: '💼' }
-      const riscoColors = { baixo: '#2FBF71', medio: '#ffc400', alto: '#ff6b6b' }
+      this._invCache    = investimentos
+      this._invCdiAtual = cdi_atual || 13.65
+      this._invOrdem    = this._invOrdem || { col: 'nome', dir: 1 }
+      this._invView     = this._invView  || 'tabela'
+
+      const tipoLabels = { tesouro_direto:'Tesouro Direto', cdb:'CDB', lci:'LCI', lca:'LCA', acoes:'Ações', fii:'FII', cripto:'Cripto', poupanca:'Poupança', caixinha:'Caixinha CDI', outros:'Outros' }
+      const tipoEmojis = { tesouro_direto:'🏛️', cdb:'🏦', lci:'📋', lca:'🌱', acoes:'📊', fii:'🏢', cripto:'₿', poupanca:'🐷', caixinha:'💰', outros:'💼' }
+      const riscoColors= { baixo:'#2FBF71', medio:'#ffc400', alto:'#ff6b6b' }
+
+      // ── Alerta de vencimentos ─────────────────────────────────────────────
+      const alertaVenc = vencimentos.length > 0 ? `
+        <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:14px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="font-size:1.4rem;flex-shrink:0;">⏰</span>
+          <div>
+            <div style="font-weight:700;color:#fbbf24;font-size:0.9rem;margin-bottom:4px;">${vencimentos.length} investimento${vencimentos.length>1?'s':''} vencendo nos próximos 30 dias</div>
+            ${vencimentos.map(v => `
+              <div style="font-size:0.78rem;color:#d97706;margin-top:3px;">
+                <strong>${v.nome}</strong> — vence em <strong>${v.dias_para_vencer}d</strong> (${this.formatDate(v.data_vencimento)}) · ${this.formatMoney(v.valor_atual || v.valor_investido)}
+              </div>`).join('')}
+          </div>
+        </div>` : ''
+
+      // ── Cards de resumo ───────────────────────────────────────────────────
+      const lucroColor = resumo.lucro_prejuizo >= 0 ? 'positive' : 'negative'
+      const rentColor  = resumo.rentabilidade_total >= 0 ? 'positive' : 'negative'
+
+      // ── Controles view / ordenação ────────────────────────────────────────
+      const ctrlBar = `
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+          <div style="display:flex;gap:6px;background:rgba(255,255,255,0.04);border-radius:10px;padding:4px;">
+            <button id="inv-view-tabela" onclick="VM._setInvView('tabela')" class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-table"></i> Tabela</button>
+            <button id="inv-view-cards"  onclick="VM._setInvView('cards')"  class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-th-large"></i> Cards</button>
+          </div>
+          <button onclick="VM._modalComparativoCDI()" class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-chart-bar"></i> vs CDI</button>
+          <button onclick="VM._modalRebalanceamento()" class="btn-secondary" style="font-size:0.78rem;padding:5px 12px;"><i class="fas fa-balance-scale"></i> Rebalancear</button>
+        </div>`
 
       container.innerHTML = `
-        <!-- RESUMO -->
+        ${alertaVenc}
         <div class="grid-4" style="margin-bottom:24px;">
           <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💰 Total Investido</div><div class="stat-value positive">${this.formatMoney(resumo.total_investido)}</div></div>
           <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📈 Valor Atual</div><div class="stat-value positive">${this.formatMoney(resumo.total_atual)}</div></div>
-          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💹 Lucro/Prejuízo</div><div class="stat-value ${resumo.lucro_prejuizo >= 0 ? 'positive' : 'negative'}">${this.formatMoney(resumo.lucro_prejuizo)}</div></div>
-          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📊 Rentabilidade</div><div class="stat-value ${resumo.rentabilidade_total >= 0 ? 'positive' : 'negative'}">${resumo.rentabilidade_total.toFixed(2)}%</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">💹 Lucro/Prejuízo</div><div class="stat-value ${lucroColor}">${this.formatMoney(resumo.lucro_prejuizo)}</div></div>
+          <div class="stat-card"><div class="stat-label" style="margin-bottom:8px;">📊 Rentabilidade</div><div class="stat-value ${rentColor}">${resumo.rentabilidade_total.toFixed(2)}%</div></div>
         </div>
 
         ${investimentos.length === 0 ? `
           <div class="empty-state card"><div class="empty-icon">📈</div><h3>Nenhum investimento</h3><p>Adicione seu primeiro investimento!</p></div>
         ` : `
-          <div class="card">
-            <table class="data-table">
-              <thead><tr>
-                <th>Investimento</th>
-                <th>Tipo</th>
-                <th>Risco</th>
-                <th style="text-align:right;">Investido</th>
-                <th style="text-align:right;">Atual</th>
-                <th style="text-align:right;">Rentab.</th>
-                <th style="text-align:right;">Ações</th>
-              </tr></thead>
-              <tbody>
-                ${investimentos.map(inv => {
-                  const isCaixinha = inv.tipo === 'caixinha'
-                  const rentLabel = isCaixinha && inv.dias_decorridos === 0
-                    ? '<span style="color:#888;font-size:0.78rem;">Rendendo...</span>'
-                    : `${inv.rentabilidade_percentual >= 0 ? '+' : ''}${inv.rentabilidade_percentual}%`
-                  return `
-                  <tr>
-                    <td>
-                      <div style="font-weight:600;">${inv.nome}</div>
-                      ${inv.instituicao ? `<div style="font-size:0.75rem;color:#666;">${inv.instituicao}</div>` : ''}
-                      ${isCaixinha && inv.cdi_info ? `<div style="font-size:0.72rem;color:#2FBF71;">📊 ${inv.cdi_info}</div>` : ''}
-                      ${isCaixinha && inv.dias_decorridos > 0 ? `<div style="font-size:0.7rem;color:#888;">${inv.dias_decorridos} dias rendendo</div>` : ''}
-                      ${isCaixinha && inv.dias_decorridos === 0 ? `<div style="font-size:0.7rem;color:#888;">Cadastrado hoje — renderá a partir de amanhã</div>` : ''}
-                    </td>
-                    <td>${tipoEmojis[inv.tipo] || '💼'} ${tipoLabels[inv.tipo] || inv.tipo}</td>
-                    <td><span class="badge" style="background:${riscoColors[inv.risco] || '#888'}22;color:${riscoColors[inv.risco] || '#888'};border:1px solid ${riscoColors[inv.risco] || '#888'}44;">${inv.risco}</span></td>
-                    <td style="text-align:right;">${this.formatMoney(inv.valor_investido)}</td>
-                    <td style="text-align:right;font-weight:600;color:#2FBF71;">${this.formatMoney(inv.valor_atual || inv.valor_investido)}</td>
-                    <td style="text-align:right;font-weight:600;${inv.rentabilidade_percentual >= 0 ? 'color:#2FBF71' : 'color:#ff6b6b'};">${rentLabel}</td>
-                    <td style="text-align:right;">
-                      <button onclick="VM.modalAporteInvestimento(${inv.id}, '${(inv.nome||'').replace(/'/g,"&#39;")}')" title="Adicionar Aporte" class="btn-primary" style="margin-right:4px;padding:5px 10px;font-size:0.78rem;"><i class="fas fa-plus-circle"></i></button>
-                      <button onclick="VM.modalInvestimento(${JSON.stringify(inv).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;"><i class="fas fa-edit"></i></button>
-                      <button onclick="VM.deleteInvestimento(${inv.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
-                    </td>
-                  </tr>
-                `}).join('')}
-              </tbody>
-            </table>
+          <!-- Gráfico pizza por tipo -->
+          <div class="card" style="margin-bottom:20px;">
+            <div style="font-weight:700;margin-bottom:16px;font-size:0.95rem;">📊 Alocação por Tipo</div>
+            <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+              <canvas id="inv-pizza-chart" width="180" height="180" style="max-width:180px;flex-shrink:0;"></canvas>
+              <div id="inv-pizza-legend" style="flex:1;min-width:200px;"></div>
+            </div>
           </div>
+
+          ${ctrlBar}
+          <div id="inv-lista-container"></div>
         `}
       `
+
+      if (investimentos.length > 0) {
+        // Montar gráfico pizza por tipo
+        this._renderInvPizza(investimentos, tipoLabels, tipoEmojis)
+        // Montar lista (tabela ou cards)
+        this._renderInvLista(investimentos, tipoLabels, tipoEmojis, riscoColors)
+        // Destacar view ativa
+        this._setInvView(this._invView)
+      }
     } catch (e) {
       this.toast('Erro ao carregar investimentos', 'error')
     }
+  },
+
+  _setInvView(view) {
+    this._invView = view
+    ;['tabela','cards'].forEach(v => {
+      const btn = document.getElementById(`inv-view-${v}`)
+      if (btn) btn.style.background = v === view ? 'rgba(47,191,113,0.2)' : ''
+    })
+    if (this._invCache) this._renderInvLista(this._invCache,
+      { tesouro_direto:'Tesouro Direto', cdb:'CDB', lci:'LCI', lca:'LCA', acoes:'Ações', fii:'FII', cripto:'Cripto', poupanca:'Poupança', caixinha:'Caixinha CDI', outros:'Outros' },
+      { tesouro_direto:'🏛️', cdb:'🏦', lci:'📋', lca:'🌱', acoes:'📊', fii:'🏢', cripto:'₿', poupanca:'🐷', caixinha:'💰', outros:'💼' },
+      { baixo:'#2FBF71', medio:'#ffc400', alto:'#ff6b6b' })
+  },
+
+  _renderInvPizza(investimentos, tipoLabels, tipoEmojis) {
+    const canvas = document.getElementById('inv-pizza-chart')
+    const legEl  = document.getElementById('inv-pizza-legend')
+    if (!canvas || !legEl) return
+
+    // Agrupar por tipo
+    const totPorTipo = {}
+    const totalGeral = investimentos.reduce((s,i) => s + (i.valor_atual || i.valor_investido), 0)
+    for (const inv of investimentos) {
+      const t = inv.tipo || 'outros'
+      totPorTipo[t] = (totPorTipo[t] || 0) + (inv.valor_atual || inv.valor_investido)
+    }
+
+    const CORES_PIZZA = ['#2FBF71','#74b9ff','#ffc400','#fd79a8','#a29bfe','#00cec9','#ff8c42','#6c5ce7','#e17055','#fdcb6e']
+    const tipos = Object.entries(totPorTipo).sort((a,b) => b[1] - a[1])
+    const ctx = canvas.getContext('2d')
+    const cx = 90, cy = 90, r = 80, ri = 45
+    let angulo = -Math.PI / 2
+
+    ctx.clearRect(0, 0, 180, 180)
+    tipos.forEach(([tipo, val], idx) => {
+      const pct   = totalGeral > 0 ? val / totalGeral : 0
+      const angle = pct * 2 * Math.PI
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, angulo, angulo + angle)
+      ctx.closePath()
+      ctx.fillStyle = CORES_PIZZA[idx % CORES_PIZZA.length]
+      ctx.fill()
+      angulo += angle
+    })
+    // Buraco central (donut)
+    ctx.beginPath()
+    ctx.arc(cx, cy, ri, 0, 2 * Math.PI)
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--card-bg') || '#1a2035'
+    ctx.fill()
+    // Texto central
+    ctx.fillStyle = '#fff'
+    ctx.font = 'bold 11px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(this.formatMoney(totalGeral).replace('R$',''), cx, cy - 4)
+    ctx.font = '10px sans-serif'
+    ctx.fillStyle = '#888'
+    ctx.fillText('carteira', cx, cy + 12)
+
+    // Legenda
+    legEl.innerHTML = tipos.map(([tipo, val], idx) => {
+      const pct = totalGeral > 0 ? ((val/totalGeral)*100).toFixed(1) : '0'
+      return `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="width:10px;height:10px;border-radius:3px;background:${CORES_PIZZA[idx%CORES_PIZZA.length]};flex-shrink:0;"></div>
+          <div style="flex:1;font-size:0.8rem;">${tipoEmojis[tipo]||'💼'} ${tipoLabels[tipo]||tipo}</div>
+          <div style="font-size:0.8rem;font-weight:700;">${pct}%</div>
+          <div style="font-size:0.75rem;color:#666;">${this.formatMoney(val)}</div>
+        </div>`
+    }).join('')
+  },
+
+  _sortInv(lista) {
+    const { col, dir } = this._invOrdem || { col:'nome', dir:1 }
+    return [...lista].sort((a, b) => {
+      let va = a[col], vb = b[col]
+      if (typeof va === 'string') va = va.toLowerCase()
+      if (typeof vb === 'string') vb = vb.toLowerCase()
+      if (va < vb) return -dir
+      if (va > vb) return dir
+      return 0
+    })
+  },
+
+  _thSort(col, label) {
+    const { col: cc, dir } = this._invOrdem || { col:'nome', dir:1 }
+    const arrow = cc === col ? (dir === 1 ? ' ▲' : ' ▼') : ' ↕'
+    return `<th onclick="VM._invSort('${col}')" style="cursor:pointer;user-select:none;">${label}${arrow}</th>`
+  },
+
+  _invSort(col) {
+    const ord = this._invOrdem || { col:'nome', dir:1 }
+    this._invOrdem = { col, dir: ord.col === col ? -ord.dir : 1 }
+    if (this._invCache) this._renderInvLista(this._invCache,
+      { tesouro_direto:'Tesouro Direto', cdb:'CDB', lci:'LCI', lca:'LCA', acoes:'Ações', fii:'FII', cripto:'Cripto', poupanca:'Poupança', caixinha:'Caixinha CDI', outros:'Outros' },
+      { tesouro_direto:'🏛️', cdb:'🏦', lci:'📋', lca:'🌱', acoes:'📊', fii:'🏢', cripto:'₿', poupanca:'🐷', caixinha:'💰', outros:'💼' },
+      { baixo:'#2FBF71', medio:'#ffc400', alto:'#ff6b6b' })
+  },
+
+  _renderInvLista(investimentos, tipoLabels, tipoEmojis, riscoColors) {
+    const el = document.getElementById('inv-lista-container')
+    if (!el) return
+    const sorted = this._sortInv(investimentos)
+    const cdi    = this._invCdiAtual || 13.65
+
+    if (this._invView === 'cards') {
+      el.innerHTML = `<div class="grid-3">${sorted.map(inv => this._renderInvCard(inv, tipoLabels, tipoEmojis, riscoColors, cdi)).join('')}</div>`
+    } else {
+      el.innerHTML = `
+        <div class="card" style="overflow-x:auto;">
+          <table class="data-table">
+            <thead><tr>
+              ${this._thSort('nome','Investimento')}
+              ${this._thSort('tipo','Tipo')}
+              ${this._thSort('risco','Risco')}
+              ${this._thSort('valor_investido','Investido')}
+              ${this._thSort('valor_atual','Atual')}
+              ${this._thSort('rentabilidade_percentual','Rentab.')}
+              <th style="text-align:center;">vs CDI</th>
+              <th style="text-align:right;">Ações</th>
+            </tr></thead>
+            <tbody>
+              ${sorted.map(inv => {
+                const isCaixinha = inv.tipo === 'caixinha'
+                const rentPct    = inv.rentabilidade_percentual || 0
+                const rentLabel  = (isCaixinha && (inv.cotacao_ao_vivo?.dias_decorridos || 0) === 0)
+                  ? '<span style="color:#888;font-size:0.78rem;">Rendendo...</span>'
+                  : `<span style="${rentPct >= 0?'color:#2FBF71':'color:#ff6b6b'}">${rentPct >= 0?'+':''}${rentPct}%</span>`
+
+                // vs CDI: comparar rentabilidade anualizada com CDI
+                const vsCDI = this._calcVsCDI(inv, cdi)
+
+                // Alerta de vencimento
+                const hoje = new Date()
+                const diasVenc = inv.data_vencimento
+                  ? Math.ceil((new Date(inv.data_vencimento+'T00:00:00') - hoje) / 86400000) : null
+                const vencAlert = diasVenc !== null && diasVenc <= 30 && diasVenc >= 0
+                  ? `<span title="Vence em ${diasVenc}d" style="color:#fbbf24;font-size:0.7rem;">⏰${diasVenc}d</span>` : ''
+
+                // Valor atual — avisar se não foi atualizado (usa valor_investido como fallback)
+                const temValorAtual = inv.valor_atual > 0 && inv.valor_atual !== inv.valor_investido
+                const valorAtualDisplay = temValorAtual
+                  ? `<span style="color:#2FBF71;font-weight:700;">${this.formatMoney(inv.valor_atual)}</span>`
+                  : `<span style="color:#888;" title="Valor atual não informado — exibindo valor investido">${this.formatMoney(inv.valor_investido)} <i class="fas fa-exclamation-circle" style="font-size:0.65rem;color:#fbbf24;" title="Atualize o valor atual"></i></span>`
+
+                return `
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;">${inv.nome} ${vencAlert}</div>
+                      ${inv.instituicao ? `<div style="font-size:0.72rem;color:#666;">${inv.instituicao}</div>` : ''}
+                      ${isCaixinha && inv.cotacao_ao_vivo?.cdi_info ? `<div style="font-size:0.68rem;color:#2FBF71;">📊 ${inv.cotacao_ao_vivo.cdi_info}</div>` : ''}
+                    </td>
+                    <td style="white-space:nowrap;">${tipoEmojis[inv.tipo]||'💼'} ${tipoLabels[inv.tipo]||inv.tipo}</td>
+                    <td><span class="badge" style="background:${riscoColors[inv.risco]||'#888'}22;color:${riscoColors[inv.risco]||'#888'};border:1px solid ${riscoColors[inv.risco]||'#888'}44;white-space:nowrap;">${inv.risco}</span></td>
+                    <td style="text-align:right;">${this.formatMoney(inv.valor_investido)}</td>
+                    <td style="text-align:right;">${valorAtualDisplay}</td>
+                    <td style="text-align:right;">${rentLabel}</td>
+                    <td style="text-align:center;">${vsCDI.badge}</td>
+                    <td style="text-align:right;white-space:nowrap;">
+                      <button onclick="VM.modalAporteInvestimento(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}')" title="Aporte" class="btn-primary" style="padding:4px 8px;font-size:0.72rem;margin-right:2px;"><i class="fas fa-plus-circle"></i></button>
+                      ${['caixinha','poupanca'].includes(inv.tipo) ? `<button onclick="VM._modalResgateParcial(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}',${inv.valor_atual||inv.valor_investido})" title="Resgate Parcial" class="btn-secondary" style="padding:4px 8px;font-size:0.72rem;margin-right:2px;"><i class="fas fa-hand-holding-usd"></i></button>` : ''}
+                      <button onclick="VM._modalHistoricoInv(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}')" title="Histórico" class="btn-secondary" style="padding:4px 8px;font-size:0.72rem;margin-right:2px;"><i class="fas fa-history"></i></button>
+                      <button onclick="VM.modalInvestimento(${JSON.stringify(inv).replace(/"/g,'&quot;')})" title="Editar" class="btn-success" style="padding:4px 8px;font-size:0.72rem;margin-right:2px;"><i class="fas fa-edit"></i></button>
+                      <button onclick="VM.deleteInvestimento(${inv.id})" title="Excluir" class="btn-danger" style="padding:4px 8px;font-size:0.72rem;"><i class="fas fa-trash"></i></button>
+                    </td>
+                  </tr>`
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`
+    }
+  },
+
+  _calcVsCDI(inv, cdiAnual) {
+    // Calcula rentabilidade anualizada do investimento e compara com CDI
+    const vi = Number(inv.valor_investido) || 0
+    const va = Number(inv.valor_atual) || vi
+    if (vi <= 0) return { badge: '<span style="color:#555;font-size:0.75rem;">—</span>' }
+
+    const inicio = new Date((inv.data_inicio||'').split('T')[0]+'T00:00:00')
+    const hoje   = new Date()
+    const dias   = Math.max(1, Math.ceil((hoje - inicio) / 86400000))
+    const anos   = dias / 365
+
+    const rentAnual = anos > 0 ? (Math.pow(va / vi, 1/anos) - 1) * 100 : 0
+    const diff = rentAnual - cdiAnual
+
+    if (inv.tipo === 'caixinha') {
+      // Caixinha já tem percentual CDI configurado
+      const pctCDI = inv.percentual_cdi || 0
+      const label  = pctCDI > 100 ? `+${(pctCDI-100).toFixed(0)}% CDI` : `${pctCDI}% CDI`
+      const cor    = pctCDI >= 100 ? '#2FBF71' : '#fbbf24'
+      return { badge: `<span style="background:${cor}18;color:${cor};border:1px solid ${cor}44;border-radius:20px;padding:2px 7px;font-size:0.7rem;font-weight:600;white-space:nowrap;">${label}</span>` }
+    }
+
+    if (Math.abs(diff) < 0.5) {
+      return { badge: `<span style="color:#888;font-size:0.75rem;">≈ CDI</span>` }
+    }
+    const cor   = diff > 0 ? '#2FBF71' : '#ff6b6b'
+    const sinal = diff > 0 ? '+' : ''
+    return { badge: `<span style="background:${cor}18;color:${cor};border:1px solid ${cor}44;border-radius:20px;padding:2px 7px;font-size:0.7rem;font-weight:600;white-space:nowrap;">${sinal}${diff.toFixed(1)}%</span>` }
+  },
+
+  _renderInvCard(inv, tipoLabels, tipoEmojis, riscoColors, cdi) {
+    const rentPct = inv.rentabilidade_percentual || 0
+    const rentColor = rentPct >= 0 ? '#2FBF71' : '#ff6b6b'
+    const vsCDI = this._calcVsCDI(inv, cdi)
+    const temValorAtual = inv.valor_atual > 0 && inv.valor_atual !== inv.valor_investido
+    const lucro = (inv.valor_atual || inv.valor_investido) - inv.valor_investido
+
+    const hoje = new Date()
+    const diasVenc = inv.data_vencimento
+      ? Math.ceil((new Date(inv.data_vencimento+'T00:00:00') - hoje) / 86400000) : null
+    const vencAlert = diasVenc !== null && diasVenc <= 30 && diasVenc >= 0
+      ? `<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:6px 10px;font-size:0.75rem;color:#fbbf24;margin-bottom:10px;">⏰ Vence em ${diasVenc} dias (${this.formatDate(inv.data_vencimento)})</div>` : ''
+
+    return `
+      <div class="card" style="position:relative;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+          <div style="font-size:1.5rem;">${tipoEmojis[inv.tipo]||'💼'}</div>
+          ${vsCDI.badge}
+        </div>
+        <div style="font-weight:700;font-size:1rem;margin-bottom:3px;">${inv.nome}</div>
+        ${inv.instituicao ? `<div style="font-size:0.72rem;color:#666;margin-bottom:8px;">${inv.instituicao}</div>` : '<div style="margin-bottom:8px;"></div>'}
+        ${vencAlert}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+          <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+            <div style="color:#555;font-size:0.65rem;">Investido</div>
+            <div style="font-weight:600;font-size:0.85rem;">${this.formatMoney(inv.valor_investido)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+            <div style="color:#555;font-size:0.65rem;">Atual ${!temValorAtual ? '<i class="fas fa-exclamation-circle" style="color:#fbbf24;" title="Não atualizado"></i>' : ''}</div>
+            <div style="font-weight:700;font-size:0.85rem;color:${temValorAtual?'#2FBF71':'#888'};">${this.formatMoney(inv.valor_atual||inv.valor_investido)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+            <div style="color:#555;font-size:0.65rem;">Rentab.</div>
+            <div style="font-weight:700;font-size:0.85rem;color:${rentColor};">${rentPct >= 0?'+':''}${rentPct}%</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+            <div style="color:#555;font-size:0.65rem;">Lucro</div>
+            <div style="font-weight:700;font-size:0.85rem;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <button onclick="VM.modalAporteInvestimento(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}')" class="btn-primary" style="flex:1;justify-content:center;font-size:0.72rem;padding:5px 8px;min-width:60px;"><i class="fas fa-plus"></i></button>
+          ${['caixinha','poupanca'].includes(inv.tipo) ? `<button onclick="VM._modalResgateParcial(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}',${inv.valor_atual||inv.valor_investido})" class="btn-secondary" style="font-size:0.72rem;padding:5px 8px;" title="Resgate"><i class="fas fa-hand-holding-usd"></i></button>` : ''}
+          <button onclick="VM._modalHistoricoInv(${inv.id},'${(inv.nome||'').replace(/'/g,"&#39;")}')" class="btn-secondary" style="font-size:0.72rem;padding:5px 8px;" title="Histórico"><i class="fas fa-history"></i></button>
+          <button onclick="VM.modalInvestimento(${JSON.stringify(inv).replace(/"/g,'&quot;')})" class="btn-success" style="font-size:0.72rem;padding:5px 8px;" title="Editar"><i class="fas fa-edit"></i></button>
+          <button onclick="VM.deleteInvestimento(${inv.id})" class="btn-danger" style="font-size:0.72rem;padding:5px 8px;" title="Excluir"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`
+  },
+
+  // ── Histórico de aportes ──────────────────────────────────────────────────
+  async _modalHistoricoInv(id, nome) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:500px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">📋 Aportes — ${nome}</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="hist-inv-body"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
+        </div>
+      </div>`
+    try {
+      const data = await this.api('GET', `investimentos/${id}/historico?limit=40`)
+      const el   = document.getElementById('hist-inv-body')
+      if (!el) return
+      const hist = data.historico || []
+      const inv  = data.investimento || {}
+      const totalAportado = data.total_aportado || 0
+
+      const resumoHtml = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
+            <div style="color:#666;font-size:0.68rem;">Investido</div>
+            <div style="font-weight:700;font-size:0.9rem;">${this.formatMoney(inv.valor_investido)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
+            <div style="color:#666;font-size:0.68rem;">Valor Atual</div>
+            <div style="font-weight:700;font-size:0.9rem;color:#2FBF71;">${this.formatMoney(inv.valor_atual)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
+            <div style="color:#666;font-size:0.68rem;">Total Aportado</div>
+            <div style="font-weight:700;font-size:0.9rem;color:#74b9ff;">${this.formatMoney(totalAportado)}</div>
+          </div>
+        </div>`
+
+      if (hist.length === 0) {
+        el.innerHTML = resumoHtml + `<div style="text-align:center;color:#555;padding:20px;">Nenhum aporte registrado ainda.<br><small style="color:#444;">Aportes são registrados automaticamente pelo botão ➕</small></div>`
+        return
+      }
+      el.innerHTML = resumoHtml + `
+        <div style="max-height:300px;overflow-y:auto;">
+          ${hist.map(h => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+              <div>
+                <div style="font-size:0.82rem;font-weight:600;">${h.descricao || 'Aporte'}</div>
+                <div style="font-size:0.7rem;color:#666;">${this.formatDate(h.data?.split('T')[0]||h.data)}</div>
+              </div>
+              <div style="font-weight:700;color:#2FBF71;">+${this.formatMoney(h.valor)}</div>
+            </div>`).join('')}
+        </div>
+        <div style="font-size:0.72rem;color:#555;text-align:right;margin-top:8px;">${hist.length} registros encontrados</div>`
+    } catch(e) {
+      const el = document.getElementById('hist-inv-body')
+      if (el) el.innerHTML = '<div style="color:#f87171;text-align:center;padding:20px;">Erro ao carregar histórico.</div>'
+    }
+  },
+
+  // ── Resgate parcial ───────────────────────────────────────────────────────
+  _modalResgateParcial(id, nome, saldoAtual) {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:400px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">💸 Resgate Parcial — ${nome}</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;margin-bottom:16px;">
+            <div style="color:#666;font-size:0.75rem;">Saldo disponível</div>
+            <div style="font-weight:700;font-size:1.2rem;color:#2FBF71;">${this.formatMoney(saldoAtual)}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Valor a resgatar (R$)</label>
+            <input type="number" id="resg-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" max="${saldoAtual}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descrição (opcional)</label>
+            <input type="text" id="resg-desc" class="form-input" placeholder="Ex: Resgate de emergência">
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;cursor:pointer;">
+            <input type="checkbox" id="resg-receita" style="accent-color:#2FBF71;">
+            <span style="font-size:0.82rem;color:#aaa;">Registrar como receita de investimento</span>
+          </label>
+          <div style="display:flex;gap:10px;">
+            <button onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+            <button onclick="VM._confirmarResgate(${id})" class="btn-primary" style="flex:1;" id="resg-btn">
+              <i class="fas fa-check"></i> Confirmar Resgate
+            </button>
+          </div>
+        </div>
+      </div>`
+  },
+
+  async _confirmarResgate(id) {
+    const valor = parseFloat(document.getElementById('resg-valor')?.value)
+    if (!valor || valor <= 0) { this.toast('Informe um valor válido', 'warning'); return }
+    const btn = document.getElementById('resg-btn')
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'
+    try {
+      const res = await this.api('PATCH', `investimentos/${id}/resgate`, {
+        valor,
+        descricao: document.getElementById('resg-desc')?.value || null,
+        registrar_receita: document.getElementById('resg-receita')?.checked || false
+      })
+      this.toast(res.message || 'Resgate realizado!')
+      this.closeModal()
+      this.carregarInvestimentos()
+    } catch (e) {
+      this.toast(e.response?.data?.error || 'Erro ao resgatar', 'error')
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmar Resgate'
+    }
+  },
+
+  // ── Comparativo com CDI ───────────────────────────────────────────────────
+  async _modalComparativoCDI() {
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:560px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">📊 Comparativo com CDI (${(this._invCdiAtual||13.65).toFixed(2)}% a.a.)</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="cdi-comp-body"><div class="skeleton" style="height:200px;border-radius:10px;"></div></div>
+        </div>
+      </div>`
+    try {
+      const data = await this.api('GET', 'investimentos/comparativo-cdi')
+      const el   = document.getElementById('cdi-comp-body')
+      if (!el) return
+      const lista = data.investimentos || []
+      const cdi   = data.cdi_atual || 13.65
+      const resumo= data.resumo || {}
+
+      el.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;text-align:center;">
+            <div style="color:#2FBF71;font-size:1.5rem;font-weight:800;">${resumo.acima_cdi||0}</div>
+            <div style="font-size:0.75rem;color:#888;">Acima do CDI</div>
+          </div>
+          <div style="background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px;text-align:center;">
+            <div style="color:#ff6b6b;font-size:1.5rem;font-weight:800;">${resumo.abaixo_cdi||0}</div>
+            <div style="font-size:0.75rem;color:#888;">Abaixo do CDI</div>
+          </div>
+        </div>
+        <div style="max-height:360px;overflow-y:auto;">
+          ${lista.map(inv => {
+            const acima = inv.status_vs_cdi === 'acima_cdi'
+            const cor   = acima ? '#2FBF71' : '#ff6b6b'
+            const pctCDI= cdi > 0 ? ((inv.rentabilidade_anualizada/cdi)*100).toFixed(0) : '—'
+            return `
+              <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                  <div>
+                    <div style="font-weight:600;font-size:0.88rem;">${inv.nome}</div>
+                    <div style="font-size:0.7rem;color:#666;">${inv.tipo}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-weight:700;color:${cor};font-size:0.9rem;">${inv.rentabilidade_anualizada.toFixed(2)}% a.a.</div>
+                    <div style="font-size:0.7rem;color:${cor};">${acima?'▲':'▼'} ${Math.abs(inv.vs_cdi).toFixed(2)}% vs CDI (${pctCDI}% CDI)</div>
+                  </div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:6px;height:6px;overflow:hidden;">
+                  <div style="width:${Math.min(100,cdi>0?(inv.rentabilidade_anualizada/cdi)*100:0)}%;background:${cor};height:100%;border-radius:6px;"></div>
+                </div>
+              </div>`
+          }).join('')}
+        </div>
+        <div style="font-size:0.72rem;color:#555;margin-top:10px;text-align:center;">CDI atual: ${cdi}% a.a. · Comparativo por rentabilidade anualizada</div>`
+    } catch(e) {
+      const el = document.getElementById('cdi-comp-body')
+      if (el) el.innerHTML = '<div style="color:#f87171;text-align:center;padding:20px;">Erro ao carregar comparativo.</div>'
+    }
+  },
+
+  // ── Rebalanceamento sugerido ──────────────────────────────────────────────
+  async _modalRebalanceamento() {
+    const investimentos = this._invCache || []
+    if (investimentos.length === 0) { this.toast('Nenhum investimento para analisar', 'warning'); return }
+
+    const totalAtual = investimentos.reduce((s,i) => s+(i.valor_atual||i.valor_investido), 0)
+
+    // Classificar em renda fixa vs variável vs cripto
+    const FIXO   = ['tesouro_direto','cdb','lci','lca','poupanca','caixinha']
+    const VAR    = ['acoes','fii']
+    const CRIPTO = ['cripto']
+
+    const totalFixo   = investimentos.filter(i=>FIXO.includes(i.tipo)).reduce((s,i)=>s+(i.valor_atual||i.valor_investido),0)
+    const totalVar    = investimentos.filter(i=>VAR.includes(i.tipo)).reduce((s,i)=>s+(i.valor_atual||i.valor_investido),0)
+    const totalCripto = investimentos.filter(i=>CRIPTO.includes(i.tipo)).reduce((s,i)=>s+(i.valor_atual||i.valor_investido),0)
+    const totalOther  = totalAtual - totalFixo - totalVar - totalCripto
+
+    const pFixo   = totalAtual>0 ? (totalFixo/totalAtual*100).toFixed(1) : 0
+    const pVar    = totalAtual>0 ? (totalVar/totalAtual*100).toFixed(1) : 0
+    const pCripto = totalAtual>0 ? (totalCripto/totalAtual*100).toFixed(1) : 0
+    const pOther  = totalAtual>0 ? (totalOther/totalAtual*100).toFixed(1) : 0
+
+    // Sugestão conservadora: 70% fixo, 25% variável, 5% cripto
+    const metas = [
+      { label:'Renda Fixa', emoji:'🏛️', atual:parseFloat(pFixo), ideal:70, valor:totalFixo, cor:'#74b9ff' },
+      { label:'Renda Variável', emoji:'📊', atual:parseFloat(pVar), ideal:25, valor:totalVar, cor:'#2FBF71' },
+      { label:'Cripto', emoji:'₿', atual:parseFloat(pCripto), ideal:5, valor:totalCripto, cor:'#ffc400' },
+    ]
+    if (totalOther > 0) metas.push({ label:'Outros', emoji:'💼', atual:parseFloat(pOther), ideal:0, valor:totalOther, cor:'#888' })
+
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:500px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="font-size:1.05rem;font-weight:700;">⚖️ Sugestão de Rebalanceamento</h3>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+          </div>
+          <div style="background:rgba(116,185,255,0.06);border:1px solid rgba(116,185,255,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.78rem;color:#74b9ff;">
+            💡 Alocação ideal sugerida (perfil conservador): 70% Renda Fixa · 25% Variável · 5% Cripto
+          </div>
+          ${metas.map(m => {
+            const diff    = m.atual - m.ideal
+            const diffAbs = Math.abs(diff)
+            const acao    = diff > 2 ? '🔴 Reduzir' : diff < -2 ? '🟢 Aumentar' : '✅ OK'
+            const valorDiff = Math.abs((diff/100)*totalAtual)
+            return `
+              <div style="margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                  <div style="font-weight:600;font-size:0.88rem;">${m.emoji} ${m.label}</div>
+                  <div style="font-size:0.78rem;">
+                    <span style="color:#888;">Atual: <strong style="color:#fff;">${m.atual}%</strong></span>
+                    <span style="color:#555;margin:0 6px;">·</span>
+                    <span style="color:#888;">Ideal: <strong style="color:${m.cor};">${m.ideal}%</strong></span>
+                    ${m.ideal > 0 ? `<span style="margin-left:6px;font-size:0.72rem;">${acao}</span>` : ''}
+                  </div>
+                </div>
+                <div style="background:rgba(255,255,255,0.05);border-radius:6px;height:8px;overflow:hidden;margin-bottom:4px;">
+                  <div style="width:${m.atual}%;background:${m.cor};height:100%;border-radius:6px;transition:width 0.5s;"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#555;">
+                  <span>${this.formatMoney(m.valor)}</span>
+                  ${diffAbs > 2 ? `<span style="color:${diff>0?'#ff6b6b':'#2FBF71'};">${diff>0?'Reduzir':'Aportar'} ~${this.formatMoney(valorDiff)}</span>` : '<span style="color:#4ade80;">Balanceado</span>'}
+                </div>
+              </div>`
+          }).join('')}
+          <div style="font-size:0.72rem;color:#555;margin-top:12px;text-align:center;">* Sugestão baseada em perfil conservador. Ajuste conforme seu perfil de risco.</div>
+          <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;margin-top:12px;">Fechar</button>
+        </div>
+      </div>`
   },
 
   modalInvestimento(inv = null) {
@@ -5285,13 +5799,45 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Valor Investido (R$) *</label>
-                <input type="number" id="i-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${inv?.valor_investido || ''}" required>
+                <input type="number" id="i-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${inv?.valor_investido || ''}" required oninput="VM._calcInvRendimento()">
               </div>
-              <div class="form-group" id="i-rent-wrapper">
-                <label class="form-label">Rentabilidade (%)</label>
-                <input type="number" id="i-rent" class="form-input" placeholder="0,00" step="0.01" value="${inv?.rentabilidade_percentual || 0}">
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Rentabilidade acumulada atual</div>
+              <div class="form-group">
+                <label class="form-label">Valor Atual (R$)</label>
+                <input type="number" id="i-valor-atual" class="form-input" placeholder="0,00" step="0.01" min="0" value="${inv?.valor_atual || ''}" oninput="VM._calcInvRendimento()">
+                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Deixe vazio se não souber</div>
               </div>
+            </div>
+            <!-- Preview de rendimento acumulado (só no modo edição) -->
+            ${isEdit && inv?.valor_investido ? `
+            <div id="inv-rendimento-preview" style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:12px;">
+              <div style="font-size:0.78rem;color:#888;margin-bottom:6px;">📊 Rendimento acumulado até hoje</div>
+              <div id="inv-rend-values" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.8rem;">
+                ${(() => {
+                  const vi = Number(inv.valor_investido)
+                  const va = Number(inv.valor_atual) || vi
+                  const lucro = va - vi
+                  const pct   = vi > 0 ? ((va-vi)/vi*100).toFixed(2) : '0'
+                  const inicio= new Date((inv.data_inicio||'').split('T')[0]+'T00:00:00')
+                  const dias  = Math.max(1,Math.ceil((new Date()-inicio)/86400000))
+                  return `
+                    <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+                      <div style="color:#555;font-size:0.65rem;">Lucro/Prej.</div>
+                      <div style="font-weight:700;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
+                    </div>
+                    <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+                      <div style="color:#555;font-size:0.65rem;">Rentab. %</div>
+                      <div style="font-weight:700;color:${parseFloat(pct)>=0?'#2FBF71':'#ff6b6b'};">${parseFloat(pct)>=0?'+':''}${pct}%</div>
+                    </div>
+                    <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+                      <div style="color:#555;font-size:0.65rem;">Dias</div>
+                      <div style="font-weight:700;color:#aaa;">${dias}d</div>
+                    </div>`
+                })()}
+              </div>
+            </div>` : ''}
+            <div class="form-group" id="i-rent-wrapper" style="display:none;">
+              <label class="form-label">Rentabilidade (%)</label>
+              <input type="number" id="i-rent" class="form-input" placeholder="0,00" step="0.01" value="${inv?.rentabilidade_percentual || 0}">
             </div>
             <!-- Campos específicos Caixinha CDI -->
             <div id="i-caixinha-wrapper" style="display:none;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:12px;">
@@ -5358,15 +5904,17 @@ const VM = {
       btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
         const tipo = document.getElementById('i-tipo').value
-        const valorInv = parseFloat(document.getElementById('i-valor').value)
-        const rent = parseFloat(document.getElementById('i-rent').value) || 0
+        const valorInv     = parseFloat(document.getElementById('i-valor').value) || 0
+        const valorAtualRaw= parseFloat(document.getElementById('i-valor-atual')?.value)
+        const valorAtual   = isNaN(valorAtualRaw) || valorAtualRaw <= 0 ? undefined : valorAtualRaw
+        const rent = valorInv > 0 && valorAtual ? ((valorAtual - valorInv) / valorInv) * 100 : (parseFloat(document.getElementById('i-rent')?.value) || 0)
         const payload = {
           nome: document.getElementById('i-nome').value,
           tipo,
           risco: document.getElementById('i-risco').value,
           valor_investido: valorInv,
-          rentabilidade_percentual: rent,
-          valor_atual: isEdit ? valorInv * (1 + rent / 100) : undefined,
+          rentabilidade_percentual: Math.round(rent * 100) / 100,
+          valor_atual: valorAtual,
           data_inicio: document.getElementById('i-inicio').value,
           data_vencimento: document.getElementById('i-venc').value || null,
           instituicao: document.getElementById('i-inst').value || null,
@@ -5388,7 +5936,30 @@ const VM = {
     const caixinhaW = document.getElementById('i-caixinha-wrapper')
     const rentW = document.getElementById('i-rent-wrapper')
     if (caixinhaW) caixinhaW.style.display = tipo === 'caixinha' ? 'block' : 'none'
-    if (rentW) rentW.style.display = tipo === 'caixinha' ? 'none' : 'block'
+    // i-rent-wrapper agora é display:none sempre (oculto pelo novo campo valor_atual)
+    if (rentW) rentW.style.display = 'none'
+  },
+
+  _calcInvRendimento() {
+    const vi = parseFloat(document.getElementById('i-valor')?.value) || 0
+    const va = parseFloat(document.getElementById('i-valor-atual')?.value) || 0
+    const el = document.getElementById('inv-rend-values')
+    if (!el || vi <= 0 || va <= 0) return
+    const lucro = va - vi
+    const pct   = vi > 0 ? ((va-vi)/vi*100).toFixed(2) : '0'
+    el.innerHTML = `
+      <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+        <div style="color:#555;font-size:0.65rem;">Lucro/Prej.</div>
+        <div style="font-weight:700;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
+      </div>
+      <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+        <div style="color:#555;font-size:0.65rem;">Rentab. %</div>
+        <div style="font-weight:700;color:${parseFloat(pct)>=0?'#2FBF71':'#ff6b6b'};">${parseFloat(pct)>=0?'+':''}${pct}%</div>
+      </div>
+      <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
+        <div style="color:#555;font-size:0.65rem;">Valor Atual</div>
+        <div style="font-weight:700;color:#aaa;">${this.formatMoney(va)}</div>
+      </div>`
   },
 
   async modalAporteInvestimento(id, nome) {
