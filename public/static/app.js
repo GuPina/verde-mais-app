@@ -126,46 +126,7 @@ const VM = {
           if (custom) { custom.remove(); return }
         }
 
-        // N — nova despesa (em qualquer tela, exceto inputs)
-        if (e.key === 'n' || e.key === 'N') {
-          if (!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
-            e.preventDefault()
-            if (typeof this.modalDespesa === 'function') this.modalDespesa()
-            return
-          }
-        }
 
-        // R — nova receita (em qualquer tela, exceto inputs)
-        if (e.key === 'r' || e.key === 'R') {
-          if (!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
-            e.preventDefault()
-            if (typeof this.modalReceita === 'function') this.modalReceita()
-            return
-          }
-        }
-
-        // ? — mostrar atalhos disponíveis
-        if (e.key === '?') {
-          e.preventDefault()
-          this.showModal(`
-            <div style="font-size:1rem;font-weight:700;margin-bottom:16px;">⌨️ Atalhos de Teclado</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              ${[
-                ['ESC', 'Fechar modal ou popup'],
-                ['N', 'Nova despesa (tela Despesas / Dashboard)'],
-                ['R', 'Nova receita (tela Receitas / Dashboard)'],
-                ['?', 'Mostrar esta tela de atalhos'],
-              ].map(([key, desc]) => `
-                <div style="display:flex;align-items:center;gap:14px;">
-                  <kbd style="background:#1a1a2e;border:1px solid #2a2a3e;border-radius:6px;padding:4px 10px;font-family:monospace;font-size:0.85rem;color:#10B981;min-width:40px;text-align:center;">${key}</kbd>
-                  <span style="font-size:0.82rem;color:#94a3b8;">${desc}</span>
-                </div>`).join('')}
-            </div>
-            <div style="margin-top:16px;">
-              <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;padding:9px;">Fechar</button>
-            </div>
-          `)
-        }
       })
     }
   },
@@ -6526,9 +6487,6 @@ const VM = {
 
         <div id="tag-busca-resultado" style="margin-top:24px;"></div>
       `
-    } catch (err) {
-      cont.innerHTML = `<div class="empty-state"><p>Erro ao carregar tags</p></div>`
-    }
   },
 
   modalNovaTag() {
