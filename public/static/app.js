@@ -11161,110 +11161,107 @@ const VM = {
           ${emps.map(e => {
             const pct = e.valor_original > 0 ? Math.round(e.valor_pago / e.valor_original * 100) : 0
             const statusColors = { ativo: '#2FBF71', quitado: '#74b9ff', em_atraso: '#ff6b6b', negociado: '#ffc400' }
+
+            // ── Cálculos feitos aqui (fora do template string) ──
+            const hoje = new Date()
+            const diaVenc = e.dia_vencimento || 1
+            let proxVenc = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
+            if (proxVenc <= hoje) proxVenc.setMonth(proxVenc.getMonth() + 1)
+            const proxVencStr = proxVenc.toLocaleDateString('pt-BR')
+            const diasAteVenc = Math.ceil((proxVenc - hoje) / (1000*60*60*24))
+            const alertaDias = diasAteVenc <= 5 && e.status === 'ativo'
+              ? `<span style="background:rgba(255,100,0,0.15);color:#ff7043;border:1px solid rgba(255,100,0,0.3);border-radius:6px;padding:2px 8px;font-size:0.7rem;margin-left:6px;">⚠️ Vence em ${diasAteVenc}d</span>`
+              : ''
+
+            const totalPagar   = e.valor_parcela * e.numero_parcelas
+            const totalJuros   = Math.max(0, totalPagar - e.valor_original)
+            const jurosPagos   = Math.max(0, e.valor_pago - (e.valor_original - e.saldo_devedor))
+            const jurosAPagar  = Math.max(0, totalJuros - jurosPagos)
+
+            const descEsc    = (e.descricao || '').replace(/'/g, "&#39;")
+            const empJson    = JSON.stringify(e).replace(/"/g, '&quot;')
+
             return `
-              (() => {
-                // Calcular próxima data de vencimento
-                const hoje = new Date()
-                const diaVenc = e.dia_vencimento || 1
-                let proxVenc = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
-                if (proxVenc <= hoje) proxVenc.setMonth(proxVenc.getMonth() + 1)
-                const proxVencStr = proxVenc.toLocaleDateString('pt-BR')
-                const diasAteVenc = Math.ceil((proxVenc - hoje) / (1000*60*60*24))
-
-                // Juros total = (parcelas * valorParcela) - valorOriginal
-                const totalPagar = e.valor_parcela * e.numero_parcelas
-                const totalJuros = totalPagar - e.valor_original
-                // Juros já pagos proporcional (estimado pelo saldo reduzido)
-                const jurosPagos = Math.max(0, e.valor_pago - (e.valor_original - e.saldo_devedor))
-                const jurosAindaAPagar = Math.max(0, totalJuros - jurosPagos)
-
-                const alertaDias = diasAteVenc <= 5 && e.status === 'ativo' ? \`<span style="background:rgba(255,100,0,0.15);color:#ff7043;border:1px solid rgba(255,100,0,0.3);border-radius:6px;padding:2px 8px;font-size:0.7rem;margin-left:6px;">⚠️ Vence em \${diasAteVenc}d</span>\` : ''
-
-                return \`
-              <div class="card" style="border-left:4px solid \${statusColors[e.status] || '#444'};">
+              <div class="card" style="border-left:4px solid ${statusColors[e.status] || '#444'};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
                   <div style="flex:1;min-width:0;">
-                    <div style="font-size:1rem;font-weight:700;">\${e.descricao}\${alertaDias}</div>
+                    <div style="font-size:1rem;font-weight:700;">${e.descricao}${alertaDias}</div>
                     <div style="font-size:0.78rem;color:#666;margin-top:3px;">
-                      \${tipoLabel[e.tipo] || e.tipo} • \${e.credor || 'Credor não informado'} • \${e.taxa_juros_mensal}% a.m.
+                      ${tipoLabel[e.tipo] || e.tipo} • ${e.credor || 'Credor não informado'} • ${e.taxa_juros_mensal}% a.m.
                     </div>
                   </div>
                   <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
-                    <span class="badge" style="background:\${statusColors[e.status]}22;color:\${statusColors[e.status]};border:1px solid \${statusColors[e.status]}44;">\${e.status.replace('_',' ')}</span>
-                    <button onclick="VM.modalEmprestimo(\${JSON.stringify(e).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
-                    <button onclick="VM.deleteEmprestimo(\${e.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                    <span class="badge" style="background:${statusColors[e.status]}22;color:${statusColors[e.status]};border:1px solid ${statusColors[e.status]}44;">${e.status.replace('_',' ')}</span>
+                    <button onclick="VM.modalEmprestimo(${empJson})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteEmprestimo(${e.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                   </div>
                 </div>
-                
+
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                    <span style="font-size:0.78rem;color:#888;">Pago (\${pct}%)</span>
-                    <span style="font-size:0.78rem;color:#888;">\${e.parcelas_pagas}/\${e.numero_parcelas} parcelas</span>
+                    <span style="font-size:0.78rem;color:#888;">Pago (${pct}%)</span>
+                    <span style="font-size:0.78rem;color:#888;">${e.parcelas_pagas}/${e.numero_parcelas} parcelas</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
-                    <div style="background:linear-gradient(90deg,#2FBF71,#00b894);width:\${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
+                    <div style="background:linear-gradient(90deg,#2FBF71,#00b894);width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
                   </div>
                 </div>
-                
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Valor Original</div>
-                    <div style="font-size:0.82rem;font-weight:700;">\${this.formatMoney(e.valor_original)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(e.valor_original)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(e.saldo_devedor)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.saldo_devedor)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Parcela</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(e.valor_parcela)}/mês</div>
+                    <div style="font-size:0.68rem;color:#666;">Parcela/mês</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.valor_parcela)}</div>
                   </div>
                 </div>
 
-                <!-- Juros pagos vs. a pagar -->
                 <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                   <div style="text-align:center;">
                     <div style="font-size:0.65rem;color:#888;">Juros Totais</div>
-                    <div style="font-size:0.78rem;font-weight:700;color:#ffc400;">\${this.formatMoney(totalJuros)}</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ffc400;">${this.formatMoney(totalJuros)}</div>
                   </div>
                   <div style="text-align:center;">
                     <div style="font-size:0.65rem;color:#888;">Juros Pagos</div>
-                    <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">\${this.formatMoney(jurosPagos)}</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">${this.formatMoney(jurosPagos)}</div>
                   </div>
                   <div style="text-align:center;">
                     <div style="font-size:0.65rem;color:#888;">Juros Restantes</div>
-                    <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(jurosAindaAPagar)}</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(jurosAPagar)}</div>
                   </div>
                 </div>
 
-                <!-- Próxima data + Previsão quitação -->
-                <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.78rem;color:#888;flex-wrap:wrap;">
-                  \${e.status === 'ativo' ? \`<span>📅 Próx. venc.: <strong style="color:#ddd;">\${proxVencStr}</strong></span>\` : ''}
-                  \${e.data_previsao_fim ? \`<span>🏁 Quitação: <strong style="color:#ddd;">\${this.formatDate(e.data_previsao_fim)}</strong></span>\` : ''}
+                <div style="display:flex;gap:14px;margin-bottom:10px;font-size:0.78rem;color:#888;flex-wrap:wrap;">
+                  ${e.status === 'ativo' ? `<span>📅 Próx. venc.: <strong style="color:#ddd;">${proxVencStr}</strong></span>` : ''}
+                  ${e.data_previsao_fim ? `<span>🏁 Quitação: <strong style="color:#ddd;">${this.formatDate(e.data_previsao_fim)}</strong></span>` : ''}
                 </div>
 
-                <!-- Botões de ação: pagar + amortizar + calendário + simulador + exportar -->
-                \${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? \`
+                ${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? `
                 <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-                  <button onclick="VM.pagarParcelaEmprestimo(\${e.id})" style="flex:1;min-width:140px;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
-                    <i class="fas fa-check-circle"></i> Parcela \${e.parcelas_pagas + 1}/\${e.numero_parcelas}
+                  <button onclick="VM.pagarParcelaEmprestimo(${e.id})" style="flex:1;min-width:140px;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Parcela ${e.parcelas_pagas + 1}/${e.numero_parcelas}
                   </button>
-                  <button onclick="VM.modalAmortizacao('emprestimo', \${e.id}, \${e.saldo_devedor}, \${e.valor_parcela}, \${e.numero_parcelas}, \${e.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
+                  <button onclick="VM.modalAmortizacao('emprestimo',${e.id},${e.saldo_devedor},${e.valor_parcela},${e.numero_parcelas},${e.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
                     <i class="fas fa-bolt"></i> Amortizar
                   </button>
-                  <button onclick="VM.calendarioEmprestimo(\${e.id}, '\${e.descricao.replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(100,180,255,0.1);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Ver calendário de parcelas">
+                  <button onclick="VM.calendarioEmprestimo(${e.id},'${descEsc}')" style="padding:10px 12px;background:rgba(100,180,255,0.1);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Calendário de parcelas">
                     <i class="fas fa-calendar-alt"></i>
                   </button>
-                  <button onclick="VM.simuladorAntecipacaoEmprestimo(\${e.id}, '\${e.descricao.replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(100,255,180,0.1);color:#55efc4;border:1px solid rgba(100,255,180,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Simular pagamento antecipado">
+                  <button onclick="VM.simuladorAntecipacaoEmprestimo(${e.id},'${descEsc}')" style="padding:10px 12px;background:rgba(100,255,180,0.1);color:#55efc4;border:1px solid rgba(100,255,180,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Simular antecipação">
                     <i class="fas fa-chart-line"></i>
                   </button>
-                </div>\` : ''}
-                \${e.status !== 'ativo' ? \`
+                </div>` : ''}
+                ${e.status === 'quitado' ? `
                 <div style="margin-top:10px;font-size:0.85rem;color:#2FBF71;font-weight:600;text-align:center;padding:8px;background:rgba(47,191,113,0.08);border-radius:8px;">
-                  🎉 \${e.status === 'quitado' ? 'Empréstimo quitado!' : 'Status: ' + e.status}
-                </div>\` : ''}
-              </div>\`
-              })()
+                  🎉 Empréstimo quitado!
+                </div>` : ''}
+              </div>
             `
           }).join('')}
         </div>
