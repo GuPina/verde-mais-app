@@ -193,7 +193,13 @@ const VM = {
     setTimeout(() => t.remove(), duration)
   },
 
-  formatMoney(v) {
+  formatMoney(v, compact = false) {
+    if (compact) {
+      const n = Math.abs(v || 0)
+      if (n >= 1_000_000) return `R$ ${(n / 1_000_000).toFixed(1)}M`
+      if (n >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}k`
+      return `R$ ${n.toFixed(0)}`
+    }
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
   },
 
@@ -10808,60 +10814,123 @@ const VM = {
           ${fins.map(f => {
             const pago = f.valor_financiado - f.saldo_devedor
             const pct = f.valor_financiado > 0 ? Math.round(pago / f.valor_financiado * 100) : 0
+
+            // Equity: quanto o usuário já é "dono" do imóvel
+            // = (entrada + amortização paga) / valor_imovel
+            const entradaPaga = f.valor_entrada || 0
+            const equityVal = entradaPaga + pago
+            const equityPct = f.valor_imovel > 0 ? Math.min(100, Math.round(equityVal / f.valor_imovel * 100)) : 0
+
+            // Badge metade pago
+            const metadePago = pct >= 50
+
+            // Indexador com label amigável
+            const indexadorLabel = {
+              prefixado: '📌 Prefixado', ipca: '📈 IPCA+', tr: '📊 TR+', cdi: '💹 CDI+', igpm: '📉 IGP-M+'
+            }
+            const idxLabel = indexadorLabel[f.indexador] || (f.indexador ? f.indexador.toUpperCase() : 'Prefixado')
+
+            // IPCA+ alerta
+            const isIPCA = f.indexador === 'ipca' || f.indexador === 'igpm'
+            const alertaIndexador = isIPCA
+              ? `<span style="background:rgba(255,196,0,0.15);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:6px;padding:2px 8px;font-size:0.68rem;margin-left:6px;">⚠️ Indexado</span>`
+              : ''
+
+            const fJson = JSON.stringify(f).replace(/"/g, '&quot;')
+
             return `
-              <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-                  <div>
-                    <div style="font-size:1rem;font-weight:700;">${f.descricao}</div>
-                    <div style="font-size:0.8rem;color:#666;margin-top:4px;">
-                      ${f.banco || 'Banco não informado'} • ${f.sistema_amortizacao?.toUpperCase() || 'PRICE'} • ${f.taxa_juros_anual}% a.a.
+              <div class="card" style="border-left:4px solid ${f.status === 'quitado' ? '#74b9ff' : f.status === 'em_atraso' ? '#ff6b6b' : '#2FBF71'};">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:1rem;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                      ${f.descricao}
+                      ${metadePago ? `<span style="background:rgba(100,180,255,0.15);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:6px;padding:2px 8px;font-size:0.68rem;">🏆 Metade Pago</span>` : ''}
+                      ${alertaIndexador}
+                    </div>
+                    <div style="font-size:0.78rem;color:#666;margin-top:4px;">
+                      ${f.banco || 'Banco não informado'} • ${f.sistema_amortizacao?.toUpperCase() || 'PRICE'} • ${f.taxa_juros_anual}% a.a. ${idxLabel}
                     </div>
                   </div>
-                  <div style="display:flex;gap:6px;align-items:center;">
+                  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
                     <span class="badge ${f.status === 'ativo' ? 'badge-green' : f.status === 'quitado' ? 'badge-blue' : 'badge-red'}">${f.status}</span>
-                    <button onclick="VM.modalFinanciamento(${JSON.stringify(f).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.modalFinanciamento(${fJson})" class="btn-success"><i class="fas fa-edit"></i></button>
                     <button onclick="VM.deleteFinanciamento(${f.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                   </div>
                 </div>
-                
-                <div style="margin-bottom:16px;">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                    <span style="font-size:0.8rem;color:#888;">Progresso de quitação</span>
-                    <span style="font-size:0.85rem;font-weight:700;color:#2FBF71;">${pct}%</span>
+
+                <!-- Barra de progresso de quitação -->
+                <div style="margin-bottom:12px;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                    <span style="font-size:0.78rem;color:#888;">Quitação: ${pct}% (${f.parcelas_pagas}/${f.numero_parcelas} parc.)</span>
+                    <span style="font-size:0.78rem;font-weight:700;color:${pct >= 50 ? '#74b9ff' : '#2FBF71'};">${pct}%</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
-                    <div style="background:linear-gradient(90deg,#2FBF71,#208040);width:${Math.min(pct,100)}%;height:100%;border-radius:50px;"></div>
+                    <div style="background:linear-gradient(90deg,#2FBF71,${pct >= 50 ? '#74b9ff' : '#00b894'});width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
                   </div>
                 </div>
-                
-                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+
+                <!-- Grid de valores -->
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Valor Imóvel</div>
-                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(f.valor_imovel)}</div>
-                  </div>
-                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Parcela</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.valor_parcela)}</div>
-                  </div>
-                  <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Pagas</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${f.parcelas_pagas}/${f.numero_parcelas}</div>
+                    <div style="font-size:0.65rem;color:#666;">Valor Imóvel</div>
+                    <div style="font-size:0.78rem;font-weight:700;">${this.formatMoney(f.valor_imovel)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.saldo_devedor)}</div>
+                    <div style="font-size:0.65rem;color:#666;">Parcela</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.valor_parcela)}</div>
+                  </div>
+                  <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#666;">Amortizado</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">${this.formatMoney(pago)}</div>
+                  </div>
+                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:#666;">Saldo Dev.</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.saldo_devedor)}</div>
                   </div>
                 </div>
-                
-                ${f.data_previsao_fim ? `<div style="margin-top:12px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(f.data_previsao_fim)}</div>` : ''}
+
+                <!-- Equity e info adicional -->
+                <div style="background:rgba(100,180,255,0.06);border:1px solid rgba(100,180,255,0.15);border-radius:10px;padding:10px;margin-bottom:10px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:0.72rem;color:#888;">🏠 Equity (% de propriedade real)</span>
+                    <span style="font-size:0.85rem;font-weight:700;color:#74b9ff;">${equityPct}%</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#74b9ff,#a29bfe);width:${Math.min(equityPct,100)}%;height:100%;border-radius:50px;"></div>
+                  </div>
+                  <div style="font-size:0.68rem;color:#666;margin-top:5px;">
+                    Entrada ${this.formatMoney(entradaPaga)} + Amortizado ${this.formatMoney(pago)} = ${this.formatMoney(equityVal)} de ${this.formatMoney(f.valor_imovel)}
+                  </div>
+                </div>
+
+                <!-- Previsão e IPCA aviso -->
+                <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-bottom:${f.status === 'ativo' ? '10' : '0'}px;">
+                  ${f.data_previsao_fim ? `<span>🏁 Quitação: <strong style="color:#ddd;">${this.formatDate(f.data_previsao_fim)}</strong></span>` : ''}
+                  ${isIPCA ? `<span style="color:#ffc400;">⚠️ Parcela reajusta pelo ${idxLabel} anualmente</span>` : ''}
+                </div>
+
+                <!-- Botões de ação -->
                 ${f.status === 'ativo' && f.parcelas_pagas < f.numero_parcelas ? `
-                <div style="margin-top:14px;display:flex;gap:8px;">
-                  <button onclick="VM.pagarParcelaFinanciamento(${f.id})" style="flex:1;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button onclick="VM.pagarParcelaFinanciamento(${f.id})" style="flex:1;min-width:140px;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
                     <i class="fas fa-check-circle"></i> Parcela ${f.parcelas_pagas + 1}/${f.numero_parcelas}
                   </button>
-                  <button onclick="VM.modalAmortizacao('financiamento', ${f.id}, ${f.saldo_devedor}, ${f.valor_parcela}, ${f.numero_parcelas}, ${f.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
+                  <button onclick="VM.modalAmortizacao('financiamento',${f.id},${f.saldo_devedor},${f.valor_parcela},${f.numero_parcelas},${f.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
                     <i class="fas fa-bolt"></i> Amortizar
                   </button>
+                  <button onclick="VM.graficoEvolucaoFinanciamento(${f.id},'${(f.descricao||'').replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(163,230,53,0.1);color:#a3e635;border:1px solid rgba(163,230,53,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Gráfico de evolução do saldo">
+                    <i class="fas fa-chart-area"></i>
+                  </button>
+                  <button onclick="VM.simulacaoFGTS(${f.id},'${(f.descricao||'').replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(255,196,0,0.1);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Simulação FGTS">
+                    <i class="fas fa-piggy-bank"></i>
+                  </button>
+                  <button onclick="VM.comparativoSistemaFinanciamento(${f.id},'${(f.descricao||'').replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(180,100,255,0.1);color:#b967ff;border:1px solid rgba(180,100,255,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Comparativo SAC vs PRICE">
+                    <i class="fas fa-balance-scale"></i>
+                  </button>
+                </div>` : ''}
+                ${f.status === 'quitado' ? `
+                <div style="margin-top:10px;font-size:0.85rem;color:#2FBF71;font-weight:600;text-align:center;padding:8px;background:rgba(47,191,113,0.08);border-radius:8px;">
+                  🎉 Financiamento quitado!
                 </div>` : ''}
               </div>
             `
@@ -10945,6 +11014,25 @@ const VM = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
+                <label class="form-label">Indexador / Correção</label>
+                <select id="f-indexador" class="form-select" onchange="VM._finIndexadorChange()">
+                  <option value="prefixado" ${(!fin?.indexador||fin?.indexador==='prefixado')?'selected':''}>📌 Prefixado (taxa fixa)</option>
+                  <option value="ipca" ${fin?.indexador==='ipca'?'selected':''}>📈 IPCA+ (inflação)</option>
+                  <option value="tr" ${fin?.indexador==='tr'?'selected':''}>📊 TR+ (poupança)</option>
+                  <option value="cdi" ${fin?.indexador==='cdi'?'selected':''}>💹 CDI+</option>
+                  <option value="igpm" ${fin?.indexador==='igpm'?'selected':''}>📉 IGP-M+</option>
+                </select>
+              </div>
+              <div class="form-group" id="f-spread-group" style="${(fin?.indexador&&fin?.indexador!=='prefixado')?'':'display:none;'}">
+                <label class="form-label">Spread sobre indexador (% a.a.)</label>
+                <input type="number" id="f-spread" class="form-input" step="0.01" min="0" placeholder="Ex: 6,5" value="${fin?.spread_anual || ''}">
+              </div>
+            </div>
+            <div id="f-ipca-aviso" style="${(fin?.indexador==='ipca'||fin?.indexador==='igpm')?'':'display:none;'} background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.2);border-radius:8px;padding:10px;font-size:0.78rem;color:#ffc400;margin-bottom:8px;">
+              ⚠️ Financiamento pós-fixado: a taxa informada será usada como referência. A parcela real varia conforme o indexador — insira o valor atual da parcela e atualize periodicamente.
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
                 <label class="form-label">Data Início *</label>
                 <input type="date" id="f-inicio" class="form-input" value="${fin?.data_inicio || today}" required>
               </div>
@@ -10952,6 +11040,10 @@ const VM = {
                 <label class="form-label">Saldo Devedor Atual (R$)</label>
                 <input type="number" id="f-saldo" class="form-input" step="0.01" min="0" value="${fin?.saldo_devedor || ''}">
               </div>
+            </div>
+            <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:8px;padding:10px;font-size:0.78rem;color:#888;margin-bottom:4px;">
+              💡 <strong style="color:#2FBF71;">Parcela automática:</strong> Preencha valor financiado, taxa e nº de parcelas — o sistema calcula a parcela pelo sistema escolhido (SAC/PRICE).
+              <button type="button" onclick="VM._calcularParcelaAuto()" style="margin-left:8px;background:rgba(47,191,113,0.2);color:#2FBF71;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:0.75rem;font-weight:600;">Calcular</button>
             </div>
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
@@ -10984,6 +11076,8 @@ const VM = {
           parcelas_pagas: parseInt(document.getElementById('f-pagas').value) || 0,
           banco: document.getElementById('f-banco').value || null,
           sistema_amortizacao: document.getElementById('f-sistema').value,
+          indexador: document.getElementById('f-indexador')?.value || 'prefixado',
+          spread_anual: parseFloat(document.getElementById('f-spread')?.value) || null,
           data_inicio: document.getElementById('f-inicio').value,
           saldo_devedor: parseFloat(document.getElementById('f-saldo').value) || parseFloat(document.getElementById('f-financiado').value)
         }
@@ -10996,6 +11090,45 @@ const VM = {
         btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
       }
     })
+  },
+
+  // Helpers do modal de financiamento
+  _finIndexadorChange() {
+    const idx = document.getElementById('f-indexador')?.value
+    const spreadGroup = document.getElementById('f-spread-group')
+    const aviso = document.getElementById('f-ipca-aviso')
+    if (spreadGroup) spreadGroup.style.display = (idx && idx !== 'prefixado') ? '' : 'none'
+    if (aviso) aviso.style.display = (idx === 'ipca' || idx === 'igpm') ? '' : 'none'
+  },
+
+  _calcularParcelaAuto() {
+    const pv = parseFloat(document.getElementById('f-financiado')?.value) || 0
+    const taxa = parseFloat(document.getElementById('f-juros')?.value) || 0
+    const n = parseInt(document.getElementById('f-parcelas')?.value) || 0
+    const sistema = document.getElementById('f-sistema')?.value || 'price'
+    const fVparcela = document.getElementById('f-vparcela')
+
+    if (!pv || !taxa || !n || !fVparcela) { this.toast('Preencha valor financiado, taxa e nº de parcelas', 'error'); return }
+
+    const i = taxa / 12 / 100 // taxa mensal
+    let parcela = 0
+
+    if (sistema === 'sac' || sistema === 'sacre') {
+      // SAC: 1ª parcela = amortização constante + juros do mês
+      const amortConst = pv / n
+      const jurosPrimeiro = pv * i
+      parcela = Math.round((amortConst + jurosPrimeiro) * 100) / 100
+    } else {
+      // PRICE: PMT = PV * i / (1-(1+i)^-n)
+      if (i === 0) {
+        parcela = Math.round((pv / n) * 100) / 100
+      } else {
+        parcela = Math.round((pv * i / (1 - Math.pow(1 + i, -n))) * 100) / 100
+      }
+    }
+
+    fVparcela.value = parcela
+    this.toast(`Parcela calculada (${sistema.toUpperCase()}): ${this.formatMoney(parcela)}`, 'success')
   },
 
   modalAmortizacao(tipo, id, saldoAtual, valorParcela, numParcelas, parcelasPagas) {
@@ -11105,6 +11238,240 @@ const VM = {
       this.carregarFinanciamentos()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== FINANCIAMENTOS: Gráfico, FGTS, Comparativo ==============
+
+  async graficoEvolucaoFinanciamento(id, descricao) {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:680px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">📈 Evolução do Saldo — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="graf-loading" style="text-align:center;padding:40px;color:#888;">Calculando evolução...</div></div></div>`
+    modal.style.display = 'flex'
+    try {
+      const d = await this.api('GET', `financiamentos/${id}/evolucao-saldo`)
+      const { pontos, resumo, sistema, valor_financiado } = d
+
+      // Preparar dados para mini-gráfico SVG
+      const maxSaldo = Math.max(...pontos.map(p => p.saldo))
+      const w = 620, h = 200, pad = 40
+      const xScale = (i) => pad + (i / (pontos.length - 1)) * (w - pad * 2)
+      const yScale = (v) => h - pad - (v / maxSaldo) * (h - pad * 2)
+
+      const pathD = pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yScale(p.saldo).toFixed(1)}`).join(' ')
+      const areaD = pathD + ` L${xScale(pontos.length-1).toFixed(1)},${(h-pad).toFixed(1)} L${xScale(0).toFixed(1)},${(h-pad).toFixed(1)} Z`
+
+      // Pontos de label (início, meio, fim)
+      const labelPts = [0, Math.floor(pontos.length/2), pontos.length-1].filter((v,i,a) => a.indexOf(v) === i)
+
+      document.getElementById('graf-loading').outerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Saldo Atual</div>
+            <div style="font-size:0.9rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(d.saldo_atual)}</div>
+          </div>
+          <div style="background:rgba(255,196,0,0.07);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Total Juros Rest.</div>
+            <div style="font-size:0.9rem;font-weight:700;color:#ffc400;">${this.formatMoney(resumo.total_juros_restantes)}</div>
+          </div>
+          <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Previsão Quitação</div>
+            <div style="font-size:0.88rem;font-weight:700;color:#2FBF71;">${resumo.previsao_fim ? this.formatDate(resumo.previsao_fim) : '—'}</div>
+          </div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:12px;overflow:hidden;">
+          <div style="font-size:0.72rem;color:#666;margin-bottom:8px;">Sistema ${sistema} • Evolução do saldo devedor</div>
+          <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;overflow:visible;">
+            <defs>
+              <linearGradient id="grad-fin" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff6b6b" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#ff6b6b" stop-opacity="0.02"/>
+              </linearGradient>
+            </defs>
+            <!-- Área preenchida -->
+            <path d="${areaD}" fill="url(#grad-fin)"/>
+            <!-- Linha principal -->
+            <path d="${pathD}" fill="none" stroke="#ff6b6b" stroke-width="2.5" stroke-linejoin="round"/>
+            <!-- Linha zero -->
+            <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+            <!-- Labels -->
+            ${labelPts.map(i => {
+              const p = pontos[i]
+              const x = xScale(i)
+              const y = yScale(p.saldo)
+              const ano = p.data ? p.data.substring(0,4) : ''
+              return `<g>
+                <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="#ff6b6b" stroke="#1a1a2e" stroke-width="2"/>
+                <text x="${x.toFixed(1)}" y="${(y-10).toFixed(1)}" text-anchor="middle" font-size="9" fill="#aaa">${this.formatMoney(p.saldo, true)}</text>
+                <text x="${x.toFixed(1)}" y="${(h-pad+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="#666">${ano}</text>
+              </g>`
+            }).join('')}
+          </svg>
+        </div>
+
+        <div style="margin-top:12px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;">
+          <div style="font-size:0.72rem;color:#888;margin-bottom:8px;">Tabela resumida (a cada 6 meses)</div>
+          <div style="max-height:200px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+              <thead style="position:sticky;top:0;background:#1a1a2e;">
+                <tr style="color:#888;">
+                  <th style="padding:6px 8px;text-align:left;">Data</th>
+                  <th style="padding:6px 8px;text-align:right;">Saldo</th>
+                  <th style="padding:6px 8px;text-align:right;">Juros Acum.</th>
+                  <th style="padding:6px 8px;text-align:right;">Amort. Acum.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pontos.map((p, i) => `
+                  <tr style="border-top:1px solid rgba(255,255,255,0.04);${p.label === 'Hoje' ? 'background:rgba(47,191,113,0.06);' : ''}">
+                    <td style="padding:5px 8px;">${p.label === 'Hoje' ? '📍 Hoje' : this.formatDate(p.data)}</td>
+                    <td style="padding:5px 8px;text-align:right;color:#ff6b6b;">${this.formatMoney(p.saldo)}</td>
+                    <td style="padding:5px 8px;text-align:right;color:#ffc400;">${this.formatMoney(p.juros_acumulados)}</td>
+                    <td style="padding:5px 8px;text-align:right;color:#2FBF71;">${this.formatMoney(p.amort_acumulada)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`
+    } catch (e) {
+      document.getElementById('graf-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar dados</div>`
+    }
+  },
+
+  async simulacaoFGTS(id, descricao) {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:540px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">🏦 Simulação FGTS — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="fgts-loading" style="text-align:center;padding:40px;color:#888;">Calculando...</div></div></div>`
+    modal.style.display = 'flex'
+    try {
+      const d = await this.api('GET', `financiamentos/${id}/simulacao-fgts`)
+      const { saldo_devedor, total_juros_sem_fgts, cenarios, alerta, recomendacao } = d
+      document.getElementById('fgts-loading').outerHTML = `
+        <div style="background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.82rem;color:#ffc400;">
+          ⚠️ ${alerta}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Saldo Devedor Atual</div>
+            <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldo_devedor)}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Total Juros sem FGTS</div>
+            <div style="font-size:1rem;font-weight:700;color:#ffc400;">${this.formatMoney(total_juros_sem_fgts)}</div>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:#888;margin-bottom:10px;font-weight:600;">🔮 Cenários de uso do FGTS</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${cenarios.map(c => `
+            <div style="background:${c.vale_a_pena ? 'rgba(47,191,113,0.07)' : 'rgba(255,255,255,0.03)'};border:1px solid ${c.vale_a_pena ? 'rgba(47,191,113,0.25)' : 'rgba(255,255,255,0.07)'};border-radius:10px;padding:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-weight:700;font-size:0.95rem;">Usar ${c.pct}% do saldo FGTS</span>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <span style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(c.valor_fgts)}</span>
+                  ${c.vale_a_pena ? '<span style="background:rgba(47,191,113,0.2);color:#2FBF71;border-radius:6px;padding:2px 8px;font-size:0.68rem;font-weight:700;">✅ Vale</span>' : '<span style="background:rgba(255,80,80,0.1);color:#ff6b6b;border-radius:6px;padding:2px 8px;font-size:0.68rem;">Avaliar</span>'}
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#888;">Novo Saldo</div>
+                  <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(c.novo_saldo)}</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#888;">Meses Econ.</div>
+                  <div style="font-size:0.82rem;font-weight:700;color:#74b9ff;">${c.parcelas_economizadas}</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:0.65rem;color:#888;">Economia Juros</div>
+                  <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.economia_juros)}</div>
+                </div>
+              </div>
+              <div style="margin-top:8px;font-size:0.7rem;color:#888;">
+                Retorno sobre FGTS usado: <strong style="color:${c.retorno_fgts_pct > 7 ? '#2FBF71' : '#ffc400'};">${c.retorno_fgts_pct}%</strong> em juros economizados
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:14px;background:rgba(47,191,113,0.07);border-radius:10px;padding:12px;font-size:0.82rem;color:#2FBF71;">
+          💡 ${recomendacao}
+        </div>
+        <div style="margin-top:8px;font-size:0.7rem;color:#555;text-align:center;">
+          * Simulação baseada no saldo atual. Valores do FGTS dependem do saldo real na sua conta.
+        </div>`
+    } catch (e) {
+      document.getElementById('fgts-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar simulação</div>`
+    }
+  },
+
+  async comparativoSistemaFinanciamento(id, descricao) {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:560px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">⚖️ SAC vs PRICE — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="cmp-loading" style="text-align:center;padding:40px;color:#888;">Calculando comparativo...</div></div></div>`
+    modal.style.display = 'flex'
+    try {
+      const d = await this.api('GET', `financiamentos/${id}/comparativo`)
+      const { price, sac, economia_sac_vs_price, recomendacao, saldo_atual, sistema } = d
+      document.getElementById('cmp-loading').outerHTML = `
+        <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;margin-bottom:16px;font-size:0.8rem;color:#888;text-align:center;">
+          Sistema atual: <strong style="color:#ddd;">${sistema?.toUpperCase() || 'PRICE'}</strong> • Saldo: <strong style="color:#ff6b6b;">${this.formatMoney(saldo_atual)}</strong>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+          <!-- PRICE -->
+          <div style="background:rgba(100,180,255,0.07);border:1px solid rgba(100,180,255,0.2);border-radius:12px;padding:14px;">
+            <div style="font-weight:700;font-size:0.95rem;color:#74b9ff;margin-bottom:12px;text-align:center;">📌 PRICE</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Parcela fixa</span>
+                <span style="font-weight:700;">${this.formatMoney(price?.primeira_parcela || 0)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Total juros</span>
+                <span style="font-weight:700;color:#ffc400;">${this.formatMoney(price?.total_juros || 0)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Total a pagar</span>
+                <span style="font-weight:700;color:#ff6b6b;">${this.formatMoney(price?.total_pagar || 0)}</span>
+              </div>
+            </div>
+          </div>
+          <!-- SAC -->
+          <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.2);border-radius:12px;padding:14px;">
+            <div style="font-weight:700;font-size:0.95rem;color:#2FBF71;margin-bottom:12px;text-align:center;">📉 SAC</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">1ª parcela</span>
+                <span style="font-weight:700;">${this.formatMoney(sac?.primeira_parcela || 0)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Última parcela</span>
+                <span style="font-weight:700;">${this.formatMoney(sac?.ultima_parcela || 0)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Total juros</span>
+                <span style="font-weight:700;color:#ffc400;">${this.formatMoney(sac?.total_juros || 0)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
+                <span style="color:#888;">Total a pagar</span>
+                <span style="font-weight:700;color:#ff6b6b;">${this.formatMoney(sac?.total_pagar || 0)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="background:${economia_sac_vs_price > 0 ? 'rgba(47,191,113,0.08)' : 'rgba(100,180,255,0.08)'};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
+          <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Diferença SAC vs PRICE</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${economia_sac_vs_price > 0 ? '#2FBF71' : '#74b9ff'};">
+            ${economia_sac_vs_price > 0 ? '✅ SAC economiza' : '📌 PRICE é igual ou melhor'} ${this.formatMoney(Math.abs(economia_sac_vs_price))}
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;font-size:0.82rem;color:#aaa;">
+          💡 ${recomendacao}
+        </div>
+        ${sac?.primeiras_parcelas?.length ? `
+        <div style="margin-top:14px;">
+          <div style="font-size:0.75rem;color:#888;margin-bottom:8px;font-weight:600;">Primeiras parcelas SAC (decrescentes):</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${sac.primeiras_parcelas.map((p, i) => `<span style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:6px;padding:4px 8px;font-size:0.75rem;">#${p.parcela}: ${this.formatMoney(p.valor)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+        <div style="margin-top:10px;font-size:0.7rem;color:#555;text-align:center;">* Simulação a partir do saldo devedor atual. Consulte seu banco para trocar o sistema.</div>`
+    } catch (e) {
+      document.getElementById('cmp-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar comparativo</div>`
     }
   },
 

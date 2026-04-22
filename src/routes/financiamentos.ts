@@ -362,14 +362,40 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
 
   const novasParcelas = fin.parcelas_pagas + 1
   const taxaMensal = fin.taxa_juros_mensal / 100
+  const sistema = (fin.sistema_amortizacao || 'price').toLowerCase()
 
-  // CÁLCULO CORRETO: juros do mês sobre saldo_devedor atual, amortiza a diferença
-  const jurosMes = fin.saldo_devedor * taxaMensal
-  const amortizacao = fin.valor_parcela - jurosMes
+  // CÁLCULO CORRETO por sistema de amortização
+  const jurosMes = Math.round(fin.saldo_devedor * taxaMensal * 100) / 100
+  let amortizacao: number
+  let novaParcelaValor = fin.valor_parcela
+
+  if (sistema === 'sac' || sistema === 'sacre') {
+    // SAC: amortização constante = saldo_original / num_parcelas
+    const amortConstante = Math.round((fin.valor_financiado / fin.numero_parcelas) * 100) / 100
+    amortizacao = amortConstante
+    novaParcelaValor = Math.round((amortConstante + jurosMes) * 100) / 100 // parcela decrescente
+  } else {
+    // PRICE: parcela fixa, amortização = parcela - juros
+    amortizacao = Math.round((fin.valor_parcela - jurosMes) * 100) / 100
+  }
+
   const novoSaldo = Math.max(0, Math.round((fin.saldo_devedor - amortizacao) * 100) / 100)
   const status = novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
 
-  await c.env.DB.prepare('UPDATE financiamentos SET parcelas_pagas = ?, saldo_devedor = ?, status = ? WHERE id = ? AND user_id = ?').bind(novasParcelas, novoSaldo, status, id, user.id).run()
+  // Recalcular data_previsao_fim com base nas parcelas restantes
+  const parcelasRestantes = fin.numero_parcelas - novasParcelas
+  const dataBase = new Date()
+  dataBase.setMonth(dataBase.getMonth() + parcelasRestantes)
+  const novaDataFim = status === 'quitado' ? new Date().toISOString().split('T')[0] : dataBase.toISOString().split('T')[0]
+
+  // Para SAC: atualizar valor_parcela com a próxima parcela calculada
+  const proxParcelaSAC = sistema === 'sac' || sistema === 'sacre'
+    ? Math.round(((fin.valor_financiado / fin.numero_parcelas) + novoSaldo * taxaMensal) * 100) / 100
+    : fin.valor_parcela
+
+  await c.env.DB.prepare(
+    'UPDATE financiamentos SET parcelas_pagas=?, saldo_devedor=?, status=?, data_previsao_fim=?, valor_parcela=? WHERE id=? AND user_id=?'
+  ).bind(novasParcelas, novoSaldo, status, novaDataFim, sistema === 'sac' || sistema === 'sacre' ? proxParcelaSAC : fin.valor_parcela, id, user.id).run()
 
   // Marcar despesa correspondente como paga (se existir)
   await c.env.DB.prepare(
@@ -422,9 +448,22 @@ financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
   const novoSaldoVal = Math.max(0, parseFloat(novo_saldo))
   const status = novoSaldoVal <= 0 || novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
 
+  // Recalcular data_previsao_fim após amortização extraordinária
+  const parcelasRestAmort = fin.numero_parcelas - novasParcelas
+  const dataBaseAmort = new Date()
+  dataBaseAmort.setMonth(dataBaseAmort.getMonth() + parcelasRestAmort)
+  const novaDataFimAmort = status === 'quitado' ? new Date().toISOString().split('T')[0] : dataBaseAmort.toISOString().split('T')[0]
+
+  // Para SAC: recalcular próxima parcela com novo saldo
+  const sistemaAmort = (fin.sistema_amortizacao || 'price').toLowerCase()
+  const taxaMensalAmort = fin.taxa_juros_mensal / 100
+  const proxParcelaAmort = (sistemaAmort === 'sac' || sistemaAmort === 'sacre')
+    ? Math.round(((fin.valor_financiado / fin.numero_parcelas) + novoSaldoVal * taxaMensalAmort) * 100) / 100
+    : fin.valor_parcela
+
   await c.env.DB.prepare(
-    'UPDATE financiamentos SET saldo_devedor=?, parcelas_pagas=?, status=? WHERE id=? AND user_id=?'
-  ).bind(novoSaldoVal, novasParcelas, status, id, user.id).run()
+    'UPDATE financiamentos SET saldo_devedor=?, parcelas_pagas=?, status=?, data_previsao_fim=?, valor_parcela=? WHERE id=? AND user_id=?'
+  ).bind(novoSaldoVal, novasParcelas, status, novaDataFimAmort, proxParcelaAmort, id, user.id).run()
 
   // Registrar como despesa
   const hoje = new Date().toISOString().split('T')[0]
@@ -601,3 +640,153 @@ financiamentos.patch('/:id/evolucao', requireAuth, async (c) => {
 })
 
 export default financiamentos
+
+// GET /api/financiamentos/:id/evolucao-saldo
+// Retorna projeção completa do saldo devedor mês a mês até quitação (para gráfico)
+financiamentos.get('/:id/evolucao-saldo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const taxaM = fin.taxa_juros_mensal / 100
+  const sistema = (fin.sistema_amortizacao || 'price').toLowerCase()
+  const amortConstante = fin.valor_financiado / fin.numero_parcelas // para SAC
+
+  const pontos: any[] = []
+  let saldo = fin.saldo_devedor
+  let totalJurosAcum = 0
+  let totalAmortAcum = 0
+
+  const hoje = new Date()
+
+  // Ponto 0: situação atual
+  pontos.push({
+    parcela: fin.parcelas_pagas,
+    data: hoje.toISOString().split('T')[0],
+    saldo: Math.round(saldo * 100) / 100,
+    juros_acumulados: 0,
+    amort_acumulada: 0,
+    label: 'Hoje'
+  })
+
+  const parcelasRestantes = fin.numero_parcelas - fin.parcelas_pagas
+  for (let i = 1; i <= parcelasRestantes; i++) {
+    const juros = Math.round(saldo * taxaM * 100) / 100
+    const amort = sistema === 'sac' || sistema === 'sacre'
+      ? Math.min(amortConstante, saldo)
+      : Math.min(fin.valor_parcela - juros, saldo)
+    saldo = Math.max(0, Math.round((saldo - amort) * 100) / 100)
+    totalJurosAcum += juros
+    totalAmortAcum += amort
+
+    const dataParcela = new Date(hoje)
+    dataParcela.setMonth(dataParcela.getMonth() + i)
+
+    // Incluir todos os pontos mas reduzir granularidade para grandes financiamentos
+    const incluir = parcelasRestantes <= 60 || i % 6 === 0 || i === parcelasRestantes || i === 1
+    if (incluir) {
+      pontos.push({
+        parcela: fin.parcelas_pagas + i,
+        data: dataParcela.toISOString().split('T')[0],
+        saldo: Math.round(saldo * 100) / 100,
+        juros_acumulados: Math.round(totalJurosAcum * 100) / 100,
+        amort_acumulada: Math.round(totalAmortAcum * 100) / 100
+      })
+    }
+
+    if (saldo <= 0) break
+  }
+
+  return c.json({
+    financiamento_id: fin.id,
+    descricao: fin.descricao,
+    sistema: sistema.toUpperCase(),
+    valor_financiado: fin.valor_financiado,
+    saldo_atual: fin.saldo_devedor,
+    pontos,
+    resumo: {
+      total_juros_restantes: Math.round(totalJurosAcum * 100) / 100,
+      total_a_pagar: Math.round((totalJurosAcum + fin.saldo_devedor) * 100) / 100,
+      parcelas_restantes: parcelasRestantes,
+      previsao_fim: pontos[pontos.length - 1]?.data || null
+    }
+  })
+})
+
+// GET /api/financiamentos/:id/simulacao-fgts
+// Simula economia usando FGTS para amortizar
+financiamentos.get('/:id/simulacao-fgts', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  const saldo = fin.saldo_devedor
+  const taxaM = fin.taxa_juros_mensal / 100
+  const parcelasRestantes = fin.numero_parcelas - fin.parcelas_pagas
+  const sistema = (fin.sistema_amortizacao || 'price').toLowerCase()
+  const amortConst = fin.valor_financiado / fin.numero_parcelas
+
+  // Calcular total de juros no ritmo atual
+  let saldoAtual = saldo
+  let totalJurosAtual = 0
+  for (let i = 0; i < parcelasRestantes; i++) {
+    const j = saldoAtual * taxaM
+    const a = sistema === 'sac' ? Math.min(amortConst, saldoAtual) : Math.min(fin.valor_parcela - j, saldoAtual)
+    totalJurosAtual += j
+    saldoAtual = Math.max(0, saldoAtual - a)
+  }
+
+  // Simular cenários de FGTS: 10%, 20%, 30%, 50% do saldo atual
+  const cenarios = [10, 20, 30, 50].map(pct => {
+    const valorFGTS = Math.round(saldo * pct / 100 * 100) / 100
+    const novoSaldo = Math.max(0, saldo - valorFGTS)
+
+    let saldoSim = novoSaldo
+    let totalJurosSim = 0
+    let novasParcelas = 0
+
+    for (let i = 0; i < parcelasRestantes; i++) {
+      const j = saldoSim * taxaM
+      const a = sistema === 'sac' ? Math.min(amortConst, saldoSim) : Math.min(fin.valor_parcela - j, saldoSim)
+      totalJurosSim += j
+      saldoSim = Math.max(0, saldoSim - a)
+      novasParcelas++
+      if (saldoSim <= 0) break
+    }
+
+    const economiaParcelas = parcelasRestantes - novasParcelas
+    const economiaJuros = Math.round((totalJurosAtual - totalJurosSim) * 100) / 100
+
+    return {
+      pct,
+      valor_fgts: valorFGTS,
+      novo_saldo: Math.round(novoSaldo * 100) / 100,
+      parcelas_economizadas: economiaParcelas,
+      economia_juros: economiaJuros,
+      retorno_fgts_pct: valorFGTS > 0 ? Math.round((economiaJuros / valorFGTS) * 100) : 0,
+      vale_a_pena: economiaJuros > valorFGTS * 0.07 // vale se economizar mais de 7% do valor usado (rendimento FGTS)
+    }
+  })
+
+  // Rendimento do FGTS para comparação (3% a.a. + TR ~0.5% = ~3.5% a.a. ≈ 0.29% a.m.)
+  const rendFGTS_am = 0.0029
+  const taxaFinanciamento_am = taxaM
+
+  return c.json({
+    financiamento_id: fin.id,
+    descricao: fin.descricao,
+    saldo_devedor: saldo,
+    taxa_mensal: fin.taxa_juros_mensal,
+    parcelas_restantes: parcelasRestantes,
+    total_juros_sem_fgts: Math.round(totalJurosAtual * 100) / 100,
+    cenarios,
+    alerta: taxaFinanciamento_am > rendFGTS_am
+      ? `Taxa do financiamento (${fin.taxa_juros_mensal}% a.m.) > rendimento FGTS (~0.29% a.m.) — usar FGTS para amortizar é vantajoso.`
+      : `Taxa do financiamento é baixa — avalie se vale resgatar o FGTS.`,
+    recomendacao: cenarios.find(c => c.vale_a_pena && c.pct <= 30)
+      ? `Recomendado: usar ${cenarios.find(c => c.vale_a_pena)?.pct}% do saldo FGTS disponível`
+      : 'Analise com seu gerente antes de usar FGTS.'
+  })
+})
