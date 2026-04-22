@@ -556,12 +556,15 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     } catch { /* tabela pode não existir */ }
   }
 
-  // ── Olho no Futuro (viu_projecao) — ganho ao acessar simulador ────────────
-  // Verificar se usou o simulador (tem registro de simulação salva ou investimento)
+  // ── Olho no Futuro (viu_projecao) — ganho ao acessar projetor/simulador ───
+  // Verifica se já tem projetor (acessou a tela de projeção) ou investimentos
+  const jaAcessouProjetor = await c.env.DB.prepare(
+    `SELECT COUNT(*) as total FROM conquistas_usuario WHERE user_id = ? AND conquista_codigo IN ('projetor','projecao_vista')`
+  ).bind(user.id).first() as any
   const usouSimulador = await c.env.DB.prepare(
     `SELECT COUNT(*) as total FROM investimentos WHERE user_id = ?`
   ).bind(user.id).first() as any
-  if ((usouSimulador?.total || 0) >= 1) await ganhar('viu_projecao')
+  if ((jaAcessouProjetor?.total || 0) >= 1 || (usouSimulador?.total || 0) >= 1) await ganhar('viu_projecao')
 
   // ── Dinheiro Trabalhando (renda_de_investimento) ──────────────────────────
   const rendaInvCheck = await c.env.DB.prepare(

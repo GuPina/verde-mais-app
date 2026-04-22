@@ -255,7 +255,7 @@ projecao.get('/', requireAuth, async (c) => {
     cenarioPessimista.push({ mes: m, ano: a, label, valor: Math.round(saldoPess * 100) / 100 })
   }
 
-  // Conquista: consultou projeção (projetor + projecao_vista do Bloco 5)
+  // Conquista: consultou projeção (projetor + projecao_vista + viu_projecao do Bloco 5)
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
      VALUES (?, ?, datetime('now'), 0)`
@@ -264,6 +264,10 @@ projecao.get('/', requireAuth, async (c) => {
     `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
      VALUES (?, ?, datetime('now'), 0)`
   ).bind(user.id, 'projecao_vista').run().catch(() => {})
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, data_conquista, visualizado)
+     VALUES (?, ?, datetime('now'), 0)`
+  ).bind(user.id, 'viu_projecao').run().catch(() => {})
 
   // ── BLOCO 6.3: Integração Projeção → Metas ─────────────────────────────────
   // Verificar se metas ativas serão atingíveis com a projeção atual

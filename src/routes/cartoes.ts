@@ -136,6 +136,10 @@ cartoes.post('/', requireAuth, async (c) => {
   ).run()
 
   await verificarConquista(c.env.DB, user.id, 'carteirinha')
+  // Verificar conquistas de quantidade de cartões
+  const totalCartoes = await c.env.DB.prepare('SELECT COUNT(*) as n FROM cartoes WHERE user_id = ? AND ativo = 1').bind(user.id).first() as any
+  if ((totalCartoes?.n || 0) >= 2) await verificarConquista(c.env.DB, user.id, 'dois_cartoes')
+  if ((totalCartoes?.n || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'cinco_cartoes')
   return c.json({ success: true, id: r.meta.last_row_id, message: 'Cartão cadastrado!' }, 201)
 })
 

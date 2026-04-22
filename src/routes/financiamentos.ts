@@ -285,6 +285,7 @@ financiamentos.post('/', requireAuth, async (c) => {
   }
 
   await verificarConquista(c.env.DB, user.id, 'planejador')
+  await verificarConquista(c.env.DB, user.id, 'primeiro_financiamento')
   // Conquista: primeiro imóvel
   const tipoBem = body.tipo_bem || 'imovel'
   if (tipoBem === 'imovel' || tipoBem === 'imovel_comercial') await verificarConquista(c.env.DB, user.id, 'primeiro_imovel')

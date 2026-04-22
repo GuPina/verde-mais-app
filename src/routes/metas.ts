@@ -230,6 +230,7 @@ metas.post('/', requireAuth, async (c) => {
   if (catMeta === 'aposentadoria' || nomeMin.includes('aposenta') || nomeMin.includes('previdência') || nomeMin.includes('previdencia') || nomeMin.includes('reforma'))
     await verificarConquista(c.env.DB, user.id, 'meta_aposentadoria')
   await verificarConquista(c.env.DB, user.id, 'planejador')
+  await verificarConquista(c.env.DB, user.id, 'sonhador')
 
   return c.json({ success: true, id: result.meta.last_row_id, message: 'Meta criada!' }, 201)
 })

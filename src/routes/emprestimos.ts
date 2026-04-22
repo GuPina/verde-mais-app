@@ -183,6 +183,7 @@ emprestimos.post('/', requireAuth, async (c) => {
   const empId = result.meta.last_row_id as number
 
   // Conquistas por tipo
+  await verificarConquista(c.env.DB, user.id, 'primeiro_emprestimo')
   if (tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'primeiro_carro')
   const totalParcelas = parseInt(numero_parcelas)
   const valorParc = parseFloat(valor_parcela)

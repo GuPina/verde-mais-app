@@ -126,24 +126,20 @@ const VM = {
           if (custom) { custom.remove(); return }
         }
 
-        // N — nova despesa (apenas na tela de despesas ou dashboard)
+        // N — nova despesa (em qualquer tela, exceto inputs)
         if (e.key === 'n' || e.key === 'N') {
-          const page = this.currentPage
-          if (['dashboard','despesas'].includes(page)) {
+          if (!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
             e.preventDefault()
-            if (typeof this.modalNovaDespesa === 'function') this.modalNovaDespesa()
-            else if (typeof this.abrirModalDespesa === 'function') this.abrirModalDespesa()
+            if (typeof this.modalDespesa === 'function') this.modalDespesa()
             return
           }
         }
 
-        // R — nova receita (apenas na tela de receitas ou dashboard)
+        // R — nova receita (em qualquer tela, exceto inputs)
         if (e.key === 'r' || e.key === 'R') {
-          const page = this.currentPage
-          if (['dashboard','receitas'].includes(page)) {
+          if (!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
             e.preventDefault()
-            if (typeof this.modalNovaReceita === 'function') this.modalNovaReceita()
-            else if (typeof this.abrirModalReceita === 'function') this.abrirModalReceita()
+            if (typeof this.modalReceita === 'function') this.modalReceita()
             return
           }
         }
@@ -441,6 +437,9 @@ const VM = {
     if (this.token) {
       this.api('POST', 'auth/logout').catch(() => {})
     }
+    // Limpar timers de polling
+    if (this._conqPollTimer) { clearInterval(this._conqPollTimer); this._conqPollTimer = null }
+    if (this._conqVerifyTimer) { clearInterval(this._conqVerifyTimer); this._conqVerifyTimer = null }
     localStorage.removeItem('vm_token')
     localStorage.removeItem('vm_user')
     this.token = null
@@ -2851,7 +2850,7 @@ const VM = {
       </div>
 
       <!-- Gráficos: pizza + barras por categoria -->
-      <div id="receitas-graficos" style="display:none;margin-bottom:20px;display:grid;grid-template-columns:280px 1fr;gap:16px;">
+      <div id="receitas-graficos" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
         <div class="card" style="padding:16px;display:flex;flex-direction:column;align-items:center;">
           <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Distribuição</div>
           <div style="position:relative;width:160px;height:160px;">
@@ -7787,6 +7786,8 @@ const VM = {
       this.navigate('dashboard')
       return
     }
+    // Conquista: acessou o simulador
+    this.api('POST', 'conquistas/verificar').catch(() => {})
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div class="section-title">🧮 Simulador de Investimentos</div>
@@ -13395,7 +13396,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="empty-state"><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>
       </div>
     `
-    this.carregarConquistas()
+    // Verificar conquistas automaticamente ao abrir a página (silencioso)
+    this.api('POST', 'conquistas/verificar').then(r => {
+      if ((r.total_novas || 0) > 0) {
+        this.toast(`🏆 ${r.total_novas} nova(s) conquista(s) desbloqueada(s)!`, 'success')
+      }
+    }).catch(() => {}).finally(() => this.carregarConquistas())
   },
 
   async verificarNovasConquistas() {
@@ -13403,8 +13409,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       const btn = document.querySelector('#page-content .btn-primary')
       if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...' }
       const r = await this.api('POST', 'conquistas/verificar')
-      if (r.novas_conquistadas > 0) {
-        this.toast(`🏆 ${r.novas_conquistadas} nova(s) conquista(s) desbloqueada(s)!`, 'success')
+      if ((r.total_novas || r.novas_conquistadas || 0) > 0) {
+        this.toast(`🏆 ${r.total_novas || r.novas_conquistadas} nova(s) conquista(s) desbloqueada(s)!`, 'success')
       } else {
         this.toast('Nenhuma conquista nova no momento', 'info')
       }
@@ -13757,7 +13763,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${m===mesSel?'selected':''}>${mesNomes[m]}</option>`).join('')}
             </select>
             <select id="sel-ano" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
-              ${[2024,2025,2026,2027].map(a => `<option value="${a}" ${a===anoSel?'selected':''}>${a}</option>`).join('')}
+              ${Array.from({length:6},(_,i)=>new Date().getFullYear()-2+i).map(a => `<option value="${a}" ${a===anoSel?'selected':''}>${a}</option>`).join('')}
             </select>
             <button onclick="VM._abrirOrcamentoGlobal()" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
               🌐 Global
@@ -14107,9 +14113,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // ══════════════════════════════════════════════════════════════════════════
   startConqPoll() {
     if (this._conqPollTimer) return
-    // Verificar imediatamente no login, depois a cada 30s
+    // Verificar conquistas ao login (silencioso)
+    this.api('POST', 'conquistas/verificar').catch(() => {})
+    // Checar novas (não visualizadas) imediatamente, depois a cada 30s
     this.checkNovasConquistas()
     this._conqPollTimer = setInterval(() => this.checkNovasConquistas(), 30000)
+    // Verificar conquistas a cada 5 minutos (atualiza em background)
+    this._conqVerifyTimer = setInterval(() => this.api('POST', 'conquistas/verificar').catch(() => {}), 5 * 60 * 1000)
     // Verificar alertas de cartão na inicialização
     setTimeout(() => this.atualizarBadgeAlertasCartao(), 5000)
   },
