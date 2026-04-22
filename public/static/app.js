@@ -11132,7 +11132,7 @@ const VM = {
       const data = await this.api('GET', 'emprestimos')
       const container = document.getElementById('emp-container')
       const emps = data.emprestimos || []
-      const tipoLabel = { pessoal: '👤 Pessoal', consignado: '🏢 Consignado', veiculo: '🚗 Veículo', estudantil: '🎓 Estudantil', microempresa: '🏪 Microempresa', amigos_familia: '👨‍👩‍👧 Amigos/Família', outros: '📋 Outros' }
+      const tipoLabel = { pessoal: '👤 Pessoal', consignado: '🏢 Consignado', veiculo: '🚗 Veículo', estudantil: '🎓 Estudantil', microempresa: '🏪 Microempresa', amigos_familia: '👨‍👩‍👧 Amigos/Família', imovel: '🏠 Imóvel', imovel_comercial: '🏢 Imóvel Comercial', rural: '🌾 Rural', outros: '📋 Outros' }
 
       if (emps.length === 0) {
         container.innerHTML = `
@@ -11162,56 +11162,109 @@ const VM = {
             const pct = e.valor_original > 0 ? Math.round(e.valor_pago / e.valor_original * 100) : 0
             const statusColors = { ativo: '#2FBF71', quitado: '#74b9ff', em_atraso: '#ff6b6b', negociado: '#ffc400' }
             return `
-              <div class="card" style="border-left:4px solid ${statusColors[e.status] || '#444'};">
+              (() => {
+                // Calcular próxima data de vencimento
+                const hoje = new Date()
+                const diaVenc = e.dia_vencimento || 1
+                let proxVenc = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
+                if (proxVenc <= hoje) proxVenc.setMonth(proxVenc.getMonth() + 1)
+                const proxVencStr = proxVenc.toLocaleDateString('pt-BR')
+                const diasAteVenc = Math.ceil((proxVenc - hoje) / (1000*60*60*24))
+
+                // Juros total = (parcelas * valorParcela) - valorOriginal
+                const totalPagar = e.valor_parcela * e.numero_parcelas
+                const totalJuros = totalPagar - e.valor_original
+                // Juros já pagos proporcional (estimado pelo saldo reduzido)
+                const jurosPagos = Math.max(0, e.valor_pago - (e.valor_original - e.saldo_devedor))
+                const jurosAindaAPagar = Math.max(0, totalJuros - jurosPagos)
+
+                const alertaDias = diasAteVenc <= 5 && e.status === 'ativo' ? \`<span style="background:rgba(255,100,0,0.15);color:#ff7043;border:1px solid rgba(255,100,0,0.3);border-radius:6px;padding:2px 8px;font-size:0.7rem;margin-left:6px;">⚠️ Vence em \${diasAteVenc}d</span>\` : ''
+
+                return \`
+              <div class="card" style="border-left:4px solid \${statusColors[e.status] || '#444'};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-                  <div>
-                    <div style="font-size:1rem;font-weight:700;">${e.descricao}</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:1rem;font-weight:700;">\${e.descricao}\${alertaDias}</div>
                     <div style="font-size:0.78rem;color:#666;margin-top:3px;">
-                      ${tipoLabel[e.tipo] || e.tipo} • ${e.credor || 'Credor não informado'} • ${e.taxa_juros_mensal}% a.m.
+                      \${tipoLabel[e.tipo] || e.tipo} • \${e.credor || 'Credor não informado'} • \${e.taxa_juros_mensal}% a.m.
                     </div>
                   </div>
-                  <div style="display:flex;gap:6px;align-items:center;">
-                    <span class="badge" style="background:${statusColors[e.status]}22;color:${statusColors[e.status]};border:1px solid ${statusColors[e.status]}44;">${e.status}</span>
-                    <button onclick="VM.modalEmprestimo(${JSON.stringify(e).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
-                    <button onclick="VM.deleteEmprestimo(${e.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
+                  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+                    <span class="badge" style="background:\${statusColors[e.status]}22;color:\${statusColors[e.status]};border:1px solid \${statusColors[e.status]}44;">\${e.status.replace('_',' ')}</span>
+                    <button onclick="VM.modalEmprestimo(\${JSON.stringify(e).replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteEmprestimo(\${e.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
                   </div>
                 </div>
                 
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                    <span style="font-size:0.78rem;color:#888;">Pago (${pct}%)</span>
-                    <span style="font-size:0.78rem;color:#888;">${e.parcelas_pagas}/${e.numero_parcelas} parcelas</span>
+                    <span style="font-size:0.78rem;color:#888;">Pago (\${pct}%)</span>
+                    <span style="font-size:0.78rem;color:#888;">\${e.parcelas_pagas}/\${e.numero_parcelas} parcelas</span>
                   </div>
-                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:6px;overflow:hidden;">
-                    <div style="background:#2FBF71;width:${Math.min(pct,100)}%;height:100%;border-radius:50px;"></div>
+                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#2FBF71,#00b894);width:\${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
                   </div>
                 </div>
                 
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Valor Original</div>
-                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(e.valor_original)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;">\${this.formatMoney(e.valor_original)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.saldo_devedor)}</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(e.saldo_devedor)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
                     <div style="font-size:0.68rem;color:#666;">Parcela</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.valor_parcela)}/mês</div>
+                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(e.valor_parcela)}/mês</div>
                   </div>
                 </div>
-                ${e.data_previsao_fim ? `<div style="margin-top:10px;font-size:0.78rem;color:#666;">📅 Previsão de quitação: ${this.formatDate(e.data_previsao_fim)}</div>` : ''}
-                ${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? `
-                <div style="margin-top:14px;display:flex;gap:8px;">
-                  <button onclick="VM.pagarParcelaEmprestimo(${e.id})" style="flex:1;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
-                    <i class="fas fa-check-circle"></i> Parcela ${e.parcelas_pagas + 1}/${e.numero_parcelas}
+
+                <!-- Juros pagos vs. a pagar -->
+                <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                  <div style="text-align:center;">
+                    <div style="font-size:0.65rem;color:#888;">Juros Totais</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ffc400;">\${this.formatMoney(totalJuros)}</div>
+                  </div>
+                  <div style="text-align:center;">
+                    <div style="font-size:0.65rem;color:#888;">Juros Pagos</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">\${this.formatMoney(jurosPagos)}</div>
+                  </div>
+                  <div style="text-align:center;">
+                    <div style="font-size:0.65rem;color:#888;">Juros Restantes</div>
+                    <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">\${this.formatMoney(jurosAindaAPagar)}</div>
+                  </div>
+                </div>
+
+                <!-- Próxima data + Previsão quitação -->
+                <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.78rem;color:#888;flex-wrap:wrap;">
+                  \${e.status === 'ativo' ? \`<span>📅 Próx. venc.: <strong style="color:#ddd;">\${proxVencStr}</strong></span>\` : ''}
+                  \${e.data_previsao_fim ? \`<span>🏁 Quitação: <strong style="color:#ddd;">\${this.formatDate(e.data_previsao_fim)}</strong></span>\` : ''}
+                </div>
+
+                <!-- Botões de ação: pagar + amortizar + calendário + simulador + exportar -->
+                \${e.status === 'ativo' && e.parcelas_pagas < e.numero_parcelas ? \`
+                <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+                  <button onclick="VM.pagarParcelaEmprestimo(\${e.id})" style="flex:1;min-width:140px;padding:10px;background:linear-gradient(135deg,#2FBF71,#1a8f4e);color:#fff;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="fas fa-check-circle"></i> Parcela \${e.parcelas_pagas + 1}/\${e.numero_parcelas}
                   </button>
-                  <button onclick="VM.modalAmortizacao('emprestimo', ${e.id}, ${e.saldo_devedor}, ${e.valor_parcela}, ${e.numero_parcelas}, ${e.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
+                  <button onclick="VM.modalAmortizacao('emprestimo', \${e.id}, \${e.saldo_devedor}, \${e.valor_parcela}, \${e.numero_parcelas}, \${e.parcelas_pagas})" style="padding:10px 14px;background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Amortização/Antecipação">
                     <i class="fas fa-bolt"></i> Amortizar
                   </button>
-                </div>` : ''}
-              </div>
+                  <button onclick="VM.calendarioEmprestimo(\${e.id}, '\${e.descricao.replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(100,180,255,0.1);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Ver calendário de parcelas">
+                    <i class="fas fa-calendar-alt"></i>
+                  </button>
+                  <button onclick="VM.simuladorAntecipacaoEmprestimo(\${e.id}, '\${e.descricao.replace(/'/g,'&#39;')}')" style="padding:10px 12px;background:rgba(100,255,180,0.1);color:#55efc4;border:1px solid rgba(100,255,180,0.3);border-radius:10px;cursor:pointer;font-size:0.82rem;font-weight:600;" title="Simular pagamento antecipado">
+                    <i class="fas fa-chart-line"></i>
+                  </button>
+                </div>\` : ''}
+                \${e.status !== 'ativo' ? \`
+                <div style="margin-top:10px;font-size:0.85rem;color:#2FBF71;font-weight:600;text-align:center;padding:8px;background:rgba(47,191,113,0.08);border-radius:8px;">
+                  🎉 \${e.status === 'quitado' ? 'Empréstimo quitado!' : 'Status: ' + e.status}
+                </div>\` : ''}
+              </div>\`
+              })()
             `
           }).join('')}
         </div>
@@ -11224,7 +11277,7 @@ const VM = {
   modalEmprestimo(emp = null) {
     const isEdit = !!emp
     const today = new Date().toISOString().split('T')[0]
-    const tipos = [{ v:'pessoal', l:'👤 Pessoal' }, { v:'consignado', l:'🏢 Consignado' }, { v:'veiculo', l:'🚗 Veículo' }, { v:'estudantil', l:'🎓 Estudantil' }, { v:'microempresa', l:'🏪 Microempresa' }, { v:'amigos_familia', l:'👨‍👩‍👧 Amigos/Família' }, { v:'outros', l:'📋 Outros' }]
+    const tipos = [{ v:'pessoal', l:'👤 Pessoal' }, { v:'consignado', l:'🏢 Consignado' }, { v:'veiculo', l:'🚗 Veículo' }, { v:'estudantil', l:'🎓 Estudantil' }, { v:'microempresa', l:'🏪 Microempresa' }, { v:'amigos_familia', l:'👨‍👩‍👧 Amigos/Família' }, { v:'imovel', l:'🏠 Imóvel' }, { v:'imovel_comercial', l:'🏢 Imóvel Comercial' }, { v:'rural', l:'🌾 Rural' }, { v:'outros', l:'📋 Outros' }]
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
@@ -11397,6 +11450,157 @@ const VM = {
       this.carregarEmprestimos()
     } catch (e) {
       this.toast('Erro ao excluir', 'error')
+    }
+  },
+
+  // ============== EMPRÉSTIMOS: Calendário, Simulador, Exportar Cronograma ==============
+
+  async calendarioEmprestimo(id, descricao) {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:620px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📅 Calendário de Parcelas — ${descricao}</h3><div style="display:flex;gap:8px;"><button onclick="VM.exportarCronogramaEmprestimo(${id},'${descricao}')" style="padding:8px 14px;background:rgba(100,180,255,0.15);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;"><i class="fas fa-file-export"></i> Exportar</button><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div></div><div id="cal-loading" style="text-align:center;padding:40px;color:#888;">Carregando parcelas...</div></div></div>`
+    modal.style.display = 'flex'
+    try {
+      const d = await this.api('GET', `emprestimos/${id}/calendario`)
+      const { parcelas, resumo } = d
+      const statusColor = { proxima: '#ffc400', futura: '#74b9ff', em_atraso: '#ff6b6b' }
+      const statusLabel = { proxima: '📌 Próxima', futura: '🔵 Futura', em_atraso: '⚠️ Em Atraso' }
+      document.getElementById('cal-loading').outerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Parcelas Restantes</div>
+            <div style="font-size:1.1rem;font-weight:700;">${resumo.total_parcelas_restantes}</div>
+          </div>
+          <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Total a Pagar</div>
+            <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(resumo.total_a_pagar)}</div>
+          </div>
+          <div style="background:rgba(255,196,0,0.07);border-radius:10px;padding:10px;text-align:center;">
+            <div style="font-size:0.68rem;color:#888;">Juros Futuros</div>
+            <div style="font-size:1rem;font-weight:700;color:#ffc400;">${this.formatMoney(resumo.total_juros_futuros)}</div>
+          </div>
+        </div>
+        <div style="max-height:380px;overflow-y:auto;border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead style="position:sticky;top:0;background:#1a1a2e;z-index:1;">
+              <tr style="font-size:0.72rem;color:#888;">
+                <th style="padding:10px 12px;text-align:left;">Parc.</th>
+                <th style="padding:10px 12px;text-align:left;">Vencimento</th>
+                <th style="padding:10px 12px;text-align:right;">Valor</th>
+                <th style="padding:10px 12px;text-align:right;">Juros</th>
+                <th style="padding:10px 12px;text-align:right;">Amort.</th>
+                <th style="padding:10px 12px;text-align:right;">Saldo</th>
+                <th style="padding:10px 12px;text-align:center;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${parcelas.map((p, i) => `
+                <tr style="border-top:1px solid rgba(255,255,255,0.04);background:${p.status==='em_atraso'?'rgba(255,80,80,0.06)':p.status==='proxima'?'rgba(255,196,0,0.05)':'transparent'};">
+                  <td style="padding:8px 12px;font-size:0.82rem;font-weight:700;">${p.numero}</td>
+                  <td style="padding:8px 12px;font-size:0.82rem;">${this.formatDate(p.data_vencimento)}</td>
+                  <td style="padding:8px 12px;font-size:0.82rem;text-align:right;color:#ff6b6b;">${this.formatMoney(p.valor)}</td>
+                  <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#ffc400;">${this.formatMoney(p.juros)}</td>
+                  <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#2FBF71;">${this.formatMoney(p.amortizacao)}</td>
+                  <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#888;">${this.formatMoney(p.saldo_pos)}</td>
+                  <td style="padding:8px 12px;text-align:center;"><span style="font-size:0.65rem;padding:2px 6px;border-radius:6px;background:${statusColor[p.status]||'#444'}22;color:${statusColor[p.status]||'#888'};border:1px solid ${statusColor[p.status]||'#444'}33;">${statusLabel[p.status]||p.status}</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`
+    } catch (e) {
+      document.getElementById('cal-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar calendário</div>`
+    }
+  },
+
+  async exportarCronogramaEmprestimo(id, descricao) {
+    try {
+      const d = await this.api('GET', `emprestimos/${id}/calendario`)
+      const { parcelas, resumo, emprestimo } = d
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Cronograma — ${descricao}</title>
+<style>
+body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
+h1 { font-size: 1.4rem; margin-bottom: 4px; }
+.subtitle { color: #666; font-size: 0.88rem; margin-bottom: 24px; }
+.resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+.resumo div { background: #f4f4f4; border-radius: 8px; padding: 14px; text-align: center; }
+.resumo .label { font-size: 0.72rem; color: #888; margin-bottom: 4px; }
+.resumo .value { font-size: 1rem; font-weight: 700; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th { background: #222; color: #fff; padding: 10px 12px; text-align: left; }
+td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+tr:nth-child(even) { background: #fafafa; }
+.em_atraso { background: #fff0f0 !important; }
+.proxima { background: #fffbea !important; }
+footer { margin-top: 32px; font-size: 0.75rem; color: #aaa; text-align: center; }
+</style></head><body>
+<h1>📋 Cronograma de Parcelas</h1>
+<div class="subtitle">${descricao} — Gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
+<div class="resumo">
+  <div><div class="label">Valor Original</div><div class="value">R$ ${emprestimo.valor_original?.toFixed(2)}</div></div>
+  <div><div class="label">Parcelas Restantes</div><div class="value">${resumo.total_parcelas_restantes}</div></div>
+  <div><div class="label">Total a Pagar</div><div class="value" style="color:#c00;">R$ ${resumo.total_a_pagar?.toFixed(2)}</div></div>
+  <div><div class="label">Taxa Mensal</div><div class="value">${emprestimo.taxa_juros_mensal}%</div></div>
+  <div><div class="label">Juros Futuros</div><div class="value" style="color:#b8860b;">R$ ${resumo.total_juros_futuros?.toFixed(2)}</div></div>
+  <div><div class="label">Saldo Devedor Atual</div><div class="value" style="color:#c00;">R$ ${emprestimo.saldo_devedor?.toFixed(2)}</div></div>
+</div>
+<table>
+<thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Juros</th><th>Amortização</th><th>Saldo Pós</th><th>Status</th></tr></thead>
+<tbody>
+${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td><td>R$ ${p.valor?.toFixed(2)}</td><td>R$ ${p.juros?.toFixed(2)}</td><td>R$ ${p.amortizacao?.toFixed(2)}</td><td>R$ ${p.saldo_pos?.toFixed(2)}</td><td>${p.status==='proxima'?'Próxima':p.status==='em_atraso'?'Em Atraso':'Futura'}</td></tr>`).join('')}
+</tbody></table>
+<footer>VerdeMais — Cronograma gerado automaticamente • ${new Date().toLocaleString('pt-BR')}</footer>
+</body></html>`
+      const blob = new Blob([html], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cronograma_${descricao.replace(/\s+/g,'_')}.html`
+      a.click()
+      URL.revokeObjectURL(url)
+      this.toast('📄 Cronograma exportado!', 'success')
+    } catch (e) {
+      this.toast('Erro ao exportar cronograma', 'error')
+    }
+  },
+
+  async simuladorAntecipacaoEmprestimo(id, descricao) {
+    const modal = document.getElementById('modal-container')
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:520px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📊 Simulador de Antecipação — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="sim-loading" style="text-align:center;padding:40px;color:#888;">Calculando cenários...</div></div></div>`
+    modal.style.display = 'flex'
+    try {
+      const d = await this.api('GET', `emprestimos/${id}/simulacao`)
+      const { saldo_atual, valor_parcela, parcelas_restantes, total_a_pagar, juros_projetados, cenarios_amortizacao } = d
+      document.getElementById('sim-loading').outerHTML = `
+        <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;margin-bottom:18px;">
+          <div style="font-size:0.75rem;color:#888;margin-bottom:8px;">Situação Atual</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Saldo</div><div style="font-size:0.9rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldo_atual)}</div></div>
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Parcelas Rest.</div><div style="font-size:0.9rem;font-weight:700;">${parcelas_restantes}</div></div>
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Juros Proj.</div><div style="font-size:0.9rem;font-weight:700;color:#ffc400;">${this.formatMoney(juros_projetados)}</div></div>
+          </div>
+        </div>
+        <div style="font-size:0.8rem;color:#888;margin-bottom:12px;font-weight:600;">🔮 Cenários de Amortização Extra</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          ${cenarios_amortizacao.map(c => `
+            <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-weight:700;font-size:0.95rem;">Amortizar ${c.pct}% (${this.formatMoney(c.extra)})</span>
+                <span style="background:rgba(47,191,113,0.15);color:#2FBF71;border-radius:6px;padding:3px 10px;font-size:0.75rem;font-weight:700;">Novo saldo: ${this.formatMoney(c.novo_saldo)}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div style="text-align:center;">
+                  <div style="font-size:0.68rem;color:#888;">Parcelas Economizadas</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#74b9ff;">${c.parcelas_economizadas} meses</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:0.68rem;color:#888;">Economia em Juros</div>
+                  <div style="font-size:0.9rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.economia_juros || 0)}</div>
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:16px;font-size:0.75rem;color:#666;text-align:center;">* Simulação baseada na tabela Price. Consulte seu banco para valores exatos.</div>`
+    } catch (e) {
+      document.getElementById('sim-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar simulação</div>`
     }
   },
 

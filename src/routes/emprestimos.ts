@@ -304,7 +304,12 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   const amortizacao = emp.valor_parcela - jurosMes
   const novoSaldo = Math.max(0, Math.round((emp.saldo_devedor - amortizacao) * 100) / 100)
 
-  const novoValorPago = emp.valor_pago + emp.valor_parcela
+  // FIX: valor_pago acumula o que efetivamente foi pago na parcela (pode diferir do valor_parcela
+  // se houve amortizações extraordinárias anteriores que alteraram o saldo). Usamos valor_parcela
+  // como pagamento desta parcela, pois amortizações são registradas separadamente via /amortizacao.
+  // O total real pago = saldo_devedor_original - saldo_devedor_atual + total_amortizacoes_extras
+  // Cálculo correto: valor_pago = valor_original - novoSaldo (reflexo direto do saldo reduzido)
+  const novoValorPago = Math.round((emp.valor_original - novoSaldo) * 100) / 100
   const status = novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare('UPDATE emprestimos SET parcelas_pagas=?, saldo_devedor=?, valor_pago=?, status=? WHERE id=? AND user_id=?').bind(novasParcelas, novoSaldo, novoValorPago, status, id, user.id).run()
@@ -502,3 +507,161 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 }
 
 export default emprestimos
+
+// GET /api/emprestimos/:id/calendario — retorna todas as parcelas futuras com datas
+emprestimos.get('/:id/calendario', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const emp = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  const taxaM = emp.taxa_juros_mensal / 100
+  const hoje = new Date()
+  const parcelas: any[] = []
+
+  // Determinar data base para cálculo das parcelas
+  let diaVenc = emp.dia_vencimento || 1
+  let saldoCalc = emp.saldo_devedor
+  let parcelaAtual = emp.parcelas_pagas
+
+  // Data da próxima parcela
+  let dataProxima = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
+  if (dataProxima <= hoje) dataProxima.setMonth(dataProxima.getMonth() + 1)
+
+  const parcelasRestantes = emp.numero_parcelas - parcelaAtual
+
+  for (let i = 0; i < parcelasRestantes; i++) {
+    const numParcela = parcelaAtual + i + 1
+    const jurosMes = Math.round(saldoCalc * taxaM * 100) / 100
+    const amort = Math.round((emp.valor_parcela - jurosMes) * 100) / 100
+    saldoCalc = Math.max(0, Math.round((saldoCalc - amort) * 100) / 100)
+
+    const dataVenc = new Date(dataProxima)
+    dataVenc.setMonth(dataProxima.getMonth() + i)
+
+    const isAtrasada = dataVenc < hoje && i === 0
+    const status = isAtrasada ? 'em_atraso' : (i === 0 ? 'proxima' : 'futura')
+
+    parcelas.push({
+      numero: numParcela,
+      data_vencimento: dataVenc.toISOString().split('T')[0],
+      valor: emp.valor_parcela,
+      juros: jurosMes,
+      amortizacao: Math.max(0, amort),
+      saldo_pos: saldoCalc,
+      status
+    })
+  }
+
+  const totalJurosFuturos = parcelas.reduce((s: number, p: any) => s + p.juros, 0)
+  const totalPagoJuros = emp.valor_pago - (emp.valor_original - (emp.valor_original - emp.saldo_devedor))
+
+  return c.json({
+    emprestimo: {
+      id: emp.id,
+      descricao: emp.descricao,
+      valor_original: emp.valor_original,
+      saldo_devedor: emp.saldo_devedor,
+      parcelas_pagas: emp.parcelas_pagas,
+      numero_parcelas: emp.numero_parcelas,
+      valor_parcela: emp.valor_parcela,
+      taxa_juros_mensal: emp.taxa_juros_mensal
+    },
+    parcelas,
+    resumo: {
+      total_parcelas_restantes: parcelasRestantes,
+      total_a_pagar: Math.round(emp.valor_parcela * parcelasRestantes * 100) / 100,
+      total_juros_futuros: Math.round(totalJurosFuturos * 100) / 100,
+      proxima_data: parcelas[0]?.data_vencimento || null
+    }
+  })
+})
+
+// POST /api/emprestimos/verificar-atrasos — marca empréstimos em atraso automaticamente
+emprestimos.post('/verificar-atrasos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const hoje = new Date()
+
+  // Busca empréstimos ativos com dia_vencimento definido
+  const ativos = await c.env.DB.prepare(
+    `SELECT * FROM emprestimos WHERE user_id = ? AND status = 'ativo' AND dia_vencimento IS NOT NULL`
+  ).bind(user.id).all() as any
+
+  let atualizados = 0
+  for (const emp of (ativos.results || [])) {
+    const diaVenc = emp.dia_vencimento
+    // Calcula a data esperada da próxima parcela
+    const dataEsperada = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
+    // Se já passou o dia de vencimento deste mês e a última parcela esperada ainda não foi paga
+    // (heurística: parcelas_pagas < parcelas que deveriam ter sido pagas até hoje)
+    const mesesDesdeInicio = (hoje.getFullYear() - new Date(emp.data_inicio).getFullYear()) * 12
+      + (hoje.getMonth() - new Date(emp.data_inicio).getMonth())
+    const parcelasEsperadas = Math.min(mesesDesdeInicio + (hoje.getDate() >= diaVenc ? 1 : 0), emp.numero_parcelas)
+
+    if (emp.parcelas_pagas < parcelasEsperadas && emp.status === 'ativo') {
+      await c.env.DB.prepare(
+        `UPDATE emprestimos SET status = 'em_atraso' WHERE id = ? AND user_id = ?`
+      ).bind(emp.id, user.id).run()
+      atualizados++
+    }
+  }
+
+  return c.json({ success: true, atualizados, message: `${atualizados} empréstimo(s) marcado(s) como em atraso` })
+})
+
+// POST /api/emprestimos/:id/lembrete — cria lembrete automático para a próxima parcela
+emprestimos.post('/:id/lembrete', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { dias_antes = 3 } = await c.req.json().catch(() => ({})) as any
+
+  const emp = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  // Calcular próxima data de vencimento
+  const hoje = new Date()
+  const diaVenc = emp.dia_vencimento || 1
+  let proxVenc = new Date(hoje.getFullYear(), hoje.getMonth(), diaVenc)
+  if (proxVenc <= hoje) proxVenc.setMonth(proxVenc.getMonth() + 1)
+
+  const dataLembrete = new Date(proxVenc)
+  dataLembrete.setDate(dataLembrete.getDate() - parseInt(dias_antes))
+
+  // Verificar se tabela lembretes existe e inserir
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO lembretes (user_id, titulo, descricao, data_lembrete, categoria, referencia_id, referencia_tipo, recorrente, status)
+       VALUES (?, ?, ?, ?, 'Empréstimo', ?, 'emprestimo', 1, 'ativo')
+       ON CONFLICT DO NOTHING`
+    ).bind(
+      user.id,
+      `📅 Parcela: ${emp.descricao}`,
+      `Parcela ${emp.parcelas_pagas + 1}/${emp.numero_parcelas} de ${emp.descricao} vence em ${proxVenc.toLocaleDateString('pt-BR')}. Valor: R$ ${emp.valor_parcela.toFixed(2)}`,
+      dataLembrete.toISOString().split('T')[0],
+      emp.id
+    ).run()
+    return c.json({ success: true, data_lembrete: dataLembrete.toISOString().split('T')[0], dias_antes })
+  } catch (err: any) {
+    // Se a tabela lembretes não tiver as colunas esperadas, tenta inserção simplificada
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO lembretes (user_id, titulo, descricao, data_lembrete, categoria, status)
+         VALUES (?, ?, ?, ?, 'Empréstimo', 'ativo')`
+      ).bind(
+        user.id,
+        `📅 Parcela: ${emp.descricao}`,
+        `Parcela ${emp.parcelas_pagas + 1}/${emp.numero_parcelas} vence em ${proxVenc.toLocaleDateString('pt-BR')}. Valor: R$ ${emp.valor_parcela.toFixed(2)}`,
+        dataLembrete.toISOString().split('T')[0]
+      ).run()
+      return c.json({ success: true, data_lembrete: dataLembrete.toISOString().split('T')[0], dias_antes })
+    } catch (e2: any) {
+      return c.json({ error: 'Erro ao criar lembrete: ' + e2.message }, 500)
+    }
+  }
+})
