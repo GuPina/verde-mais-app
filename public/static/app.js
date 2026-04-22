@@ -3561,6 +3561,15 @@ const VM = {
               ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Beleza','Tecnologia','Viagem','Academia','Serviços','Presentes','Outros'].map(c => `<option value="${c}" ${c === catD ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
+          <!-- Filtro por Cartão -->
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Cartão</label>
+            <select id="filtro-cartao-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:130px;" onchange="VM.carregarDespesas()">
+              <option value="">Todos</option>
+              <option value="__sem_cartao__">Sem cartão</option>
+              <div id="filtro-cartao-options-placeholder"></div>
+            </select>
+          </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
             <div style="position:relative;">
@@ -3600,6 +3609,30 @@ const VM = {
     `
 
     this.carregarDespesas()
+    // Carregar cartões no filtro
+    this._carregarCartoesNoFiltroDesp()
+  },
+
+  async _carregarCartoesNoFiltroDesp() {
+    const sel = document.getElementById('filtro-cartao-d')
+    if (!sel) return
+    try {
+      const data = await this.api('GET', 'cartoes').catch(() => ({}))
+      const cartoes = data.cartoes || []
+      if (cartoes.length === 0) return
+      // Guardar valor atual
+      const atual = sel.value
+      // Remover opções antigas de cartão (manter "Todos" e "Sem cartão")
+      Array.from(sel.options).slice(2).forEach(o => o.remove())
+      cartoes.forEach(c => {
+        const opt = document.createElement('option')
+        opt.value = c.id
+        opt.textContent = `💳 ${c.nome}${c.bandeira ? ' (' + c.bandeira + ')' : ''}`
+        sel.appendChild(opt)
+      })
+      // Restaurar seleção salva
+      if (this._despesaFiltro?.cartaoFiltro) sel.value = this._despesaFiltro.cartaoFiltro
+    } catch(e) {}
   },
 
   _limparFiltrosDespesas() {
@@ -3610,6 +3643,7 @@ const VM = {
     if (el('filtro-status-d')) el('filtro-status-d').value = ''
     if (el('filtro-cat-d'))    el('filtro-cat-d').value    = ''
     if (el('filtro-busca-d'))  el('filtro-busca-d').value  = ''
+    if (el('filtro-cartao-d')) el('filtro-cartao-d').value = ''
     this.carregarDespesas()
   },
 
@@ -3655,15 +3689,23 @@ const VM = {
     const status = document.getElementById('filtro-status-d')?.value || ''
     const cat    = document.getElementById('filtro-cat-d')?.value    || ''
     const busca  = document.getElementById('filtro-busca-d')?.value  || ''
+    const cartaoFiltro = document.getElementById('filtro-cartao-d')?.value || ''
     const limit  = 20
     const offset = (pagina - 1) * limit
 
-    this._despesaFiltro = { mes, ano, status, cat, busca }
+    this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro }
 
     let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
     if (status) qs += `&status=${status}`
     if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
     if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
+    // Filtro por cartão: __sem_cartao__ → mean_pagamento sem cartão; ID numérico → cartao_id
+    if (cartaoFiltro && cartaoFiltro !== '__sem_cartao__') {
+      qs += `&cartao_id=${cartaoFiltro}`
+    } else if (cartaoFiltro === '__sem_cartao__') {
+      // Excluir despesas com cartão (sem cartao_id preenchido)
+      qs += `&sem_cartao=1`
+    }
 
     try {
       const data = await this.api('GET', `despesas?${qs}`)
@@ -3849,6 +3891,7 @@ const VM = {
                   <td>
                     <div style="font-weight:600;color:#f1f5f9;">${d.descricao}${parcelaBadge}</div>
                     ${d.observacoes ? `<div style="font-size:0.7rem;color:#555;margin-top:1px;">${d.observacoes}</div>` : ''}
+                    <div id="desp-tags-${d.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;min-height:0;"></div>
                   </td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:${catCor}18;border:1px solid ${catCor}35;font-size:0.78rem;font-weight:600;color:${catCor};">
@@ -3884,6 +3927,23 @@ const VM = {
 
       // Sync checkbox all → bar visibility
       document.getElementById('desp-chk-all')?.addEventListener('change', (e) => VM._selTodosDespesas(e.target.checked))
+
+      // Carregar tags de cada despesa de forma lazy (sem bloquear a renderização)
+      setTimeout(() => {
+        ;(data.despesas || []).forEach(async d => {
+          const el = document.getElementById('desp-tags-' + d.id)
+          if (!el || el.dataset.loaded === '1') return
+          el.dataset.loaded = '1'
+          try {
+            const tags = await this.api('GET', 'tags/despesa/' + d.id).catch(() => [])
+            if (tags && tags.length > 0) {
+              el.innerHTML = tags.map(t =>
+                '<span style="background:' + t.cor + '22;color:' + t.cor + ';border:1px solid ' + t.cor + '55;padding:1px 7px;border-radius:8px;font-size:0.65rem;font-weight:600;">' + t.nome + '</span>'
+              ).join('')
+            }
+          } catch(_) {}
+        })
+      }, 300)
 
     } catch (e) {
       this.toast('Erro ao carregar despesas', 'error')
@@ -4194,30 +4254,23 @@ const VM = {
               </label>
             </div>
 
-            <!-- Seletor de Tags -->
-            ${tagsDisponiveis.length > 0 ? `
-            <div class="form-group" style="margin-bottom:12px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <label class="form-label" style="margin-bottom:0;">🏷️ Tags</label>
-                <button type="button" id="btn-ia-tag" onclick="VM._sugerirTagIA()" style="padding:3px 10px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.3);border-radius:6px;font-size:0.72rem;cursor:pointer;font-weight:600;">✨ IA Sugerir</button>
+            <!-- Seletor de Tags (padrão moderno igual Receitas) -->
+            <div class="form-group" style="margin-top:14px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <label class="form-label" style="margin:0;">🏷️ Tags</label>
+                <button type="button" onclick="VM._sugerirTagIA()" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:8px;padding:4px 10px;font-size:0.72rem;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                  <i class="fas fa-magic"></i> Sugerir IA
+                </button>
               </div>
-              <div id="d-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;min-height:38px;">
-                ${tagsDisponiveis.map(t => {
-                  const sel = tagsDaDespesa.some(td => td.id === t.id)
-                  return `<span data-tag-id="${t.id}" data-tag-cor="${t.cor}" data-tag-selected="${sel?'1':'0'}" onclick="VM._toggleTag(this)" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;border:1.5px solid ${sel?t.cor:'rgba(255,255,255,0.1)'};background:${sel?t.cor+'22':'transparent'};color:${sel?t.cor:'#94A3B8'};transition:all 0.15s;user-select:none;">
-                    <span style="width:7px;height:7px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>${t.nome}
-                  </span>`
-                }).join('')}
+              <div id="d-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
+                <div style="color:#64748B;font-size:0.78rem;align-self:center;padding:2px 4px;" id="d-tags-placeholder">Clique em uma tag abaixo para adicionar</div>
+              </div>
+              <div id="d-tags-lista" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">
+                <div style="color:#64748B;font-size:0.75rem;width:100%;text-align:center;padding:8px;">Carregando tags...</div>
               </div>
               <div id="ia-tag-resultado" style="font-size:0.78rem;color:#818CF8;margin-top:4px;display:none;"></div>
-              <div style="font-size:0.7rem;color:#475569;margin-top:4px;">Clique para selecionar. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Gerenciar tags</a></div>
+              <input type="hidden" id="d-tag-ids" value="">
             </div>
-            ` : `
-            <div class="form-group" style="margin-bottom:12px;">
-              <label class="form-label">🏷️ Tags</label>
-              <div style="font-size:0.8rem;color:#475569;padding:6px 0;">Nenhuma tag criada. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Criar tags</a></div>
-            </div>
-            `}
 
             <div style="display:flex;gap:12px;margin-top:16px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;padding:11px;">
@@ -4235,6 +4288,8 @@ const VM = {
     // Inicializar estado do form via novo meio selecionado
     VM.onChangeMeioPagamento(meioSelecionado)
     this._carregarUltimasDespesasPorMeio(meioSelecionado)
+    // Carregar tags no modal (padrão moderno)
+    this._carregarTagsModalDespesa(despesa)
 
     // Quando alterar a data, recalcular billing se cartão estiver selecionado
     const dataInput = document.getElementById('d-data')
@@ -6576,73 +6631,109 @@ const VM = {
   // ═══════════════════════════════════════════════════════════════════════════
   async pageTags() {
     document.getElementById('page-content').innerHTML = `
-      <div class="section-header">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
         <div>
-          <div class="section-title">🏷️ Tags & Filtros</div>
-          <div style="color:#64748B;font-size:0.85rem;margin-top:2px;">Organize suas despesas com etiquetas personalizadas</div>
+          <div style="font-size:1.3rem;font-weight:800;color:#F1F5F9;display:flex;align-items:center;gap:10px;">
+            <span style="background:linear-gradient(135deg,#F43F5E,#818CF8);width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem;box-shadow:0 4px 12px rgba(244,63,94,0.3);">🏷️</span>
+            Tags &amp; Filtros
+          </div>
+          <div style="color:#64748B;font-size:0.83rem;margin-top:4px;padding-left:46px;">Organize e filtre seus lançamentos com etiquetas personalizadas</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:10px 20px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:9px 18px;font-size:0.83rem;">
             <i class="fas fa-plus"></i> Nova Tag
           </button>
-          <button onclick="VM.modalMesclarTags()" class="btn-secondary" style="width:auto;padding:10px 18px;" title="Detectar e mesclar tags duplicadas ou similares">
-            <i class="fas fa-code-branch"></i> Mesclar Similares
+          <button onclick="VM.modalMesclarTags()" class="btn-secondary" style="width:auto;padding:9px 14px;font-size:0.83rem;" title="Detectar e mesclar tags similares">
+            <i class="fas fa-code-branch"></i> Mesclar
           </button>
-          <button onclick="VM.pageDespesasSemTag()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(245,158,11,0.4);color:#F59E0B;" title="Ver despesas sem nenhuma tag">
-            <i class="fas fa-tag" style="opacity:0.6;"></i> Sem Tags <span id="badge-sem-tags" style="background:#F59E0B;color:#000;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-left:4px;display:none;">0</span>
+          <button onclick="VM.pageDespesasSemTag()" class="btn-secondary" style="width:auto;padding:9px 14px;font-size:0.83rem;border-color:rgba(245,158,11,0.4);color:#F59E0B;">
+            <i class="fas fa-unlink"></i> Sem Tags <span id="badge-sem-tags" style="background:#F59E0B;color:#000;border-radius:10px;padding:1px 7px;font-size:0.7rem;font-weight:700;margin-left:3px;display:none;">0</span>
           </button>
-          <button onclick="VM._exportarTagsCSV()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(16,185,129,0.4);color:#10B981;" title="Exportar todas as tags para CSV">
-            <i class="fas fa-download"></i> Exportar CSV
+          <button onclick="VM._exportarTagsCSV()" class="btn-secondary" style="width:auto;padding:9px 14px;font-size:0.83rem;border-color:rgba(16,185,129,0.4);color:#10B981;" title="Exportar CSV">
+            <i class="fas fa-download"></i>
           </button>
-          <button onclick="VM._toggleGraficoPizzaTags()" class="btn-secondary" style="width:auto;padding:10px 18px;border-color:rgba(59,130,246,0.4);color:#60A5FA;" title="Ver gráfico pizza de distribuição das tags">
-            <i class="fas fa-chart-pie"></i> Gráfico
+          <button onclick="VM._toggleGraficoPizzaTags()" class="btn-secondary" style="width:auto;padding:9px 14px;font-size:0.83rem;border-color:rgba(59,130,246,0.4);color:#60A5FA;" title="Gráfico pizza">
+            <i class="fas fa-chart-pie"></i>
           </button>
         </div>
       </div>
 
-      <!-- Barra de busca + ordenação -->
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:200px;position:relative;">
-          <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.8rem;pointer-events:none;"></i>
-          <input type="text" id="tag-busca" class="form-input" placeholder="Buscar tag por nome..."
-            style="padding:8px 12px 8px 34px;font-size:0.85rem;"
-            oninput="VM._filtrarTagsLocal()">
-        </div>
-        <select id="tag-ordem" class="form-select" style="width:auto;padding:8px 12px;font-size:0.85rem;" onchange="VM._filtrarTagsLocal()">
-          <option value="uso">Ordenar por uso</option>
-          <option value="nome">Ordenar A→Z</option>
-          <option value="valor">Ordenar por valor</option>
-        </select>
+      <!-- Stats Cards -->
+      <div id="tags-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px;">
+        ${[1,2,3,4].map(() => `<div class="skeleton" style="height:70px;border-radius:14px;"></div>`).join('')}
       </div>
 
-      <!-- Stats globais -->
-      <div id="tags-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
-        ${[1,2,3,4].map(() => `<div class="skeleton" style="height:60px;border-radius:12px;"></div>`).join('')}
-      </div>
-
-      <!-- Gráfico pizza (oculto por padrão) -->
-      <div id="tags-pizza-container" style="display:none;background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
-        <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;margin-bottom:16px;">🍕 Distribuição por Tag (valor total)</div>
+      <!-- Gráfico pizza (oculto) -->
+      <div id="tags-pizza-container" style="display:none;background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:20px;margin-bottom:22px;">
+        <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;margin-bottom:16px;">🍕 Distribuição por Valor Total</div>
         <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
           <div style="width:200px;height:200px;flex-shrink:0;"><canvas id="chart-tags-pizza"></canvas></div>
           <div id="tags-pizza-legenda" style="flex:1;min-width:200px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;"></div>
         </div>
       </div>
 
+      <!-- Controles: busca + filtro de tipo + ordenação -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;position:relative;">
+          <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:0.8rem;pointer-events:none;"></i>
+          <input type="text" id="tag-busca" class="form-input" placeholder="Buscar tag por nome..."
+            style="padding:9px 12px 9px 34px;font-size:0.84rem;"
+            oninput="VM._filtrarTagsLocal()">
+        </div>
+        <!-- Tabs por tipo -->
+        <div style="display:flex;gap:4px;background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:4px;">
+          <button id="tag-filtro-todos" onclick="VM._setFiltroTipoTag('todos')" style="padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:0.78rem;font-weight:700;background:rgba(99,102,241,0.25);color:#818CF8;transition:all 0.15s;">Todas</button>
+          <button id="tag-filtro-despesas" onclick="VM._setFiltroTipoTag('despesas')" style="padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:0.78rem;font-weight:600;background:transparent;color:#64748B;transition:all 0.15s;">🔴 Despesas</button>
+          <button id="tag-filtro-receitas" onclick="VM._setFiltroTipoTag('receitas')" style="padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:0.78rem;font-weight:600;background:transparent;color:#64748B;transition:all 0.15s;">🟢 Receitas</button>
+          <button id="tag-filtro-mistas" onclick="VM._setFiltroTipoTag('mistas')" style="padding:6px 14px;border-radius:7px;border:none;cursor:pointer;font-size:0.78rem;font-weight:600;background:transparent;color:#64748B;transition:all 0.15s;">🟣 Mistas</button>
+        </div>
+        <select id="tag-ordem" class="form-select" style="width:auto;padding:9px 12px;font-size:0.83rem;" onchange="VM._filtrarTagsLocal()">
+          <option value="uso">↓ Mais usadas</option>
+          <option value="nome">A → Z</option>
+          <option value="valor">↓ Maior valor</option>
+        </select>
+      </div>
+
+      <!-- Container de tags -->
       <div id="tags-container">
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
-          ${[1,2,3,4,5,6].map(() => `<div class="skeleton" style="height:72px;border-radius:14px;"></div>`).join('')}
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;">
+          ${[1,2,3,4,5,6].map(() => `<div class="skeleton" style="height:80px;border-radius:14px;"></div>`).join('')}
         </div>
       </div>
     `
+    // Estado do filtro de tipo
+    this._tagFiltroTipo = 'todos'
     await this.carregarTags()
+  },
+
+  _setFiltroTipoTag(tipo) {
+    this._tagFiltroTipo = tipo
+    // Atualizar visual dos botões
+    const botoes = { todos: 'tag-filtro-todos', despesas: 'tag-filtro-despesas', receitas: 'tag-filtro-receitas', mistas: 'tag-filtro-mistas' }
+    const cores   = { todos: '#818CF8', despesas: '#F43F5E', receitas: '#22C55E', mistas: '#818CF8' }
+    const bgs     = { todos: 'rgba(99,102,241,0.25)', despesas: 'rgba(244,63,94,0.2)', receitas: 'rgba(34,197,94,0.2)', mistas: 'rgba(99,102,241,0.2)' }
+    Object.entries(botoes).forEach(([k, id]) => {
+      const btn = document.getElementById(id)
+      if (!btn) return
+      if (k === tipo) {
+        btn.style.background = bgs[k]
+        btn.style.color = cores[k]
+        btn.style.fontWeight = '700'
+      } else {
+        btn.style.background = 'transparent'
+        btn.style.color = '#64748B'
+        btn.style.fontWeight = '600'
+      }
+    })
+    this._filtrarTagsLocal()
   },
 
   async carregarTags() {
     const cont = document.getElementById('tags-container')
     if (!cont) return
     try {
-      // Carregar contagem de despesas sem tag para o badge
+      // Badge de despesas sem tag
       this.api('GET', 'tags/despesas-sem-tag?limit=1').then(r => {
         const badge = document.getElementById('badge-sem-tags')
         if (badge && r && r.total > 0) {
@@ -6654,45 +6745,47 @@ const VM = {
       }).catch(() => {})
 
       const tags = await this.api('GET', 'tags')
-
-      // Guardar lista para filtro local
       this._tagsCache = tags || []
 
-      // Stats globais
+      // Stats
       const statsEl = document.getElementById('tags-stats')
       if (statsEl && tags && tags.length > 0) {
         const totalTags   = tags.length
-        const comUsoCount = tags.filter(t => t.usos > 0).length
-        const totalUsos   = tags.reduce((s, t) => s + (t.usos || 0), 0)
-        const totalValor  = tags.reduce((s, t) => s + (t.total_valor || 0), 0)
+        const comUso      = tags.filter(t => t.usos > 0).length
+        const totalUsos   = tags.reduce((s,t) => s + (t.usos||0), 0)
+        const totalValor  = tags.reduce((s,t) => s + (t.total_despesas||0) + (t.total_receitas||0) + (t.total_investimentos||0), 0)
+        const totalDesp   = tags.reduce((s,t) => s + (t.total_despesas||0), 0)
+        const totalRec    = tags.reduce((s,t) => s + (t.total_receitas||0), 0)
         statsEl.innerHTML = `
-          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:14px 16px;">
-            <div style="font-size:0.7rem;color:#6EE7B7;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Total de Tags</div>
-            <div style="font-size:1.6rem;font-weight:800;color:#10B981;">${totalTags}</div>
+          <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:14px;padding:16px 18px;">
+            <div style="font-size:0.68rem;color:#A5B4FC;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;font-weight:600;">Total de Tags</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#818CF8;line-height:1;">${totalTags}</div>
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">${comUso} em uso</div>
           </div>
-          <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:14px 16px;">
-            <div style="font-size:0.7rem;color:#93C5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Tags em uso</div>
-            <div style="font-size:1.6rem;font-weight:800;color:#3B82F6;">${comUsoCount}</div>
+          <div style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.2);border-radius:14px;padding:16px 18px;">
+            <div style="font-size:0.68rem;color:#FDA4AF;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;font-weight:600;">🔴 Tags Despesas</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#F43F5E;line-height:1;">${this.formatMoney(totalDesp)}</div>
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">${tags.filter(t=>(t.usos_despesas||0)>0).length} tags ativas</div>
           </div>
-          <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:14px 16px;">
-            <div style="font-size:0.7rem;color:#C4B5FD;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Vínculos Totais</div>
-            <div style="font-size:1.6rem;font-weight:800;color:#8B5CF6;">${totalUsos}</div>
+          <div style="background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.2);border-radius:14px;padding:16px 18px;">
+            <div style="font-size:0.68rem;color:#86EFAC;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;font-weight:600;">🟢 Tags Receitas</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#22C55E;line-height:1;">${this.formatMoney(totalRec)}</div>
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">${tags.filter(t=>(t.usos_receitas||0)>0).length} tags ativas</div>
           </div>
-          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:14px 16px;">
-            <div style="font-size:0.7rem;color:#FDE68A;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Valor Tagueado</div>
-            <div style="font-size:1.3rem;font-weight:800;color:#F59E0B;">${this.formatMoney(totalValor)}</div>
+          <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:16px 18px;">
+            <div style="font-size:0.68rem;color:#FDE68A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;font-weight:600;">Vínculos Totais</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#F59E0B;line-height:1;">${totalUsos}</div>
+            <div style="font-size:0.72rem;color:#475569;margin-top:4px;">${this.formatMoney(totalValor)} total</div>
           </div>
         `
-      } else if (statsEl) {
-        statsEl.innerHTML = ''
-      }
+      } else if (statsEl) { statsEl.innerHTML = '' }
 
       if (!tags || tags.length === 0) {
         cont.innerHTML = `
           <div class="empty-state">
-            <div style="font-size:3rem;margin-bottom:16px;">🏷️</div>
-            <h3>Nenhuma tag criada</h3>
-            <p>Tags ajudam a organizar e filtrar despesas por projeto, viagem, pessoa ou qualquer critério.</p>
+            <div style="font-size:3.5rem;margin-bottom:16px;">🏷️</div>
+            <h3 style="font-size:1.1rem;color:#94A3B8;">Nenhuma tag ainda</h3>
+            <p style="color:#475569;font-size:0.85rem;">Tags ajudam a organizar e filtrar lançamentos por projeto, pessoa ou qualquer critério.</p>
             <button onclick="VM.modalNovaTag()" class="btn-primary" style="width:auto;padding:12px 24px;margin-top:16px;">
               <i class="fas fa-plus"></i> Criar primeira tag
             </button>
@@ -6702,7 +6795,7 @@ const VM = {
 
       this._filtrarTagsLocal()
     } catch (err) {
-      cont.innerHTML = `<div class="empty-state"><p>Erro ao carregar tags</p></div>`
+      cont.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">Erro ao carregar tags</p></div>`
     }
   },
 
@@ -6712,82 +6805,130 @@ const VM = {
     const tags  = this._tagsCache || []
     const busca = (document.getElementById('tag-busca')?.value || '').toLowerCase().trim()
     const ordem = document.getElementById('tag-ordem')?.value || 'uso'
+    const filtroTipo = this._tagFiltroTipo || 'todos'
 
     let lista = busca ? tags.filter(t => t.nome.toLowerCase().includes(busca)) : [...tags]
+
+    // Filtro por tipo via tab
+    if (filtroTipo === 'despesas') {
+      lista = lista.filter(t => (t.usos_despesas||0) > 0 && (t.usos_receitas||0) === 0 && (t.usos_investimentos||0) === 0)
+    } else if (filtroTipo === 'receitas') {
+      lista = lista.filter(t => (t.usos_receitas||0) > 0 && (t.usos_despesas||0) === 0 && (t.usos_investimentos||0) === 0)
+    } else if (filtroTipo === 'mistas') {
+      lista = lista.filter(t => {
+        const tipos = [(t.usos_despesas||0)>0, (t.usos_receitas||0)>0, (t.usos_investimentos||0)>0].filter(Boolean).length
+        return tipos > 1
+      })
+    }
 
     if (ordem === 'nome')  lista.sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     else if (ordem === 'valor') lista.sort((a,b) => ((b.total_despesas||0)+(b.total_receitas||0)+(b.total_investimentos||0)) - ((a.total_despesas||0)+(a.total_receitas||0)+(a.total_investimentos||0)))
     else lista.sort((a,b) => (b.usos||0) - (a.usos||0))
 
     if (lista.length === 0) {
-      cont.innerHTML = '<div style="text-align:center;padding:40px;color:#475569;">Nenhuma tag encontrada.</div>'
+      cont.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#475569;"><div style="font-size:2rem;margin-bottom:12px;">🔍</div><div>Nenhuma tag encontrada.</div></div>'
       return
     }
 
-    // Separar tags por tipo
-    const soDespesas = lista.filter(t => (t.usos_despesas||0)>0 && (t.usos_receitas||0)===0 && (t.usos_investimentos||0)===0)
-    const soReceitas = lista.filter(t => (t.usos_receitas||0)>0 && (t.usos_despesas||0)===0 && (t.usos_investimentos||0)===0)
-    const mistas     = lista.filter(t => (t.usos||0)>0 && !soDespesas.includes(t) && !soReceitas.includes(t))
-    const semUso     = lista.filter(t => (t.usos||0)===0)
-
     const fmtMoney = (v) => this.formatMoney(v)
 
+    // Badges de uso por tipo
     const renderBadges = (tag) => {
       const parts = []
-      if ((tag.usos_despesas||0) > 0)      parts.push('<span style="background:rgba(244,63,94,0.15);color:#F43F5E;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🔴 ' + tag.usos_despesas + ' desp · ' + fmtMoney(tag.total_despesas||0) + '</span>')
-      if ((tag.usos_receitas||0) > 0)      parts.push('<span style="background:rgba(34,197,94,0.15);color:#22C55E;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🟢 ' + tag.usos_receitas + ' rec · ' + fmtMoney(tag.total_receitas||0) + '</span>')
-      if ((tag.usos_investimentos||0) > 0) parts.push('<span style="background:rgba(99,102,241,0.15);color:#818CF8;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🟣 ' + tag.usos_investimentos + ' inv · ' + fmtMoney(tag.total_investimentos||0) + '</span>')
+      if ((tag.usos_despesas||0) > 0)      parts.push('<span style="background:rgba(244,63,94,0.15);color:#F43F5E;padding:2px 8px;border-radius:10px;font-size:0.67rem;font-weight:700;">🔴 ' + tag.usos_despesas + ' desp · ' + fmtMoney(tag.total_despesas||0) + '</span>')
+      if ((tag.usos_receitas||0) > 0)      parts.push('<span style="background:rgba(34,197,94,0.15);color:#22C55E;padding:2px 8px;border-radius:10px;font-size:0.67rem;font-weight:700;">🟢 ' + tag.usos_receitas + ' rec · ' + fmtMoney(tag.total_receitas||0) + '</span>')
+      if ((tag.usos_investimentos||0) > 0) parts.push('<span style="background:rgba(99,102,241,0.15);color:#818CF8;padding:2px 8px;border-radius:10px;font-size:0.67rem;font-weight:700;">🟣 ' + tag.usos_investimentos + ' inv · ' + fmtMoney(tag.total_investimentos||0) + '</span>')
       return parts.length > 0
-        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">' + parts.join('') + '</div>'
-        : '<div style="font-size:0.72rem;color:#475569;margin-top:3px;"><i class=\'fas fa-unlink\' style=\'font-size:0.65rem;margin-right:3px;\'></i>Sem vínculos</div>'
+        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">' + parts.join('') + '</div>'
+        : '<div style="font-size:0.71rem;color:#334155;margin-top:4px;display:flex;align-items:center;gap:4px;"><i class="fas fa-unlink" style="font-size:0.6rem;"></i> Sem vínculos</div>'
+    }
+
+    // Indicador de tipo da tag (ícone lateral)
+    const tipoIcone = (tag) => {
+      const d = (tag.usos_despesas||0) > 0
+      const r = (tag.usos_receitas||0) > 0
+      const i = (tag.usos_investimentos||0) > 0
+      const qtTipos = [d,r,i].filter(Boolean).length
+      if (qtTipos > 1) return { icon: '🟣', color: '#818CF8' }
+      if (d) return { icon: '🔴', color: '#F43F5E' }
+      if (r) return { icon: '🟢', color: '#22C55E' }
+      if (i) return { icon: '🔵', color: '#3B82F6' }
+      return { icon: '', color: '#334155' }
     }
 
     const renderCard = (tag) => {
       const nome = tag.nome.replace(/'/g, "\\'")
       const cor  = tag.cor
-      return '<div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px;display:flex;align-items:flex-start;gap:14px;transition:border-color 0.2s,background 0.2s;" onmouseover="this.style.borderColor=\'rgba(255,255,255,0.15)\';this.style.background=\'rgba(30,41,59,0.95)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.07)\';this.style.background=\'rgba(30,41,59,0.7)\'">'
-        + '<div style="width:38px;height:38px;border-radius:10px;background:' + cor + '22;border:2px solid ' + cor + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;"><div style="width:12px;height:12px;border-radius:3px;background:' + cor + ';"></div></div>'
-        + '<div style="flex:1;min-width:0;"><div style="font-weight:600;color:#F1F5F9;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + tag.nome + '">' + tag.nome + '</div>' + renderBadges(tag) + '</div>'
-        + '<div style="display:flex;gap:5px;flex-shrink:0;">'
-        + '<button onclick="VM.buscarPorTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Ver lançamentos" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:#10B981;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(16,185,129,0.22)\'" onmouseout="this.style.background=\'rgba(16,185,129,0.1)\'"><i class="fas fa-search"></i></button>'
-        + '<button onclick="VM.modalEditarTag(' + tag.id + ',\'' + nome + '\',\'' + cor + '\');event.stopPropagation()" title="Editar" style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.18);color:#94A3B8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(148,163,184,0.18)\'" onmouseout="this.style.background=\'rgba(148,163,184,0.08)\'"><i class="fas fa-pen"></i></button>'
-        + '<button onclick="VM.excluirTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Excluir" style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(244,63,94,0.18)\'" onmouseout="this.style.background=\'rgba(244,63,94,0.07)\'"><i class="fas fa-trash"></i></button>'
-        + '</div></div>'
-    }
-
-    const renderSecao = (titulo, cor, icone, lista, totalExtra) => {
-      if (lista.length === 0) return ''
-      const extraHtml = totalExtra ? '<span style="font-size:0.72rem;color:#64748B;margin-left:auto;">' + totalExtra + '</span>' : ''
-      return '<div style="margin-bottom:24px;">'
-        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-left:2px;">'
-        + '<div style="width:10px;height:10px;border-radius:50%;background:' + cor + ';"></div>'
-        + '<span style="font-size:0.72rem;font-weight:700;color:' + cor + ';text-transform:uppercase;letter-spacing:0.08em;">' + icone + ' ' + titulo + ' · ' + lista.length + '</span>'
-        + extraHtml
+      const tipo = tipoIcone(tag)
+      return '<div style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.06);border-left:3px solid ' + cor + ';border-radius:14px;padding:14px 16px;display:flex;align-items:flex-start;gap:14px;transition:all 0.2s;cursor:default;" onmouseover="this.style.background=\'rgba(30,41,59,0.9)\';this.style.borderColor=\'rgba(255,255,255,0.14)\'" onmouseout="this.style.background=\'rgba(15,23,42,0.5)\';this.style.borderColor=\'rgba(255,255,255,0.06)\'">'
+        + '<div style="width:40px;height:40px;border-radius:12px;background:' + cor + '18;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
+        +   '<div style="width:14px;height:14px;border-radius:4px;background:' + cor + ';box-shadow:0 0 8px ' + cor + '66;"></div>'
         + '</div>'
-        + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">'
-        + lista.map(renderCard).join('')
+        + '<div style="flex:1;min-width:0;">'
+        +   '<div style="display:flex;align-items:center;gap:6px;">'
+        +     '<span style="font-weight:700;color:#F1F5F9;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + tag.nome + '">' + tag.nome + '</span>'
+        +     (tipo.icon ? '<span style="font-size:0.7rem;flex-shrink:0;">' + tipo.icon + '</span>' : '')
+        +   '</div>'
+        +   renderBadges(tag)
+        + '</div>'
+        + '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
+        +   '<button onclick="VM.buscarPorTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Ver lançamentos" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10B981;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(16,185,129,0.22)\'" onmouseout="this.style.background=\'rgba(16,185,129,0.1)\'"><i class="fas fa-search"></i></button>'
+        +   '<button onclick="VM.modalEditarTag(' + tag.id + ',\'' + nome + '\',\'' + cor + '\');event.stopPropagation()" title="Editar" style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.15);color:#94A3B8;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(148,163,184,0.18)\'" onmouseout="this.style.background=\'rgba(148,163,184,0.08)\'"><i class="fas fa-pen"></i></button>'
+        +   '<button onclick="VM.excluirTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Excluir" style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.18);color:#F43F5E;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(244,63,94,0.2)\'" onmouseout="this.style.background=\'rgba(244,63,94,0.07)\'"><i class="fas fa-trash"></i></button>'
         + '</div></div>'
     }
 
-    const totDesp = soDespesas.reduce((s,t) => s + (t.total_despesas||0), 0)
-    const totRec  = soReceitas.reduce((s,t) => s + (t.total_receitas||0), 0)
-
+    // Separar por categoria (apenas quando filtro = todos)
     let html = ''
-    html += renderSecao('Tags de Despesas',   '#F43F5E', '🔴', soDespesas, totDesp > 0 ? 'Total: ' + fmtMoney(totDesp) : '')
-    html += renderSecao('Tags de Receitas',   '#22C55E', '🟢', soReceitas, totRec > 0  ? 'Total: ' + fmtMoney(totRec)  : '')
-    html += renderSecao('Tags Mistas',        '#818CF8', '🟣', mistas, '')
 
-    if (semUso.length > 0) {
-      html += '<div style="margin-top:8px;">'
-            + '<div style="font-size:0.72rem;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">Sem uso · ' + semUso.length + '</div>'
-            + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;opacity:0.6;">'
-            + semUso.map(renderCard).join('')
-            + '</div></div>'
+    if (filtroTipo === 'todos' && !busca) {
+      const soDespesas = lista.filter(t => (t.usos_despesas||0)>0 && (t.usos_receitas||0)===0 && (t.usos_investimentos||0)===0)
+      const soReceitas = lista.filter(t => (t.usos_receitas||0)>0 && (t.usos_despesas||0)===0 && (t.usos_investimentos||0)===0)
+      const mistas     = lista.filter(t => {
+        const tipos = [(t.usos_despesas||0)>0,(t.usos_receitas||0)>0,(t.usos_investimentos||0)>0].filter(Boolean).length
+        return tipos > 1
+      })
+      const semUso = lista.filter(t => (t.usos||0)===0)
+
+      const fmtSecao = (titulo, cor, icone, arr, totExtra) => {
+        if (arr.length === 0) return ''
+        return '<div style="margin-bottom:28px;">'
+          + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.05);">'
+          +   '<div style="width:8px;height:8px;border-radius:50%;background:' + cor + ';box-shadow:0 0 6px ' + cor + '88;"></div>'
+          +   '<span style="font-size:0.72rem;font-weight:800;color:' + cor + ';text-transform:uppercase;letter-spacing:0.1em;">' + icone + ' ' + titulo + '</span>'
+          +   '<span style="font-size:0.72rem;color:#334155;background:rgba(255,255,255,0.04);border-radius:8px;padding:1px 8px;">' + arr.length + '</span>'
+          +   (totExtra ? '<span style="font-size:0.72rem;color:#64748B;margin-left:auto;">' + totExtra + '</span>' : '')
+          + '</div>'
+          + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">' + arr.map(renderCard).join('') + '</div>'
+          + '</div>'
+      }
+
+      const totDesp = soDespesas.reduce((s,t) => s + (t.total_despesas||0), 0)
+      const totRec  = soReceitas.reduce((s,t) => s + (t.total_receitas||0), 0)
+
+      html += fmtSecao('Tags de Despesas',  '#F43F5E', '🔴', soDespesas, totDesp > 0 ? 'Total: ' + fmtMoney(totDesp) : '')
+      html += fmtSecao('Tags de Receitas',  '#22C55E', '🟢', soReceitas, totRec > 0  ? 'Total: ' + fmtMoney(totRec)  : '')
+      html += fmtSecao('Tags Mistas',       '#818CF8', '🟣', mistas, '')
+
+      if (semUso.length > 0) {
+        html += '<div style="margin-bottom:24px;opacity:0.55;">'
+              + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.04);">'
+              +   '<div style="width:8px;height:8px;border-radius:50%;background:#334155;"></div>'
+              +   '<span style="font-size:0.72rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:0.1em;">Sem uso · ' + semUso.length + '</span>'
+              + '</div>'
+              + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">' + semUso.map(renderCard).join('') + '</div>'
+              + '</div>'
+      }
+    } else {
+      // Filtro ativo ou busca → lista plana
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">' + lista.map(renderCard).join('') + '</div>'
     }
 
     html += '<div id="tag-busca-resultado" style="margin-top:24px;"></div>'
     cont.innerHTML = html
-  },  _exportarTagsCSV() {
+  },
+
+    _exportarTagsCSV() {
     const tags = this._tagsCache || []
     if (tags.length === 0) { this.toast('Nenhuma tag para exportar', 'warning'); return }
     const rows = [
@@ -6899,86 +7040,149 @@ const VM = {
   },
 
   // Botao IA para sugerir tag com base na descricao e categoria da despesa
-  async _sugerirTagIA() {
-    const desc = document.getElementById('d-desc')?.value?.trim()
-    const cat = document.getElementById('d-cat')?.value?.trim()
-    if (!desc) { this.toast('Preencha a descricao antes de usar a IA', 'warning'); return }
-    const btn = document.getElementById('btn-ia-tag')
-    const resultEl = document.getElementById('ia-tag-resultado')
-    if (!btn || !resultEl) return
-    btn.disabled = true; btn.textContent = 'Buscando...'
-    resultEl.style.display = 'none'
-    try {
-      const chips = document.querySelectorAll('#d-tags-chips [data-tag-id]')
-      const tagsExistentes = Array.from(chips).map(c => ({ id: c.dataset.tagId, nome: c.textContent.trim() }))
-      const nomes = tagsExistentes.map(t => t.nome).join(', ')
-      const prompt = `Despesa: "${desc}", Categoria: "${cat}". Tags disponiveis: ${nomes || 'nenhuma'}. Qual tag se encaixa melhor? Responda apenas com o nome exato da tag ou "nenhuma".`
-      const resp = await this.api('POST', 'ia/tag-sugestao', { descricao: desc, categoria: cat, tags: tagsExistentes })
-      const sugerida = resp.tag_sugerida || ''
-      const novaTag  = resp.nova_tag || ''
-      const metodo   = resp.metodo || ''
+  // ─── Carregar tags no modal Despesa (padrão moderno idêntico ao Receitas) ───
+  async _carregarTagsModalDespesa(despesa = null) {
+    const lista      = document.getElementById('d-tags-lista')
+    const chips      = document.getElementById('d-tags-chips')
+    const hiddenInput = document.getElementById('d-tag-ids')
+    if (!lista) return
 
-      if (sugerida && sugerida !== 'nenhuma') {
-        // IA encontrou uma tag existente que se encaixa
-        const chip = Array.from(chips).find(c => c.textContent.trim().toLowerCase() === sugerida.toLowerCase())
-        if (chip) {
-          if (chip.dataset.tagSelected !== '1') this._toggleTag(chip)
-          resultEl.innerHTML = `<span style="color:#10B981">✓ Tag selecionada pela IA:</span> <strong>${sugerida}</strong>`
-          resultEl.style.display = 'block'
-        } else {
-          resultEl.innerHTML = `<span style="color:#F59E0B">⚠ IA sugeriu:</span> <strong>${sugerida}</strong> (tag não encontrada na lista)`
-          resultEl.style.display = 'block'
-        }
-      } else if (novaTag && metodo === 'ia_nova_tag') {
-        // IA sugere criar uma nova tag — oferecer ao usuário
-        resultEl.innerHTML = `
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="color:#A78BFA">💡 IA sugere criar tag:</span>
-            <strong style="color:#fff">${novaTag}</strong>
-            <button onclick="VM._criarTagSugerida('${novaTag.replace(/'/g,"\\'")}', this)"
-              style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">
-              + Criar esta tag
-            </button>
-          </div>`
-        resultEl.style.display = 'block'
-      } else {
-        resultEl.innerHTML = `<span style="color:#94A3B8">IA não encontrou tag adequada para esta descrição.</span>`
-        resultEl.style.display = 'block'
+    try {
+      let allTags = this._tagsCache
+      if (!allTags || allTags.length === 0) {
+        const r = await this.api('GET', 'tags').catch(() => [])
+        allTags = Array.isArray(r) ? r : (r?.tags || [])
       }
+
+      // Tags já vinculadas (modo edição)
+      let tagsSelecionadas = new Set()
+      if (despesa?.id) {
+        const tagsDep = await this.api('GET', 'tags/despesa/' + despesa.id).catch(() => [])
+        ;(tagsDep || []).forEach(t => tagsSelecionadas.add(t.id))
+      }
+
+      hiddenInput.value = [...tagsSelecionadas].join(',')
+
+      const atualizarChips = () => {
+        const selecionadas = allTags.filter(t => tagsSelecionadas.has(t.id))
+        const ph = document.getElementById('d-tags-placeholder')
+        if (ph) ph.style.display = selecionadas.length > 0 ? 'none' : 'block'
+        document.querySelectorAll('.d-tag-chip-sel').forEach(el => el.remove())
+        selecionadas.forEach(t => {
+          const chip = document.createElement('span')
+          chip.className = 'd-tag-chip-sel'
+          chip.style.cssText = 'background:' + t.cor + '22;color:' + t.cor + ';border:1px solid ' + t.cor + '55;padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;'
+          chip.innerHTML = t.nome + ' <span style="opacity:0.7;font-size:0.7rem;">✕</span>'
+          chip.onclick = () => {
+            tagsSelecionadas.delete(t.id)
+            hiddenInput.value = [...tagsSelecionadas].join(',')
+            atualizarChips()
+            atualizarLista()
+          }
+          chips.appendChild(chip)
+        })
+      }
+
+      const atualizarLista = () => {
+        lista.innerHTML = allTags.length === 0
+          ? '<div style="color:#64748B;font-size:0.75rem;text-align:center;width:100%;padding:8px;">Nenhuma tag cadastrada. <a onclick="VM.navigate(\'tags\')" style="color:#F43F5E;cursor:pointer;">Criar tags →</a></div>'
+          : allTags.map(t => {
+              const sel = tagsSelecionadas.has(t.id)
+              return '<span onclick="VM._toggleTagDespesa(' + t.id + ')" data-tag-despesa-id="' + t.id + '" style="padding:4px 12px;border-radius:12px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1.5px solid ' + (sel ? t.cor : t.cor + '55') + ';background:' + (sel ? t.cor + '22' : 'transparent') + ';color:' + (sel ? t.cor : '#94A3B8') + ';transition:all 0.15s;">' + t.nome + '</span>'
+            }).join('')
+      }
+
+      this._tagModalDespesaState = { allTags, tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista }
+      atualizarChips()
+      atualizarLista()
+
     } catch(e) {
-      resultEl.textContent = 'Erro ao consultar IA: ' + (e.message || 'tente novamente')
-      resultEl.style.display = 'block'
-    } finally {
-      btn.disabled = false; btn.textContent = 'IA Sugerir'
+      if (lista) lista.innerHTML = '<div style="color:#F43F5E;font-size:0.75rem;">Erro ao carregar tags</div>'
     }
   },
 
-  // Criar tag sugerida pela IA e selecioná-la automaticamente no modal
-  async _criarTagSugerida(nome, btnEl) {
+  _toggleTagDespesa(tagId) {
+    const state = this._tagModalDespesaState
+    if (!state) return
+    const { tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista } = state
+    if (tagsSelecionadas.has(tagId)) {
+      tagsSelecionadas.delete(tagId)
+    } else {
+      tagsSelecionadas.add(tagId)
+    }
+    hiddenInput.value = [...tagsSelecionadas].join(',')
+    atualizarChips()
+    atualizarLista()
+  },
+
+  // Sugestão IA de tag para Despesa (usa _tagModalDespesaState como Receitas)
+  async _sugerirTagIA() {
+    const desc = document.getElementById('d-desc')?.value?.trim()
+    const cat  = document.getElementById('d-cat')?.value?.trim()
+    if (!desc && !cat) { this.toast('Preencha Descrição ou Categoria antes de usar a IA', 'warning'); return }
+    const btn = document.querySelector('[onclick="VM._sugerirTagIA()"]')
+    const resultEl = document.getElementById('ia-tag-resultado')
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> IA...' }
+    if (resultEl) resultEl.style.display = 'none'
+    try {
+      const r = await this.api('POST', 'tags/sugerir-ia', { descricao: desc, categoria: cat, tipo: 'despesa' })
+      const state = this._tagModalDespesaState
+      if (!state) return
+      const { allTags, tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista } = state
+
+      if (r.tag && r.tag.id) {
+        tagsSelecionadas.add(r.tag.id)
+        hiddenInput.value = [...tagsSelecionadas].join(',')
+        atualizarChips()
+        atualizarLista()
+        this.toast('✨ IA sugeriu: ' + r.tag.nome)
+        if (resultEl) {
+          resultEl.innerHTML = '<span style="color:#10B981">✓ Tag selecionada pela IA:</span> <strong>' + r.tag.nome + '</strong>'
+          resultEl.style.display = 'block'
+        }
+      } else if (r.nova_tag) {
+        if (resultEl) {
+          resultEl.innerHTML = \`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="color:#A78BFA">💡 IA sugere criar tag:</span>
+            <strong style="color:#fff">\${r.nova_tag}</strong>
+            <button onclick="VM._criarTagSugeridaDespesa('\${r.nova_tag.replace(/'/g,"\\'")}', this)"
+              style="background:#7C3AED;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">
+              + Criar esta tag
+            </button>
+          </div>\`
+          resultEl.style.display = 'block'
+        }
+      } else {
+        if (resultEl) {
+          resultEl.innerHTML = '<span style="color:#94A3B8">IA não encontrou tag adequada para esta descrição.</span>'
+          resultEl.style.display = 'block'
+        }
+      }
+    } catch(e) {
+      if (resultEl) { resultEl.textContent = 'Erro ao consultar IA'; resultEl.style.display = 'block' }
+      this.toast('Erro ao sugerir tag com IA', 'error')
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Sugerir IA' }
+    }
+  },
+
+  async _criarTagSugeridaDespesa(nome, btnEl) {
     if (!nome) return
     try {
       if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Criando...' }
-      const resp = await this.api('POST', 'tags', { nome: nome.trim(), cor: '#7C3AED' })
-      if (resp && resp.id) {
-        // Adicionar chip dinamicamente ao container de tags
-        const chipsContainer = document.getElementById('d-tags-chips')
-        if (chipsContainer) {
-          const chip = document.createElement('span')
-          chip.dataset.tagId = resp.id
-          chip.dataset.tagCor = '#7C3AED'
-          chip.dataset.tagSelected = '0'
-          chip.style.cssText = 'display:inline-block;padding:3px 10px;border-radius:20px;cursor:pointer;font-size:12px;border:1.5px solid rgba(255,255,255,0.1);color:#94A3B8;margin:2px'
-          chip.textContent = nome
-          chip.onclick = () => this._toggleTag(chip)
-          chipsContainer.appendChild(chip)
-          // Selecionar automaticamente
-          this._toggleTag(chip)
+      const novaTag = await this.api('POST', 'tags', { nome: nome.trim(), cor: '#F43F5E' })
+      if (novaTag?.id) {
+        const state = this._tagModalDespesaState
+        if (state) {
+          state.allTags.push(novaTag)
+          state.tagsSelecionadas.add(novaTag.id)
+          state.hiddenInput.value = [...state.tagsSelecionadas].join(',')
+          state.atualizarChips()
+          state.atualizarLista()
         }
         const resultEl = document.getElementById('ia-tag-resultado')
-        if (resultEl) {
-          resultEl.innerHTML = `<span style="color:#10B981">✓ Tag <strong>${nome}</strong> criada e selecionada!</span>`
-        }
-        this.toast(`Tag "${nome}" criada com sucesso!`, 'success')
+        if (resultEl) resultEl.innerHTML = '<span style="color:#10B981">✓ Tag <strong>' + nome + '</strong> criada e selecionada!</span>'
+        this.toast('Tag "' + nome + '" criada com sucesso!')
       }
     } catch(e) {
       this.toast('Erro ao criar tag: ' + (e.message || 'tente novamente'), 'error')
@@ -6986,25 +7190,17 @@ const VM = {
     }
   },
 
-  // Toggle visual de tag no modal de despesa
+  // Toggle visual de tag no modal de despesa (legado - mantido por compatibilidade)
   _toggleTag(el) {
-    const cor = el.getAttribute('data-tag-cor') || '#10B981'
-    const isOn = el.dataset.tagSelected === '1'
-    if (isOn) {
-      el.dataset.tagSelected = '0'
-      el.style.border = '1.5px solid rgba(255,255,255,0.1)'
-      el.style.background = 'transparent'
-      el.style.color = '#94A3B8'
-    } else {
-      el.dataset.tagSelected = '1'
-      el.style.background = cor + '33'
-      el.style.color = cor
-      el.style.border = '1.5px solid ' + cor
-    }
-  },
 
   // Retorna IDs das tags selecionadas no modal de despesa
   _getTagsSelecionadas() {
+    // Usar hidden input (padrão moderno) ou fallback para chips antigos
+    const hiddenInput = document.getElementById('d-tag-ids')
+    if (hiddenInput) {
+      const val = hiddenInput.value.trim()
+      return val ? val.split(',').map(v => parseInt(v)).filter(n => !isNaN(n)) : []
+    }
     const chips = document.querySelectorAll('#d-tags-chips [data-tag-id][data-tag-selected="1"]')
     return Array.from(chips).map(c => parseInt(c.dataset.tagId))
   },
