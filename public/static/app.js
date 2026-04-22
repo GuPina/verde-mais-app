@@ -2118,21 +2118,77 @@ const VM = {
           </div>
         </div>
 
-        <!-- TOP TAGS ROW -->
-        ${top_tags.length > 0 ? `
-        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
-          <div style="font-size:0.8rem;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Tags com Maior Gasto no Mes</div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-            ${top_tags.map((t, i) => `
-              <div onclick="VM.navigate('despesas')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 14px;background:${t.cor}18;border:1px solid ${t.cor}44;border-radius:20px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>
-                <span style="font-size:0.8rem;font-weight:600;color:${t.cor};">${t.nome}</span>
-                <span style="font-size:0.78rem;color:#94A3B8;">${this.formatMoney(t.total)}</span>
-                <span style="font-size:0.7rem;color:#475569;">(${t.qtd} lanc.)</span>
+        <!-- TOP TAGS DO MÊS -->
+        ${top_tags.length > 0 ? (() => {
+          const totalTags = top_tags.reduce((s, t) => s + t.total, 0)
+          const topTag = top_tags[0]
+          return `
+        <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden;">
+          <!-- Header do card -->
+          <div style="padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,rgba(116,185,255,0.2),rgba(116,185,255,0.05));border:1px solid rgba(116,185,255,0.25);display:flex;align-items:center;justify-content:center;font-size:1rem;">🏷️</div>
+              <div>
+                <div style="font-size:0.95rem;font-weight:700;color:#f1f5f9;">Gastos por Tag</div>
+                <div style="font-size:0.7rem;color:#555;margin-top:1px;">${mesNomeAtual} · ${top_tags.length} tag${top_tags.length !== 1 ? 's' : ''} · ${top_tags.reduce((s,t)=>s+t.qtd,0)} lançamentos</div>
               </div>
-            `).join('')}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="text-align:right;">
+                <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Total tagueado</div>
+                <div style="font-size:0.92rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(totalTags)}</div>
+              </div>
+              <button onclick="VM.navigate('tags')" class="btn-secondary" style="font-size:0.72rem;padding:5px 12px;white-space:nowrap;">Ver todas →</button>
+            </div>
           </div>
-        </div>` : ''}
+
+          <!-- Destaque: maior tag -->
+          <div style="padding:12px 20px 10px;background:${topTag.cor}08;border-bottom:1px solid ${topTag.cor}18;">
+            <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">🥇 Maior gasto</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:40px;height:40px;border-radius:12px;background:${topTag.cor}20;border:2px solid ${topTag.cor}50;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <span style="width:14px;height:14px;border-radius:50%;background:${topTag.cor};display:block;box-shadow:0 0 8px ${topTag.cor}80;"></span>
+              </div>
+              <div style="flex:1;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+                  <span style="font-size:1rem;font-weight:800;color:${topTag.cor};">${topTag.nome}</span>
+                  <span style="font-size:1.05rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(topTag.total)}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                  <span style="font-size:0.72rem;color:#555;">${topTag.qtd} lançamento${topTag.qtd !== 1 ? 's' : ''}</span>
+                  <span style="font-size:0.72rem;color:${topTag.cor};background:${topTag.cor}18;padding:2px 8px;border-radius:10px;font-weight:700;">${totalTags > 0 ? Math.round((topTag.total/totalTags)*100) : 0}% do total</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lista das demais tags -->
+          <div style="padding:10px 20px 14px;display:flex;flex-direction:column;gap:8px;">
+            ${top_tags.slice(1).map((t, i) => {
+              const pct = totalTags > 0 ? Math.round((t.total / totalTags) * 100) : 0
+              const rank = ['🥈','🥉','4️⃣','5️⃣'][i] || `${i+2}º`
+              return `
+              <div onclick="VM.navigate('despesas')" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:${t.cor}07;border:1px solid ${t.cor}1a;transition:all 0.15s;" onmouseover="this.style.background='${t.cor}14';this.style.borderColor='${t.cor}35'" onmouseout="this.style.background='${t.cor}07';this.style.borderColor='${t.cor}1a'">
+                <div style="font-size:0.85rem;min-width:22px;text-align:center;">${rank}</div>
+                <div style="width:10px;height:10px;border-radius:50%;background:${t.cor};flex-shrink:0;box-shadow:0 0 5px ${t.cor}60;"></div>
+                <div style="flex:1;min-width:0;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                    <span style="font-size:0.83rem;font-weight:700;color:${t.cor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.nome}</span>
+                    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                      <span style="font-size:0.68rem;color:#555;">${t.qtd}x</span>
+                      <span style="font-size:0.85rem;font-weight:700;color:#e2e8f0;">${this.formatMoney(t.total)}</span>
+                      <span style="font-size:0.68rem;color:${t.cor};font-weight:600;min-width:32px;text-align:right;">${pct}%</span>
+                    </div>
+                  </div>
+                  <div style="height:3px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:${t.cor};border-radius:3px;opacity:0.8;"></div>
+                  </div>
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>`
+        })() : ''}
 
         <!-- MAIN ROW -->
         <div style="display:grid;grid-template-columns:1fr 1fr 320px;gap:20px;margin-bottom:24px;">
@@ -2662,32 +2718,89 @@ const VM = {
     const now = new Date()
     const mes = String(now.getMonth() + 1)
     const ano = String(now.getFullYear())
+    const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
           <div class="section-title">💰 Receitas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas entradas</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas entradas de dinheiro</div>
         </div>
-        <button onclick="VM.modalReceita()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-plus"></i> Nova Receita
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM._exportarReceitasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
+            <i class="fas fa-download"></i> CSV
+          </button>
+          <button onclick="VM.modalReceita()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-plus"></i> Nova Receita
+          </button>
+        </div>
       </div>
-      
-      <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-        <select id="filtro-mes" class="form-select" style="width:auto;padding:8px 14px;">
-          ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
-        </select>
-        <select id="filtro-ano" class="form-select" style="width:auto;padding:8px 14px;">
-          ${[ano-1, ano, parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
-        </select>
-        <button onclick="VM.carregarReceitas()" class="btn-secondary">
-          <i class="fas fa-search"></i> Filtrar
-        </button>
+
+      <!-- Cards de métricas -->
+      <div id="receitas-metricas" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
       </div>
-      
-      <div id="receitas-stats" class="card" style="margin-bottom:20px;"></div>
-      
+
+      <!-- Barra de filtros -->
+      <div class="card" style="margin-bottom:20px;padding:14px 18px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <select id="filtro-mes" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
+              ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <select id="filtro-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
+              ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
+            <select id="filtro-cat-rec" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
+              <option value="">Todas</option>
+              ${['Salário','Freelance','Renda Extra','Investimentos','Aluguel','Dividendos','Vendas','Bônus','13º Salário','Férias','Reembolso','Presente','Outros'].map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
+            <div style="position:relative;">
+              <input type="text" id="filtro-busca-rec" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" oninput="clearTimeout(VM._buscaRecTimer);VM._buscaRecTimer=setTimeout(()=>VM.carregarReceitas(),400)">
+              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#555;font-size:0.75rem;pointer-events:none;"></i>
+            </div>
+          </div>
+          <button onclick="VM._limparFiltrosReceitas()" class="btn-secondary" style="padding:7px 14px;font-size:0.82rem;align-self:flex-end;">
+            <i class="fas fa-times"></i> Limpar
+          </button>
+        </div>
+      </div>
+
+      <!-- Gráficos: pizza + barras por categoria -->
+      <div id="receitas-graficos" style="display:none;margin-bottom:20px;display:grid;grid-template-columns:280px 1fr;gap:16px;">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;align-items:center;">
+          <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Distribuição</div>
+          <div style="position:relative;width:160px;height:160px;">
+            <canvas id="chart-receitas-pizza" width="160" height="160"></canvas>
+            <div id="receitas-pizza-centro" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+              <div style="font-size:0.65rem;color:#666;text-transform:uppercase;">Total</div>
+              <div id="receitas-pizza-total" style="font-size:1rem;font-weight:800;color:#2FBF71;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:16px;">
+          <div style="font-size:0.82rem;font-weight:700;margin-bottom:12px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Por Categoria</div>
+          <div id="receitas-cat-barras" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Breakdown por categoria (barras) - legacy hidden -->
+      <div id="receitas-cat-breakdown" style="margin-bottom:20px;display:none;"></div>
+
+      <!-- Tabela -->
       <div class="card" id="receitas-table-wrapper">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
       </div>
@@ -2696,43 +2809,156 @@ const VM = {
     this.carregarReceitas()
   },
 
+  _limparFiltrosReceitas() {
+    const now = new Date()
+    const el = (id) => document.getElementById(id)
+    if (el('filtro-mes')) el('filtro-mes').value = String(now.getMonth() + 1)
+    if (el('filtro-ano')) el('filtro-ano').value = String(now.getFullYear())
+    if (el('filtro-cat-rec')) el('filtro-cat-rec').value = ''
+    if (el('filtro-busca-rec')) el('filtro-busca-rec').value = ''
+    this.carregarReceitas()
+  },
+
+  _exportarReceitasCSV() {
+    const mes = document.getElementById('filtro-mes')?.value || ''
+    const ano = document.getElementById('filtro-ano')?.value || ''
+    const cat = document.getElementById('filtro-cat-rec')?.value || ''
+    const busca = document.getElementById('filtro-busca-rec')?.value || ''
+    let qs = `mes=${mes}&ano=${ano}&limit=9999&offset=0`
+    if (cat) qs += `&categoria=${encodeURIComponent(cat)}`
+    if (busca) qs += `&busca=${encodeURIComponent(busca)}`
+    this.api('GET', `receitas?${qs}`).then(data => {
+      const rows = data.receitas || []
+      if (!rows.length) { this.toast('Nenhum dado para exportar', 'warning'); return }
+      const header = ['ID','Descrição','Categoria','Data','Valor','Recorrente','Meio','Observações']
+      const lines = [header.join(';'), ...rows.map(r => [
+        r.id, `"${(r.descricao||'').replace(/"/g,'""')}"`, r.categoria,
+        r.data, String(r.valor).replace('.',','),
+        r.recorrente ? 'Sim' : 'Não', r.meio_pagamento || '', `"${(r.observacoes||'').replace(/"/g,'""')}"`
+      ].join(';'))]
+      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url
+      a.download = `receitas_${mes}-${ano}.csv`; a.click()
+      URL.revokeObjectURL(url)
+      this.toast('✅ CSV exportado!', 'success')
+    }).catch(() => this.toast('Erro ao exportar', 'error'))
+  },
+
   async carregarReceitas(pagina = 1) {
     const mes = document.getElementById('filtro-mes')?.value || String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano')?.value || String(new Date().getFullYear())
+    const cat = document.getElementById('filtro-cat-rec')?.value || ''
+    const busca = document.getElementById('filtro-busca-rec')?.value || ''
     const limit = 20
     const offset = (pagina - 1) * limit
+
+    let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
+    if (cat) qs += `&categoria=${encodeURIComponent(cat)}`
+    if (busca) qs += `&busca=${encodeURIComponent(busca)}`
     
     try {
-      const data = await this.api('GET', `receitas?mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`)
+      const data = await this.api('GET', `receitas?${qs}`)
       const totalCount = data.total_count || data.count || 0
       const totalPages = Math.max(1, Math.ceil(totalCount / limit))
-      
-      const statsEl = document.getElementById('receitas-stats')
-      if (statsEl) {
-        statsEl.innerHTML = `
-          <div style="display:flex;gap:32px;align-items:center;">
-            <div>
-              <div style="color:#888;font-size:0.8rem;">Total do período</div>
-              <div style="font-size:1.6rem;font-weight:800;color:#2FBF71;">${this.formatMoney(data.total)}</div>
-            </div>
-            <div>
-              <div style="color:#888;font-size:0.8rem;">Transações</div>
-              <div style="font-size:1.6rem;font-weight:800;">${totalCount}</div>
-            </div>
+      const m = data.metrics || {}
+
+      // ── Cards de métricas ──────────────────────────────────────────────────
+      const metEl = document.getElementById('receitas-metricas')
+      if (metEl) {
+        metEl.innerHTML = `
+          <div class="stat-card">
+            <div class="stat-label" style="margin-bottom:6px;">💰 Total do Período</div>
+            <div class="stat-value positive" style="font-size:1.4rem;">${this.formatMoney(m.total || 0)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${totalCount} receita${totalCount !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" style="margin-bottom:6px;">📊 Média por Receita</div>
+            <div class="stat-value" style="font-size:1.3rem;color:#74b9ff;">${this.formatMoney(m.media || 0)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">↑ ${this.formatMoney(m.maior||0)} ↓ ${this.formatMoney(m.menor||0)}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" style="margin-bottom:6px;">🔄 Recorrentes</div>
+            <div class="stat-value positive" style="font-size:1.3rem;">${this.formatMoney(m.total_recorrente || 0)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Renda fixa mensal</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" style="margin-bottom:6px;">✨ Avulsas</div>
+            <div class="stat-value" style="font-size:1.3rem;color:#ffc400;">${this.formatMoney(m.total_avulso || 0)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Entradas extras</div>
           </div>
         `
       }
 
+      // ── Gráficos de categoria (pizza + barras) ──────────────────────────────
+      const catBD = data.categorias_breakdown || []
+      const grafEl = document.getElementById('receitas-graficos')
+      if (grafEl && catBD.length > 0) {
+        grafEl.style.display = 'grid'
+        const catColors = { 'Salário':'#2FBF71','Freelance':'#74b9ff','Renda Extra':'#ffc400','Investimentos':'#a29bfe',
+          'Aluguel':'#fd79a8','Dividendos':'#00cec9','Vendas':'#fdcb6e','Bônus':'#ff8c42',
+          '13º Salário':'#6c5ce7','Férias':'#55efc4','Reembolso':'#b2bec3','Presente':'#e17055','Outros':'#636e72' }
+        const catMax = catBD[0]?.total || 1
+        const totalCat = catBD.reduce((s, c) => s + c.total, 0)
+
+        // Pizza
+        const pizzaTotalEl = document.getElementById('receitas-pizza-total')
+        if (pizzaTotalEl) pizzaTotalEl.textContent = this.formatMoney(totalCat)
+        const ctxPizza = document.getElementById('chart-receitas-pizza')
+        if (ctxPizza) {
+          if (window._chartReceitasPizza) window._chartReceitasPizza.destroy()
+          window._chartReceitasPizza = new Chart(ctxPizza, {
+            type: 'doughnut',
+            data: {
+              labels: catBD.map(c => c.categoria),
+              datasets: [{ data: catBD.map(c => c.total), backgroundColor: catBD.map(c => catColors[c.categoria] || '#74b9ff'), borderWidth: 0, hoverOffset: 6 }]
+            },
+            options: { responsive: false, cutout: '68%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${this.formatMoney(ctx.raw)}` } } } }
+          })
+        }
+
+        // Barras
+        const barrasEl = document.getElementById('receitas-cat-barras')
+        if (barrasEl) {
+          barrasEl.innerHTML = catBD.map(c => {
+            const cor = catColors[c.categoria] || '#2FBF71'
+            const pct = Math.round((c.total / catMax) * 100)
+            const pctTotal = totalCat > 0 ? Math.round((c.total / totalCat) * 100) : 0
+            return `
+            <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background 0.15s;" onclick="document.getElementById('filtro-cat-rec').value='${c.categoria}';VM.carregarReceitas()" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
+              <div style="width:8px;height:8px;border-radius:50%;background:${cor};flex-shrink:0;"></div>
+              <div style="width:100px;font-size:0.78rem;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.categoria}</div>
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:6px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width 0.6s;"></div>
+              </div>
+              <div style="font-size:0.78rem;font-weight:700;color:#f1f5f9;min-width:76px;text-align:right;">${this.formatMoney(c.total)}</div>
+              <div style="font-size:0.68rem;color:#555;min-width:32px;text-align:right;">${pctTotal}%</div>
+              <div style="font-size:0.68rem;color:#555;min-width:28px;text-align:right;">${c.qtd}x</div>
+            </div>`
+          }).join('')
+        }
+      } else if (grafEl) {
+        grafEl.style.display = 'none'
+      }
+
+      // ── Tabela de receitas ──────────────────────────────────────────────────
       const wrapper = document.getElementById('receitas-table-wrapper')
+      if (!wrapper) return
+
       if (data.receitas.length === 0 && pagina === 1) {
-        wrapper.innerHTML = `<div class="empty-state"><div class="empty-icon">💸</div><h3>Nenhuma receita</h3><p>Adicione sua primeira receita do período</p></div>`
+        wrapper.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">💸</div>
+            <h3>Nenhuma receita encontrada</h3>
+            <p>${busca || cat ? 'Tente outros filtros' : 'Adicione sua primeira receita do período'}</p>
+            ${!busca && !cat ? `<button onclick="VM.modalReceita()" class="btn-primary" style="margin-top:12px;width:auto;padding:10px 24px;"><i class="fas fa-plus"></i> Adicionar Receita</button>` : ''}
+          </div>`
         return
       }
 
-      const cats = {
-        'Salário': '💼', 'Freelance': '💻', 'Investimentos': '📈', 'Aluguel': '🏠', 
-        'Vendas': '🛒', 'Bônus': '🎁', 'Outros': '💰'
-      }
+      const catIcons = { 'Salário':'💼','Freelance':'💻','Renda Extra':'💡','Investimentos':'📈','Aluguel':'🏠',
+        'Dividendos':'💹','Vendas':'🛒','Bônus':'🎁','13º Salário':'🏆','Férias':'🌴','Reembolso':'↩️','Presente':'🎀','Outros':'💰' }
+      const meioIcons = { pix:'⚡','transferencia':'🏦','dinheiro':'💵','deposito':'📥','cheque':'📝','outros':'📦' }
 
       const paginacao = totalPages > 1 ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
@@ -2752,14 +2978,15 @@ const VM = {
           <button onclick="VM._excluirSelecionadasReceitas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash" style="margin-right:5px;"></i>Excluir selecionadas</button>
         </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-          <table class="data-table" style="min-width:660px;">
+          <table class="data-table" style="min-width:680px;">
             <thead>
               <tr>
                 <th style="width:36px;"><input type="checkbox" id="rec-chk-all" onchange="VM._selTodosReceitas(this.checked)" style="cursor:pointer;width:16px;height:16px;"></th>
                 <th>Descrição</th>
                 <th>Categoria</th>
                 <th>Data</th>
-                <th>Recorrente</th>
+                <th>Recebimento</th>
+                <th style="text-align:center;">Tipo</th>
                 <th style="text-align:right;">Valor</th>
                 <th style="text-align:right;">Ações</th>
               </tr>
@@ -2768,14 +2995,27 @@ const VM = {
               ${data.receitas.map(r => `
                 <tr id="rec-row-${r.id}">
                   <td><input type="checkbox" class="rec-chk" data-id="${r.id}" onchange="VM._onSelReceita()" style="cursor:pointer;width:16px;height:16px;"></td>
-                  <td style="font-weight:500;">${r.descricao}</td>
-                  <td><span class="badge badge-green">${cats[r.categoria] || '💰'} ${r.categoria}</span></td>
-                  <td style="color:#888;">${this.formatDate(r.data)}</td>
-                  <td>${r.recorrente ? '<span class="badge badge-blue">🔄 Recorrente</span>' : '<span style="color:#555;">-</span>'}</td>
-                  <td style="text-align:right;font-weight:700;color:#2FBF71;">${this.formatMoney(r.valor)}</td>
+                  <td>
+                    <div style="font-weight:600;color:#f1f5f9;">${r.descricao}</div>
+                    ${r.observacoes ? `<div style="font-size:0.72rem;color:#555;margin-top:2px;">${r.observacoes}</div>` : ''}
+                  </td>
+                  <td>
+                    <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.25);font-size:0.78rem;font-weight:600;color:#2FBF71;">
+                      ${catIcons[r.categoria] || '💰'} ${r.categoria}
+                    </span>
+                  </td>
+                  <td style="color:#888;font-size:0.85rem;">${this.formatDate(r.data)}</td>
+                  <td style="font-size:0.82rem;color:#94A3B8;">${meioIcons[r.meio_pagamento] || '💰'} ${r.meio_pagamento || 'pix'}</td>
+                  <td style="text-align:center;">
+                    ${r.recorrente
+                      ? '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;background:rgba(116,185,255,0.1);border:1px solid rgba(116,185,255,0.3);font-size:0.72rem;color:#74b9ff;font-weight:600;">🔄 Fixo</span>'
+                      : '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);font-size:0.72rem;color:#ffc400;font-weight:600;">✨ Avulso</span>'}
+                  </td>
+                  <td style="text-align:right;font-weight:800;color:#2FBF71;font-size:0.95rem;">${this.formatMoney(r.valor)}</td>
                   <td style="text-align:right;white-space:nowrap;">
-                    <button onclick="VM.modalReceita(${JSON.stringify(r).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;" title="Editar"><i class="fas fa-edit"></i></button>
-                    <button onclick="VM.deleteReceita(${r.id})" class="btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                    <button onclick="VM._duplicarReceita(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#888;cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
+                    <button onclick="VM.modalReceita(${JSON.stringify(r).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;padding:5px 8px;" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteReceita(${r.id})" class="btn-danger" title="Excluir" style="padding:5px 8px;"><i class="fas fa-trash"></i></button>
                   </td>
                 </tr>
               `).join('')}
@@ -2792,73 +3032,115 @@ const VM = {
   modalReceita(receita = null) {
     const isEdit = !!receita
     const today = new Date().toISOString().split('T')[0]
-    const categorias = ['Salário', 'Freelance', 'Investimentos', 'Aluguel', 'Vendas', 'Bônus', 'Outros']
-    const meiosPagamento = [
-      { value: 'dinheiro', label: '💵 Dinheiro / À vista' },
-      { value: 'pix', label: '⚡ PIX' },
-      { value: 'transferencia', label: '🏦 Transferência Bancária' },
-      { value: 'deposito', label: '📥 Depósito' },
-      { value: 'cheque', label: '📝 Cheque' },
-      { value: 'outros', label: '📦 Outros' },
+    const categoriasInfo = [
+      { value: 'Salário',      icon: '💼', desc: 'Renda principal' },
+      { value: 'Freelance',    icon: '💻', desc: 'Trabalhos extras' },
+      { value: 'Renda Extra',  icon: '💡', desc: 'Renda adicional' },
+      { value: 'Investimentos',icon: '📈', desc: 'Retorno de aportes' },
+      { value: 'Aluguel',      icon: '🏠', desc: 'Imóveis alugados' },
+      { value: 'Dividendos',   icon: '💹', desc: 'Dividendos de ações' },
+      { value: 'Vendas',       icon: '🛒', desc: 'Venda de itens' },
+      { value: 'Bônus',        icon: '🎁', desc: 'Bônus e comissões' },
+      { value: '13º Salário',  icon: '🏆', desc: 'Décimo terceiro' },
+      { value: 'Férias',       icon: '🌴', desc: 'Férias remuneradas' },
+      { value: 'Reembolso',    icon: '↩️', desc: 'Ressarcimentos' },
+      { value: 'Presente',     icon: '🎀', desc: 'Presentes recebidos' },
+      { value: 'Outros',       icon: '💰', desc: 'Demais entradas' },
     ]
+    const meiosPagamento = [
+      { value: 'pix',          label: '⚡ PIX' },
+      { value: 'transferencia',label: '🏦 Transferência' },
+      { value: 'dinheiro',     label: '💵 Dinheiro' },
+      { value: 'deposito',     label: '📥 Depósito' },
+      { value: 'cheque',       label: '📝 Cheque' },
+      { value: 'outros',       label: '📦 Outros' },
+    ]
+    const catSelecionada = receita?.categoria || 'Salário'
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:500px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💰 Nova'} Receita</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+        <div class="modal" style="max-width:520px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;margin:0;">${isEdit ? '✏️ Editar' : '💰 Nova'} Receita</h3>
+              <div style="font-size:0.72rem;color:#555;margin-top:2px;">${isEdit ? 'Atualize os dados da receita' : 'Registre uma nova entrada de dinheiro'}</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="receita-form">
+
+            <!-- Descrição -->
             <div class="form-group">
               <label class="form-label">Descrição *</label>
-              <input type="text" id="r-desc" class="form-input" placeholder="Ex: Salário de março" value="${receita?.descricao || ''}" required>
+              <input type="text" id="r-desc" class="form-input" placeholder="Ex: Salário de abril, Freelance design..." value="${receita?.descricao || ''}" required autocomplete="off">
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Categoria *</label>
-                <select id="r-cat" class="form-select" onchange="VM._carregarUltimasReceitasPorCategoria(this.value)">
-                  ${categorias.map(c => `<option value="${c}" ${receita?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
-                </select>
+
+            <!-- Categoria: seletor visual em grid -->
+            <div class="form-group">
+              <label class="form-label">Categoria *</label>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px;" id="r-cat-grid">
+                ${categoriasInfo.map(c => `
+                  <div onclick="VM._selecionarCatReceita('${c.value}')" id="rcatbtn-${c.value.replace(/[^a-z0-9]/gi,'_')}"
+                    style="cursor:pointer;border-radius:10px;padding:8px 4px;text-align:center;border:1.5px solid ${catSelecionada === c.value ? '#2FBF71' : 'rgba(255,255,255,0.08)'};background:${catSelecionada === c.value ? 'rgba(47,191,113,0.12)' : 'rgba(255,255,255,0.03)'};transition:all 0.15s;" title="${c.desc}">
+                    <div style="font-size:1.2rem;line-height:1.3;">${c.icon}</div>
+                    <div style="font-size:0.65rem;color:${catSelecionada === c.value ? '#2FBF71' : '#888'};margin-top:3px;font-weight:${catSelecionada === c.value ? '700' : '400'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.value}</div>
+                  </div>`).join('')}
               </div>
+              <input type="hidden" id="r-cat" value="${catSelecionada}">
+            </div>
+
+            <!-- Últimas receitas da categoria -->
+            <div id="r-ultimas-cat" style="display:none;margin-bottom:12px;background:rgba(47,191,113,0.05);border:1px solid rgba(47,191,113,0.18);border-radius:10px;padding:10px 12px;">
+              <div style="font-size:0.72rem;color:#2FBF71;font-weight:700;margin-bottom:7px;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-history"></i> Últimas desta categoria</div>
+              <div id="r-ultimas-cat-lista" style="font-size:0.82rem;"></div>
+            </div>
+
+            <!-- Data + Valor -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Data *</label>
                 <input type="date" id="r-data" class="form-input" value="${receita?.data || today}" required>
               </div>
-            </div>
-            <!-- Últimas receitas da categoria -->
-            <div id="r-ultimas-cat" style="display:none;margin-bottom:14px;background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:10px 12px;">
-              <div style="font-size:0.75rem;color:#2FBF71;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">
-                <i class="fas fa-history"></i> Últimas desta categoria
-              </div>
-              <div id="r-ultimas-cat-lista" style="font-size:0.82rem;"></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Valor (R$) *</label>
-                <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${receita?.valor || ''}" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Meio de Recebimento</label>
-                <select id="r-meio" class="form-select">
-                  ${meiosPagamento.map(m => `<option value="${m.value}" ${receita?.meio_pagamento === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}
-                </select>
+                <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" value="${receita?.valor || ''}" required>
               </div>
             </div>
-            <div class="form-group" style="display:flex;align-items:center;gap:10px;">
-              <input type="checkbox" id="r-recorrente" ${receita?.recorrente ? 'checked' : ''} style="width:16px;height:16px;accent-color:#2FBF71;">
-              <label for="r-recorrente" class="form-label" style="margin:0;">Receita recorrente</label>
-            </div>
+
+            <!-- Meio de recebimento -->
             <div class="form-group">
-              <label class="form-label">Observações</label>
-              <input type="text" id="r-obs" class="form-input" placeholder="Opcional..." value="${receita?.observacoes || ''}">
+              <label class="form-label">Meio de Recebimento</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                ${meiosPagamento.map(m => `
+                  <div onclick="VM._selecionarMeioReceita('${m.value}')" id="rmeio-${m.value}"
+                    style="cursor:pointer;padding:6px 12px;border-radius:20px;border:1.5px solid ${(receita?.meio_pagamento || 'pix') === m.value ? '#74b9ff' : 'rgba(255,255,255,0.1)'};background:${(receita?.meio_pagamento || 'pix') === m.value ? 'rgba(116,185,255,0.12)' : 'transparent'};font-size:0.78rem;color:${(receita?.meio_pagamento || 'pix') === m.value ? '#74b9ff' : '#888'};font-weight:${(receita?.meio_pagamento || 'pix') === m.value ? '700' : '400'};transition:all 0.15s;white-space:nowrap;">
+                    ${m.label}
+                  </div>`).join('')}
+              </div>
+              <input type="hidden" id="r-meio" value="${receita?.meio_pagamento || 'pix'}">
             </div>
-            <div style="display:flex;gap:12px;margin-top:8px;">
-              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">
+
+            <!-- Recorrente + Obs -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group" style="display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px;background:rgba(116,185,255,0.05);border:1px solid rgba(116,185,255,0.15);border-radius:10px;cursor:pointer;" onclick="document.getElementById('r-recorrente').click()">
+                <input type="checkbox" id="r-recorrente" ${receita?.recorrente ? 'checked' : ''} style="width:16px;height:16px;accent-color:#74b9ff;pointer-events:none;">
+                <div>
+                  <div style="font-size:0.82rem;font-weight:600;color:#74b9ff;">🔄 Recorrente</div>
+                  <div style="font-size:0.68rem;color:#555;">Repete todo mês</div>
+                </div>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.72rem;">Observações</label>
+                <input type="text" id="r-obs" class="form-input" placeholder="Opcional..." value="${receita?.observacoes || ''}" style="padding:8px 12px;font-size:0.82rem;">
+              </div>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-top:18px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;padding:11px;">
                 <i class="fas fa-times"></i> Cancelar
               </button>
-              <button type="submit" class="btn-primary" style="flex:1;" id="r-submit">
-                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
+              <button type="submit" class="btn-primary" style="flex:2;" id="r-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar Alterações' : 'Adicionar Receita'}
               </button>
             </div>
           </form>
@@ -2867,7 +3149,7 @@ const VM = {
     `
 
     // Carregar últimas receitas da categoria inicial
-    this._carregarUltimasReceitasPorCategoria(receita?.categoria || categorias[0])
+    this._carregarUltimasReceitasPorCategoria(catSelecionada)
 
     document.getElementById('receita-form').addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -2895,6 +3177,45 @@ const VM = {
         btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
       }
     })
+  },
+
+  _selecionarCatReceita(valor) {
+    // Atualiza hidden input
+    const inp = document.getElementById('r-cat')
+    if (inp) inp.value = valor
+    // Atualiza visual dos botões
+    document.querySelectorAll('#r-cat-grid > div').forEach(el => {
+      const id = el.id?.replace('rcatbtn-','').replace(/_/g,' ')
+      const isThis = el.id === `rcatbtn-${valor.replace(/[^a-z0-9]/gi,'_')}`
+      el.style.borderColor = isThis ? '#2FBF71' : 'rgba(255,255,255,0.08)'
+      el.style.background  = isThis ? 'rgba(47,191,113,0.12)' : 'rgba(255,255,255,0.03)'
+      const lbl = el.querySelector('div:last-child')
+      if (lbl) { lbl.style.color = isThis ? '#2FBF71' : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
+    })
+    this._carregarUltimasReceitasPorCategoria(valor)
+  },
+
+  _selecionarMeioReceita(valor) {
+    const inp = document.getElementById('r-meio')
+    if (inp) inp.value = valor
+    document.querySelectorAll('[id^="rmeio-"]').forEach(el => {
+      const isThis = el.id === `rmeio-${valor}`
+      el.style.borderColor = isThis ? '#74b9ff' : 'rgba(255,255,255,0.1)'
+      el.style.background  = isThis ? 'rgba(116,185,255,0.12)' : 'transparent'
+      el.style.color       = isThis ? '#74b9ff' : '#888'
+      el.style.fontWeight  = isThis ? '700' : '400'
+    })
+  },
+
+  async _duplicarReceita(receita) {
+    const hoje = new Date().toISOString().split('T')[0]
+    const copia = { ...receita, id: undefined, data: hoje, descricao: `${receita.descricao} (cópia)` }
+    this.modalReceita(copia)
+    // Depois do modal abrir, limpar o id para forçar POST
+    setTimeout(() => {
+      const form = document.getElementById('receita-form')
+      if (form) form.dataset.mode = 'new'
+    }, 100)
   },
 
   async _carregarUltimasReceitasPorCategoria(categoria) {
