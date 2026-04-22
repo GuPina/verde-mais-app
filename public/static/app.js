@@ -3284,39 +3284,100 @@ const VM = {
   // ============== DESPESAS ==============
   async pageDespesas() {
     const now = new Date()
-    // S1: restaurar filtro salvo; fallback para mês/ano atual
     const saved = this._despesaFiltro || {}
     const mes  = saved.mes  || String(now.getMonth() + 1)
     const ano  = saved.ano  || String(now.getFullYear())
     const stat = saved.status || ''
+    const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
+      <!-- Header -->
       <div class="section-header">
         <div>
           <div class="section-title">💸 Despesas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle seus gastos</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle e análise dos seus gastos</div>
         </div>
-        <button onclick="VM.modalDespesa()" class="btn-primary" style="width:auto;padding:10px 20px;">
-          <i class="fas fa-plus"></i> Nova Despesa
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="VM._exportarDespesasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
+            <i class="fas fa-download"></i> CSV
+          </button>
+          <button onclick="VM.modalDespesa()" class="btn-primary" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-plus"></i> Nova Despesa
+          </button>
+        </div>
       </div>
-      
-      <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-        <select id="filtro-mes-d" class="form-select" style="width:auto;padding:8px 14px;">
-          ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
-        </select>
-        <select id="filtro-ano-d" class="form-select" style="width:auto;padding:8px 14px;">
-          ${[parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
-        </select>
-        <select id="filtro-status-d" class="form-select" style="width:auto;padding:8px 14px;">
-          <option value="" ${stat===''?'selected':''}>Todos os status</option>
-          <option value="pendente" ${stat==='pendente'?'selected':''}>Pendente</option>
-          <option value="pago" ${stat==='pago'?'selected':''}>Pago</option>
-        </select>
-        <button onclick="VM.carregarDespesas()" class="btn-secondary"><i class="fas fa-search"></i> Filtrar</button>
+
+      <!-- Cards de métricas (skeleton inicial) -->
+      <div id="despesas-metricas" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
+        <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
       </div>
-      
-      <div id="despesas-stats" class="card" style="margin-bottom:20px;"></div>
+
+      <!-- Barra de filtros -->
+      <div class="card" style="margin-bottom:20px;padding:14px 18px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <select id="filtro-mes-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
+              ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <select id="filtro-ano-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
+              ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</label>
+            <select id="filtro-status-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
+              <option value="" ${stat===''?'selected':''}>Todos</option>
+              <option value="pendente" ${stat==='pendente'?'selected':''}>⏳ Pendente</option>
+              <option value="pago" ${stat==='pago'?'selected':''}>✅ Pago</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
+            <select id="filtro-cat-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
+              <option value="">Todas</option>
+              ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Beleza','Tecnologia','Viagem','Academia','Serviços','Presentes','Outros'].map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
+            <div style="position:relative;">
+              <input type="text" id="filtro-busca-d" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" oninput="clearTimeout(VM._buscaDespTimer);VM._buscaDespTimer=setTimeout(()=>VM.carregarDespesas(),400)">
+              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#555;font-size:0.75rem;pointer-events:none;"></i>
+            </div>
+          </div>
+          <button onclick="VM._limparFiltrosDespesas()" class="btn-secondary" style="padding:7px 14px;font-size:0.82rem;align-self:flex-end;">
+            <i class="fas fa-times"></i> Limpar
+          </button>
+        </div>
+      </div>
+
+      <!-- Gráficos: pizza + barras por categoria -->
+      <div id="despesas-graficos" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;align-items:center;">
+          <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Distribuição</div>
+          <div style="position:relative;width:160px;height:160px;">
+            <canvas id="chart-despesas-pizza" width="160" height="160"></canvas>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+              <div style="font-size:0.65rem;color:#666;text-transform:uppercase;">Total</div>
+              <div id="despesas-pizza-total" style="font-size:1rem;font-weight:800;color:#ff6b6b;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:16px;">
+          <div style="font-size:0.82rem;font-weight:700;margin-bottom:12px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Por Categoria</div>
+          <div id="despesas-cat-barras" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Tabela -->
+      <div id="despesas-stats" style="display:none;"></div>
       <div class="card" id="despesas-table-wrapper">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
       </div>
@@ -3325,117 +3386,289 @@ const VM = {
     this.carregarDespesas()
   },
 
-  async carregarDespesas(pagina = 1) {
-    const mes = document.getElementById('filtro-mes-d')?.value || String(new Date().getMonth() + 1)
-    const ano = document.getElementById('filtro-ano-d')?.value || String(new Date().getFullYear())
+  _limparFiltrosDespesas() {
+    const now = new Date()
+    const el = (id) => document.getElementById(id)
+    if (el('filtro-mes-d'))    el('filtro-mes-d').value    = String(now.getMonth() + 1)
+    if (el('filtro-ano-d'))    el('filtro-ano-d').value    = String(now.getFullYear())
+    if (el('filtro-status-d')) el('filtro-status-d').value = ''
+    if (el('filtro-cat-d'))    el('filtro-cat-d').value    = ''
+    if (el('filtro-busca-d'))  el('filtro-busca-d').value  = ''
+    this.carregarDespesas()
+  },
+
+  _exportarDespesasCSV() {
+    const mes    = document.getElementById('filtro-mes-d')?.value    || ''
+    const ano    = document.getElementById('filtro-ano-d')?.value    || ''
     const status = document.getElementById('filtro-status-d')?.value || ''
-    const limit = 20
+    const cat    = document.getElementById('filtro-cat-d')?.value    || ''
+    const busca  = document.getElementById('filtro-busca-d')?.value  || ''
+    let qs = `mes=${mes}&ano=${ano}&limit=9999&offset=0`
+    if (status) qs += `&status=${status}`
+    if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
+    if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
+    this.api('GET', `despesas?${qs}`).then(data => {
+      const rows = data.despesas || []
+      if (!rows.length) { this.toast('Nenhum dado para exportar', 'warning'); return }
+      const header = ['ID','Descrição','Categoria','Data','Vencimento','Valor','Status','Tipo','Meio Pagamento','Parcela','Total Parcelas']
+      const lines = [header.join(';'), ...rows.map(r => [
+        r.id,
+        `"${(r.descricao||'').replace(/"/g,'""')}"`,
+        r.categoria,
+        r.data,
+        r.vencimento || '',
+        String(r.valor).replace('.',','),
+        r.status,
+        r.fixa_ou_variavel || '',
+        r.meio_pagamento || '',
+        r.parcela_atual || '',
+        r.numero_parcelas || ''
+      ].join(';'))]
+      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url
+      a.download = `despesas_${mes}-${ano}.csv`; a.click()
+      URL.revokeObjectURL(url)
+      this.toast('✅ CSV exportado!', 'success')
+    }).catch(() => this.toast('Erro ao exportar', 'error'))
+  },
+
+  async carregarDespesas(pagina = 1) {
+    const mes    = document.getElementById('filtro-mes-d')?.value    || String(new Date().getMonth() + 1)
+    const ano    = document.getElementById('filtro-ano-d')?.value    || String(new Date().getFullYear())
+    const status = document.getElementById('filtro-status-d')?.value || ''
+    const cat    = document.getElementById('filtro-cat-d')?.value    || ''
+    const busca  = document.getElementById('filtro-busca-d')?.value  || ''
+    const limit  = 20
     const offset = (pagina - 1) * limit
 
-    // S1: persistir filtro ativo para restaurar ao voltar à tela
     this._despesaFiltro = { mes, ano, status }
-    
-    try {
-      const data = await this.api('GET', `despesas?mes=${mes}&ano=${ano}${status ? '&status=' + status : ''}&limit=${limit}&offset=${offset}`)
-      // M-D1: usar totais reais do backend (sem depender do limit/offset da página)
-      const pago     = data.total_pago     ?? data.despesas.filter(d => d.status === 'pago').reduce((s, d) => s + d.valor, 0)
-      const pendente = data.total_pendente ?? data.despesas.filter(d => d.status === 'pendente').reduce((s, d) => s + d.valor, 0)
-      const totalCount = data.total_count ?? data.count
-      const totalPages = Math.max(1, Math.ceil(totalCount / limit))
 
-      const statsEl = document.getElementById('despesas-stats')
-      if (statsEl) {
-        statsEl.innerHTML = `
-          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
-            <div style="display:flex;gap:24px;flex-wrap:wrap;">
-              <div><div style="color:#888;font-size:0.8rem;">Total</div><div style="font-size:1.4rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(data.total)}</div></div>
-              <div><div style="color:#888;font-size:0.8rem;">Pago</div><div style="font-size:1.4rem;font-weight:800;color:#2FBF71;">${this.formatMoney(pago)}</div></div>
-              <div><div style="color:#888;font-size:0.8rem;">Pendente</div><div style="font-size:1.4rem;font-weight:800;color:#ffc400;">${this.formatMoney(pendente)}</div></div>
-              <div><div style="color:#888;font-size:0.8rem;">Qtd</div><div style="font-size:1.4rem;font-weight:800;">${totalCount}</div></div>
-            </div>
-            ${data.count_pendente > 0 ? `
-            <button onclick="VM.marcarTodasPagas('${mes}','${ano}')" class="btn-primary" style="width:auto;padding:8px 16px;font-size:0.82rem;background:linear-gradient(135deg,#2FBF71,#10a055);">
-              <i class="fas fa-check-double"></i> Marcar todas como pagas (${data.count_pendente})
-            </button>` : ''}
+    let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
+    if (status) qs += `&status=${status}`
+    if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
+    if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
+
+    try {
+      const data = await this.api('GET', `despesas?${qs}`)
+
+      const pago       = data.total_pago     ?? 0
+      const pendente   = data.total_pendente ?? 0
+      const totalCount = data.total_count    ?? data.count ?? 0
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit))
+      const totalGeral = data.total          ?? 0
+      const media      = totalCount > 0 ? totalGeral / totalCount : 0
+
+      // ── Cards de métricas ─────────────────────────────────────────────────
+      const metEl = document.getElementById('despesas-metricas')
+      if (metEl) {
+        const pctPago = totalGeral > 0 ? Math.round((pago / totalGeral) * 100) : 0
+        metEl.innerHTML = `
+          <div class="stat-card" style="border-left:3px solid #ff6b6b;">
+            <div class="stat-label" style="margin-bottom:6px;">💸 Total do Período</div>
+            <div class="stat-value" style="font-size:1.4rem;color:#ff6b6b;">${this.formatMoney(totalGeral)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${totalCount} despesa${totalCount !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #2FBF71;">
+            <div class="stat-label" style="margin-bottom:6px;">✅ Pago</div>
+            <div class="stat-value positive" style="font-size:1.4rem;">${this.formatMoney(pago)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${pctPago}% do total · ${data.count_pago || 0} itens</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #ffc400;">
+            <div class="stat-label" style="margin-bottom:6px;">⏳ Pendente</div>
+            <div class="stat-value" style="font-size:1.4rem;color:#ffc400;">${this.formatMoney(pendente)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${data.count_pendente || 0} a pagar</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #74b9ff;">
+            <div class="stat-label" style="margin-bottom:6px;">📊 Média por Gasto</div>
+            <div class="stat-value" style="font-size:1.3rem;color:#74b9ff;">${this.formatMoney(media)}</div>
+            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${cat ? cat : 'Todas categorias'}</div>
           </div>
         `
       }
 
+      // ── Gráfico de categorias ─────────────────────────────────────────────
+      const catBD   = data.categorias_breakdown || []
+      const grafEl  = document.getElementById('despesas-graficos')
+      const catColors = {
+        'Alimentação':'#ff6b6b','Transporte':'#74b9ff','Saúde':'#2FBF71','Educação':'#a29bfe',
+        'Lazer':'#fdcb6e','Moradia':'#fd79a8','Roupas':'#00cec9','Assinaturas':'#e17055',
+        'Pets':'#55efc4','Beleza':'#fd79a8','Tecnologia':'#6c5ce7','Viagem':'#ffeaa7',
+        'Academia':'#00b894','Serviços':'#b2bec3','Presentes':'#ffc400','Outros':'#636e72'
+      }
+
+      if (grafEl && catBD.length > 0) {
+        grafEl.style.display = 'grid'
+        const catMax   = catBD[0]?.total || 1
+        const totalCat = catBD.reduce((s, c) => s + c.total, 0)
+
+        // pizza total
+        const pizzaTotalEl = document.getElementById('despesas-pizza-total')
+        if (pizzaTotalEl) pizzaTotalEl.textContent = this.formatMoney(totalCat)
+
+        const ctxPizza = document.getElementById('chart-despesas-pizza')
+        if (ctxPizza) {
+          if (window._chartDespesasPizza) window._chartDespesasPizza.destroy()
+          window._chartDespesasPizza = new Chart(ctxPizza, {
+            type: 'doughnut',
+            data: {
+              labels: catBD.map(c => c.categoria),
+              datasets: [{ data: catBD.map(c => c.total), backgroundColor: catBD.map(c => catColors[c.categoria] || '#74b9ff'), borderWidth: 0, hoverOffset: 6 }]
+            },
+            options: { responsive: false, cutout: '68%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${this.formatMoney(ctx.raw)}` } } } }
+          })
+        }
+
+        const barrasEl = document.getElementById('despesas-cat-barras')
+        if (barrasEl) {
+          barrasEl.innerHTML = catBD.map(c => {
+            const cor      = catColors[c.categoria] || '#ff6b6b'
+            const pct      = Math.round((c.total / catMax) * 100)
+            const pctTotal = totalCat > 0 ? Math.round((c.total / totalCat) * 100) : 0
+            return `
+            <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background 0.15s;"
+              onclick="document.getElementById('filtro-cat-d').value='${c.categoria}';VM.carregarDespesas()"
+              onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
+              <div style="width:8px;height:8px;border-radius:50%;background:${cor};flex-shrink:0;"></div>
+              <div style="width:100px;font-size:0.78rem;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.categoria}</div>
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:6px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width 0.6s;"></div>
+              </div>
+              <div style="font-size:0.78rem;font-weight:700;color:#f1f5f9;min-width:76px;text-align:right;">${this.formatMoney(c.total)}</div>
+              <div style="font-size:0.68rem;color:#555;min-width:32px;text-align:right;">${pctTotal}%</div>
+              <div style="font-size:0.68rem;color:#555;min-width:28px;text-align:right;">${c.qtd}x</div>
+            </div>`
+          }).join('')
+        }
+      } else if (grafEl) {
+        grafEl.style.display = 'none'
+      }
+
+      // ── Tabela ────────────────────────────────────────────────────────────
       const wrapper = document.getElementById('despesas-table-wrapper')
+      if (!wrapper) return
+
       if (data.despesas.length === 0 && pagina === 1) {
-        wrapper.innerHTML = `<div class="empty-state"><div class="empty-icon">🎉</div><h3>Sem despesas</h3><p>Período limpo!</p></div>`
+        wrapper.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🎉</div>
+            <h3>Nenhuma despesa encontrada</h3>
+            <p>${busca || cat || status ? 'Tente outros filtros' : 'Período limpo! Aproveite.'}</p>
+            ${!busca && !cat && !status ? `<button onclick="VM.modalDespesa()" class="btn-primary" style="margin-top:12px;width:auto;padding:10px 24px;"><i class="fas fa-plus"></i> Adicionar Despesa</button>` : ''}
+          </div>`
         return
       }
 
-      const catIcons = { 'Alimentação': '🍔', 'Transporte': '🚗', 'Saúde': '💊', 'Educação': '📚', 'Lazer': '🎬', 'Moradia': '🏠', 'Roupas': '👕', 'Outros': '📦' }
+      const catIcons = {
+        'Alimentação':'🍔','Transporte':'🚗','Saúde':'💊','Educação':'📚',
+        'Lazer':'🎬','Moradia':'🏠','Roupas':'👕','Assinaturas':'📱',
+        'Pets':'🐾','Beleza':'💄','Tecnologia':'💻','Viagem':'✈️',
+        'Academia':'🏋️','Serviços':'🔧','Presentes':'🎁','Outros':'📦'
+      }
 
       const paginacao = totalPages > 1 ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
           <span style="font-size:0.8rem;color:#888;">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#ff6b6b;">${totalCount}</strong> registros</span>
           <div style="display:flex;gap:6px;">
-            <button onclick="VM.carregarDespesas(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
-            <button onclick="VM.carregarDespesas(${pagina + 1})" ${pagina >= totalPages ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
+            <button onclick="VM.carregarDespesas(${pagina - 1})" ${pagina<=1?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
+            <button onclick="VM.carregarDespesas(${pagina + 1})" ${pagina>=totalPages?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
           </div>
         </div>
       ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
-      wrapper.innerHTML = `
-        <div id="desp-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;flex-wrap:wrap;">
-          <span id="desp-sel-count" style="color:#f87171;font-weight:600;font-size:0.88rem;">0 selecionadas</span>
-          <button onclick="VM._selTodosDespesas(true)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.8rem;cursor:pointer;">Selecionar tudo</button>
-          <button onclick="VM._selTodosDespesas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.8rem;cursor:pointer;">Limpar</button>
-          <button onclick="VM._pagarSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#10B981;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;">Pagar selecionadas</button>
-          <button onclick="VM._excluirSelecionadasDespesas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;">Excluir selecionadas</button>
+      // Barra lote de ações + botão marcar todas
+      const barraLote = `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+          <div id="desp-sel-bar" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="desp-sel-count" style="color:#f87171;font-weight:600;font-size:0.85rem;">0 selecionadas</span>
+            <button onclick="VM._selTodosDespesas(true)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.78rem;cursor:pointer;">Selec. tudo</button>
+            <button onclick="VM._selTodosDespesas(false)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.78rem;cursor:pointer;">Limpar</button>
+            <button onclick="VM._pagarSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#10B981;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-check"></i> Pagar sel.</button>
+            <button onclick="VM._excluirSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash"></i> Excluir sel.</button>
+          </div>
+          <div id="desp-sel-empty" style="font-size:0.78rem;color:#555;">Selecione itens para ações em lote</div>
+          ${data.count_pendente > 0 ? `
+          <button onclick="VM.marcarTodasPagas('${mes}','${ano}')" class="btn-primary" style="width:auto;padding:7px 14px;font-size:0.8rem;background:linear-gradient(135deg,#2FBF71,#10a055);">
+            <i class="fas fa-check-double"></i> Pagar todas pendentes (${data.count_pendente})
+          </button>` : '<div></div>'}
         </div>
+      `
+
+      wrapper.innerHTML = `
+        ${barraLote}
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-          <table class="data-table" style="min-width:820px;">
+          <table class="data-table" style="min-width:860px;">
             <thead>
               <tr>
                 <th style="width:36px;"><input type="checkbox" id="desp-chk-all" onchange="VM._selTodosDespesas(this.checked)" style="cursor:pointer;width:16px;height:16px;"></th>
                 <th>Descrição</th>
                 <th>Categoria</th>
-                <th>Data</th>
-                <th>Tipo</th>
-                <th>Status</th>
+                <th>Data / Venc.</th>
+                <th style="text-align:center;">Tipo</th>
+                <th style="text-align:center;">Status</th>
                 <th style="text-align:right;">Valor</th>
                 <th style="text-align:right;">Ações</th>
               </tr>
             </thead>
             <tbody>
               ${data.despesas.map(d => {
-                // S3: badge de parcelas com link para filtrar grupo
+                const cor = d.status === 'pago' ? 'rgba(47,191,113,0.04)' : 'transparent'
                 const parcelaBadge = d.parcelado && d.numero_parcelas > 1
-                  ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo" 
-                       onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '')}')"
-                       style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.72rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
+                  ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo"
+                       onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '').replace(/'/g, "\\'")}')"
+                       style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
                        💳 ${d.parcela_atual}/${d.numero_parcelas}
                      </span>`
                   : ''
+                const catCor = catColors[d.categoria] || '#636e72'
+                const vencInfo = d.vencimento && d.status !== 'pago' ? (() => {
+                  const diff = Math.ceil((new Date(d.vencimento) - new Date()) / 86400000)
+                  const urgente = diff <= 2 && diff >= 0
+                  const atrasado = diff < 0
+                  return `<div style="font-size:0.68rem;margin-top:2px;color:${atrasado?'#f87171':urgente?'#fbbf24':'#555'};">${atrasado ? `⚠️ ${Math.abs(diff)}d atrasado` : urgente ? `🔔 vence em ${diff}d` : `📅 ${this.formatDate(d.vencimento)}`}</div>`
+                })() : ''
                 return `
-                <tr id="desp-row-${d.id}">
+                <tr id="desp-row-${d.id}" style="background:${cor};">
                   <td><input type="checkbox" class="desp-chk" data-id="${d.id}" onchange="VM._onSelDespesa()" style="cursor:pointer;width:16px;height:16px;"></td>
-                  <td style="font-weight:500;">${d.descricao}${parcelaBadge}</td>
-                  <td><span class="badge badge-red">${catIcons[d.categoria] || '📦'} ${d.categoria}</span></td>
-                  <td style="color:#888;">${this.formatDate(d.data)}</td>
-                  <td><span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span></td>
                   <td>
-                    <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}" 
-                      onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;" title="Clique para alterar">
+                    <div style="font-weight:600;color:#f1f5f9;">${d.descricao}${parcelaBadge}</div>
+                    ${d.observacoes ? `<div style="font-size:0.7rem;color:#555;margin-top:1px;">${d.observacoes}</div>` : ''}
+                  </td>
+                  <td>
+                    <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:${catCor}18;border:1px solid ${catCor}35;font-size:0.78rem;font-weight:600;color:${catCor};">
+                      ${catIcons[d.categoria] || '📦'} ${d.categoria}
+                    </span>
+                  </td>
+                  <td style="color:#888;font-size:0.83rem;">
+                    <div>${this.formatDate(d.data)}</div>
+                    ${vencInfo}
+                  </td>
+                  <td style="text-align:center;">
+                    <span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}" style="font-size:0.72rem;">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span>
+                  </td>
+                  <td style="text-align:center;">
+                    <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}"
+                      onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;font-size:0.78rem;" title="Clique para alterar status">
                       ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
                     </span>
                   </td>
-                  <td style="text-align:right;font-weight:700;color:#ff6b6b;">${this.formatMoney(d.valor)}</td>
+                  <td style="text-align:right;font-weight:800;color:#ff6b6b;font-size:0.95rem;">${this.formatMoney(d.valor)}</td>
                   <td style="text-align:right;white-space:nowrap;">
-                    <button onclick="VM.modalDespesa(${JSON.stringify(d).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;" title="Editar"><i class="fas fa-edit"></i></button>
-                    <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                    <button onclick="VM._duplicarDespesa(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#888;cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
+                    <button onclick="VM.modalDespesa(${JSON.stringify(d).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;padding:5px 8px;" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger" style="padding:5px 8px;" title="Excluir"><i class="fas fa-trash"></i></button>
                   </td>
-                </tr>
-              `}).join('')}
+                </tr>`
+              }).join('')}
             </tbody>
           </table>
         </div>
         ${paginacao}
       `
+
+      // Sync checkbox all → bar visibility
+      document.getElementById('desp-chk-all')?.addEventListener('change', (e) => VM._selTodosDespesas(e.target.checked))
+
     } catch (e) {
       this.toast('Erro ao carregar despesas', 'error')
     }
@@ -3538,8 +3771,39 @@ const VM = {
 
   async modalDespesa(despesa = null) {
     const isEdit = !!despesa
-    const today = new Date().toISOString().split('T')[0]
-    const categorias = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Moradia', 'Roupas', 'Assinaturas', 'Pets', 'Outros']
+    const today  = new Date().toISOString().split('T')[0]
+
+    const categoriasInfo = [
+      { value:'Alimentação',  icon:'🍔', desc:'Comida e restaurantes' },
+      { value:'Transporte',   icon:'🚗', desc:'Combustível e transporte' },
+      { value:'Saúde',        icon:'💊', desc:'Médico e farmácia' },
+      { value:'Educação',     icon:'📚', desc:'Cursos e livros' },
+      { value:'Lazer',        icon:'🎬', desc:'Entretenimento' },
+      { value:'Moradia',      icon:'🏠', desc:'Aluguel e condomínio' },
+      { value:'Roupas',       icon:'👕', desc:'Vestuário e calçados' },
+      { value:'Assinaturas',  icon:'📱', desc:'Streaming e serviços' },
+      { value:'Pets',         icon:'🐾', desc:'Animais de estimação' },
+      { value:'Beleza',       icon:'💄', desc:'Salão e cuidados' },
+      { value:'Tecnologia',   icon:'💻', desc:'Eletrônicos e apps' },
+      { value:'Viagem',       icon:'✈️',  desc:'Hospedagem e passeios' },
+      { value:'Academia',     icon:'🏋️', desc:'Esporte e bem-estar' },
+      { value:'Serviços',     icon:'🔧', desc:'Manutenção e reparos' },
+      { value:'Presentes',    icon:'🎁', desc:'Presentes e doações' },
+      { value:'Outros',       icon:'📦', desc:'Demais gastos' },
+    ]
+
+    const meiosInfo = [
+      { value:'dinheiro',         label:'💵 Dinheiro' },
+      { value:'pix',              label:'⚡ PIX' },
+      { value:'cartao_debito',    label:'💳 Débito' },
+      { value:'cartao_credito',   label:'💳 Crédito' },
+      { value:'boleto',           label:'📄 Boleto' },
+      { value:'transferencia',    label:'🏦 Transf.' },
+    ]
+    if (!isEdit) meiosInfo.push({ value:'parcelado_cartao', label:'🔢 Parcelado' })
+
+    const catSelecionada  = despesa?.categoria    || 'Alimentação'
+    const meioSelecionado = despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro')
 
     // Buscar cartões e tags em paralelo
     let cartoes = [], tagsDisponiveis = [], tagsDaDespesa = []
@@ -3550,7 +3814,6 @@ const VM = {
       ])
       cartoes = cartData.cartoes || []
       tagsDisponiveis = tagsData || []
-      // Se edição, buscar tags já vinculadas
       if (isEdit && despesa.id) {
         try { tagsDaDespesa = await this.api('GET', `tags/despesa/${despesa.id}`) } catch(e) { tagsDaDespesa = [] }
       }
@@ -3560,28 +3823,46 @@ const VM = {
 
     document.getElementById('modal-container').innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal" style="max-width:520px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💸 Nova'} Despesa</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+        <div class="modal" style="max-width:540px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <div>
+              <h3 style="font-size:1.1rem;font-weight:700;margin:0;">${isEdit ? '✏️ Editar' : '💸 Nova'} Despesa</h3>
+              <div style="font-size:0.72rem;color:#555;margin-top:2px;">${isEdit ? 'Atualize os dados do gasto' : 'Registre um novo gasto'}</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="despesa-form">
-            <div class="form-group">
-              <label class="form-label">Descrição *</label>
-              <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado" value="${despesa?.descricao || ''}" required>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Categoria *</label>
-                <select id="d-cat" class="form-select" onchange="VM.verificarOrcamentoModal()">
-                  ${categorias.map(c => `<option value="${c}" ${despesa?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
-                </select>
+
+            <!-- Descrição + Data numa linha -->
+            <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:14px;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Descrição *</label>
+                <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado, Conta de luz..." value="${despesa?.descricao || ''}" required autocomplete="off">
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin:0;">
                 <label class="form-label">Data *</label>
-                <input type="date" id="d-data" class="form-input" value="${despesa?.data || today}" required>
+                <input type="date" id="d-data" class="form-input" value="${despesa?.data || today}" required style="width:140px;">
               </div>
             </div>
+
+            <!-- Categoria: grid visual -->
+            <div class="form-group">
+              <label class="form-label">Categoria *</label>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:4px;" id="d-cat-grid">
+                ${categoriasInfo.map(c => `
+                  <div onclick="VM._selecionarCatDespesa('${c.value}')" id="dcatbtn-${c.value.replace(/[^a-z0-9]/gi,'_')}"
+                    style="cursor:pointer;border-radius:9px;padding:7px 3px;text-align:center;border:1.5px solid ${catSelecionada===c.value?'#ff6b6b':'rgba(255,255,255,0.08)'};background:${catSelecionada===c.value?'rgba(255,107,107,0.12)':'rgba(255,255,255,0.03)'};transition:all 0.15s;" title="${c.desc}">
+                    <div style="font-size:1.1rem;line-height:1.3;">${c.icon}</div>
+                    <div style="font-size:0.62rem;color:${catSelecionada===c.value?'#ff6b6b':'#888'};margin-top:2px;font-weight:${catSelecionada===c.value?'700':'400'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.value}</div>
+                  </div>`).join('')}
+              </div>
+              <input type="hidden" id="d-cat" value="${catSelecionada}">
+            </div>
+
+            <!-- Alerta de Orçamento em Tempo Real -->
+            <div id="alertaOrcamento" style="display:none;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.35);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;line-height:1.5;"></div>
+
+            <!-- Valor + Tipo -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label" id="d-valor-label">Valor Total (R$) *</label>
@@ -3589,36 +3870,37 @@ const VM = {
               </div>
               <div class="form-group">
                 <label class="form-label">Tipo</label>
-                <select id="d-tipo" class="form-select">
-                  <option value="variavel" ${despesa?.fixa_ou_variavel !== 'fixa' ? 'selected' : ''}>Variável</option>
-                  <option value="fixa" ${despesa?.fixa_ou_variavel === 'fixa' ? 'selected' : ''}>Fixa</option>
-                </select>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                  <div onclick="VM._selecionarTipoDespesa('variavel')" id="dtipo-variavel"
+                    style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${(despesa?.fixa_ou_variavel||'variavel')==='variavel'?'#ffc400':'rgba(255,255,255,0.1)'};background:${(despesa?.fixa_ou_variavel||'variavel')==='variavel'?'rgba(255,196,0,0.1)':'transparent'};font-size:0.75rem;color:${(despesa?.fixa_ou_variavel||'variavel')==='variavel'?'#ffc400':'#888'};font-weight:${(despesa?.fixa_ou_variavel||'variavel')==='variavel'?'700':'400'};transition:all 0.15s;">
+                    🔀 Variável
+                  </div>
+                  <div onclick="VM._selecionarTipoDespesa('fixa')" id="dtipo-fixa"
+                    style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${despesa?.fixa_ou_variavel==='fixa'?'#74b9ff':'rgba(255,255,255,0.1)'};background:${despesa?.fixa_ou_variavel==='fixa'?'rgba(116,185,255,0.1)':'transparent'};font-size:0.75rem;color:${despesa?.fixa_ou_variavel==='fixa'?'#74b9ff':'#888'};font-weight:${despesa?.fixa_ou_variavel==='fixa'?'700':'400'};transition:all 0.15s;">
+                    🔒 Fixa
+                  </div>
+                </div>
+                <input type="hidden" id="d-tipo" value="${despesa?.fixa_ou_variavel || 'variavel'}">
               </div>
             </div>
             <input type="hidden" id="d-ultimo-editado" value="total">
 
-            <!-- Bloco 2.3: Alerta de Orçamento em Tempo Real -->
-            <div id="alertaOrcamento" style="display:none;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.35);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;line-height:1.5;"></div>
-
-            <!-- Forma de pagamento -->
+            <!-- Forma de pagamento: pills -->
             <div class="form-group">
               <label class="form-label">💳 Forma de Pagamento</label>
-              <select id="d-meio" class="form-select" onchange="VM.onChangeMeioPagamento(this.value);VM._carregarUltimasDespesasPorMeio(this.value)">
-                <option value="dinheiro" ${(despesa?.meio_pagamento||'dinheiro')==='dinheiro'?'selected':''}>💵 Dinheiro / À vista</option>
-                <option value="pix" ${despesa?.meio_pagamento==='pix'?'selected':''}>⚡ PIX</option>
-                <option value="cartao_debito" ${despesa?.meio_pagamento==='cartao_debito'?'selected':''}>💳 Cartão de Débito</option>
-                <option value="cartao_credito" ${despesa?.meio_pagamento==='cartao_credito'?'selected':''}>💳 Cartão de Crédito (à vista)</option>
-                <option value="boleto" ${despesa?.meio_pagamento==='boleto'?'selected':''}>📄 Boleto</option>
-                <option value="transferencia" ${despesa?.meio_pagamento==='transferencia'?'selected':''}>🏦 Transferência</option>
-                ${!isEdit ? `<option value="parcelado_cartao" ${despesa?.parcelado?'selected':''}>💳 Cartão de Crédito Parcelado</option>` : ''}
-              </select>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                ${meiosInfo.map(m => `
+                  <div onclick="VM._selecionarMeioDespesa('${m.value}')" id="dmeio-${m.value}"
+                    style="cursor:pointer;padding:7px 12px;border-radius:20px;border:1.5px solid ${meioSelecionado===m.value?'#ff6b6b':'rgba(255,255,255,0.1)'};background:${meioSelecionado===m.value?'rgba(255,107,107,0.12)':'transparent'};font-size:0.78rem;color:${meioSelecionado===m.value?'#ff6b6b':'#888'};font-weight:${meioSelecionado===m.value?'700':'400'};transition:all 0.15s;white-space:nowrap;">
+                    ${m.label}
+                  </div>`).join('')}
+              </div>
+              <input type="hidden" id="d-meio" value="${meioSelecionado}">
             </div>
 
             <!-- Últimas despesas desta forma de pagamento -->
-            <div id="d-ultimas-meio" style="display:none;margin-bottom:14px;background:rgba(255,107,107,0.06);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:10px 12px;">
-              <div style="font-size:0.75rem;color:#ff6b6b;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">
-                <i class="fas fa-history"></i> Últimas com este método
-              </div>
+            <div id="d-ultimas-meio" style="display:none;margin-bottom:12px;background:rgba(255,107,107,0.05);border:1px solid rgba(255,107,107,0.18);border-radius:10px;padding:10px 12px;">
+              <div style="font-size:0.72rem;color:#ff6b6b;font-weight:700;margin-bottom:7px;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-history"></i> Últimas com este método</div>
               <div id="d-ultimas-meio-lista" style="font-size:0.82rem;"></div>
             </div>
 
@@ -3632,104 +3914,101 @@ const VM = {
                 </select>
                 ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:#888;margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
               </div>
-              <!-- Info de mês de faturamento inferido -->
               <div id="d-billing-info" style="display:none;margin-bottom:12px;"></div>
             </div>
 
-            <!-- Parcelas (aparece somente para parcelado) -->
+            <!-- Parcelas (somente para parcelado, somente criação) -->
             ${!isEdit ? `
               <div id="d-parcelas-wrapper" style="display:none;">
-                <!-- Número de parcelas + valor da parcela (bidirecional) -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                   <div class="form-group">
                     <label class="form-label">🔢 Nº Total de Parcelas *</label>
-                    <input type="number" id="d-parcelas" class="form-input" min="2" max="60" value="2" placeholder="Ex: 12"
-                      oninput="VM.atualizarPreviewParcela()">
+                    <input type="number" id="d-parcelas" class="form-input" min="2" max="60" value="2" placeholder="Ex: 12" oninput="VM.atualizarPreviewParcela()">
                   </div>
                   <div class="form-group">
                     <label class="form-label">💰 Valor da Parcela (R$)</label>
-                    <input type="number" id="d-vparcela" class="form-input" step="0.01" min="0" placeholder="Calculado auto"
-                      oninput="document.getElementById('d-ultimo-editado').value='parcela';VM.atualizarPreviewParcela()">
+                    <input type="number" id="d-vparcela" class="form-input" step="0.01" min="0" placeholder="Calculado auto" oninput="document.getElementById('d-ultimo-editado').value='parcela';VM.atualizarPreviewParcela()">
                   </div>
                 </div>
                 <div style="font-size:0.78rem;color:#2FBF71;margin-top:-8px;margin-bottom:12px;" id="d-parcelas-preview"></div>
-
-                <!-- Compra retroativa -->
                 <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:12px;">
-                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
-                    <input type="checkbox" id="d-retro-sim" onchange="VM.onChangeRetroativa(this.checked)"
-                      style="width:18px;height:18px;accent-color:#2FBF71;cursor:pointer;">
-                    📅 Esta compra já está parcelada (parcelas retroativas)
+                  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ccc;">
+                    <input type="checkbox" id="d-retro-sim" onchange="VM.onChangeRetroativa(this.checked)" style="width:18px;height:18px;accent-color:#2FBF71;cursor:pointer;">
+                    📅 Parcelas retroativas (compra já existente)
                   </label>
-                  <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
-                    Ex: comprou em janeiro, está cadastrando em março — informe quantas parcelas ainda restam.
-                  </div>
-                  <div id="d-retro-parcelas-wrapper" style="display:none;margin-top:12px;">
-                    <label class="form-label">📆 Parcelas Restantes (a partir de hoje) *</label>
-                    <input type="number" id="d-parcelas-restantes" class="form-input" min="1" placeholder="Ex: 10"
-                      oninput="VM.atualizarPreviewParcela()">
-                    <div style="font-size:0.75rem;color:#888;margin-top:4px;">
-                      O sistema criará apenas as parcelas restantes a partir da data informada.
-                    </div>
+                  <div style="font-size:0.72rem;color:#888;margin-top:5px;padding-left:28px;">Ex: comprou em janeiro, cadastrando em março — informe parcelas restantes.</div>
+                  <div id="d-retro-parcelas-wrapper" style="display:none;margin-top:10px;">
+                    <label class="form-label">📆 Parcelas Restantes *</label>
+                    <input type="number" id="d-parcelas-restantes" class="form-input" min="1" placeholder="Ex: 10" oninput="VM.atualizarPreviewParcela()">
                   </div>
                 </div>
               </div>
             ` : ''}
 
+            <!-- Status + Vencimento -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Status</label>
-                <select id="d-status" class="form-select">
-                  <option value="pendente" ${despesa?.status !== 'pago' ? 'selected' : ''}>Pendente</option>
-                  <option value="pago" ${despesa?.status === 'pago' ? 'selected' : ''}>Pago</option>
-                </select>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                  <div onclick="VM._selecionarStatusDespesa('pendente')" id="dstatus-pendente"
+                    style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${(despesa?.status||'pendente')==='pendente'?'#ffc400':'rgba(255,255,255,0.1)'};background:${(despesa?.status||'pendente')==='pendente'?'rgba(255,196,0,0.1)':'transparent'};font-size:0.75rem;color:${(despesa?.status||'pendente')==='pendente'?'#ffc400':'#888'};font-weight:${(despesa?.status||'pendente')==='pendente'?'700':'400'};transition:all 0.15s;">
+                    ⏳ Pendente
+                  </div>
+                  <div onclick="VM._selecionarStatusDespesa('pago')" id="dstatus-pago"
+                    style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${despesa?.status==='pago'?'#2FBF71':'rgba(255,255,255,0.1)'};background:${despesa?.status==='pago'?'rgba(47,191,113,0.1)':'transparent'};font-size:0.75rem;color:${despesa?.status==='pago'?'#2FBF71':'#888'};font-weight:${despesa?.status==='pago'?'700':'400'};transition:all 0.15s;">
+                    ✅ Pago
+                  </div>
+                </div>
+                <input type="hidden" id="d-status" value="${despesa?.status || 'pendente'}">
               </div>
               <div class="form-group">
                 <label class="form-label">Vencimento</label>
                 <input type="date" id="d-venc" class="form-input" value="${despesa?.vencimento || ''}">
               </div>
             </div>
-            <!-- BUG 1.2 FIX: Aporte / Transferência Patrimonial -->
-            <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#ccc;">
-                <input type="checkbox" id="d-eh-aporte" style="width:18px;height:18px;accent-color:#818cf8;cursor:pointer;" ${(despesa?.tipo==='aporte')?'checked':''}>
-                💼 É Aporte / Transferência Patrimonial
+
+            <!-- Aporte -->
+            <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 12px;margin-bottom:12px;cursor:pointer;" onclick="document.getElementById('d-eh-aporte').click()">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ccc;pointer-events:none;">
+                <input type="checkbox" id="d-eh-aporte" style="width:16px;height:16px;accent-color:#818cf8;pointer-events:none;" ${(despesa?.tipo==='aporte')?'checked':''}>
+                <div>
+                  <div style="color:#818cf8;">💼 Aporte / Transferência Patrimonial</div>
+                  <div style="font-size:0.68rem;color:#555;margin-top:2px;font-weight:400;">Não entra nas despesas nem na regra 50/30/20</div>
+                </div>
               </label>
-              <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
-                Marque se este lançamento é um investimento ou transferência entre contas. Não será contabilizado nas despesas do mês nem na regra 50/30/20.
-              </div>
             </div>
 
             <!-- Seletor de Tags -->
             ${tagsDisponiveis.length > 0 ? `
             <div class="form-group" style="margin-bottom:12px;">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <label class="form-label" style="margin-bottom:0;">Tags</label>
-                <button type="button" id="btn-ia-tag" onclick="VM._sugerirTagIA()" style="padding:3px 10px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.3);border-radius:6px;font-size:0.72rem;cursor:pointer;font-weight:600;">IA Sugerir</button>
+                <label class="form-label" style="margin-bottom:0;">🏷️ Tags</label>
+                <button type="button" id="btn-ia-tag" onclick="VM._sugerirTagIA()" style="padding:3px 10px;background:rgba(99,102,241,0.12);color:#818CF8;border:1px solid rgba(99,102,241,0.3);border-radius:6px;font-size:0.72rem;cursor:pointer;font-weight:600;">✨ IA Sugerir</button>
               </div>
               <div id="d-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;min-height:38px;">
                 ${tagsDisponiveis.map(t => {
                   const sel = tagsDaDespesa.some(td => td.id === t.id)
-                  return `<span data-tag-id="${t.id}" data-tag-cor="${t.cor}" data-tag-selected="${sel ? '1' : '0'}" onclick="VM._toggleTag(this)" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;border:1.5px solid ${sel ? t.cor : 'rgba(255,255,255,0.1)'};background:${sel ? t.cor+'22' : 'transparent'};color:${sel ? t.cor : '#94A3B8'};transition:all 0.15s;user-select:none;">
-                    <span style="width:7px;height:7px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>
-                    ${t.nome}
+                  return `<span data-tag-id="${t.id}" data-tag-cor="${t.cor}" data-tag-selected="${sel?'1':'0'}" onclick="VM._toggleTag(this)" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:0.75rem;cursor:pointer;border:1.5px solid ${sel?t.cor:'rgba(255,255,255,0.1)'};background:${sel?t.cor+'22':'transparent'};color:${sel?t.cor:'#94A3B8'};transition:all 0.15s;user-select:none;">
+                    <span style="width:7px;height:7px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>${t.nome}
                   </span>`
                 }).join('')}
               </div>
               <div id="ia-tag-resultado" style="font-size:0.78rem;color:#818CF8;margin-top:4px;display:none;"></div>
-              <div style="font-size:0.72rem;color:#475569;margin-top:4px;">Clique para selecionar. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Gerenciar tags</a></div>
+              <div style="font-size:0.7rem;color:#475569;margin-top:4px;">Clique para selecionar. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Gerenciar tags</a></div>
             </div>
             ` : `
             <div class="form-group" style="margin-bottom:12px;">
               <label class="form-label">🏷️ Tags</label>
-              <div style="font-size:0.8rem;color:#475569;padding:8px 0;">Nenhuma tag criada. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Criar tags</a></div>
+              <div style="font-size:0.8rem;color:#475569;padding:6px 0;">Nenhuma tag criada. <a href="#" onclick="VM.closeModal();VM.navigate('tags');" style="color:#2FBF71;">Criar tags</a></div>
             </div>
             `}
 
-            <div style="display:flex;gap:12px;margin-top:8px;">
-              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
-              <button type="submit" class="btn-primary" style="flex:1;" id="d-submit">
-                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
+            <div style="display:flex;gap:12px;margin-top:16px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;padding:11px;">
+                <i class="fas fa-times"></i> Cancelar
+              </button>
+              <button type="submit" class="btn-primary" style="flex:2;" id="d-submit">
+                <i class="fas fa-save"></i> ${isEdit ? 'Salvar Alterações' : 'Adicionar Despesa'}
               </button>
             </div>
           </form>
@@ -3737,10 +4016,9 @@ const VM = {
       </div>
     `
 
-    // Inicializar estado do form
-    VM.onChangeMeioPagamento(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
-    // Carregar últimas despesas do meio de pagamento inicial
-    this._carregarUltimasDespesasPorMeio(despesa?.parcelado ? 'parcelado_cartao' : (despesa?.meio_pagamento || 'dinheiro'))
+    // Inicializar estado do form via novo meio selecionado
+    VM.onChangeMeioPagamento(meioSelecionado)
+    this._carregarUltimasDespesasPorMeio(meioSelecionado)
 
     // Quando alterar a data, recalcular billing se cartão estiver selecionado
     const dataInput = document.getElementById('d-data')
@@ -3839,6 +4117,90 @@ const VM = {
     })
   },
 
+  // ── Helpers seletores visuais do modal de despesas ────────────────────────
+  _selecionarCatDespesa(valor) {
+    const inp = document.getElementById('d-cat')
+    if (inp) inp.value = valor
+    document.querySelectorAll('#d-cat-grid > div').forEach(el => {
+      const isThis = el.id === `dcatbtn-${valor.replace(/[^a-z0-9]/gi,'_')}`
+      el.style.borderColor = isThis ? '#ff6b6b' : 'rgba(255,255,255,0.08)'
+      el.style.background  = isThis ? 'rgba(255,107,107,0.12)' : 'rgba(255,255,255,0.03)'
+      const lbl = el.querySelector('div:last-child')
+      if (lbl) { lbl.style.color = isThis ? '#ff6b6b' : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
+    })
+    VM.verificarOrcamentoModal()
+  },
+
+  _selecionarMeioDespesa(valor) {
+    const inp = document.getElementById('d-meio')
+    if (inp) inp.value = valor
+    document.querySelectorAll('[id^="dmeio-"]').forEach(el => {
+      const isThis = el.id === `dmeio-${valor}`
+      el.style.borderColor = isThis ? '#ff6b6b' : 'rgba(255,255,255,0.1)'
+      el.style.background  = isThis ? 'rgba(255,107,107,0.12)' : 'transparent'
+      el.style.color       = isThis ? '#ff6b6b' : '#888'
+      el.style.fontWeight  = isThis ? '700' : '400'
+    })
+    VM.onChangeMeioPagamento(valor)
+    VM._carregarUltimasDespesasPorMeio(valor)
+  },
+
+  _selecionarTipoDespesa(valor) {
+    const inp = document.getElementById('d-tipo')
+    if (inp) inp.value = valor
+    const corV = '#ffc400', corF = '#74b9ff'
+    const elV = document.getElementById('dtipo-variavel')
+    const elF = document.getElementById('dtipo-fixa')
+    if (elV) {
+      const sel = valor === 'variavel'
+      elV.style.borderColor = sel ? corV : 'rgba(255,255,255,0.1)'
+      elV.style.background  = sel ? 'rgba(255,196,0,0.1)' : 'transparent'
+      elV.style.color = sel ? corV : '#888'; elV.style.fontWeight = sel ? '700' : '400'
+    }
+    if (elF) {
+      const sel = valor === 'fixa'
+      elF.style.borderColor = sel ? corF : 'rgba(255,255,255,0.1)'
+      elF.style.background  = sel ? 'rgba(116,185,255,0.1)' : 'transparent'
+      elF.style.color = sel ? corF : '#888'; elF.style.fontWeight = sel ? '700' : '400'
+    }
+  },
+
+  _selecionarStatusDespesa(valor) {
+    const inp = document.getElementById('d-status')
+    if (inp) inp.value = valor
+    const elP = document.getElementById('dstatus-pendente')
+    const elG = document.getElementById('dstatus-pago')
+    if (elP) {
+      const sel = valor === 'pendente'
+      elP.style.borderColor = sel ? '#ffc400' : 'rgba(255,255,255,0.1)'
+      elP.style.background  = sel ? 'rgba(255,196,0,0.1)' : 'transparent'
+      elP.style.color = sel ? '#ffc400' : '#888'; elP.style.fontWeight = sel ? '700' : '400'
+    }
+    if (elG) {
+      const sel = valor === 'pago'
+      elG.style.borderColor = sel ? '#2FBF71' : 'rgba(255,255,255,0.1)'
+      elG.style.background  = sel ? 'rgba(47,191,113,0.1)' : 'transparent'
+      elG.style.color = sel ? '#2FBF71' : '#888'; elG.style.fontWeight = sel ? '700' : '400'
+    }
+  },
+
+  async _duplicarDespesa(despesa) {
+    const hoje = new Date().toISOString().split('T')[0]
+    // Cria cópia sem id, sem parcelamento, com data de hoje
+    const copia = {
+      ...despesa,
+      id: undefined,
+      data: hoje,
+      vencimento: null,
+      parcelado: false,
+      numero_parcelas: 1,
+      parcela_atual: 1,
+      purchase_group_id: null,
+      descricao: `${despesa.descricao} (cópia)`
+    }
+    await this.modalDespesa(copia)
+  },
+
   async _carregarUltimasDespesasPorMeio(meio) {
     const container = document.getElementById('d-ultimas-meio')
     const lista = document.getElementById('d-ultimas-meio-lista')
@@ -3878,15 +4240,17 @@ const VM = {
 
   // ── Seleção múltipla Despesas ──────────────────────────────────────────────
   _onSelDespesa() {
-    const chks = document.querySelectorAll('.desp-chk')
-    const sel  = document.querySelectorAll('.desp-chk:checked')
-    const bar  = document.getElementById('desp-sel-bar')
-    const cnt  = document.getElementById('desp-sel-count')
-    const all  = document.getElementById('desp-chk-all')
-    if (bar)  bar.style.display  = sel.length > 0 ? 'flex' : 'none'
-    if (cnt)  cnt.textContent    = `${sel.length} selecionada${sel.length !== 1 ? 's' : ''}`
-    if (all)  all.indeterminate  = sel.length > 0 && sel.length < chks.length
-    if (all)  all.checked        = sel.length > 0 && sel.length === chks.length
+    const chks  = document.querySelectorAll('.desp-chk')
+    const sel   = document.querySelectorAll('.desp-chk:checked')
+    const bar   = document.getElementById('desp-sel-bar')
+    const cnt   = document.getElementById('desp-sel-count')
+    const empty = document.getElementById('desp-sel-empty')
+    const all   = document.getElementById('desp-chk-all')
+    if (bar)   bar.style.display   = sel.length > 0 ? 'flex' : 'none'
+    if (empty) empty.style.display = sel.length > 0 ? 'none' : 'block'
+    if (cnt)   cnt.textContent     = `${sel.length} selecionada${sel.length !== 1 ? 's' : ''}`
+    if (all)   all.indeterminate   = sel.length > 0 && sel.length < chks.length
+    if (all)   all.checked         = sel.length > 0 && sel.length === chks.length
   },
   _selTodosDespesas(val) {
     document.querySelectorAll('.desp-chk').forEach(c => { c.checked = val })

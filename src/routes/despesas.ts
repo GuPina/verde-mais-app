@@ -10,13 +10,12 @@ const despesas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, status, limit = '50', offset = '0', purchase_group_id } = c.req.query()
+  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento } = c.req.query()
 
   let query = 'SELECT * FROM despesas WHERE user_id = ?'
   const params: any[] = [user.id]
 
   if (purchase_group_id) {
-    // Filtro direto por grupo de compra parcelada — ignora outros filtros de data
     query += ' AND purchase_group_id = ?'
     params.push(purchase_group_id)
     query += ' ORDER BY data ASC, id ASC LIMIT 100'
@@ -32,14 +31,12 @@ despesas.get('/', requireAuth, async (c) => {
     params.push(ano)
   }
 
-  if (categoria) {
-    query += ' AND categoria = ?'
-    params.push(categoria)
-  }
-
-  if (status) {
-    query += ' AND status = ?'
-    params.push(status)
+  if (categoria) { query += ' AND categoria = ?'; params.push(categoria) }
+  if (status)    { query += ' AND status = ?';    params.push(status) }
+  if (meio_pagamento) { query += ' AND meio_pagamento = ?'; params.push(meio_pagamento) }
+  if (busca) {
+    query += ' AND descricao LIKE ?'
+    params.push(`%${busca.replace(/'/g, "''")}%`)
   }
 
   query += ' ORDER BY data DESC, id DESC LIMIT ? OFFSET ?'
@@ -47,7 +44,7 @@ despesas.get('/', requireAuth, async (c) => {
 
   const result = await c.env.DB.prepare(query).bind(...params).all()
 
-  // M-D1+B9: total separado por status, respeitando todos os filtros ativos
+  // totais por status respeitando filtros (sem busca para não distorcer o total do mês)
   let baseFilter = 'FROM despesas WHERE user_id = ?'
   const baseParams: any[] = [user.id]
   if (mes && ano) {
@@ -57,26 +54,41 @@ despesas.get('/', requireAuth, async (c) => {
     baseFilter += ' AND strftime("%Y", data) = ?'
     baseParams.push(ano)
   }
-  if (categoria) { baseFilter += ' AND categoria = ?'; baseParams.push(categoria) }
+  if (categoria)   { baseFilter += ' AND categoria = ?';       baseParams.push(categoria) }
+  if (status)      { baseFilter += ' AND status = ?';          baseParams.push(status) }
+  if (meio_pagamento) { baseFilter += ' AND meio_pagamento = ?'; baseParams.push(meio_pagamento) }
+  if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
 
-  const [totPago, totPendente, totGeral] = await c.env.DB.batch([
+  const [totPago, totPendente, totGeral, catBreakdownR] = await c.env.DB.batch([
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pago'`).bind(...baseParams),
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pendente'`).bind(...baseParams),
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter}`).bind(...baseParams),
+    // breakdown por categoria (sem filtro de categoria pura para mostrar todas do período)
+    (() => {
+      let cbFilter = 'FROM despesas WHERE user_id = ? AND (tipo IS NULL OR tipo != \'aporte\')'
+      const cbParams: any[] = [user.id]
+      if (mes && ano) { cbFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'; cbParams.push(mes.padStart(2,'0'), ano) }
+      else if (ano) { cbFilter += ' AND strftime("%Y", data) = ?'; cbParams.push(ano) }
+      if (status) { cbFilter += ' AND status = ?'; cbParams.push(status) }
+      if (busca) { cbFilter += ' AND descricao LIKE ?'; cbParams.push(`%${busca.replace(/'/g,"''")}%`) }
+      return c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total, COUNT(*) as qtd ${cbFilter} GROUP BY categoria ORDER BY total DESC LIMIT 10`).bind(...cbParams)
+    })(),
   ])
+
   const rPago     = (totPago.results?.[0]     as any) || { v: 0, n: 0 }
   const rPendente = (totPendente.results?.[0]  as any) || { v: 0, n: 0 }
   const rGeral    = (totGeral.results?.[0]     as any) || { v: 0, n: 0 }
 
   return c.json({ 
-    despesas: result.results, 
+    despesas:       result.results, 
     total:          rGeral.v,
     count:          result.results.length,
-    total_count:    rGeral.n,       // M-D4: contagem real sem limit/offset
+    total_count:    rGeral.n,
     total_pago:     rPago.v,
     count_pago:     rPago.n,
     total_pendente: rPendente.v,
     count_pendente: rPendente.n,
+    categorias_breakdown: catBreakdownR.results || [],
   })
 })
 
