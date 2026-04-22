@@ -3048,6 +3048,7 @@ const VM = {
                   <td>
                     <div style="font-weight:600;color:#f1f5f9;">${r.descricao}</div>
                     ${r.observacoes ? `<div style="font-size:0.72rem;color:#555;margin-top:2px;">${r.observacoes}</div>` : ''}
+                    <div id="tags-rec-${r.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;" data-loaded="0"></div>
                   </td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.25);font-size:0.78rem;font-weight:600;color:#2FBF71;">
@@ -3074,6 +3075,23 @@ const VM = {
         </div>
         ${paginacao}
       `
+      // Carregar tags de cada receita de forma lazy (sem bloquear a renderização)
+      setTimeout(() => {
+        ;(data.receitas || []).forEach(async r => {
+          const el = document.getElementById('tags-rec-' + r.id)
+          if (!el || el.dataset.loaded === '1') return
+          el.dataset.loaded = '1'
+          try {
+            const tags = await this.api('GET', 'tags/receita/' + r.id).catch(() => [])
+            if (tags && tags.length > 0) {
+              el.innerHTML = tags.map(t =>
+                '<span style="background:' + t.cor + '22;color:' + t.cor + ';border:1px solid ' + t.cor + '55;padding:1px 7px;border-radius:8px;font-size:0.65rem;font-weight:600;">' + t.nome + '</span>'
+              ).join('')
+            }
+          } catch(_) {}
+        })
+      }, 300)
+
     } catch (e) {
       this.toast('Erro ao carregar receitas', 'error')
     }
@@ -3185,6 +3203,23 @@ const VM = {
               </div>
             </div>
 
+            <!-- Tags -->
+            <div class="form-group" style="margin-top:14px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <label class="form-label" style="margin:0;">🏷️ Tags</label>
+                <button type="button" onclick="VM._sugerirTagIAReceita()" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:8px;padding:4px 10px;font-size:0.72rem;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                  <i class="fas fa-magic"></i> Sugerir IA
+                </button>
+              </div>
+              <div id="r-tags-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
+                <div style="color:#64748B;font-size:0.78rem;align-self:center;padding:2px 4px;" id="r-tags-placeholder">Clique em uma tag abaixo para adicionar</div>
+              </div>
+              <div id="r-tags-lista" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">
+                <div style="color:#64748B;font-size:0.75rem;width:100%;text-align:center;padding:8px;">Carregando tags...</div>
+              </div>
+              <input type="hidden" id="r-tag-ids" value="">
+            </div>
+
             <div style="display:flex;gap:12px;margin-top:18px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;padding:11px;">
                 <i class="fas fa-times"></i> Cancelar
@@ -3201,12 +3236,17 @@ const VM = {
     // Carregar últimas receitas da categoria inicial
     this._carregarUltimasReceitasPorCategoria(catSelecionada)
 
+    // Carregar tags disponíveis no seletor
+    this._carregarTagsModalReceita(receita)
+
     document.getElementById('receita-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('r-submit')
       btn.disabled = true
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
       try {
+        const tagIdsStr = document.getElementById('r-tag-ids')?.value || ''
+        const tagIds = tagIdsStr ? tagIdsStr.split(',').map(Number).filter(Boolean) : []
         const payload = {
           descricao: document.getElementById('r-desc').value,
           categoria: document.getElementById('r-cat').value,
@@ -3214,10 +3254,16 @@ const VM = {
           valor: parseFloat(document.getElementById('r-valor').value),
           meio_pagamento: document.getElementById('r-meio').value,
           recorrente: document.getElementById('r-recorrente').checked,
-          observacoes: document.getElementById('r-obs').value
+          observacoes: document.getElementById('r-obs').value,
+          tag_ids: tagIds
         }
-        if (isEdit) await this.api('PUT', `receitas/${receita.id}`, payload)
-        else await this.api('POST', 'receitas', payload)
+        if (isEdit) {
+          await this.api('PUT', `receitas/${receita.id}`, payload)
+          // Atualizar tags da receita em edição
+          if (tagIds.length > 0) {
+            await this.api('POST', `tags/receita/${receita.id}`, { tag_ids: tagIds }).catch(() => {})
+          }
+        } else await this.api('POST', 'receitas', payload)
         this.toast(isEdit ? 'Receita atualizada! ✅' : 'Receita adicionada! 💰')
         this.closeModal()
         this.carregarReceitas()
@@ -3287,6 +3333,124 @@ const VM = {
         </div>
       `).join('')
     } catch(e) { container.style.display = 'none' }
+  },
+
+  async _carregarTagsModalReceita(receita) {
+    const lista = document.getElementById('r-tags-lista')
+    const chips = document.getElementById('r-tags-chips')
+    const hiddenInput = document.getElementById('r-tag-ids')
+    if (!lista) return
+
+    try {
+      let allTags = this._tagsCache
+      if (!allTags || allTags.length === 0) {
+        const r = await this.api('GET', 'tags').catch(() => [])
+        allTags = r || []
+      }
+
+      // Tags já vinculadas (modo edição)
+      let tagsSelecionadas = new Set()
+      if (receita?.id) {
+        const tagsRec = await this.api('GET', 'tags/receita/' + receita.id).catch(() => [])
+        ;(tagsRec || []).forEach(t => tagsSelecionadas.add(t.id))
+      }
+
+      // Atualizar hidden input com ids iniciais
+      hiddenInput.value = [...tagsSelecionadas].join(',')
+
+      // Renderizar chips selecionados
+      const atualizarChips = () => {
+        const selecionadas = allTags.filter(t => tagsSelecionadas.has(t.id))
+        const ph = document.getElementById('r-tags-placeholder')
+        if (ph) ph.style.display = selecionadas.length > 0 ? 'none' : 'block'
+        // Remover chips antigos
+        document.querySelectorAll('.r-tag-chip-sel').forEach(el => el.remove())
+        selecionadas.forEach(t => {
+          const chip = document.createElement('span')
+          chip.className = 'r-tag-chip-sel'
+          chip.style.cssText = 'background:' + t.cor + '22;color:' + t.cor + ';border:1px solid ' + t.cor + '55;padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;'
+          chip.innerHTML = t.nome + ' <span style="opacity:0.7;font-size:0.7rem;">✕</span>'
+          chip.onclick = () => {
+            tagsSelecionadas.delete(t.id)
+            hiddenInput.value = [...tagsSelecionadas].join(',')
+            atualizarChips()
+            atualizarLista()
+          }
+          chips.appendChild(chip)
+        })
+      }
+
+      // Renderizar lista de tags disponíveis para clicar
+      const atualizarLista = () => {
+        lista.innerHTML = allTags.length === 0
+          ? '<div style="color:#64748B;font-size:0.75rem;text-align:center;width:100%;padding:8px;">Nenhuma tag cadastrada. <a onclick="VM.navigate(\'tags\')" style="color:#10B981;cursor:pointer;">Criar tags →</a></div>'
+          : allTags.map(t => {
+              const sel = tagsSelecionadas.has(t.id)
+              return '<span onclick="VM._toggleTagReceita(' + t.id + ')" data-tag-receita-id="' + t.id + '" style="padding:4px 12px;border-radius:12px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1.5px solid ' + (sel ? t.cor : t.cor + '55') + ';background:' + (sel ? t.cor + '22' : 'transparent') + ';color:' + (sel ? t.cor : '#94A3B8') + ';transition:all 0.15s;">' + t.nome + '</span>'
+            }).join('')
+      }
+
+      // Expor dados para toggleTag
+      this._tagModalReceitaState = { allTags, tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista }
+
+      atualizarChips()
+      atualizarLista()
+
+    } catch(e) {
+      if (lista) lista.innerHTML = '<div style="color:#F43F5E;font-size:0.75rem;">Erro ao carregar tags</div>'
+    }
+  },
+
+  _toggleTagReceita(tagId) {
+    const state = this._tagModalReceitaState
+    if (!state) return
+    const { tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista } = state
+    if (tagsSelecionadas.has(tagId)) {
+      tagsSelecionadas.delete(tagId)
+    } else {
+      tagsSelecionadas.add(tagId)
+    }
+    hiddenInput.value = [...tagsSelecionadas].join(',')
+    atualizarChips()
+    atualizarLista()
+  },
+
+  async _sugerirTagIAReceita() {
+    const desc = document.getElementById('r-desc')?.value || ''
+    const cat  = document.getElementById('r-cat')?.value || ''
+    if (!desc && !cat) { this.toast('Preencha Descrição ou Categoria primeiro', 'warning'); return }
+    const btn = document.querySelector('[onclick="VM._sugerirTagIAReceita()"]')
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> IA...' }
+    try {
+      const r = await this.api('POST', 'tags/sugerir-ia', { descricao: desc, categoria: cat, tipo: 'receita' })
+      const state = this._tagModalReceitaState
+      if (!state) return
+      const { allTags, tagsSelecionadas, hiddenInput, atualizarChips, atualizarLista } = state
+
+      if (r.tag && r.tag.id) {
+        // Usar tag existente
+        tagsSelecionadas.add(r.tag.id)
+        hiddenInput.value = [...tagsSelecionadas].join(',')
+        atualizarChips()
+        atualizarLista()
+        this.toast('IA sugeriu: ' + r.tag.nome)
+      } else if (r.nova_tag) {
+        // Criar nova tag e adicionar
+        const novaTag = await this.api('POST', 'tags', { nome: r.nova_tag, cor: '#22C55E' })
+        if (novaTag?.id) {
+          allTags.push(novaTag)
+          tagsSelecionadas.add(novaTag.id)
+          hiddenInput.value = [...tagsSelecionadas].join(',')
+          atualizarChips()
+          atualizarLista()
+          this.toast('IA criou nova tag: ' + novaTag.nome)
+        }
+      }
+    } catch(e) {
+      this.toast('Erro ao sugerir tag com IA', 'error')
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Sugerir IA' }
+    }
   },
 
   async deleteReceita(id) {
@@ -6552,89 +6716,78 @@ const VM = {
     let lista = busca ? tags.filter(t => t.nome.toLowerCase().includes(busca)) : [...tags]
 
     if (ordem === 'nome')  lista.sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    else if (ordem === 'valor') lista.sort((a,b) => (b.total_valor||0) - (a.total_valor||0))
+    else if (ordem === 'valor') lista.sort((a,b) => ((b.total_despesas||0)+(b.total_receitas||0)+(b.total_investimentos||0)) - ((a.total_despesas||0)+(a.total_receitas||0)+(a.total_investimentos||0)))
     else lista.sort((a,b) => (b.usos||0) - (a.usos||0))
 
     if (lista.length === 0) {
-      cont.innerHTML = `<div style="text-align:center;padding:40px;color:#475569;">Nenhuma tag encontrada para "<strong style="color:#94A3B8;">${busca}</strong>"</div>`
+      cont.innerHTML = '<div style="text-align:center;padding:40px;color:#475569;">Nenhuma tag encontrada.</div>'
       return
     }
 
-    // Separar tags com uso e sem uso
-    const comUso = lista.filter(t => t.usos > 0)
-    const semUso = lista.filter(t => t.usos === 0)
+    // Separar tags por tipo
+    const soDespesas = lista.filter(t => (t.usos_despesas||0)>0 && (t.usos_receitas||0)===0 && (t.usos_investimentos||0)===0)
+    const soReceitas = lista.filter(t => (t.usos_receitas||0)>0 && (t.usos_despesas||0)===0 && (t.usos_investimentos||0)===0)
+    const mistas     = lista.filter(t => (t.usos||0)>0 && !soDespesas.includes(t) && !soReceitas.includes(t))
+    const semUso     = lista.filter(t => (t.usos||0)===0)
 
-      const renderCard = (tag) => `
-        <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;transition:border-color 0.2s,background 0.2s;cursor:default;"
-          onmouseover="this.style.borderColor='rgba(255,255,255,0.15)';this.style.background='rgba(30,41,59,0.95)'"
-          onmouseout="this.style.borderColor='rgba(255,255,255,0.07)';this.style.background='rgba(30,41,59,0.7)'">
+    const fmtMoney = (v) => this.formatMoney(v)
 
-          <!-- Dot colorido -->
-          <div style="width:38px;height:38px;border-radius:10px;background:${tag.cor}22;border:2px solid ${tag.cor};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <div style="width:12px;height:12px;border-radius:3px;background:${tag.cor};"></div>
-          </div>
+    const renderBadges = (tag) => {
+      const parts = []
+      if ((tag.usos_despesas||0) > 0)      parts.push('<span style="background:rgba(244,63,94,0.15);color:#F43F5E;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🔴 ' + tag.usos_despesas + ' desp · ' + fmtMoney(tag.total_despesas||0) + '</span>')
+      if ((tag.usos_receitas||0) > 0)      parts.push('<span style="background:rgba(34,197,94,0.15);color:#22C55E;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🟢 ' + tag.usos_receitas + ' rec · ' + fmtMoney(tag.total_receitas||0) + '</span>')
+      if ((tag.usos_investimentos||0) > 0) parts.push('<span style="background:rgba(99,102,241,0.15);color:#818CF8;padding:2px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;">🟣 ' + tag.usos_investimentos + ' inv · ' + fmtMoney(tag.total_investimentos||0) + '</span>')
+      return parts.length > 0
+        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">' + parts.join('') + '</div>'
+        : '<div style="font-size:0.72rem;color:#475569;margin-top:3px;"><i class=\'fas fa-unlink\' style=\'font-size:0.65rem;margin-right:3px;\'></i>Sem vínculos</div>'
+    }
 
-          <!-- Nome + contagem + valor -->
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;color:#F1F5F9;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${tag.nome}">${tag.nome}</div>
-            <div style="font-size:0.75rem;color:${tag.usos > 0 ? '#10B981' : '#475569'};margin-top:2px;">
-              ${tag.usos > 0
-                ? `<i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>${tag.usos} despesa${tag.usos !== 1 ? 's' : ''} · ${this.formatMoney(tag.total_valor||0)}`
-                : `<i class="fas fa-unlink" style="font-size:0.65rem;margin-right:3px;"></i>Sem despesas vinculadas`}
-            </div>
-          </div>
+    const renderCard = (tag) => {
+      const nome = tag.nome.replace(/'/g, "\\'")
+      const cor  = tag.cor
+      return '<div style="background:rgba(30,41,59,0.7);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px;display:flex;align-items:flex-start;gap:14px;transition:border-color 0.2s,background 0.2s;" onmouseover="this.style.borderColor=\'rgba(255,255,255,0.15)\';this.style.background=\'rgba(30,41,59,0.95)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.07)\';this.style.background=\'rgba(30,41,59,0.7)\'">'
+        + '<div style="width:38px;height:38px;border-radius:10px;background:' + cor + '22;border:2px solid ' + cor + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;"><div style="width:12px;height:12px;border-radius:3px;background:' + cor + ';"></div></div>'
+        + '<div style="flex:1;min-width:0;"><div style="font-weight:600;color:#F1F5F9;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + tag.nome + '">' + tag.nome + '</div>' + renderBadges(tag) + '</div>'
+        + '<div style="display:flex;gap:5px;flex-shrink:0;">'
+        + '<button onclick="VM.buscarPorTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Ver lançamentos" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:#10B981;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(16,185,129,0.22)\'" onmouseout="this.style.background=\'rgba(16,185,129,0.1)\'"><i class="fas fa-search"></i></button>'
+        + '<button onclick="VM.modalEditarTag(' + tag.id + ',\'' + nome + '\',\'' + cor + '\');event.stopPropagation()" title="Editar" style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.18);color:#94A3B8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(148,163,184,0.18)\'" onmouseout="this.style.background=\'rgba(148,163,184,0.08)\'"><i class="fas fa-pen"></i></button>'
+        + '<button onclick="VM.excluirTag(' + tag.id + ',\'' + nome + '\');event.stopPropagation()" title="Excluir" style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\'rgba(244,63,94,0.18)\'" onmouseout="this.style.background=\'rgba(244,63,94,0.07)\'"><i class="fas fa-trash"></i></button>'
+        + '</div></div>'
+    }
 
-          <!-- Ações -->
-          <div style="display:flex;gap:5px;flex-shrink:0;">
-            <button onclick="VM.buscarPorTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}');event.stopPropagation()" title="Ver despesas"
-              style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:#10B981;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
-              onmouseover="this.style.background='rgba(16,185,129,0.22)'" onmouseout="this.style.background='rgba(16,185,129,0.1)'">
-              <i class="fas fa-search"></i>
-            </button>
-            <button onclick="VM.modalEditarTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}','${tag.cor}');event.stopPropagation()" title="Editar"
-              style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.18);color:#94A3B8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
-              onmouseover="this.style.background='rgba(148,163,184,0.18)'" onmouseout="this.style.background='rgba(148,163,184,0.08)'">
-              <i class="fas fa-pen"></i>
-            </button>
-            <button onclick="VM.excluirTag(${tag.id},'${tag.nome.replace(/'/g,"\\'")}');event.stopPropagation()" title="Excluir"
-              style="background:rgba(244,63,94,0.07);border:1px solid rgba(244,63,94,0.2);color:#F43F5E;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:0.72rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
-              onmouseover="this.style.background='rgba(244,63,94,0.18)'" onmouseout="this.style.background='rgba(244,63,94,0.07)'">
-              <i class="fas fa-trash"></i>
-            </button>
-          </div>
-        </div>
-      `
+    const renderSecao = (titulo, cor, icone, lista, totalExtra) => {
+      if (lista.length === 0) return ''
+      const extraHtml = totalExtra ? '<span style="font-size:0.72rem;color:#64748B;margin-left:auto;">' + totalExtra + '</span>' : ''
+      return '<div style="margin-bottom:24px;">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-left:2px;">'
+        + '<div style="width:10px;height:10px;border-radius:50%;background:' + cor + ';"></div>'
+        + '<span style="font-size:0.72rem;font-weight:700;color:' + cor + ';text-transform:uppercase;letter-spacing:0.08em;">' + icone + ' ' + titulo + ' · ' + lista.length + '</span>'
+        + extraHtml
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">'
+        + lista.map(renderCard).join('')
+        + '</div></div>'
+    }
 
-      cont.innerHTML = `
-        <!-- Tags em uso -->
-        ${comUso.length > 0 ? `
-          <div style="margin-bottom:6px;">
-            <div style="font-size:0.72rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">
-              Em uso · ${comUso.length}
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">
-              ${comUso.map(renderCard).join('')}
-            </div>
-          </div>
-        ` : ''}
+    const totDesp = soDespesas.reduce((s,t) => s + (t.total_despesas||0), 0)
+    const totRec  = soReceitas.reduce((s,t) => s + (t.total_receitas||0), 0)
 
-        <!-- Tags sem uso -->
-        ${semUso.length > 0 ? `
-          <div style="margin-top:${comUso.length > 0 ? '24px' : '0'};">
-            <div style="font-size:0.72rem;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">
-              Sem uso · ${semUso.length}
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;opacity:0.7;">
-              ${semUso.map(renderCard).join('')}
-            </div>
-          </div>
-        ` : ''}
+    let html = ''
+    html += renderSecao('Tags de Despesas',   '#F43F5E', '🔴', soDespesas, totDesp > 0 ? 'Total: ' + fmtMoney(totDesp) : '')
+    html += renderSecao('Tags de Receitas',   '#22C55E', '🟢', soReceitas, totRec > 0  ? 'Total: ' + fmtMoney(totRec)  : '')
+    html += renderSecao('Tags Mistas',        '#818CF8', '🟣', mistas, '')
 
-        <div id="tag-busca-resultado" style="margin-top:24px;"></div>
-      `
-  },
+    if (semUso.length > 0) {
+      html += '<div style="margin-top:8px;">'
+            + '<div style="font-size:0.72rem;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-left:2px;">Sem uso · ' + semUso.length + '</div>'
+            + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;opacity:0.6;">'
+            + semUso.map(renderCard).join('')
+            + '</div></div>'
+    }
 
-  _exportarTagsCSV() {
+    html += '<div id="tag-busca-resultado" style="margin-top:24px;"></div>'
+    cont.innerHTML = html
+  },  _exportarTagsCSV() {
     const tags = this._tagsCache || []
     if (tags.length === 0) { this.toast('Nenhuma tag para exportar', 'warning'); return }
     const rows = [
@@ -7427,70 +7580,106 @@ const VM = {
   async buscarPorTag(tagId, tagNome) {
     const cont = document.getElementById('tag-busca-resultado')
     if (!cont) return
-    cont.innerHTML = `<div style="text-align:center;padding:20px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
+    cont.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>'
     try {
-      const rows = await this.api('GET', `tags/buscar?tag_id=${tagId}`)
-      if (!rows || rows.length === 0) {
-        cont.innerHTML = `
-          <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:24px;text-align:center;">
-            <div style="font-size:2rem;margin-bottom:10px;">🔍</div>
-            <div style="color:#64748B;font-size:0.9rem;">Nenhuma despesa com a tag <strong style="color:#10B981;">${tagNome}</strong></div>
-            <div style="font-size:0.78rem;color:#475569;margin-top:8px;">Vincule esta tag ao cadastrar ou editar uma despesa</div>
-          </div>`
+      const data = await this.api('GET', 'tags/buscar?tag_id=' + tagId)
+      const despesas     = data.despesas     || []
+      const receitas     = data.receitas     || []
+      const investimentos = data.investimentos || []
+
+      const totalItens = despesas.length + receitas.length + investimentos.length
+      if (totalItens === 0) {
+        cont.innerHTML = '<div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:24px;text-align:center;"><div style="font-size:2rem;margin-bottom:10px;">🔍</div><div style="color:#64748B;font-size:0.9rem;">Nenhum lançamento com a tag <strong style="color:#10B981;">' + tagNome + '</strong></div><div style="font-size:0.78rem;color:#475569;margin-top:8px;">Vincule esta tag ao cadastrar ou editar um lançamento</div></div>'
         return
       }
 
-      // Agrupar por mês/ano
-      const grupos = {}
-      let totalGeral = 0
       const mesesPT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-      rows.forEach(r => {
-        const [ano, mes] = (r.data || '').split('-')
-        const key = `${ano}-${mes}`
-        const label = `${mesesPT[parseInt(mes)-1] || mes}/${ano}`
-        if (!grupos[key]) grupos[key] = { label, itens: [], total: 0 }
-        grupos[key].itens.push(r)
-        grupos[key].total += r.valor
-        totalGeral += r.valor
-      })
 
-      const gruposOrdenados = Object.keys(grupos).sort((a,b) => b.localeCompare(a))
+      const agruparPorMes = (rows) => {
+        const grupos = {}
+        let total = 0
+        rows.forEach(r => {
+          const [ano, mes] = (r.data || '').split('-')
+          const key = ano + '-' + mes
+          const label = (mesesPT[parseInt(mes)-1] || mes) + '/' + ano
+          if (!grupos[key]) grupos[key] = { label, itens: [], total: 0 }
+          grupos[key].itens.push(r)
+          grupos[key].total += parseFloat(r.valor || 0)
+          total += parseFloat(r.valor || 0)
+        })
+        return { grupos, total }
+      }
 
-      cont.innerHTML = `
-        <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;margin-top:8px;">
-          <!-- Header -->
-          <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-            <div style="font-size:0.88rem;font-weight:600;color:#94A3B8;">
-              🏷️ Tag: <span style="color:#10B981;">${tagNome}</span> · <span style="color:#F8FAFC;">${rows.length} despesa${rows.length !== 1 ? 's' : ''}</span>
-            </div>
-            <div style="font-size:0.9rem;font-weight:700;color:#F43F5E;">Total: R$ ${this.formatMoney(totalGeral)}</div>
-          </div>
-          <!-- Por mês -->
-          ${gruposOrdenados.map(key => {
-            const g = grupos[key]
-            return `
-            <div style="border-top:1px solid rgba(255,255,255,0.04);">
-              <div style="padding:8px 18px 4px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:0.77rem;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;">${g.label}</span>
-                <span style="font-size:0.78rem;color:#94A3B8;">R$ ${this.formatMoney(g.total)}</span>
-              </div>
-              ${g.itens.map(r => `
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-top:1px solid rgba(255,255,255,0.03);">
-                  <div>
-                    <div style="font-size:0.85rem;color:#F8FAFC;">${r.descricao}</div>
-                    <div style="font-size:0.72rem;color:#475569;">${r.data} · ${r.categoria}</div>
-                  </div>
-                  <div style="font-size:0.87rem;font-weight:600;color:#F43F5E;white-space:nowrap;">R$ ${this.formatMoney(r.valor)}</div>
-                </div>
-              `).join('')}
-            </div>`
-          }).join('')}
-        </div>`
+      const renderGrupos = (grupos, corValor) => {
+        const keys = Object.keys(grupos).sort((a,b) => b.localeCompare(a))
+        return keys.map(key => {
+          const g = grupos[key]
+          return '<div style="border-top:1px solid rgba(255,255,255,0.04);">'
+            + '<div style="padding:8px 18px 4px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;align-items:center;">'
+            + '<span style="font-size:0.77rem;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;">' + g.label + '</span>'
+            + '<span style="font-size:0.78rem;color:#94A3B8;">R$ ' + this.formatMoney(g.total) + '</span>'
+            + '</div>'
+            + g.itens.map(r => '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-top:1px solid rgba(255,255,255,0.03);">'
+              + '<div><div style="font-size:0.85rem;color:#F8FAFC;">' + (r.descricao || r.nome || '') + '</div><div style="font-size:0.72rem;color:#475569;">' + (r.data || '') + ' · ' + (r.categoria || '') + '</div></div>'
+              + '<div style="font-size:0.87rem;font-weight:600;color:' + corValor + ';white-space:nowrap;">R$ ' + this.formatMoney(r.valor) + '</div>'
+              + '</div>').join('')
+            + '</div>'
+        }).join('')
+      }
+
+      const renderAba = (id) => {
+        const bases = { desp: { rows: despesas, cor: '#F43F5E', label: '🔴 Despesas', vazio: 'Nenhuma despesa' }, rec: { rows: receitas, cor: '#22C55E', label: '🟢 Receitas', vazio: 'Nenhuma receita' }, inv: { rows: investimentos, cor: '#818CF8', label: '🟣 Investimentos', vazio: 'Nenhum investimento' } }
+        const b = bases[id]
+        if (!b) return ''
+        if (b.rows.length === 0) return '<div style="padding:24px;text-align:center;color:#475569;font-size:0.85rem;">' + b.vazio + ' com esta tag</div>'
+        const { grupos, total } = agruparPorMes(b.rows)
+        return '<div style="padding:6px 0 12px;font-size:0.82rem;color:#94A3B8;text-align:right;padding-right:18px;padding-top:10px;">Total: <span style="color:' + b.cor + ';font-weight:700;">R$ ' + this.formatMoney(total) + '</span></div>'
+          + renderGrupos(grupos, b.cor)
+      }
+
+      const tabStyle = (ativo) => 'display:inline-block;padding:8px 16px;font-size:0.8rem;font-weight:600;cursor:pointer;border-radius:8px 8px 0 0;border:1px solid;border-bottom:none;transition:all 0.15s;'
+        + (ativo ? 'background:rgba(30,41,59,0.95);border-color:rgba(255,255,255,0.1);color:#F1F5F9;' : 'background:transparent;border-color:transparent;color:#64748B;')
+
+      const abas = [
+        { id: 'desp', label: '🔴 Despesas (' + despesas.length + ')', ativo: true },
+        { id: 'rec',  label: '🟢 Receitas (' + receitas.length + ')', ativo: false },
+        { id: 'inv',  label: '🟣 Invest. (' + investimentos.length + ')', ativo: false },
+      ]
+
+      cont.innerHTML = '<div style="background:rgba(30,41,59,0.6);border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;margin-top:8px;">'
+        + '<div style="padding:14px 18px 0;border-bottom:1px solid rgba(255,255,255,0.06);">'
+        + '<div style="font-size:0.85rem;font-weight:600;color:#94A3B8;margin-bottom:10px;">🏷️ Tag: <span style="color:#10B981;">' + tagNome + '</span> · <span style="color:#F8FAFC;">' + totalItens + ' lançamento' + (totalItens !== 1 ? 's' : '') + '</span></div>'
+        + '<div style="display:flex;gap:4px;">'
+        + abas.map(a => '<div onclick="VM._switchTagAba(\'' + a.id + '\',\'' + tagId + '\')" id="tag-aba-btn-' + a.id + '" style="' + tabStyle(a.ativo) + '">' + a.label + '</div>').join('')
+        + '</div></div>'
+        + '<div id="tag-aba-content">' + renderAba('desp') + '</div>'
+        + '</div>'
+
+      // Guardar dados para troca de aba sem nova chamada API
+      this._tagAbaData = { despesas, receitas, investimentos, renderAba: renderAba.bind(this), renderGrupos: renderGrupos.bind(this) }
+
     } catch (e) {
-      cont.innerHTML = `<div style="color:#F43F5E;padding:16px;">Erro ao buscar despesas</div>`
+      cont.innerHTML = '<div style="color:#F43F5E;padding:16px;">Erro ao buscar lançamentos</div>'
     }
   },
 
+  _switchTagAba(abaId, tagId) {
+    // Atualizar botões
+    ['desp','rec','inv'].forEach(id => {
+      const btn = document.getElementById('tag-aba-btn-' + id)
+      if (btn) {
+        const ativo = id === abaId
+        btn.style.background = ativo ? 'rgba(30,41,59,0.95)' : 'transparent'
+        btn.style.borderColor = ativo ? 'rgba(255,255,255,0.1)' : 'transparent'
+        btn.style.color       = ativo ? '#F1F5F9' : '#64748B'
+      }
+    })
+    // Renderizar conteúdo da aba
+    const content = document.getElementById('tag-aba-content')
+    if (content && this._tagAbaData?.renderAba) {
+      content.innerHTML = this._tagAbaData.renderAba(abaId)
+    }
+  },
   // ════════════════════════════════════════════════════════════════════════════
   // ALERTAS INTELIGENTES DE CARTÃO
   // ════════════════════════════════════════════════════════════════════════════

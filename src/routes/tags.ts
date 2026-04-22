@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 
-type Bindings  = { DB: D1Database }
+type Bindings  = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {
@@ -14,25 +14,88 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 const tags = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ─── GET /api/tags ───────────────────────────────────────────────────────────
+// Retorna todas as tags do usuário com contagens separadas por tipo:
+// usos_despesas, usos_receitas, usos_investimentos + totais por tipo
 tags.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const rows = await c.env.DB.prepare(
-    `SELECT t.id, t.nome, t.cor,
-            COUNT(dt.despesa_id) as usos,
-            COALESCE(SUM(CASE WHEN d.id IS NOT NULL
-              AND d.categoria NOT IN ('Investimento','Aporte')
-              AND COALESCE(d.tipo,'normal') != 'aporte'
-              THEN d.valor ELSE 0 END), 0) as total_valor
-     FROM tags t
-     LEFT JOIN despesa_tags dt ON dt.tag_id = t.id
-     LEFT JOIN despesas d ON d.id = dt.despesa_id
-     WHERE t.user_id = ?
-       AND (dt.despesa_id IS NULL OR (d.categoria NOT IN ('Investimento','Aporte') AND d.tipo != 'aporte'))
-     GROUP BY t.id
-     ORDER BY usos DESC, t.nome ASC`
-  ).bind(user.id).all<{id:number;nome:string;cor:string;usos:number;total_valor:number}>()
 
-  return c.json(rows.results || [])
+  // 1. Tags base
+  const tagRows = await c.env.DB.prepare(
+    `SELECT id, nome, cor, created_at FROM tags WHERE user_id = ? ORDER BY nome ASC`
+  ).bind(user.id).all<{id:number;nome:string;cor:string;created_at:string}>()
+  const lista = tagRows.results || []
+  if (lista.length === 0) return c.json([])
+
+  // 2. Contagem e total por despesas (inclui Empréstimos, exclui Investimento/Aporte puro)
+  const despRows = await c.env.DB.prepare(
+    `SELECT dt.tag_id,
+            COUNT(DISTINCT dt.despesa_id) as usos_despesas,
+            COALESCE(SUM(CASE WHEN COALESCE(d.tipo,'normal') != 'aporte' THEN d.valor ELSE 0 END), 0) as total_despesas
+     FROM despesa_tags dt
+     JOIN despesas d ON d.id = dt.despesa_id
+     WHERE d.user_id = ?
+       AND d.categoria NOT IN ('Investimento','Aporte')
+       AND COALESCE(d.tipo,'normal') != 'aporte'
+     GROUP BY dt.tag_id`
+  ).bind(user.id).all<{tag_id:number;usos_despesas:number;total_despesas:number}>()
+
+  // 3. Contagem e total por receitas
+  const recRows = await c.env.DB.prepare(
+    `SELECT rt.tag_id,
+            COUNT(DISTINCT rt.receita_id) as usos_receitas,
+            COALESCE(SUM(r.valor), 0) as total_receitas
+     FROM receita_tags rt
+     JOIN receitas r ON r.id = rt.receita_id
+     WHERE r.user_id = ?
+     GROUP BY rt.tag_id`
+  ).bind(user.id).all<{tag_id:number;usos_receitas:number;total_receitas:number}>().catch(() => ({results:[]}))
+
+  // 4. Contagem e total por investimentos
+  const invRows = await c.env.DB.prepare(
+    `SELECT it.tag_id,
+            COUNT(DISTINCT it.investimento_id) as usos_investimentos,
+            COALESCE(SUM(i.valor_atual), 0) as total_investimentos
+     FROM investimento_tags it
+     JOIN investimentos i ON i.id = it.investimento_id
+     WHERE i.user_id = ?
+     GROUP BY it.tag_id`
+  ).bind(user.id).all<{tag_id:number;usos_investimentos:number;total_investimentos:number}>().catch(() => ({results:[]}))
+
+  // 5. Montar mapa por tag_id
+  const mapDesp = new Map((despRows.results||[]).map(r => [r.tag_id, r]))
+  const mapRec  = new Map((recRows.results||[]).map(r => [r.tag_id, r]))
+  const mapInv  = new Map((invRows.results||[]).map(r => [r.tag_id, r]))
+
+  const result = lista.map(t => {
+    const d = mapDesp.get(t.id)
+    const r = mapRec.get(t.id)
+    const i = mapInv.get(t.id)
+    const usos_despesas     = d?.usos_despesas || 0
+    const usos_receitas     = r?.usos_receitas || 0
+    const usos_investimentos = i?.usos_investimentos || 0
+    const total_despesas    = parseFloat(String(d?.total_despesas || 0))
+    const total_receitas    = parseFloat(String(r?.total_receitas || 0))
+    const total_investimentos = parseFloat(String(i?.total_investimentos || 0))
+    const usos              = usos_despesas + usos_receitas + usos_investimentos
+    // total_valor mantido para compatibilidade com gráfico pizza (usa despesas)
+    const total_valor       = total_despesas
+    return {
+      ...t,
+      usos,
+      usos_despesas,
+      usos_receitas,
+      usos_investimentos,
+      total_despesas,
+      total_receitas,
+      total_investimentos,
+      total_valor,
+    }
+  })
+
+  // Ordenar: mais usados primeiro
+  result.sort((a,b) => b.usos - a.usos || a.nome.localeCompare(b.nome, 'pt-BR'))
+
+  return c.json(result)
 })
 
 // ─── POST /api/tags ──────────────────────────────────────────────────────────
@@ -225,43 +288,60 @@ tags.get('/autocomplete', requireAuth, async (c) => {
   return c.json(rows.results || [])
 })
 
-// ─── GET /api/tags/buscar?q=texto ────────────────────────────────────────────
-// Buscar despesas por tag (retorna despesas cujas tags contenham o texto)
+// ─── GET /api/tags/buscar ─────────────────────────────────────────────────────
+// Retorna despesas, receitas e investimentos vinculados à tag
+// ?tag_id=N  ou  ?q=texto
 tags.get('/buscar', requireAuth, async (c) => {
-  const user   = c.get('user')
-  const tagId  = parseInt(c.req.query('tag_id') || '0')
-  const q      = c.req.query('q') || ''
+  const user  = c.get('user')
+  const tagId = parseInt(c.req.query('tag_id') || '0')
+  const q     = c.req.query('q') || ''
 
   if (!tagId && !q) return c.json({ error: 'Informe tag_id ou q' }, 400)
 
-  let rows
-  if (tagId) {
-    rows = await c.env.DB.prepare(
-      `SELECT d.*, t.nome as tag_nome, t.cor as tag_cor
-       FROM despesas d
-       JOIN despesa_tags dt ON dt.despesa_id = d.id
-       JOIN tags t ON t.id = dt.tag_id
-       WHERE d.user_id=? AND t.id=?
-         AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
-         AND d.tipo != 'aporte'
-       ORDER BY d.data DESC
-       LIMIT 100`
-    ).bind(user.id, tagId).all()
-  } else {
-    rows = await c.env.DB.prepare(
-      `SELECT d.*, t.nome as tag_nome, t.cor as tag_cor
-       FROM despesas d
-       JOIN despesa_tags dt ON dt.despesa_id = d.id
-       JOIN tags t ON t.id = dt.tag_id
-       WHERE d.user_id=? AND t.nome LIKE ?
-         AND d.categoria NOT IN ('Financiamento','Investimento','Aporte')
-         AND d.tipo != 'aporte'
-       ORDER BY d.data DESC
-       LIMIT 100`
-    ).bind(user.id, `%${q}%`).all()
-  }
+  const tagCond  = tagId ? `t.id = ?`       : `t.nome LIKE ?`
+  const tagParam = tagId ? tagId            : `%${q}%`
 
-  return c.json(rows.results || [])
+  // Despesas
+  const despesas = await c.env.DB.prepare(
+    `SELECT d.id, d.descricao, d.data, d.valor, d.categoria, d.status,
+            d.parcela_atual, d.numero_parcelas, d.parcelado,
+            t.nome as tag_nome, t.cor as tag_cor, 'despesa' as tipo_item
+     FROM despesas d
+     JOIN despesa_tags dt ON dt.despesa_id = d.id
+     JOIN tags t ON t.id = dt.tag_id
+     WHERE d.user_id = ? AND ${tagCond}
+       AND COALESCE(d.tipo,'normal') != 'aporte'
+     ORDER BY d.data DESC LIMIT 200`
+  ).bind(user.id, tagParam).all<any>().catch(() => ({results:[]}))
+
+  // Receitas
+  const receitas = await c.env.DB.prepare(
+    `SELECT r.id, r.descricao, r.data, r.valor, r.categoria,
+            t.nome as tag_nome, t.cor as tag_cor, 'receita' as tipo_item
+     FROM receitas r
+     JOIN receita_tags rt ON rt.receita_id = r.id
+     JOIN tags t ON t.id = rt.tag_id
+     WHERE r.user_id = ? AND ${tagCond}
+     ORDER BY r.data DESC LIMIT 200`
+  ).bind(user.id, tagParam).all<any>().catch(() => ({results:[]}))
+
+  // Investimentos
+  const investimentos = await c.env.DB.prepare(
+    `SELECT i.id, i.nome as descricao, i.data_inicio as data, i.valor_atual as valor,
+            i.tipo as categoria, i.instituicao,
+            t.nome as tag_nome, t.cor as tag_cor, 'investimento' as tipo_item
+     FROM investimentos i
+     JOIN investimento_tags it ON it.investimento_id = i.id
+     JOIN tags t ON t.id = it.tag_id
+     WHERE i.user_id = ? AND ${tagCond}
+     ORDER BY i.data_inicio DESC LIMIT 200`
+  ).bind(user.id, tagParam).all<any>().catch(() => ({results:[]}))
+
+  return c.json({
+    despesas:     despesas.results     || [],
+    receitas:     receitas.results     || [],
+    investimentos: investimentos.results || [],
+  })
 })
 
 // ─── MELHORIA 3.3: Tags para Receitas ────────────────────────────────────────
@@ -358,6 +438,82 @@ tags.get('/investimento/:investimentoId', requireAuth, async (c) => {
   ).bind(investimentoId).all<{id:number;nome:string;cor:string}>().catch(() => ({ results: [] }))
 
   return c.json(rows.results || [])
+})
+
+// ─── POST /api/tags/sugerir-ia — Sugere tag via IA para qualquer tipo de lançamento ──
+// Body: { descricao, categoria, tipo: 'despesa'|'receita'|'investimento' }
+tags.post('/sugerir-ia', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({} as any))
+  const { descricao = '', categoria = '', tipo = 'despesa' } = body
+
+  if (!descricao && !categoria) return c.json({ error: 'Informe descricao ou categoria' }, 400)
+
+  // Buscar tags do usuário para contexto
+  const tagsRows = await c.env.DB.prepare(
+    `SELECT id, nome, cor FROM tags WHERE user_id = ? ORDER BY nome LIMIT 50`
+  ).bind(user.id).all<{id:number;nome:string;cor:string}>()
+  const tagsLista = tagsRows.results || []
+  const tagsNomes = tagsLista.map(t => t.nome).join(', ')
+
+  const prompt = `Você é um assistente financeiro. O usuário tem as seguintes tags: [${tagsNomes || 'nenhuma ainda'}].
+Ele está cadastrando um(a) ${tipo} com:
+- Descrição: "${descricao}"
+- Categoria: "${categoria}"
+
+Sua tarefa:
+1. Se alguma tag existente se encaixa semanticamente, retorne ela EXATAMENTE como está na lista.
+2. Se nenhuma tag existente faz sentido, sugira uma nova tag curta (1-3 palavras em português).
+
+Responda APENAS com JSON, sem markdown:
+{"acao":"usar_existente","tag":"nome exato da tag"} 
+OU
+{"acao":"criar_nova","tag":"Nome Sugerido"}`
+
+  const apiKey = (c.env as any).OPENAI_API_KEY
+  const baseUrl = ((c.env as any).OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+
+  if (!apiKey) {
+    // Fallback sem IA: sugerir pela categoria
+    const tagFallback = tagsLista.find(t =>
+      t.nome.toLowerCase() === categoria.toLowerCase() ||
+      t.nome.toLowerCase() === descricao.toLowerCase().slice(0, 30)
+    )
+    if (tagFallback) return c.json({ tag_sugerida: tagFallback.nome, tag: tagFallback, metodo: 'fallback' })
+    return c.json({ tag_sugerida: categoria.slice(0, 30), sugestao: categoria.slice(0, 30), metodo: 'fallback', nova_tag: categoria.slice(0, 30) })
+  }
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-5.4-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 80,
+        temperature: 0.1,
+      })
+    })
+    if (!res.ok) throw new Error(`AI HTTP ${res.status}`)
+    const data: any = await res.json()
+    const raw = (data?.choices?.[0]?.message?.content || '').trim()
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (!match) throw new Error('Sem JSON')
+    const parsed = JSON.parse(match[0])
+
+    if (parsed.acao === 'usar_existente' && parsed.tag) {
+      const tagValida = tagsLista.find(t => t.nome.toLowerCase() === parsed.tag.toLowerCase())
+      if (tagValida) return c.json({ tag_sugerida: tagValida.nome, tag: tagValida, metodo: 'ia', nova_tag: null })
+    }
+    // criar nova
+    const nomeSugerido = (parsed.tag || categoria).trim().slice(0, 30)
+    return c.json({ tag_sugerida: nomeSugerido, tag: null, metodo: 'ia', nova_tag: nomeSugerido })
+  } catch (_) {
+    // Fallback: categoria
+    const nomeFallback = categoria.trim().slice(0, 30) || descricao.trim().slice(0, 30)
+    const tagExist = tagsLista.find(t => t.nome.toLowerCase() === nomeFallback.toLowerCase())
+    return c.json({ tag_sugerida: nomeFallback, tag: tagExist || null, metodo: 'fallback', nova_tag: tagExist ? null : nomeFallback })
+  }
 })
 
 // ─── GET /api/tags/analise — Top gastos por tag (Melhoria 3.3 Dashboard)

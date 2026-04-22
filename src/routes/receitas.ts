@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { ensureTag, tagReceita, COR_MODULO } from '../utils/tags-helper'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const receitas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -96,12 +97,32 @@ receitas.post('/', requireAuth, async (c) => {
     'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(user.id, descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || 'pix').run()
 
+  const receitaId = result.meta.last_row_id as number
+
   // Conquista: primeira receita
   try {
     await c.env.DB.prepare('INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, ?, 0)').bind(user.id, 'primeira_receita').run()
   } catch {}
 
-  return c.json({ success: true, id: result.meta.last_row_id, message: 'Receita adicionada!' }, 201)
+  // ── Tags: aplicar tag_ids enviados pelo frontend + tags automáticas da categoria ──
+  const tagIdsEnviados: number[] = Array.isArray(body.tag_ids) ? body.tag_ids : []
+
+  try {
+    // Tag automática da categoria (ex: "Salário", "Freelance", "Aluguel")
+    const tagCatId = await ensureTag(c.env.DB, user.id, categoria.trim().slice(0, 30), COR_MODULO.receita)
+
+    // Tag automática do tipo "Receita" (sempre criada)
+    const tagRecId = await ensureTag(c.env.DB, user.id, 'Receita', COR_MODULO.receita)
+
+    // Tags manuais enviadas pelo frontend
+    const todosIds = new Set<number>([tagCatId, tagRecId, ...tagIdsEnviados])
+
+    for (const tid of todosIds) {
+      if (tid > 0) await tagReceita(c.env.DB, receitaId, tid)
+    }
+  } catch (_) { /* best-effort — não bloqueia criação */ }
+
+  return c.json({ success: true, id: receitaId, message: 'Receita adicionada!' }, 201)
 })
 
 // PUT /api/receitas/:id
