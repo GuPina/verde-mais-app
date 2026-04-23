@@ -708,7 +708,8 @@ importacao.post('/executar', requireAuth, async (c) => {
       const data  = idxData  !== undefined ? parseData(cols[idxData])   : new Date().toISOString().slice(0, 10)
       const desc  = idxDesc  !== undefined ? (cols[idxDesc]?.trim().slice(0, 200) || `Importado ${i}`) : `Importado linha ${i}`
       const catBruta = idxCat !== undefined ? cols[idxCat]?.trim() : ''
-      const cat   = catBruta || detectarCategoria(desc)
+      // categoria_override: sugestão da IA aceita pelo usuário no preview
+      const cat   = cfg.categoria_override || catBruta || detectarCategoria(desc)
 
       if (!valor || !data) {
         ignorados++

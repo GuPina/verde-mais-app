@@ -3633,6 +3633,9 @@ const VM = {
           <button onclick="VM._exportarDespesasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
             <i class="fas fa-download"></i> CSV
           </button>
+          <button onclick="VM.modalHigienizarOutros()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;background:rgba(129,140,248,0.12);border-color:rgba(129,140,248,0.35);color:#818CF8;" title="Reclassificar despesas em 'Outros' com IA">
+            <i class="fas fa-robot"></i> Reclassificar "Outros"
+          </button>
           <button onclick="VM.modalDespesa()" class="btn-primary" style="width:auto;padding:10px 20px;">
             <i class="fas fa-plus"></i> Nova Despesa
           </button>
@@ -4407,6 +4410,27 @@ const VM = {
     // Carregar tags no modal (padrão moderno)
     this._carregarTagsModalDespesa(despesa)
 
+    // ── AUTO-CATEGORIZAÇÃO: onBlur no campo Descrição ──────────────────
+    const descInput = document.getElementById('d-desc')
+    // Rastrear se usuário alterou categoria manualmente
+    let _catAlteradaManualmente = false
+    const catGrid = document.getElementById('d-cat-grid')
+    if (catGrid) {
+      catGrid.addEventListener('click', () => { _catAlteradaManualmente = true })
+    }
+    if (descInput) {
+      descInput.addEventListener('blur', () => {
+        const desc = descInput.value.trim()
+        const catAtual = document.getElementById('d-cat')?.value || ''
+        // Não sugerir se: descrição muito curta, em edição com categoria já definida, ou usuário já escolheu manualmente
+        if (desc.length < 3) return
+        if (_catAlteradaManualmente) return
+        // Em edição: só sugerir se categoria for "Outros" (sem info)
+        if (isEdit && catAtual !== 'Outros' && catAtual !== '') return
+        VM._autoCategorizarDespesa(desc)
+      })
+    }
+
     // Quando alterar a data, recalcular billing se cartão estiver selecionado
     const dataInput = document.getElementById('d-data')
     if (dataInput) {
@@ -4516,6 +4540,31 @@ const VM = {
       if (lbl) { lbl.style.color = isThis ? '#ff6b6b' : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
     })
     VM.verificarOrcamentoModal()
+  },
+
+  // ── Auto-categorização via IA (chamado no onBlur da Descrição) ──────────
+  async _autoCategorizarDespesa(descricao) {
+    if (!descricao || descricao.length < 3) return
+
+    // Indicador visual: spinner na label da categoria
+    const label = document.querySelector('#d-cat-grid')?.previousElementSibling
+    const originalLabel = label?.textContent || 'Categoria *'
+    if (label) label.innerHTML = 'Categoria * <span style="font-size:0.68rem;color:#74b9ff;margin-left:4px;"><i class="fas fa-spinner fa-spin"></i> Sugerindo...</span>'
+
+    try {
+      const res = await this.api('POST', 'categorizacao/sugerir', { descricao })
+      const categoria = res?.categoria
+      if (categoria && categoria !== 'Outros') {
+        VM._selecionarCatDespesa(categoria)
+        if (label) label.innerHTML = `Categoria * <span style="font-size:0.68rem;color:#2FBF71;margin-left:4px;">✓ ${res.fonte === 'ia' ? 'IA sugeriu' : 'Detectado'}: <strong>${categoria}</strong></span>`
+        // Fade da label de volta após 4s
+        setTimeout(() => { if (label) label.textContent = originalLabel }, 4000)
+      } else {
+        if (label) label.textContent = originalLabel
+      }
+    } catch {
+      if (label) label.textContent = originalLabel
+    }
   },
 
   _selecionarMeioDespesa(valor) {
@@ -7613,6 +7662,185 @@ const VM = {
       btn.innerHTML = `<i class="fas fa-check-double"></i> Aplicar ${total} selecionada${total !== 1 ? 's' : ''}`
     } else {
       btn.style.display = 'none'
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // HIGIENIZAÇÃO EM LOTE — Modal "Reclassificar Outros"
+  // ══════════════════════════════════════════════════════════════════════
+  async modalHigienizarOutros() {
+    const now = new Date()
+    const mes = now.getMonth() + 1
+    const ano = now.getFullYear()
+    const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
+    const modal = document.createElement('div')
+    modal.id = 'modal-higienizar-outros'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:20px;overflow-y:auto;'
+    modal.innerHTML = `
+      <div style="background:#0f172a;border:1px solid rgba(129,140,248,0.3);border-radius:18px;padding:24px;width:100%;max-width:760px;margin:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+          <div>
+            <h3 style="font-size:1.05rem;font-weight:700;margin:0;color:#f1f5f9;">🤖 Reclassificar "Outros" com IA</h3>
+            <div style="font-size:0.75rem;color:#64748B;margin-top:3px;">Detectar categorias corretas para despesas não classificadas</div>
+          </div>
+          <button onclick="document.getElementById('modal-higienizar-outros').remove()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Seletor de mês/ano -->
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <select id="hig-mes" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;">
+              ${mesesNomes.map((m, i) => `<option value="${i+1}" ${(i+1)===mes?'selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <select id="hig-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;">
+              ${[ano-1, ano, ano+1].map(a => `<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
+            </select>
+          </div>
+          <div style="margin-top:16px;">
+            <button onclick="VM._higienizarBuscar()" style="padding:9px 20px;background:rgba(129,140,248,0.15);border:1px solid rgba(129,140,248,0.4);color:#818CF8;border-radius:10px;cursor:pointer;font-weight:700;font-size:0.85rem;transition:all 0.2s;" onmouseover="this.style.background='rgba(129,140,248,0.25)'" onmouseout="this.style.background='rgba(129,140,248,0.15)'">
+              <i class="fas fa-search"></i> Buscar
+            </button>
+          </div>
+        </div>
+
+        <!-- Área de resultado -->
+        <div id="hig-resultado" style="min-height:80px;">
+          <div style="text-align:center;color:#475569;font-size:0.85rem;padding:30px;">Selecione o mês e clique em Buscar.</div>
+        </div>
+      </div>`
+    document.body.appendChild(modal)
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove() })
+
+    // Buscar automaticamente no mês atual
+    await this._higienizarBuscar()
+  },
+
+  async _higienizarBuscar() {
+    const mes = parseInt(document.getElementById('hig-mes')?.value || new Date().getMonth()+1)
+    const ano = parseInt(document.getElementById('hig-ano')?.value || new Date().getFullYear())
+    const area = document.getElementById('hig-resultado')
+    if (!area) return
+
+    area.innerHTML = `<div style="text-align:center;padding:30px;color:#818CF8;"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;"></i><div style="margin-top:8px;font-size:0.82rem;">Buscando e categorizando...</div></div>`
+
+    try {
+      const res = await this.api('POST', 'categorizacao/higienizar-outros', { mes, ano })
+      const { despesas = [], total = 0, com_sugestao = 0 } = res
+
+      if (total === 0) {
+        area.innerHTML = `<div style="text-align:center;padding:30px;"><div style="font-size:2.5rem;margin-bottom:10px;">🎉</div><div style="color:#2FBF71;font-size:0.95rem;font-weight:700;">Nenhuma despesa em "Outros" neste mês!</div><div style="color:#64748B;font-size:0.8rem;margin-top:6px;">Seus dados estão bem categorizados.</div></div>`
+        return
+      }
+
+      // Guardar dados para uso no aplicar
+      window._higDespesas = despesas
+
+      const fmtBRL = v => Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})
+      const categorias = ['Alimentação','Moradia','Transporte','Saúde','Educação','Lazer','Vestuário','Assinaturas','Investimento','Beleza','Pets','Tecnologia','Viagem','Outros']
+
+      area.innerHTML = `
+        <!-- Resumo -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;">
+          <div style="background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.65rem;color:#ff6b6b;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Despesas em "Outros"</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#ff6b6b;">${total}</div>
+          </div>
+          <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.65rem;color:#2FBF71;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Com Sugestão IA</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#2FBF71;">${com_sugestao}</div>
+          </div>
+          <div style="background:rgba(129,140,248,0.08);border:1px solid rgba(129,140,248,0.2);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:0.65rem;color:#818CF8;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Mês Analisado</div>
+            <div style="font-size:1rem;font-weight:800;color:#818CF8;">${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mes-1]}/${ano}</div>
+          </div>
+        </div>
+
+        <!-- Ações em lote -->
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+          <button onclick="VM._higSelecionar(true)" style="padding:6px 14px;background:rgba(47,191,113,0.12);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:8px;cursor:pointer;font-size:0.78rem;font-weight:600;">☑ Todos</button>
+          <button onclick="VM._higSelecionar(false)" style="padding:6px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;cursor:pointer;font-size:0.78rem;">☐ Nenhum</button>
+          <button onclick="VM._higSelecionarComSugestao()" style="padding:6px 14px;background:rgba(129,140,248,0.12);border:1px solid rgba(129,140,248,0.3);color:#818CF8;border-radius:8px;cursor:pointer;font-size:0.78rem;font-weight:600;"><i class="fas fa-robot"></i> Só com sugestão</button>
+          <button id="btn-hig-aplicar" onclick="VM._higAplicar()" style="padding:8px 20px;background:linear-gradient(135deg,rgba(129,140,248,0.8),rgba(99,102,241,0.8));border:none;color:#fff;border-radius:10px;cursor:pointer;font-size:0.85rem;font-weight:700;margin-left:auto;">
+            <i class="fas fa-check-double"></i> Aplicar Selecionadas
+          </button>
+        </div>
+
+        <!-- Tabela de despesas -->
+        <div style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;" id="hig-lista">
+          ${despesas.map((d, i) => {
+            const temSug = d.categoria_sugerida && d.categoria_sugerida !== 'Outros'
+            return `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;" id="hig-linha-${i}">
+              <input type="checkbox" id="hig-chk-${i}" ${temSug?'checked':''} style="accent-color:#818CF8;width:16px;height:16px;flex-shrink:0;cursor:pointer;">
+              <div style="flex:1;min-width:160px;">
+                <div style="font-size:0.85rem;font-weight:600;color:#f1f5f9;">${d.descricao}</div>
+                <div style="font-size:0.7rem;color:#64748B;margin-top:2px;">R$ ${fmtBRL(d.valor)} · ${d.data} · ${d.fonte === 'ia' ? '🤖 IA' : d.fonte === 'local' ? '⚡ Local' : '❓'}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+                <span style="font-size:0.72rem;color:#ff6b6b;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);padding:3px 10px;border-radius:20px;">Outros</span>
+                <span style="color:#94A3B8;font-size:0.8rem;">→</span>
+                <select id="hig-cat-${i}" data-id="${d.id}" style="background:#1e293b;border:1px solid ${temSug?'rgba(47,191,113,0.4)':'rgba(255,255,255,0.1)'};color:${temSug?'#2FBF71':'#94A3B8'};padding:5px 10px;border-radius:8px;font-size:0.8rem;font-weight:${temSug?'700':'400'};cursor:pointer;">
+                  ${categorias.map(c => `<option value="${c}" ${c===d.categoria_sugerida?'selected':''}>${c}</option>`).join('')}
+                </select>
+              </div>
+            </div>`
+          }).join('')}
+        </div>`
+    } catch (e) {
+      area.innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;">Erro: ${e.message}</div>`
+    }
+  },
+
+  _higSelecionar(val) {
+    const despesas = window._higDespesas || []
+    despesas.forEach((_, i) => {
+      const chk = document.getElementById(`hig-chk-${i}`)
+      if (chk) chk.checked = val
+    })
+  },
+
+  _higSelecionarComSugestao() {
+    const despesas = window._higDespesas || []
+    despesas.forEach((d, i) => {
+      const chk = document.getElementById(`hig-chk-${i}`)
+      if (chk) chk.checked = d.categoria_sugerida && d.categoria_sugerida !== 'Outros'
+    })
+  },
+
+  async _higAplicar() {
+    const despesas = window._higDespesas || []
+    const btn = document.getElementById('btn-hig-aplicar')
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando...' }
+
+    const alteracoes = []
+    despesas.forEach((d, i) => {
+      const chk = document.getElementById(`hig-chk-${i}`)
+      const sel = document.getElementById(`hig-cat-${i}`)
+      if (chk?.checked && sel?.value && sel.value !== 'Outros') {
+        alteracoes.push({ id: d.id, categoria: sel.value })
+      }
+    })
+
+    if (alteracoes.length === 0) {
+      this.toast('Nenhuma despesa selecionada ou todas já estão em "Outros"', 'warning')
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-double"></i> Aplicar Selecionadas' }
+      return
+    }
+
+    try {
+      const res = await this.api('POST', 'categorizacao/aplicar-lote', { alteracoes })
+      this.toast(`✅ ${res.aplicadas} despesa(s) recategorizadas com sucesso!`, 'success')
+      document.getElementById('modal-higienizar-outros')?.remove()
+      // Recarregar lista de despesas
+      if (typeof this.carregarDespesas === 'function') this.carregarDespesas()
+    } catch (e) {
+      this.toast('Erro ao aplicar: ' + (e.message || e), 'error')
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-double"></i> Aplicar Selecionadas' }
     }
   },
 
@@ -19834,6 +20062,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       // Renderizar linhas (primeiros 10 em destaque)
       this._impRenderizarLinhas()
 
+      // Auto-categorização em lote para linhas com categoria "Outros"
+      this._impAutoCategorizarLote()
+
     } catch(e) {
       btn.disabled = false
       btn.innerHTML = '<i class="fas fa-search" style="margin-right:6px;"></i>Pré-visualizar e Analisar'
@@ -19950,7 +20181,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:0.8rem;color:#aaa;margin-bottom:6px;">
                 <span>📅 ${item.data}</span>
                 <span style="color:#2FBF71;font-weight:600;">R$ ${item.valor?.toFixed(2)}</span>
-                <span>📂 ${item.categoria}</span>
+                <select id="imp-cat-${idx}"
+                  style="background:rgba(0,0,0,0.4);border:1px solid rgba(47,191,113,0.25);color:#2FBF71;padding:3px 8px;border-radius:6px;font-size:0.75rem;font-weight:600;cursor:pointer;"
+                  title="Categoria (editável)">
+                  ${['Alimentação','Moradia','Transporte','Saúde','Educação','Lazer','Vestuário','Assinaturas','Investimento','Beleza','Pets','Tecnologia','Viagem','Outros'].map(c=>`<option value="${c}" ${c===item.categoria?'selected':''}>${c}</option>`).join('')}
+                </select>
                 <span id="imp-meio-label-${idx}">${meioLabel}</span>
               </div>
 
@@ -20006,6 +20241,48 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       if (item.parcela?.serie_ja_existe && item.parcela?.parcelas_novas === 0) return false
       return true
     })
+  },
+
+  // Auto-categorização em lote para o preview de importação CSV
+  async _impAutoCategorizarLote() {
+    const preview = this._impData?.preview || []
+    if (preview.length === 0) return
+
+    // Coletar itens que ainda estão como "Outros" (ou sem categoria)
+    const paraCategorizarIdx = []
+    preview.forEach((item, idx) => {
+      if (!item.categoria || item.categoria === 'Outros') {
+        paraCategorizarIdx.push(idx)
+      }
+    })
+    if (paraCategorizarIdx.length === 0) return
+
+    // Processar em blocos de 50
+    for (let bloco = 0; bloco < paraCategorizarIdx.length; bloco += 50) {
+      const bloco_idx = paraCategorizarIdx.slice(bloco, bloco + 50)
+      const descricoes = bloco_idx.map(i => preview[i].descricao || '')
+      try {
+        const res = await this.api('POST', 'categorizacao/lote', { descricoes })
+        const resultados = res?.resultados || []
+        resultados.forEach((r, j) => {
+          const idx = bloco_idx[j]
+          if (r?.categoria && r.categoria !== 'Outros') {
+            // Atualizar o select no DOM
+            const sel = document.getElementById(`imp-cat-${idx}`)
+            if (sel) {
+              sel.value = r.categoria
+              sel.style.color = '#2FBF71'
+              sel.style.borderColor = 'rgba(47,191,113,0.5)'
+              sel.title = `Categoria sugerida pela IA: ${r.categoria}`
+            }
+            // Atualizar dado interno
+            if (this._impData?.preview?.[idx]) {
+              this._impData.preview[idx].categoria = r.categoria
+            }
+          }
+        })
+      } catch(e) { /* silencioso: fallback mantém categoria atual */ }
+    }
   },
 
   _impCartaoLinhaChange(idx, cartaoId) {
@@ -20077,6 +20354,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         const cartaoOverride = document.getElementById(`imp-cartao-${idx}`)?.value || ''
         const tagRaw = document.getElementById(`imp-tag-${idx}`)?.value || ''
         const statusOverride = document.getElementById(`imp-status-${idx}`)?.value || ''
+        const categoriaOverride = document.getElementById(`imp-cat-${idx}`)?.value || ''
         // tagRaw: '' = auto por categoria, 'nenhuma' = sem tag, '123' = id da tag
         const tagId = (tagRaw && tagRaw !== 'nenhuma') ? parseInt(tagRaw) : null
         const semTag = tagRaw === 'nenhuma'
@@ -20087,6 +20365,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           tag_id: tagId,
           sem_tag: semTag,
           status: statusOverride || null,
+          categoria_override: categoriaOverride || null,
         }
       })
 
