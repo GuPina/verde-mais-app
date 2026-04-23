@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
+import { classificarObrigacoesTemporais, calcularEconomiaAmortizacao } from '../utils/obrigacoes-temporais'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -362,6 +363,149 @@ dashboard.get('/', requireAuth, async (c) => {
     }
   } catch(_) {}
 
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 1.1 — Classificação temporal de obrigações
+  // ══════════════════════════════════════════════════════════════════════
+  const classificacao = await classificarObrigacoesTemporais(c.env.DB, user.id, totalReceitas)
+
+  // Corrigir o comprometimento para usar APENAS obrigações ativas
+  // (sobrepõe o parcelasEmpFin calculado sem classificação temporal)
+  const parcelasAtivasClassificadas = classificacao.resumo.total_parcelas_ativas
+  const comprometimentoAjustado     = totalReceitas > 0
+    ? Math.round((parcelasAtivasClassificadas / totalReceitas) * 100)
+    : 0
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 1.2 — Alerta categoria "Outros" > 15% da renda
+  // ══════════════════════════════════════════════════════════════════════
+  const gastosOutros   = (categoriasDespesas.results as any[])
+    .find((c: any) => (c.categoria || '').toLowerCase() === 'outros')?.total || 0
+  const pctOutros = totalReceitas > 0 ? Math.round((Number(gastosOutros) / totalReceitas) * 1000) / 10 : 0
+  const alertaOutrosCritico = pctOutros > 15
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 1.3 — Histórico 6 meses enriquecido (para IA e projeções)
+  // ══════════════════════════════════════════════════════════════════════
+  // evolucao já vem com 6 meses — calcular médias e extremos
+  const evolucaoComDados = evolucao.filter(e => e.receitas > 0 || e.despesas > 0)
+  const mediaReceitas6m  = evolucaoComDados.length > 0
+    ? Math.round(evolucaoComDados.reduce((s, e) => s + e.receitas, 0) / evolucaoComDados.length * 100) / 100
+    : 0
+  const mediaDespesas6m  = evolucaoComDados.length > 0
+    ? Math.round(evolucaoComDados.reduce((s, e) => s + e.despesas, 0) / evolucaoComDados.length * 100) / 100
+    : 0
+  const melhorMes6m = evolucaoComDados.length > 0
+    ? evolucaoComDados.reduce((mx, e) => e.saldo > mx.saldo ? e : mx, evolucaoComDados[0])
+    : null
+  const piorMes6m = evolucaoComDados.length > 0
+    ? evolucaoComDados.reduce((mn, e) => e.saldo < mn.saldo ? e : mn, evolucaoComDados[0])
+    : null
+
+  // Top 5 categorias por mês (para IA): busca todos os meses de evolução
+  const top5CatsMes = (categoriasDespesas.results as any[]).slice(0, 5)
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 3.1 — Motor de regras: "Ações para Hoje"
+  // ══════════════════════════════════════════════════════════════════════
+  const acoesParaHoje: Array<{
+    prioridade: 'urgente' | 'risco' | 'oportunidade' | 'higienizacao'
+    titulo: string
+    descricao: string
+    valor?: number
+    link: string
+  }> = []
+
+  // Urgente: contas vencendo em ≤3 dias
+  const vencendoHoje = (proximosVencimentos.results as any[]).filter((v: any) => {
+    const diff = (new Date(v.vencimento + 'T12:00:00').getTime() - new Date().getTime()) / 86400000
+    return diff <= 3
+  })
+  for (const v of vencendoHoje.slice(0, 2)) {
+    acoesParaHoje.push({
+      prioridade: 'urgente',
+      titulo: `⏰ Vence em breve: ${v.descricao}`,
+      descricao: `Pagamento de ${new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v.valor)} vence em ${new Date(v.vencimento+'T12:00:00').toLocaleDateString('pt-BR')}`,
+      valor: v.valor,
+      link: '#despesas',
+    })
+  }
+
+  // Higienização: "Outros" > 15% da renda
+  if (alertaOutrosCritico && totalReceitas > 0) {
+    acoesParaHoje.push({
+      prioridade: 'higienizacao',
+      titulo: `🚨 ${pctOutros}% da renda em "Outros" — categorize agora`,
+      descricao: `R$ ${Number(gastosOutros).toFixed(2)} sem categoria definida impossibilita análise precisa da IA`,
+      valor: Number(gastosOutros),
+      link: '#despesas',
+    })
+  }
+
+  // Risco: orçamentos > 80% consumidos com > 30% do mês restante
+  const diaAtual  = new Date().getDate()
+  const diasMes   = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
+  const pctMesRestante = ((diasMes - diaAtual) / diasMes) * 100
+  if (pctMesRestante > 30) {
+    const orcamentosRisco = await c.env.DB.prepare(`
+      SELECT o.categoria, o.limite,
+             COALESCE(SUM(d.valor),0) as gasto
+      FROM orcamentos o
+      LEFT JOIN despesas d ON d.user_id = o.user_id
+        AND d.categoria = o.categoria
+        AND strftime('%m', COALESCE(d.vencimento,d.data)) = ?
+        AND strftime('%Y', COALESCE(d.vencimento,d.data)) = ?
+      WHERE o.user_id = ? AND o.mes = ? AND o.ano = ? AND o.limite > 0
+      GROUP BY o.categoria
+      HAVING (gasto * 1.0 / o.limite) > 0.8
+      ORDER BY (gasto * 1.0 / o.limite) DESC
+      LIMIT 2
+    `).bind(mes, ano, user.id, parseInt(mes), parseInt(ano)).all()
+    for (const orc of (orcamentosRisco.results || []) as any[]) {
+      const pctUsado = Math.round((orc.gasto / orc.limite) * 100)
+      acoesParaHoje.push({
+        prioridade: 'risco',
+        titulo: `⚠️ Orçamento ${orc.categoria} em ${pctUsado}% com mês incompleto`,
+        descricao: `Gasto R$ ${Number(orc.gasto).toFixed(2)} de R$ ${orc.limite} — ainda faltam ${pctMesRestante.toFixed(0)}% do mês`,
+        valor: orc.limite - orc.gasto,
+        link: '#orcamentos',
+      })
+    }
+  }
+
+  // Oportunidade: saldo disponível e sem reserva de emergência
+  if (saldoLiquido > 0 && (totalReservaLegado + totalReservasEsp) < totalDespesas * 3) {
+    acoesParaHoje.push({
+      prioridade: 'oportunidade',
+      titulo: `💡 Saldo positivo de ${new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(saldoLiquido)} — separe para a reserva`,
+      descricao: `Sua reserva de emergência está abaixo de 3 meses de gastos. Sugestão: separar ao menos R$ ${Math.min(saldoLiquido, Math.round(saldoLiquido * 0.5 / 10) * 10).toFixed(2)}`,
+      valor: saldoLiquido,
+      link: '#reserva',
+    })
+  }
+
+  // Oportunidade: dívida ativa com alta taxa — economia de amortização
+  if (classificacao.ativas.length > 0) {
+    const maisCaraAtiva = classificacao.ativas.reduce((mx, o) => o.taxa_juros_anual > mx.taxa_juros_anual ? o : mx, classificacao.ativas[0])
+    if (maisCaraAtiva.taxa_juros_anual > 12 && saldoLiquido > 200) {
+      const amortExtra = Math.min(saldoLiquido * 0.3, 2000)
+      const eco = calcularEconomiaAmortizacao(
+        maisCaraAtiva.saldo_devedor,
+        maisCaraAtiva.valor_parcela,
+        maisCaraAtiva.taxa_juros_anual,
+        amortExtra
+      )
+      if (eco.economia > 100) {
+        acoesParaHoje.push({
+          prioridade: 'oportunidade',
+          titulo: `📉 Amortize R$ ${amortExtra.toFixed(0)} no ${maisCaraAtiva.descricao} e economize R$ ${eco.economia.toFixed(0)} em juros`,
+          descricao: `Taxa de retorno: ${eco.taxaRetorno.toFixed(1)}% aa · Reduz ${eco.mesesEconomizados} meses de prazo`,
+          valor: amortExtra,
+          link: '#amortizacao',
+        })
+      }
+    }
+  }
+
   return c.json({
     resumo: {
       total_receitas: totalReceitas,
@@ -477,7 +621,50 @@ dashboard.get('/', requireAuth, async (c) => {
       saldo_liquido: saldoAnt,
       var_receitas_pct: varReceitas,
       var_despesas_pct: varDespesas
-    }
+    },
+
+    // ── FASE 1.1: Obrigações classificadas temporalmente ─────────────────
+    obrigacoes_temporais: {
+      ativas:  classificacao.ativas.map(o => ({
+        id: o.id, tipo: o.tipo, descricao: o.descricao,
+        saldo_devedor: o.saldo_devedor, valor_parcela: o.valor_parcela,
+        taxa_juros_anual: o.taxa_juros_anual, data_inicio: o.data_inicio,
+        data_previsao_fim: o.data_previsao_fim,
+      })),
+      futuras: classificacao.futuras.map(o => ({
+        id: o.id, tipo: o.tipo, descricao: o.descricao,
+        saldo_devedor: o.saldo_devedor, valor_parcela: o.valor_parcela,
+        taxa_juros_anual: o.taxa_juros_anual, data_inicio: o.data_inicio,
+        data_previsao_fim: o.data_previsao_fim,
+        meses_para_inicio: o.meses_para_inicio,
+      })),
+      resumo: classificacao.resumo,
+      comprometimento_ajustado_pct: comprometimentoAjustado,
+    },
+
+    // ── FASE 1.2: Alerta "Outros" ─────────────────────────────────────────
+    alerta_outros: {
+      ativo:           alertaOutrosCritico,
+      percentual:      pctOutros,
+      valor_outros:    Number(gastosOutros),
+      limite_saudavel: 15,
+      mensagem:        alertaOutrosCritico
+        ? `🚨 AÇÃO NECESSÁRIA: ${pctOutros}% da sua renda está em "Outros" (R$ ${Number(gastosOutros).toFixed(2)}). Categorize esses gastos para análise precisa.`
+        : null,
+    },
+
+    // ── FASE 1.3: Histórico 6 meses enriquecido ───────────────────────────
+    historico_6m: {
+      meses: evolucao,
+      media_receitas:  mediaReceitas6m,
+      media_despesas:  mediaDespesas6m,
+      melhor_mes:      melhorMes6m ? { mes: melhorMes6m.mes, ano: melhorMes6m.ano, saldo: melhorMes6m.saldo } : null,
+      pior_mes:        piorMes6m   ? { mes: piorMes6m.mes,   ano: piorMes6m.ano,   saldo: piorMes6m.saldo   } : null,
+      top5_categorias_mes: top5CatsMes,
+    },
+
+    // ── FASE 3.1: Ações para Hoje (motor de regras) ──────────────────────
+    acoes_para_hoje: acoesParaHoje.slice(0, 5),
   })
 })
 

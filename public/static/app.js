@@ -1850,6 +1850,7 @@ const VM = {
       'reservas-esp': () => this.pageReservasEsp(),
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
       'compras-fantasma': () => this.pageComprasFantasma(),
+      'compras-fantasma/custo': () => this.pageCustoOportunidade(),
       'regra-503020': () => this.pageRegra503020(),
       'desafio-52': () => this.pageDesafio52(),
       'amortizacao': () => this.pageAmortizacao(),
@@ -1922,7 +1923,7 @@ const VM = {
     try {
       const qs = ehMesAtual ? '' : `?mes=${this._dashMes}&ano=${this._dashAno}`
       const data = await this.api('GET', `dashboard${qs}`)
-      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52, top_tags = [], mes_anterior } = data
+      const { resumo, score_saude, score_bloqueado, fatores_score = [], limites, metas, emprestimos: empResumo, financiamentos: finResumo, evolucao, categorias_despesas, ultimas_transacoes, proximos_vencimentos, reservas_esp, alerta_assinaturas, desafio_52, top_tags = [], mes_anterior, acoes_para_hoje = [], alerta_outros = {}, obrigacoes_temporais = {} } = data
 
       // Salvar limites do plano para uso no frontend
       if (limites) this.limites = limites
@@ -2028,6 +2029,23 @@ const VM = {
             </button>
           </div>
         </div>
+
+        <!-- BANNER ALERTA OUTROS > 15% (Phase 1.2) -->
+        ${alerta_outros?.ativo ? `
+        <div style="background:linear-gradient(135deg,rgba(255,196,0,0.12),rgba(255,152,0,0.07));border:1px solid rgba(255,196,0,0.35);border-radius:14px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-size:1.6rem;flex-shrink:0;">⚠️</div>
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:0.88rem;font-weight:700;color:#ffc400;margin-bottom:3px;">Categoria "Outros" está alta: ${(alerta_outros.percentual||0).toFixed(1)}% da renda</div>
+            <div style="font-size:0.76rem;color:#94A3B8;line-height:1.5;">
+              Você gastou <strong style="color:#ffc400;">${this.formatMoney(alerta_outros.valor||0)}</strong> em "Outros" (limite saudável: 15%). 
+              Categorize esses gastos para ter controle real dos seus hábitos financeiros.
+            </div>
+          </div>
+          <button onclick="VM.navigate('despesas')" style="background:rgba(255,196,0,0.15);border:1px solid rgba(255,196,0,0.4);color:#ffc400;border-radius:9px;padding:8px 16px;cursor:pointer;font-size:0.78rem;font-weight:700;white-space:nowrap;flex-shrink:0;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,196,0,0.25)'" onmouseout="this.style.background='rgba(255,196,0,0.15)'">
+            <i class="fas fa-tags"></i> Categorizar
+          </button>
+        </div>
+        ` : ''}
 
         <!-- STATS ROW — 4 cards principais -->
         <div class="grid-4" style="margin-bottom:16px;">
@@ -2409,6 +2427,104 @@ const VM = {
               }).join('')}
             </div>
           </div>
+        ` : ''}
+
+        <!-- AÇÕES PARA HOJE (Phase 3.1) -->
+        ${acoes_para_hoje.length > 0 ? `
+        <div class="card" style="margin-top:20px;border-color:rgba(116,185,255,0.3);background:linear-gradient(135deg,rgba(116,185,255,0.04),rgba(15,15,26,0));">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:1rem;font-weight:700;color:#74b9ff;">🎯 Ações para Hoje</div>
+            <span style="font-size:0.7rem;color:#475569;background:rgba(116,185,255,0.1);border:1px solid rgba(116,185,255,0.2);padding:2px 10px;border-radius:10px;">${acoes_para_hoje.length} recomendação${acoes_para_hoje.length !== 1 ? 'ões' : ''}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${acoes_para_hoje.map((acao, i) => {
+              const prioColor = acao.prioridade === 'alta' ? '#ff6b6b' : acao.prioridade === 'media' ? '#ffc400' : '#2FBF71'
+              const prioLabel = acao.prioridade === 'alta' ? 'Alta' : acao.prioridade === 'media' ? 'Média' : 'Normal'
+              const iconMap = { receita:'fa-arrow-up', despesa:'fa-arrow-down', divida:'fa-hand-holding-usd', meta:'fa-bullseye', investimento:'fa-chart-line', reserva:'fa-shield-alt', categoria:'fa-tags', orcamento:'fa-chart-pie' }
+              const icon = iconMap[acao.tipo] || 'fa-lightbulb'
+              return `
+              <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-left:3px solid ${prioColor};border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="width:34px;height:34px;border-radius:9px;background:rgba(116,185,255,0.1);display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;color:#74b9ff;">
+                  <i class="fas ${icon}"></i>
+                </div>
+                <div style="flex:1;min-width:160px;">
+                  <div style="font-size:0.84rem;font-weight:600;color:#f1f5f9;margin-bottom:2px;">${acao.titulo}</div>
+                  <div style="font-size:0.72rem;color:#94A3B8;line-height:1.4;">${acao.descricao}</div>
+                  ${acao.valor ? `<div style="font-size:0.75rem;color:#74b9ff;font-weight:700;margin-top:3px;">${this.formatMoney(acao.valor)}</div>` : ''}
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                  <span style="font-size:0.65rem;font-weight:700;color:${prioColor};background:rgba(${acao.prioridade==='alta'?'255,107,107':acao.prioridade==='media'?'255,196,0':'47,191,113'},0.12);border-radius:6px;padding:2px 8px;">${prioLabel}</span>
+                  ${acao.rota ? `<button onclick="VM.navigate('${acao.rota}')" style="background:rgba(116,185,255,0.12);border:1px solid rgba(116,185,255,0.3);color:#74b9ff;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:0.72rem;font-weight:600;transition:all 0.2s;" onmouseover="this.style.background='rgba(116,185,255,0.22)'" onmouseout="this.style.background='rgba(116,185,255,0.12)'">Ver →</button>` : ''}
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>
+        ` : ''}
+
+        <!-- OBRIGAÇÕES TEMPORAIS: ATIVAS VS FUTURAS (Phase 1.1) -->
+        ${(obrigacoes_temporais?.ativas?.length > 0 || obrigacoes_temporais?.futuras?.length > 0) ? `
+        <div class="card" style="margin-top:20px;border-color:rgba(253,121,168,0.25);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:1rem;font-weight:700;color:#fd79a8;">📋 Obrigações: Ativas vs Futuras</div>
+            <div style="display:flex;gap:8px;">
+              <span style="font-size:0.7rem;color:#ff6b6b;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.25);padding:2px 10px;border-radius:10px;">${obrigacoes_temporais?.ativas?.length||0} ativas</span>
+              <span style="font-size:0.7rem;color:#74b9ff;background:rgba(116,185,255,0.1);border:1px solid rgba(116,185,255,0.25);padding:2px 10px;border-radius:10px;">${obrigacoes_temporais?.futuras?.length||0} futuras</span>
+            </div>
+          </div>
+
+          ${obrigacoes_temporais?.resumo ? `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+            <div style="background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:10px 14px;">
+              <div style="font-size:0.65rem;color:#ff6b6b;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Comprometimento Real</div>
+              <div style="font-size:1.2rem;font-weight:900;color:#ff6b6b;">${(obrigacoes_temporais.resumo.comprometimento_pct_atual||0).toFixed(1)}%</div>
+              <div style="font-size:0.7rem;color:#64748B;">${this.formatMoney(obrigacoes_temporais.resumo.total_parcelas_ativas||0)}/mês</div>
+            </div>
+            <div style="background:rgba(116,185,255,0.07);border:1px solid rgba(116,185,255,0.2);border-radius:10px;padding:10px 14px;">
+              <div style="font-size:0.65rem;color:#74b9ff;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Comprometimento Futuro</div>
+              <div style="font-size:1.2rem;font-weight:900;color:#74b9ff;">${(obrigacoes_temporais.resumo.comprometimento_pct_futuro||0).toFixed(1)}%</div>
+              <div style="font-size:0.7rem;color:#64748B;">${this.formatMoney(obrigacoes_temporais.resumo.total_parcelas_futuras||0)}/mês</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 14px;">
+              <div style="font-size:0.65rem;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:4px;">Saldo Devedor Total</div>
+              <div style="font-size:1rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(obrigacoes_temporais.resumo.total_saldo_ativo||0)}</div>
+              <div style="font-size:0.7rem;color:#64748B;">ativo + ${this.formatMoney(obrigacoes_temporais.resumo.total_saldo_futuro||0)} futuro</div>
+            </div>
+          </div>` : ''}
+
+          ${obrigacoes_temporais?.ativas?.length > 0 ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:0.72rem;color:#ff6b6b;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🔴 Impactam caixa HOJE</div>
+            ${obrigacoes_temporais.ativas.slice(0,3).map(o => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(255,107,107,0.05);border-radius:9px;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:120px;">
+                  <div style="font-size:0.8rem;font-weight:600;">${o.descricao}</div>
+                  <div style="font-size:0.68rem;color:#64748B;">${o.tipo} · ${o.taxa_juros_anual ? (o.taxa_juros_anual*100).toFixed(1)+'% a.a.' : ''}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <div style="font-size:0.85rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(o.valor_parcela)}/mês</div>
+                  <div style="font-size:0.65rem;color:#64748B;">saldo: ${this.formatMoney(o.saldo_devedor)}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>` : ''}
+
+          ${obrigacoes_temporais?.futuras?.length > 0 ? `
+          <div>
+            <div style="font-size:0.72rem;color:#74b9ff;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🔵 Planejamento futuro (não priorizar agora)</div>
+            ${obrigacoes_temporais.futuras.slice(0,2).map(o => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(116,185,255,0.05);border-radius:9px;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:120px;">
+                  <div style="font-size:0.8rem;font-weight:600;">${o.descricao}</div>
+                  <div style="font-size:0.68rem;color:#64748B;">Inicia em ${o.data_inicio}${o.meses_para_inicio ? ' · em '+o.meses_para_inicio+' meses' : ''}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <div style="font-size:0.85rem;font-weight:700;color:#74b9ff;">${this.formatMoney(o.valor_parcela)}/mês</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        </div>
         ` : ''}
 
         <!-- BLOCO CARTÕES -->
@@ -17618,6 +17734,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       const pctImpulsivo   = Number(resumo.percentual_impulsivo||0)
       const economiaPot    = Number(resumo.economia_potencial||0)
       const qtdImpulsivas  = Number(resumo.qtd_impulsivas||0)
+      // FASE 3.3 — Custo de Oportunidade
+      const custoOp        = data.custo_oportunidade || {}
+      const rend12m        = Number(custoOp.rendimento_12m||0)
+      const rend60m        = Number(custoOp.rendimento_60m||0)
+      const cdiUsado       = Number(custoOp.taxa_cdi_anual||10.65)
+      const metaEquiv      = custoOp.meta_equivalente || ''
 
       const tabBtn = (id, label, active) => `<button onclick="VM.pageComprasFantasma('${id}')" style="padding:8px 18px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;transition:all 0.2s;${active?'background:rgba(249,115,22,0.2);color:#FB923C;border:1px solid rgba(249,115,22,0.4);':'background:transparent;color:#64748B;border:1px solid rgba(255,255,255,0.08);'}">${label}</button>`
 
@@ -17643,6 +17765,31 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;">
           <h3 style="color:#F43F5E;font-size:0.9rem;font-weight:700;margin:0 0 10px;">🚨 Alertas de Consumo</h3>
           ${alertas.map(a => `<div style="color:#FDA4AF;font-size:0.82rem;margin-bottom:6px;">• ${a}</div>`).join('')}
+        </div>` : ''}
+        ${totalImpulsivo > 0 ? `
+        <!-- FASE 3.3: Custo de Oportunidade -->
+        <div style="background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.3);border-radius:16px;padding:22px;margin-bottom:20px;">
+          <h3 style="color:#A5B4FC;font-size:0.95rem;font-weight:700;margin:0 0 6px;">💡 Custo de Oportunidade</h3>
+          <p style="color:#64748B;font-size:0.78rem;margin:0 0 16px;">E se, em vez de gastar por impulso, você <strong style="color:#C4B5FD;">investisse esse valor</strong>?</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
+            <div style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:14px;text-align:center;">
+              <div style="color:#A5B4FC;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Em 12 meses</div>
+              <div style="font-size:1.5rem;font-weight:800;color:#818CF8;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(rend12m)}</div>
+              <div style="color:#64748B;font-size:0.68rem;margin-top:2px;">rendimento no Tesouro</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:14px;text-align:center;">
+              <div style="color:#C4B5FD;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Em 5 anos</div>
+              <div style="font-size:1.5rem;font-weight:800;color:#A78BFA;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(rend60m)}</div>
+              <div style="color:#64748B;font-size:0.68rem;margin-top:2px;">juros compostos</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:14px;text-align:center;">
+              <div style="color:#6EE7B7;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">CDI usado</div>
+              <div style="font-size:1.5rem;font-weight:800;color:#10B981;font-family:'JetBrains Mono',monospace;">${cdiUsado.toFixed(1)}%</div>
+              <div style="color:#64748B;font-size:0.68rem;margin-top:2px;">ao ano (referência)</div>
+            </div>
+          </div>
+          ${metaEquiv ? `<div style="background:rgba(99,102,241,0.08);border-radius:10px;padding:12px 16px;font-size:0.82rem;color:#A5B4FC;"><span style="font-weight:700;">🎯 Equivale a:</span> ${metaEquiv}</div>` : ''}
+          <div style="margin-top:12px;"><button onclick="VM.navigateTo('compras-fantasma/custo')" style="background:rgba(99,102,241,0.15);color:#A5B4FC;border:1px solid rgba(99,102,241,0.35);padding:8px 18px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">📊 Ver análise detalhada por cenário</button></div>
         </div>` : ''}
         ${categorias_impulsivas.length > 0 ? `
         <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
@@ -18047,6 +18194,162 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       this.toast(err.message || 'Erro ao analisar', 'error')
       if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Analisar 3 Meses' }
     }
+  },
+
+  // FASE 3.3 — CUSTO DE OPORTUNIDADE (página dedicada)
+  // ═══════════════════════════════════════════════════════════════
+  async pageCustoOportunidade() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:280px;border-radius:16px;margin-bottom:16px;"></div><div class="skeleton" style="height:180px;border-radius:16px;"></div></div>`
+
+    try {
+      const [data3m, data6m] = await Promise.all([
+        this.api('GET', 'compras-fantasma/custo-oportunidade?meses=3'),
+        this.api('GET', 'compras-fantasma/custo-oportunidade?meses=6'),
+      ])
+
+      const fmtBRL = v => (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})
+      const d = data3m
+      const co = d.custo_oportunidade || {}
+      const cenarios = d.cenarios_investimento || []
+      const porCat = d.por_categoria || []
+
+      content.innerHTML = `
+      <div style="max-width:900px;margin:0 auto;padding:16px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <button onclick="VM.navigate('compras-fantasma')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:0.82rem;">← Voltar</button>
+          <div>
+            <h1 style="color:#f1f5f9;font-size:1.3rem;font-weight:800;margin:0;">💡 Custo de Oportunidade</h1>
+            <p style="color:#64748B;font-size:0.8rem;margin:0;">O que seus gastos impulsivos poderiam render se fossem investidos</p>
+          </div>
+        </div>
+
+        <!-- Seletor de período -->
+        <div style="display:flex;gap:8px;margin-bottom:20px;">
+          <button id="btn-3m" onclick="VM._custoOp(3)" style="background:rgba(99,102,241,0.2);color:#A5B4FC;border:1px solid rgba(99,102,241,0.4);padding:7px 16px;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">3 meses</button>
+          <button id="btn-6m" onclick="VM._custoOp(6)" style="background:transparent;color:#64748B;border:1px solid rgba(255,255,255,0.08);padding:7px 16px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;">6 meses</button>
+        </div>
+
+        <div id="custo-op-content">
+          ${this._renderCustoOp(d, fmtBRL, cenarios, porCat)}
+        </div>
+      </div>`
+
+      // Guarda referências para o seletor dinâmico
+      window._custoOpFmt = fmtBRL
+      window._custoOpData = { '3': data3m, '6': data6m }
+    } catch (err) {
+      content.innerHTML = `<div class="empty-state"><p style="color:#F43F5E;">${err.message || 'Erro ao carregar'}</p></div>`
+    }
+  },
+
+  async _custoOp(meses) {
+    // Troca de período sem recarregar a página toda
+    const fmtBRL = window._custoOpFmt || (v => v.toFixed(2))
+    let d = window._custoOpData?.[String(meses)]
+    if (!d) {
+      d = await this.api('GET', `compras-fantasma/custo-oportunidade?meses=${meses}`)
+      if (window._custoOpData) window._custoOpData[String(meses)] = d
+    }
+    document.getElementById('btn-3m').style.background = meses === 3 ? 'rgba(99,102,241,0.2)' : 'transparent'
+    document.getElementById('btn-3m').style.color = meses === 3 ? '#A5B4FC' : '#64748B'
+    document.getElementById('btn-6m').style.background = meses === 6 ? 'rgba(99,102,241,0.2)' : 'transparent'
+    document.getElementById('btn-6m').style.color = meses === 6 ? '#A5B4FC' : '#64748B'
+    document.getElementById('custo-op-content').innerHTML = this._renderCustoOp(d, fmtBRL, d.cenarios_investimento || [], d.por_categoria || [])
+  },
+
+  _renderCustoOp(d, fmtBRL, cenarios, porCat) {
+    const co = d.custo_oportunidade || {}
+    if (!d.total_impulsivo || d.total_impulsivo <= 0) {
+      return `<div style="text-align:center;padding:60px 20px;background:rgba(255,255,255,0.02);border:2px dashed #1f2937;border-radius:20px;">
+        <div style="font-size:4rem;margin-bottom:16px;">✅</div>
+        <h2 style="color:#10B981;font-size:1.3rem;font-weight:700;margin-bottom:8px;">Nenhum gasto impulsivo detectado!</h2>
+        <p style="color:#64748B;margin:0;">Seu controle financeiro está excelente neste período.</p>
+      </div>`
+    }
+
+    const riscoCor = { 'Muito Baixo': '#10B981', 'Baixo': '#3B82F6', 'Moderado': '#F59E0B', 'Alto': '#F43F5E' }
+
+    return `
+    <!-- KPIs principais -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px;">
+      <div style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:16px;text-align:center;">
+        <div style="color:#FDA4AF;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">💸 Gasto Impulsivo</div>
+        <div style="font-size:1.5rem;font-weight:800;color:#F43F5E;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(d.total_impulsivo)}</div>
+        <div style="color:#64748B;font-size:0.68rem;">${d.periodo_meses} ${d.periodo_meses===1?'mês':'meses'} • ${d.percentual_impulsivo?.toFixed(1)}% do total</div>
+      </div>
+      <div style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:14px;padding:16px;text-align:center;">
+        <div style="color:#A5B4FC;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">📈 Rend. 12 meses</div>
+        <div style="font-size:1.5rem;font-weight:800;color:#818CF8;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(co.rendimento_12m)}</div>
+        <div style="color:#64748B;font-size:0.68rem;">Tesouro Selic (${co.taxa_cdi_anual?.toFixed(1)}% a.a.)</div>
+      </div>
+      <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:14px;padding:16px;text-align:center;">
+        <div style="color:#C4B5FD;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">🚀 Rend. 5 anos</div>
+        <div style="font-size:1.5rem;font-weight:800;color:#A78BFA;font-family:'JetBrains Mono',monospace;">R$ ${fmtBRL(co.rendimento_60m)}</div>
+        <div style="color:#64748B;font-size:0.68rem;">juros compostos</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:14px;padding:16px;text-align:center;">
+        <div style="color:#6EE7B7;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">💡 Equivale a</div>
+        <div style="font-size:0.9rem;font-weight:700;color:#10B981;line-height:1.3;">${co.meta_equivalente || '—'}</div>
+        <div style="color:#64748B;font-size:0.68rem;">referência pedagógica</div>
+      </div>
+    </div>
+
+    <!-- Mensagem principal -->
+    <div style="background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(139,92,246,0.07));border:1px solid rgba(99,102,241,0.25);border-radius:14px;padding:16px 20px;margin-bottom:22px;">
+      <p style="color:#C4B5FD;font-size:0.88rem;margin:0;line-height:1.6;">${d.mensagem || ''}</p>
+    </div>
+
+    <!-- Cenários de investimento -->
+    <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+      <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">📊 Cenários de Investimento</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;">
+        ${cenarios.map(c => `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:16px;">
+          <div style="font-size:1.4rem;margin-bottom:6px;">${c.emoji}</div>
+          <div style="color:#f1f5f9;font-size:0.82rem;font-weight:700;margin-bottom:4px;">${c.nome}</div>
+          <div style="color:${riscoCor[c.risco]||'#94A3B8'};font-size:0.68rem;font-weight:600;margin-bottom:10px;">Risco: ${c.risco}</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#64748B;font-size:0.72rem;">12 meses</span>
+            <span style="color:#10B981;font-size:0.82rem;font-weight:700;">+R$ ${fmtBRL(c.rendimento_12m)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#64748B;font-size:0.72rem;">5 anos</span>
+            <span style="color:#A78BFA;font-size:0.82rem;font-weight:700;">+R$ ${fmtBRL(c.rendimento_60m)}</span>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Por categoria -->
+    ${porCat.length > 0 ? `
+    <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
+      <h2 style="color:#f1f5f9;font-size:1rem;font-weight:700;margin:0 0 16px;">🏷️ Custo de Oportunidade por Categoria</h2>
+      ${porCat.map(cat => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.3rem;">${cat.emoji}</span>
+          <div>
+            <div style="color:#f1f5f9;font-size:0.85rem;font-weight:600;">${cat.categoria}</div>
+            <div style="color:#64748B;font-size:0.72rem;">Gasto: R$ ${fmtBRL(cat.valor_impulsivo)}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:#A78BFA;font-size:0.85rem;font-weight:700;">+R$ ${fmtBRL(cat.custo_oportunidade_12m)}</div>
+          <div style="color:#64748B;font-size:0.68rem;">rend. potencial 12m</div>
+        </div>
+      </div>`).join('')}
+    </div>` : ''}
+
+    <!-- CTA -->
+    <div style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(16,185,129,0.06));border:1px solid rgba(99,102,241,0.2);border-radius:16px;padding:20px;text-align:center;">
+      <h3 style="color:#A5B4FC;font-size:0.95rem;font-weight:700;margin:0 0 8px;">🎯 Transforme gastos em patrimônio</h3>
+      <p style="color:#64748B;font-size:0.82rem;margin:0 0 16px;">Redirecione apenas parte dos gastos impulsivos para investimentos e veja o impacto no longo prazo.</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button onclick="VM.navigate('investimentos')" style="background:rgba(99,102,241,0.15);color:#A5B4FC;border:1px solid rgba(99,102,241,0.35);padding:8px 18px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;">📈 Ver Investimentos</button>
+        <button onclick="VM.navigate('metas')" style="background:rgba(16,185,129,0.1);color:#10B981;border:1px solid rgba(16,185,129,0.3);padding:8px 18px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;">🎯 Criar Meta</button>
+      </div>
+    </div>`
   },
 
   // v3.0 — REGRA 50/30/20

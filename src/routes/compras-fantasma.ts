@@ -4,6 +4,87 @@ import { requireAuth } from './auth'
 type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
+// ── FASE 3.3 — Custo de Oportunidade ────────────────────────────────────────
+// Calcula quanto o dinheiro gasto em compras impulsivas RENDERIA se investido
+// Taxas de referência (aproximadas para cálculo pedagógico)
+const CDI_ANUAL_REF = 0.1065  // ~10,65% a.a. (referência — substituída por CDI real se disponível)
+
+interface CustoOportunidade {
+  valor_gasto:          number   // R$ gasto impulsivamente
+  rendimento_1m:        number   // quanto renderia em 1 mês (CDI/mês)
+  rendimento_12m:       number   // quanto renderia em 12 meses (juros compostos)
+  rendimento_24m:       number   // 24 meses
+  rendimento_60m:       number   // 5 anos
+  taxa_cdi_anual:       number   // CDI anual usado no cálculo
+  taxa_cdi_mensal:      number   // CDI mensal equivalente
+  equivalencia_salario: number   // quantos % de 1 salário mínimo representa
+  meta_equivalente:     string   // ex: "3 meses de academia", "1/4 de passagem SP-RJ"
+  economia_projetada_12m: number // se parar as compras impulsivas: economia total no ano
+}
+
+/**
+ * Calcula custo de oportunidade de um valor gasto impulsivamente.
+ * Usa juros compostos mensais equivalentes ao CDI.
+ */
+function calcularCustoOportunidade(
+  valorGasto: number,
+  cdiAnual: number = CDI_ANUAL_REF
+): CustoOportunidade {
+  // CDI mensal equivalente: (1 + cdiAnual)^(1/12) - 1
+  const taxaMensal = Math.pow(1 + cdiAnual, 1 / 12) - 1
+  const r2 = (n: number) => Math.round(n * 100) / 100
+
+  const rend1m  = r2(valorGasto * taxaMensal)
+  const rend12m = r2(valorGasto * (Math.pow(1 + taxaMensal, 12) - 1))
+  const rend24m = r2(valorGasto * (Math.pow(1 + taxaMensal, 24) - 1))
+  const rend60m = r2(valorGasto * (Math.pow(1 + taxaMensal, 60) - 1))
+
+  // Salário mínimo 2025: R$ 1 518
+  const salarioMinimo = 1518
+  const pctSalario = r2((valorGasto / salarioMinimo) * 100)
+
+  // Meta pedagógica (escala simples)
+  let metaEquivalente = ''
+  if (valorGasto >= 5000) metaEquivalente = `${Math.round(valorGasto / 1200)} meses de fundo de emergência (6×despesas)`
+  else if (valorGasto >= 2000) metaEquivalente = `passagem + hospedagem para viagem curta`
+  else if (valorGasto >= 1000) metaEquivalente = `${Math.round(valorGasto / 120)} meses de academia ou curso online`
+  else if (valorGasto >= 500)  metaEquivalente = `${Math.round(valorGasto / 50)} semanas do Desafio 52`
+  else if (valorGasto >= 100)  metaEquivalente = `${Math.round(valorGasto / 35)} refeições saudáveis em casa`
+  else metaEquivalente = `alguns cafés especiais ☕`
+
+  // Projeção: se o usuário PARAR de gastar impulsivamente, em 12 meses…
+  // = gasto_impulsivo_mensal × 12 + rendimento dos investimentos acumulados
+  const economiaProjetada12m = r2(valorGasto * 12 + valorGasto * rend12m / valorGasto)
+
+  return {
+    valor_gasto:            r2(valorGasto),
+    rendimento_1m:          rend1m,
+    rendimento_12m:         rend12m,
+    rendimento_24m:         rend24m,
+    rendimento_60m:         rend60m,
+    taxa_cdi_anual:         r2(cdiAnual * 100),
+    taxa_cdi_mensal:        r2(taxaMensal * 100),
+    equivalencia_salario:   pctSalario,
+    meta_equivalente:       metaEquivalente,
+    economia_projetada_12m: r2(valorGasto * 12),  // se parar tudo: economia bruta em 12m
+  }
+}
+
+/**
+ * Busca CDI atual da tabela cdi_historico (se existir) ou retorna referência.
+ */
+async function getCDIAtual(db: D1Database): Promise<number> {
+  try {
+    const row = await db.prepare(
+      `SELECT taxa_anual FROM cdi_historico ORDER BY data DESC LIMIT 1`
+    ).first() as any
+    if (row?.taxa_anual && row.taxa_anual > 0) {
+      return Number(row.taxa_anual) / 100  // converte % para decimal
+    }
+  } catch (_) { /* sem tabela CDI, usa referência */ }
+  return CDI_ANUAL_REF
+}
+
 const comprasFantasma = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ── Categorias tipicamente impulsivas ─────────────────────────────────────
@@ -270,6 +351,11 @@ comprasFantasma.get('/', requireAuth, async (c) => {
     dicas,
     periodo_meses: nMeses,
     mes: mesAtual, ano: anoAtual,
+    // ── FASE 3.3: Custo de Oportunidade ───────────────────────────────────
+    custo_oportunidade: await (async () => {
+      const cdi = await getCDIAtual(c.env.DB)
+      return calcularCustoOportunidade(Math.round(totalImpulsivo * 100) / 100, cdi)
+    })(),
   })
 })
 
@@ -459,6 +545,13 @@ comprasFantasma.post('/analisar', requireAuth, async (c) => {
   const necessarios = recorrentesEnriquecidos.filter(r => r.ia_tipo === 'habito_necessario')
   const assinaturas = recorrentesEnriquecidos.filter(r => r.ia_tipo === 'assinatura')
 
+  // FASE 3.3: custo de oportunidade sobre a economia mensal potencial
+  const cdiAnalisar = await getCDIAtual(c.env.DB)
+  const custoOpAnalisar = calcularCustoOportunidade(
+    Math.round(totalEconomiaMensal * 100) / 100,
+    cdiAnalisar
+  )
+
   return c.json({
     recorrentes: recorrentesEnriquecidos,
     novos_encontrados: novosCount,
@@ -470,6 +563,8 @@ comprasFantasma.post('/analisar', requireAuth, async (c) => {
       assinaturas_detectadas: assinaturas.length,
       economia_mensal_potencial: Math.round(totalEconomiaMensal * 100) / 100,
       economia_anual_potencial: Math.round(totalEconomiaAnual * 100) / 100,
+      // FASE 3.3: se investir a economia mensal durante 12 meses
+      custo_oportunidade_economia: custoOpAnalisar,
     },
     ia_utilizada: iaResults.size > 0,
     message: recorrentesEnriquecidos.length === 0
@@ -623,6 +718,131 @@ comprasFantasma.post('/marcar/:id', requireAuth, async (c) => {
     message: classificacao === 'necessaria' ? '✅ Despesa marcada como necessária'
       : classificacao === 'desnecessaria' ? '🚫 Despesa marcada como desnecessária'
       : '⚡ Despesa marcada como compra por impulso'
+  })
+})
+
+// ── GET /api/compras-fantasma/custo-oportunidade — FASE 3.3 ──────────────
+// Calcula o custo de oportunidade dos gastos impulsivos do período
+comprasFantasma.get('/custo-oportunidade', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { meses = '3' } = c.req.query()
+  const nMeses = Math.min(12, Math.max(1, parseInt(meses as string)))
+
+  const dataInicio = new Date()
+  dataInicio.setMonth(dataInicio.getMonth() - nMeses)
+  const dataInicioStr = dataInicio.toISOString().split('T')[0]
+
+  // Buscar despesas do período para calcular impulsivas
+  const result = await c.env.DB.prepare(`
+    SELECT d.valor, d.descricao, d.categoria, d.data
+    FROM despesas d
+    WHERE d.user_id = ?
+      AND d.data >= ?
+      AND d.status != 'cancelado'
+      AND d.eh_aporte_patrimonial != 1
+    ORDER BY d.data DESC
+  `).bind(user.id, dataInicioStr).all()
+
+  const despesas = result.results as any[]
+
+  // Calcular total impulsivo usando mesma lógica do endpoint principal
+  let totalImpulsivo = 0
+  let totalGeral = 0
+  const porCategoria: Record<string, number> = {}
+
+  for (const d of despesas) {
+    totalGeral += Number(d.valor)
+    const cat = (d.categoria || 'Outros')
+    const categoriaInfo = CATEGORIAS_IMPULSO[cat]
+    const desc = normalizeDesc(d.descricao || '')
+    let peso = 0
+
+    if (categoriaInfo) peso = Math.max(peso, categoriaInfo.peso)
+    for (const kw of IMPULSO_KEYWORDS) {
+      if (kw.keywords.some(k => desc.includes(k))) {
+        peso = Math.max(peso, kw.peso)
+        break
+      }
+    }
+    const isRecorrente = RECORRENTE_PATTERNS.some(p => p.test(d.descricao || ''))
+    if (isRecorrente) peso = Math.min(peso, 0.3)
+
+    if (peso >= 0.4) {
+      const valorImpulsivo = Number(d.valor) * peso
+      totalImpulsivo += valorImpulsivo
+      porCategoria[cat] = (porCategoria[cat] || 0) + valorImpulsivo
+    }
+  }
+
+  const cdi = await getCDIAtual(c.env.DB)
+  const custoPrincipal = calcularCustoOportunidade(Math.round(totalImpulsivo * 100) / 100, cdi)
+
+  // Custo de oportunidade por categoria (top 5 mais impactantes)
+  const porCatArray = Object.entries(porCategoria)
+    .map(([cat, val]) => ({
+      categoria: cat,
+      emoji: CATEGORIAS_IMPULSO[cat]?.emoji || '❓',
+      valor_impulsivo: Math.round(val * 100) / 100,
+      custo_oportunidade_12m: Math.round(val * (Math.pow(1 + Math.pow(1 + cdi, 1/12) - 1, 12) - 1) * 100) / 100,
+    }))
+    .sort((a, b) => b.valor_impulsivo - a.valor_impulsivo)
+    .slice(0, 5)
+
+  // Cenários comparativos: e se investisse esse valor?
+  const cenarios = [
+    {
+      nome: 'Tesouro Selic (CDI ~100%)',
+      taxa_anual: cdi,
+      rendimento_12m: custoPrincipal.rendimento_12m,
+      rendimento_60m: custoPrincipal.rendimento_60m,
+      risco: 'Muito Baixo',
+      emoji: '🏦',
+    },
+    {
+      nome: 'CDB 120% CDI',
+      taxa_anual: cdi * 1.2,
+      rendimento_12m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1 + cdi * 1.2, 1/12) - 1, 12) - 1) * 100) / 100,
+      rendimento_60m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1 + cdi * 1.2, 1/12) - 1, 60) - 1) * 100) / 100,
+      risco: 'Baixo',
+      emoji: '💼',
+    },
+    {
+      nome: 'Fundo Multimercado (~15% a.a.)',
+      taxa_anual: 0.15,
+      rendimento_12m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1.15, 1/12) - 1, 12) - 1) * 100) / 100,
+      rendimento_60m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1.15, 1/12) - 1, 60) - 1) * 100) / 100,
+      risco: 'Moderado',
+      emoji: '📈',
+    },
+    {
+      nome: 'Ações / FIIs (~18% a.a.)',
+      taxa_anual: 0.18,
+      rendimento_12m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1.18, 1/12) - 1, 12) - 1) * 100) / 100,
+      rendimento_60m: Math.round(totalImpulsivo * (Math.pow(1 + Math.pow(1.18, 1/12) - 1, 60) - 1) * 100) / 100,
+      risco: 'Alto',
+      emoji: '🚀',
+    },
+  ]
+
+  // Mensagem pedagógica principal
+  let mensagemPrincipal = ''
+  if (totalImpulsivo <= 0) {
+    mensagemPrincipal = '✅ Nenhum gasto impulsivo identificado no período. Ótimo controle financeiro!'
+  } else {
+    const rend12m = custoPrincipal.rendimento_12m
+    mensagemPrincipal = `💡 Os R$ ${custoPrincipal.valor_gasto.toFixed(2)} gastos impulsivamente em ${nMeses} ${nMeses === 1 ? 'mês' : 'meses'} poderiam render R$ ${rend12m.toFixed(2)} em 12 meses investidos no Tesouro Selic. Em 5 anos, o rendimento seria de R$ ${custoPrincipal.rendimento_60m.toFixed(2)}.`
+  }
+
+  return c.json({
+    periodo_meses: nMeses,
+    total_impulsivo: Math.round(totalImpulsivo * 100) / 100,
+    total_analisado: Math.round(totalGeral * 100) / 100,
+    percentual_impulsivo: totalGeral > 0 ? Math.round((totalImpulsivo / totalGeral) * 1000) / 10 : 0,
+    cdi_utilizado: Math.round(cdi * 10000) / 100,  // em %
+    custo_oportunidade: custoPrincipal,
+    por_categoria: porCatArray,
+    cenarios_investimento: cenarios,
+    mensagem: mensagemPrincipal,
   })
 })
 

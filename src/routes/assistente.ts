@@ -498,62 +498,152 @@ assistente.post('/chat', requireAuth, async (c) => {
   const ctx = await buscarContexto(c.env.DB, user.id)
   let resposta = gerarResposta(intencao, ctx, user.nome)
 
-  // ── LLM: enriquecer resposta com GPT-4o-mini quando disponível ──────────────
+  // ── FASE 2: LLM com system prompt inteligente + contexto temporal ──────────
   if (c.env.OPENAI_API_KEY) {
     try {
       const apiKey  = c.env.OPENAI_API_KEY
       const baseURL = (c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
       const primeiro = user.nome.split(' ')[0]
 
-      // Contexto financeiro rico para o LLM
+      // ── Perfil de investidor ───────────────────────────────────────────
+      const perfil = ctx.perfilInvestidor || 'moderado'
+      const sugestoesInv: Record<string, string> = {
+        conservador: 'Tesouro Selic, CDB liquidez diária, LCI/LCA, poupança. Evite renda variável.',
+        moderado:    'CDB 100%+ CDI, Tesouro IPCA+, fundos multimercado conservadores. Até 20% em FIIs ou ações.',
+        arrojado:    'Ações (IBOV), FIIs, ETFs, cripto até 5-10%. Diversifique em renda fixa e variável.',
+        moderate:    'CDB 100%+ CDI, Tesouro IPCA+, fundos multimercado conservadores. Até 20% em FIIs ou ações.',
+        conservative:'Tesouro Selic, CDB liquidez diária, LCI/LCA, poupança. Evite renda variável.',
+        aggressive:  'Ações (IBOV), FIIs, ETFs, cripto até 5-10%. Diversifique em renda fixa e variável.',
+      }
+      const perfilLabels: Record<string, string> = {
+        conservador: '🛡️ Conservador', moderado: '⚖️ Moderado', arrojado: '🚀 Arrojado',
+        conservative: '🛡️ Conservador', moderate: '⚖️ Moderado', aggressive: '🚀 Arrojado',
+      }
+      const sugestaoInv = sugestoesInv[perfil] || sugestoesInv.moderado
+      const labelPerfil = perfilLabels[perfil] || '⚖️ Moderado'
+
+      // ── FASE 1.1: Classificar obrigações temporalmente ────────────────
+      const { classificarObrigacoesTemporais } = await import('../utils/obrigacoes-temporais')
+      const classif = await classificarObrigacoesTemporais(c.env.DB, user.id, ctx.totalReceitas)
+
       const emp = ctx.emprestimos as any
       const fin = ctx.financiamentos as any
       const inv = ctx.investimentos as any
-      const totalDivida = parseFloat(emp?.total||0) + parseFloat(fin?.total||0)
-      const topCats = (ctx.topCategorias as any[])
-        .slice(0,3).map((c:any) => `${c.categoria}: R$${parseFloat(c.total).toFixed(0)}`).join(', ')
 
-      // Sugestões de investimento por perfil
-      const sugestoesInv: Record<string, string> = {
-        conservador: 'Tesouro Selic, CDB de liquidez diária, LCI/LCA, poupança. Evite renda variável.',
-        moderado: 'CDB 100%+ CDI, Tesouro IPCA+, fundos multimercado conservadores. Até 20% em FII ou ações.',
-        arrojado: 'Ações (IBOV), FIIs, ETFs, cripto até 5-10%. Diversifique em renda fixa e variável.',
-      }
-      const perfilLabel: Record<string, string> = {
-        conservador: '🛡️ Conservador — prefere segurança e liquidez',
-        moderado: '⚖️ Moderado — equilibra risco e retorno',
-        arrojado: '🚀 Arrojado — aceita risco por maior retorno',
-      }
-      const perfil = ctx.perfilInvestidor || 'moderado'
-      const sugestaoInv = sugestoesInv[perfil] || sugestoesInv.moderado
-      const labelPerfil = perfilLabel[perfil] || perfilLabel.moderado
+      // ── FASE 1.3: Histórico 6 meses enriquecido ───────────────────────
+      const hist6m = await c.env.DB.prepare(`
+        WITH meses AS (
+          SELECT strftime('%Y-%m', data) as ym,
+                 COALESCE(SUM(valor),0)  as receitas
+          FROM receitas WHERE user_id=? AND data >= date('now','-6 months')
+          GROUP BY ym
+        ),
+        desp6m AS (
+          SELECT strftime('%Y-%m', COALESCE(vencimento,data)) as ym,
+                 COALESCE(SUM(valor),0) as despesas
+          FROM despesas WHERE user_id=? AND COALESCE(vencimento,data) >= date('now','-6 months')
+          GROUP BY ym
+        )
+        SELECT m.ym,
+               COALESCE(m.receitas,0)  as receitas,
+               COALESCE(d.despesas,0)  as despesas,
+               COALESCE(m.receitas,0) - COALESCE(d.despesas,0) as saldo
+        FROM meses m
+        LEFT JOIN desp6m d ON d.ym = m.ym
+        ORDER BY m.ym
+      `).bind(user.id, user.id).all()
 
-      const systemPrompt = `Você é o Assistente Financeiro VerdeMais — especialista em finanças pessoais brasileiras.
-Responda SEMPRE em português brasileiro. Tom: amigável, direto, concreto. Use 2-3 emojis no máximo.
-Nunca use frases genéricas. Seja específico para os dados REAIS do ${primeiro}.
+      const hist = (hist6m.results || []) as any[]
+      const histComDados = hist.filter(h => h.receitas > 0 || h.despesas > 0)
+      const mediaRec6m   = histComDados.length > 0 ? histComDados.reduce((s,h) => s + h.receitas, 0) / histComDados.length : 0
+      const mediaDesp6m  = histComDados.length > 0 ? histComDados.reduce((s,h) => s + h.despesas, 0) / histComDados.length : 0
+      const melhorMes    = histComDados.length > 0 ? histComDados.reduce((mx,h) => h.saldo > mx.saldo ? h : mx, histComDados[0]) : null
+      const piorMes      = histComDados.length > 0 ? histComDados.reduce((mn,h) => h.saldo < mn.saldo ? h : mn, histComDados[0]) : null
 
-👤 PERFIL DO USUÁRIO: ${primeiro}
-📊 Perfil Investidor: ${labelPerfil}
-💼 Situação: ${ctx.situacaoEmprego}
+      // ── Calcular alerta "Outros" ───────────────────────────────────────
+      const topCatsList = ctx.topCategorias as any[]
+      const gastosOutros = topCatsList.find((c: any) => (c.categoria||'').toLowerCase() === 'outros')?.total || 0
+      const pctOutros = ctx.totalReceitas > 0 ? (Number(gastosOutros) / ctx.totalReceitas * 100) : 0
+      const alertaOutros = pctOutros > 15
 
-📈 DADOS FINANCEIROS REAIS (mês atual):
-- Receitas: R$ ${ctx.totalReceitas.toFixed(2)}
-- Despesas: R$ ${ctx.totalDespesas.toFixed(2)}${(ctx.topCategorias as any[]).length > 0 ? ' (top: ' + topCats + ')' : ''}
-- Saldo: R$ ${ctx.saldo.toFixed(2)} | Taxa poupança: ${ctx.taxaPoupanca.toFixed(1)}%
-- Dívidas: R$ ${totalDivida.toFixed(2)} | Investimentos: R$ ${parseFloat(inv?.total||0).toFixed(2)}
-- Reservas: R$ ${parseFloat((ctx.reservas as any)?.total||0).toFixed(2)}
-- Score saúde financeira: ${ctx.scoreSaude || 'não calculado'}/100
-- Metas ativas: ${(ctx.metas as any)?.cnt || 0}
+      // ── Montar blocos do system prompt ────────────────────────────────
+      const topCats = topCatsList.slice(0,5).map((c:any) => `  • ${c.categoria}: R$ ${Number(c.total).toFixed(2)}`).join('\n')
 
-💡 SUGESTÕES DE INVESTIMENTO PARA O PERFIL ${perfil.toUpperCase()}:
+      const blocoAtivas  = classif.ativas.length > 0
+        ? classif.ativas.map(o =>
+            `  • ${o.descricao} (${o.tipo}): saldo R$ ${o.saldo_devedor.toFixed(2)}, parcela R$ ${o.valor_parcela.toFixed(2)}/mês, taxa ${o.taxa_juros_anual.toFixed(1)}% aa`
+          ).join('\n')
+        : '  (nenhuma obrigação ativa)'
+
+      const blocoFuturas = classif.futuras.length > 0
+        ? classif.futuras.map(o =>
+            `  • ${o.descricao} (${o.tipo}): inicia em ${o.data_inicio}, R$ ${o.valor_parcela.toFixed(2)}/mês — NÃO impacta caixa atual`
+          ).join('\n')
+        : '  (nenhum compromisso futuro)'
+
+      const blocoHistorico = histComDados.length > 0
+        ? histComDados.map(h => `  • ${h.ym}: receitas R$${Number(h.receitas).toFixed(0)}, despesas R$${Number(h.despesas).toFixed(0)}, saldo R$${Number(h.saldo).toFixed(0)}`).join('\n')
+        : '  (dados insuficientes — menos de 1 mês registrado)'
+
+      const reservaTotal = parseFloat((ctx.reservas as any)?.total || 0)
+      const statusReserva = reservaTotal === 0
+        ? `🔴 ZERO (ideal: R$ ${(ctx.totalDespesas * 6).toFixed(2)})`
+        : `R$ ${reservaTotal.toFixed(2)} (${ctx.totalDespesas > 0 ? (reservaTotal / ctx.totalDespesas).toFixed(1) : '?'} meses cobertos)`
+
+      // ── FASE 2: System Prompt estruturado (GPS Financeiro) ────────────
+      const systemPrompt = `Você é o Assistente Financeiro Inteligente do VerdeMais, especializado em CFP® (Certified Financial Planner).
+
+MISSÃO: Atuar como GPS financeiro — prescrever ações específicas com base em dados empíricos, não apenas descrever situações.
+
+## REGRAS ABSOLUTAS:
+1. CONSCIÊNCIA TEMPORAL: Compromissos em [OBRIGACOES_FUTURAS] NÃO são prioridade de pagamento hoje. Foque APENAS em [OBRIGACOES_ATIVAS].
+2. CONTEXTO HISTÓRICO: Você tem acesso aos últimos 6 meses. Compare o atual com o histórico.
+3. HIGIENIZAÇÃO OBRIGATÓRIA: Se categoria "Outros" > 15% da renda, sua PRIMEIRA recomendação deve ser categorizar esses gastos.
+4. PRECISÃO MATEMÁTICA: Use valores exatos em R$, percentuais específicos e prazos definidos.
+5. NUNCA INVENTE DADOS: Use apenas informações fornecidas abaixo.
+6. Responda SEMPRE em português brasileiro. Tom: amigável, direto, concreto. Máximo 3 emojis.
+
+## DADOS DO USUÁRIO:
+👤 ${primeiro} | Perfil investidor: ${labelPerfil} | Situação: ${ctx.situacaoEmprego}
+
+## HISTÓRICO FINANCEIRO (6 meses):
+${blocoHistorico}
+  → Receita média: R$ ${mediaRec6m.toFixed(2)} | Despesa média: R$ ${mediaDesp6m.toFixed(2)}
+  → Melhor mês: ${melhorMes ? `${melhorMes.ym} (saldo R$${Number(melhorMes.saldo).toFixed(0)})` : '—'}
+  → Pior mês: ${piorMes ? `${piorMes.ym} (saldo R$${Number(piorMes.saldo).toFixed(0)})` : '—'}
+
+## MÊS ATUAL (${ctx.mes}/${ctx.ano}):
+  • Receitas: R$ ${ctx.totalReceitas.toFixed(2)}
+  • Despesas: R$ ${ctx.totalDespesas.toFixed(2)} | Taxa de poupança: ${ctx.taxaPoupanca.toFixed(1)}%
+  • Saldo: R$ ${ctx.saldo.toFixed(2)}
+  • Score saúde: ${ctx.scoreSaude || 'não calculado'}/100
+
+## TOP CATEGORIAS DE GASTOS:
+${topCats || '  (nenhuma despesa registrada)'}
+
+## OBRIGAÇÕES ATIVAS (impactam caixa HOJE):
+${blocoAtivas}
+  → Comprometimento real: ${classif.resumo.comprometimento_pct_atual.toFixed(1)}% da renda
+
+## COMPROMISSOS FUTUROS (planejamento apenas — NÃO PRIORIZAR):
+${blocoFuturas}
+
+## ALERTAS CRÍTICOS:
+  • Categoria "Outros": ${pctOutros.toFixed(1)}% da renda${alertaOutros ? ' ⚠️ ACIMA DO LIMITE (15%) — HIGIENIZAR PRIMEIRO' : ' ✅ OK'}
+  • Reserva de emergência: ${statusReserva}
+  • Metas ativas: ${(ctx.metas as any)?.cnt || 0}
+  • Investimentos: R$ ${parseFloat(inv?.total||0).toFixed(2)}
+
+## SUGESTÕES DE INVESTIMENTO PARA O PERFIL ${perfil.toUpperCase()}:
 ${sugestaoInv}
 
-Resposta de referência (reescreva de forma mais natural, pessoal e com conselhos práticos baseados no perfil):
-${resposta}
+## FORMATO DE RESPOSTA OBRIGATÓRIO:
+1. **Diagnóstico Rápido** (situação com números reais)
+2. **Impacto Matemático** (R$ e % das ações sugeridas)
+3. **Plano de Ação** (3-5 passos específicos com valores exatos e link para módulo do app)
 
-IMPORTANTE: Se a pergunta for sobre investimentos, cite produtos específicos adequados ao perfil ${perfil}.
-Se a pergunta for sobre economia, dê dicas concretas baseadas nos gastos reais.
-Responda em no máximo 200 palavras.`
+Resposta de referência a melhorar (use os dados acima para tornar mais precisa e personalizada):
+${resposta}`
 
       const llmRes = await fetch(`${baseURL}/chat/completions`, {
         method: 'POST',
@@ -562,10 +652,10 @@ Responda em no máximo 200 palavras.`
           model: 'gpt-5.4-mini',
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: mensagem }
+            { role: 'user',   content: mensagem }
           ],
-          max_tokens: 400,
-          temperature: 0.7
+          max_tokens: 500,
+          temperature: 0.5,  // menos criatividade, mais precisão
         })
       })
       if (llmRes.ok) {
