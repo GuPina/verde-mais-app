@@ -17792,7 +17792,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             </div>
           </div>
           ${metaEquiv ? `<div style="background:rgba(99,102,241,0.08);border-radius:10px;padding:12px 16px;font-size:0.82rem;color:#A5B4FC;"><span style="font-weight:700;">🎯 Equivale a:</span> ${metaEquiv}</div>` : ''}
-          <div style="margin-top:12px;"><button onclick="VM.navigateTo('compras-fantasma/custo')" style="background:rgba(99,102,241,0.15);color:#A5B4FC;border:1px solid rgba(99,102,241,0.35);padding:8px 18px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">📊 Ver análise detalhada por cenário</button></div>
+          <div style="margin-top:12px;"><button onclick="VM.navigate('compras-fantasma/custo')" style="background:rgba(99,102,241,0.15);color:#A5B4FC;border:1px solid rgba(99,102,241,0.35);padding:8px 18px;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">📊 Ver análise detalhada por cenário</button></div>
         </div>` : ''}
         ${categorias_impulsivas.length > 0 ? `
         <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:20px;">
