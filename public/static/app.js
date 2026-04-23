@@ -4534,10 +4534,14 @@ const VM = {
     if (inp) inp.value = valor
     document.querySelectorAll('#d-cat-grid > div').forEach(el => {
       const isThis = el.id === `dcatbtn-${valor.replace(/[^a-z0-9]/gi,'_')}`
-      el.style.borderColor = isThis ? '#ff6b6b' : 'rgba(255,255,255,0.08)'
-      el.style.background  = isThis ? 'rgba(255,107,107,0.12)' : 'rgba(255,255,255,0.03)'
+      // Categoria nova: usar amarelo; canônica: usar vermelho
+      const isNovaCat = isThis && el.style.borderColor?.includes('251')
+      const cor = isNovaCat ? '#fbbf24' : '#ff6b6b'
+      const bgCor = isNovaCat ? 'rgba(251,191,36,0.15)' : 'rgba(255,107,107,0.12)'
+      el.style.borderColor = isThis ? cor : 'rgba(255,255,255,0.08)'
+      el.style.background  = isThis ? bgCor : 'rgba(255,255,255,0.03)'
       const lbl = el.querySelector('div:last-child')
-      if (lbl) { lbl.style.color = isThis ? '#ff6b6b' : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
+      if (lbl) { lbl.style.color = isThis ? cor : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
     })
     VM.verificarOrcamentoModal()
   },
@@ -4554,17 +4558,44 @@ const VM = {
     try {
       const res = await this.api('POST', 'categorizacao/sugerir', { descricao })
       const categoria = res?.categoria
+      const isNova = res?.categoria_nova === true
+
       if (categoria && categoria !== 'Outros') {
+        // Se for categoria nova, injetar botão no grid antes de selecionar
+        if (isNova) {
+          VM._injetarCategoriaNoGrid(categoria)
+        }
         VM._selecionarCatDespesa(categoria)
-        if (label) label.innerHTML = `Categoria * <span style="font-size:0.68rem;color:#2FBF71;margin-left:4px;">✓ ${res.fonte === 'ia' ? 'IA sugeriu' : 'Detectado'}: <strong>${categoria}</strong></span>`
-        // Fade da label de volta após 4s
-        setTimeout(() => { if (label) label.textContent = originalLabel }, 4000)
+        const corTexto = isNova ? '#fbbf24' : '#2FBF71'
+        const badge = isNova
+          ? `✨ Nova categoria criada: <strong style="color:#fbbf24">${categoria}</strong>`
+          : `✓ ${res.fonte === 'ia' ? 'IA sugeriu' : 'Detectado'}: <strong>${categoria}</strong>`
+        if (label) label.innerHTML = `Categoria * <span style="font-size:0.68rem;color:${corTexto};margin-left:4px;">${badge}</span>`
+        setTimeout(() => { if (label) label.textContent = originalLabel }, 5000)
       } else {
         if (label) label.textContent = originalLabel
       }
     } catch {
       if (label) label.textContent = originalLabel
     }
+  },
+
+  // ── Injeta botão de categoria nova no grid do modal de despesa ──────────
+  _injetarCategoriaNoGrid(categoria) {
+    const grid = document.getElementById('d-cat-grid')
+    if (!grid) return
+    const id = `dcatbtn-${categoria.replace(/[^a-z0-9]/gi, '_')}`
+    if (document.getElementById(id)) return // já existe
+    const btn = document.createElement('div')
+    btn.id = id
+    btn.onclick = () => VM._selecionarCatDespesa(categoria)
+    btn.title = `${categoria} (nova categoria)`
+    btn.style.cssText = 'cursor:pointer;border-radius:10px;padding:8px 4px;text-align:center;border:1.5px solid rgba(251,191,36,0.4);background:rgba(251,191,36,0.08);transition:all 0.15s;'
+    btn.innerHTML = `<div style="font-size:1.2rem;line-height:1.3;">✨</div><div style="font-size:0.65rem;color:#fbbf24;margin-top:3px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${categoria}</div>`
+    // Inserir antes do último botão (Outros)
+    const ultimo = grid.lastElementChild
+    if (ultimo) grid.insertBefore(btn, ultimo)
+    else grid.appendChild(btn)
   },
 
   _selecionarMeioDespesa(valor) {
@@ -7770,22 +7801,44 @@ const VM = {
           </button>
         </div>
 
+        <!-- Categorias novas detectadas (banner informativo) -->
+        ${res.categorias_novas?.length > 0 ? `
+        <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;">
+          <span style="font-size:1rem;flex-shrink:0;">✨</span>
+          <div>
+            <div style="font-size:0.78rem;font-weight:700;color:#fbbf24;margin-bottom:3px;">Novas categorias detectadas pela IA</div>
+            <div style="font-size:0.73rem;color:#94A3B8;">As categorias abaixo não existiam antes e serão criadas automaticamente quando você aplicar:
+              ${res.categorias_novas.map(c => `<span style="display:inline-block;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);padding:1px 8px;border-radius:12px;margin:2px 2px 0;">${c}</span>`).join('')}
+            </div>
+          </div>
+        </div>` : ''}
+
         <!-- Tabela de despesas -->
         <div style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;" id="hig-lista">
           ${despesas.map((d, i) => {
             const temSug = d.categoria_sugerida && d.categoria_sugerida !== 'Outros'
+            const isNova = d.categoria_nova === true
+            // Lista de opções: canônicas + a categoria sugerida se for nova
+            const todasCategorias = ['Alimentação','Moradia','Transporte','Saúde','Educação','Lazer','Vestuário','Assinaturas','Investimento','Beleza','Pets','Tecnologia','Viagem','Empréstimos','Financiamentos','Seguros','Impostos','Taxas Bancárias','Multas','Outros']
+            if (isNova && !todasCategorias.includes(d.categoria_sugerida)) todasCategorias.unshift(d.categoria_sugerida)
+            const corBorda = isNova ? 'rgba(251,191,36,0.5)' : temSug ? 'rgba(47,191,113,0.4)' : 'rgba(255,255,255,0.1)'
+            const corTexto = isNova ? '#fbbf24' : temSug ? '#2FBF71' : '#94A3B8'
+            const fontePill = d.fonte === 'ia_nova' || d.fonte?.startsWith('ia') ? '🤖 IA' : d.fonte === 'local' ? '⚡ Local' : '❓'
             return `
             <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;" id="hig-linha-${i}">
               <input type="checkbox" id="hig-chk-${i}" ${temSug?'checked':''} style="accent-color:#818CF8;width:16px;height:16px;flex-shrink:0;cursor:pointer;">
               <div style="flex:1;min-width:160px;">
                 <div style="font-size:0.85rem;font-weight:600;color:#f1f5f9;">${d.descricao}</div>
-                <div style="font-size:0.7rem;color:#64748B;margin-top:2px;">R$ ${fmtBRL(d.valor)} · ${d.data} · ${d.fonte === 'ia' ? '🤖 IA' : d.fonte === 'local' ? '⚡ Local' : '❓'}</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">
+                  <span style="font-size:0.7rem;color:#64748B;">R$ ${fmtBRL(d.valor)} · ${d.data} · ${fontePill}</span>
+                  ${isNova ? `<span style="font-size:0.65rem;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);padding:1px 7px;border-radius:10px;font-weight:700;">✨ Nova categoria</span>` : ''}
+                </div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
                 <span style="font-size:0.72rem;color:#ff6b6b;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);padding:3px 10px;border-radius:20px;">Outros</span>
                 <span style="color:#94A3B8;font-size:0.8rem;">→</span>
-                <select id="hig-cat-${i}" data-id="${d.id}" style="background:#1e293b;border:1px solid ${temSug?'rgba(47,191,113,0.4)':'rgba(255,255,255,0.1)'};color:${temSug?'#2FBF71':'#94A3B8'};padding:5px 10px;border-radius:8px;font-size:0.8rem;font-weight:${temSug?'700':'400'};cursor:pointer;">
-                  ${categorias.map(c => `<option value="${c}" ${c===d.categoria_sugerida?'selected':''}>${c}</option>`).join('')}
+                <select id="hig-cat-${i}" data-id="${d.id}" style="background:#1e293b;border:1px solid ${corBorda};color:${corTexto};padding:5px 10px;border-radius:8px;font-size:0.8rem;font-weight:${temSug?'700':'400'};cursor:pointer;">
+                  ${todasCategorias.map(c => `<option value="${c}" ${c===d.categoria_sugerida?'selected':''}>${c}</option>`).join('')}
                 </select>
               </div>
             </div>`
