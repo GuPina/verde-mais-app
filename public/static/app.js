@@ -2037,7 +2037,7 @@ const VM = {
           <div style="flex:1;min-width:200px;">
             <div style="font-size:0.88rem;font-weight:700;color:#ffc400;margin-bottom:3px;">Categoria "Outros" está alta: ${(alerta_outros.percentual||0).toFixed(1)}% da renda</div>
             <div style="font-size:0.76rem;color:#94A3B8;line-height:1.5;">
-              Você gastou <strong style="color:#ffc400;">${this.formatMoney(alerta_outros.valor||0)}</strong> em "Outros" (limite saudável: 15%). 
+              Você gastou <strong style="color:#ffc400;">${this.formatMoney(alerta_outros.valor_outros||alerta_outros.valor||0)}</strong> em "Outros" (limite saudável: 15%). 
               Categorize esses gastos para ter controle real dos seus hábitos financeiros.
             </div>
           </div>
@@ -17736,8 +17736,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       const qtdImpulsivas  = Number(resumo.qtd_impulsivas||0)
       // FASE 3.3 — Custo de Oportunidade
       const custoOp        = data.custo_oportunidade || {}
-      const rend12m        = Number(custoOp.rendimento_12m||0)
-      const rend60m        = Number(custoOp.rendimento_60m||0)
+      // Se não há compras impulsivas identificadas, usa totalAnalisado como base pedagógica
+      const baseCalculo    = totalImpulsivo > 0 ? totalImpulsivo : totalAnalisado
+      const rend12m        = custoOp.rendimento_12m != null ? Number(custoOp.rendimento_12m) : (() => { const tm = Math.pow(1 + 0.1065, 1/12) - 1; return Math.round(baseCalculo * (Math.pow(1+tm,12)-1) * 100)/100 })()
+      const rend60m        = custoOp.rendimento_60m != null ? Number(custoOp.rendimento_60m) : (() => { const tm = Math.pow(1 + 0.1065, 1/12) - 1; return Math.round(baseCalculo * (Math.pow(1+tm,60)-1) * 100)/100 })()
       const cdiUsado       = Number(custoOp.taxa_cdi_anual||10.65)
       const metaEquiv      = custoOp.meta_equivalente || ''
 
@@ -17766,11 +17768,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <h3 style="color:#F43F5E;font-size:0.9rem;font-weight:700;margin:0 0 10px;">🚨 Alertas de Consumo</h3>
           ${alertas.map(a => `<div style="color:#FDA4AF;font-size:0.82rem;margin-bottom:6px;">• ${a}</div>`).join('')}
         </div>` : ''}
-        ${totalImpulsivo > 0 ? `
+        ${(totalImpulsivo > 0 || totalAnalisado > 0) ? `
         <!-- FASE 3.3: Custo de Oportunidade -->
         <div style="background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.3);border-radius:16px;padding:22px;margin-bottom:20px;">
           <h3 style="color:#A5B4FC;font-size:0.95rem;font-weight:700;margin:0 0 6px;">💡 Custo de Oportunidade</h3>
-          <p style="color:#64748B;font-size:0.78rem;margin:0 0 16px;">E se, em vez de gastar por impulso, você <strong style="color:#C4B5FD;">investisse esse valor</strong>?</p>
+          <p style="color:#64748B;font-size:0.78rem;margin:0 0 4px;">E se você <strong style="color:#C4B5FD;">investisse ${totalImpulsivo > 0 ? 'os gastos impulsivos' : 'esses gastos'}</strong> no Tesouro Direto (CDI)?</p>
+          <p style="color:#475569;font-size:0.72rem;margin:0 0 16px;">Base: ${totalImpulsivo > 0 ? `R$ ${fmtBRL(totalImpulsivo)} em compras impulsivas` : `R$ ${fmtBRL(totalAnalisado)} analisados no período`}</p>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
             <div style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:14px;text-align:center;">
               <div style="color:#A5B4FC;font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Em 12 meses</div>
