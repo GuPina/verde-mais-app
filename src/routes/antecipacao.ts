@@ -124,6 +124,81 @@ antecipacao.post('/', requireAuth, async (c) => {
   })
 })
 
+// ── GET /api/antecipacao/fatura-cartao — valor da fatura de um mês ──────────
+// ATENÇÃO: deve vir ANTES de /:id para evitar conflito de rota
+antecipacao.get('/fatura-cartao', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartaoId = c.req.query('cartao_id')
+  const mes      = c.req.query('mes')
+  const ano      = c.req.query('ano')
+  if (!cartaoId || !mes || !ano) return c.json({ error: 'Parâmetros obrigatórios: cartao_id, mes, ano' }, 400)
+
+  const mesPad = String(mes).padStart(2, '0')
+
+  // Verificar propriedade do cartão
+  const cartao = await c.env.DB.prepare(
+    `SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE id=? AND user_id=?`
+  ).bind(cartaoId, user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  // Buscar total de despesas pendentes naquele mês (fatura)
+  const faturaRow = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as qtd
+     FROM despesas
+     WHERE cartao_id=? AND user_id=? AND status='pendente'
+       AND strftime('%m', vencimento)=? AND strftime('%Y', vencimento)=?`
+  ).bind(cartaoId, user.id, mesPad, String(ano)).first() as any
+
+  // Buscar total via card_charges também
+  const chargesRow = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(cc.valor),0) as total, COUNT(*) as qtd
+     FROM card_charges cc
+     WHERE cc.card_id=? AND cc.status='pendente'
+       AND strftime('%m', cc.data_vencimento)=? AND strftime('%Y', cc.data_vencimento)=?`
+  ).bind(cartaoId, mesPad, String(ano)).first() as any
+
+  const totalFatura = Math.max(Number(faturaRow?.total || 0), Number(chargesRow?.total || 0))
+
+  return c.json({
+    cartao: { id: cartao.id, nome: cartao.nome, bandeira: cartao.bandeira },
+    mes: parseInt(mes), ano: parseInt(ano),
+    valor_fatura: Math.round(totalFatura * 100) / 100,
+    qtd_lancamentos: Number(chargesRow?.qtd || faturaRow?.qtd || 0)
+  })
+})
+
+// ── GET /api/antecipacao/parcelas-disponiveis — parcelas de financ./empr. ────
+// ATENÇÃO: deve vir ANTES de /:id para evitar conflito de rota
+antecipacao.get('/parcelas-disponiveis', requireAuth, async (c) => {
+  const user = c.get('user')
+  const tipo = c.req.query('tipo') || 'financiamento' // financiamento | emprestimo
+  const refId = c.req.query('ref_id')
+
+  if (tipo === 'financiamento') {
+    const where = refId ? 'AND f.id=?' : ''
+    const params: any[] = refId ? [user.id, refId] : [user.id]
+    const rows = await c.env.DB.prepare(
+      `SELECT f.id, f.descricao, f.valor_parcela, f.saldo_devedor,
+              f.parcelas_restantes, f.proximo_vencimento
+       FROM financiamentos f
+       WHERE f.user_id=? AND f.status='ativo' ${where}
+       ORDER BY f.proximo_vencimento ASC LIMIT 20`
+    ).bind(...params).all<any>()
+    return c.json({ itens: rows.results || [] })
+  } else {
+    const where = refId ? 'AND e.id=?' : ''
+    const params: any[] = refId ? [user.id, refId] : [user.id]
+    const rows = await c.env.DB.prepare(
+      `SELECT e.id, e.descricao, e.valor_parcela, e.saldo_devedor,
+              e.parcelas_restantes, e.proximo_vencimento
+       FROM emprestimos e
+       WHERE e.user_id=? AND e.status='ativo' ${where}
+       ORDER BY e.proximo_vencimento ASC LIMIT 20`
+    ).bind(...params).all<any>()
+    return c.json({ itens: rows.results || [] })
+  }
+})
+
 // ── PUT /api/antecipacao/:id — editar antecipação ─────────────────────────
 antecipacao.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
@@ -211,79 +286,6 @@ antecipacao.delete('/:id', requireAuth, async (c) => {
   const id = c.req.param('id')
   await c.env.DB.prepare(`DELETE FROM antecipacoes WHERE id=? AND user_id=?`).bind(id, user.id).run()
   return c.json({ success: true })
-})
-
-// ── GET /api/antecipacao/fatura-cartao — valor da fatura de um mês ────────
-antecipacao.get('/fatura-cartao', requireAuth, async (c) => {
-  const user = c.get('user')
-  const cartaoId = c.req.query('cartao_id')
-  const mes      = c.req.query('mes')
-  const ano      = c.req.query('ano')
-  if (!cartaoId || !mes || !ano) return c.json({ error: 'Parâmetros obrigatórios: cartao_id, mes, ano' }, 400)
-
-  const mesPad = String(mes).padStart(2, '0')
-
-  // Verificar propriedade do cartão
-  const cartao = await c.env.DB.prepare(
-    `SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE id=? AND user_id=?`
-  ).bind(cartaoId, user.id).first() as any
-  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
-
-  // Buscar total de despesas pendentes naquele mês (fatura)
-  const faturaRow = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as qtd
-     FROM despesas
-     WHERE cartao_id=? AND user_id=? AND status='pendente'
-       AND strftime('%m', vencimento)=? AND strftime('%Y', vencimento)=?`
-  ).bind(cartaoId, user.id, mesPad, String(ano)).first() as any
-
-  // Buscar total via card_charges também
-  const chargesRow = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(cc.valor),0) as total, COUNT(*) as qtd
-     FROM card_charges cc
-     WHERE cc.card_id=? AND cc.status='pendente'
-       AND strftime('%m', cc.data_vencimento)=? AND strftime('%Y', cc.data_vencimento)=?`
-  ).bind(cartaoId, mesPad, String(ano)).first() as any
-
-  const totalFatura = Math.max(Number(faturaRow?.total || 0), Number(chargesRow?.total || 0))
-
-  return c.json({
-    cartao: { id: cartao.id, nome: cartao.nome, bandeira: cartao.bandeira },
-    mes: parseInt(mes), ano: parseInt(ano),
-    valor_fatura: Math.round(totalFatura * 100) / 100,
-    qtd_lancamentos: Number(chargesRow?.qtd || faturaRow?.qtd || 0)
-  })
-})
-
-// ── GET /api/antecipacao/parcelas-disponiveis — parcelas de financ./empr. ─
-antecipacao.get('/parcelas-disponiveis', requireAuth, async (c) => {
-  const user = c.get('user')
-  const tipo = c.req.query('tipo') || 'financiamento' // financiamento | emprestimo
-  const refId = c.req.query('ref_id')
-
-  if (tipo === 'financiamento') {
-    const where = refId ? 'AND f.id=?' : ''
-    const params: any[] = refId ? [user.id, refId] : [user.id]
-    const rows = await c.env.DB.prepare(
-      `SELECT f.id, f.descricao, f.valor_parcela, f.saldo_devedor,
-              f.parcelas_restantes, f.proximo_vencimento
-       FROM financiamentos f
-       WHERE f.user_id=? AND f.status='ativo' ${where}
-       ORDER BY f.proximo_vencimento ASC LIMIT 20`
-    ).bind(...params).all<any>()
-    return c.json({ itens: rows.results || [] })
-  } else {
-    const where = refId ? 'AND e.id=?' : ''
-    const params: any[] = refId ? [user.id, refId] : [user.id]
-    const rows = await c.env.DB.prepare(
-      `SELECT e.id, e.descricao, e.valor_parcela, e.saldo_devedor,
-              e.parcelas_restantes, e.proximo_vencimento
-       FROM emprestimos e
-       WHERE e.user_id=? AND e.status='ativo' ${where}
-       ORDER BY e.proximo_vencimento ASC LIMIT 20`
-    ).bind(...params).all<any>()
-    return c.json({ itens: rows.results || [] })
-  }
 })
 
 // ── GET /api/antecipacao/sugestoes — contas próximas de vencer ────────────
