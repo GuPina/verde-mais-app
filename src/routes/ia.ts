@@ -880,17 +880,21 @@ ia.get('/insights', requireAuth, async (c) => {
   })
 })
 
-// ─── GET /api/ia/analise360 — alias para insights (resposta direta, sem redirect) ──
+// ─── GET /api/ia/analise360 — alias para insights (dispatch interno, sem fetch externo) ──
 ia.get('/analise360', requireAuth, async (c) => {
-  // Ao invés de redirect 302, fazer forward interno para insights
-  // Preserva headers de autenticação
+  // Reutiliza o handler de /insights passando o mesmo contexto
+  // Constrói request interno SEM Accept-Encoding para evitar corpo comprimido
   const insightsUrl = new URL(c.req.url)
   insightsUrl.pathname = '/api/ia/insights'
-  const forwardReq = new Request(insightsUrl.toString(), {
+  const internalReq = new Request(insightsUrl.toString(), {
     method: 'GET',
-    headers: c.req.raw.headers
+    headers: (() => {
+      const h = new Headers(c.req.raw.headers)
+      h.delete('accept-encoding') // evitar gzip/br no fetch interno
+      return h
+    })()
   })
-  return fetch(forwardReq)
+  return fetch(internalReq)
 })
 
 // ─── GET /api/ia/score-saude — score simplificado de saúde financeira ───────
