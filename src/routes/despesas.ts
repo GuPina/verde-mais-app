@@ -7,6 +7,101 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const despesas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ── Utilitários de categoria ─────────────────────────────────────────────────
+
+// Mapa: chave lowercase/sem-acento → label canônico do frontend
+const CATEGORIA_NORMALIZE_DESP: Record<string, string> = {
+  'alimentacao':        'Alimentação',
+  'alimentação':        'Alimentação',
+  'transporte':         'Transporte',
+  'moradia':            'Moradia',
+  'saude':              'Saúde',
+  'saúde':              'Saúde',
+  'educacao':           'Educação',
+  'educação':           'Educação',
+  'lazer':              'Lazer',
+  'roupas':             'Roupas',
+  'vestuario':          'Vestuário',
+  'vestuário':          'Vestuário',
+  'assinaturas':        'Assinaturas',
+  'assinatura':         'Assinaturas',
+  'streaming':          'Streaming',
+  'utilidades':         'Utilidades',
+  'utilities':          'Utilidades',
+  'pessoal':            'Pessoal',
+  'pets':               'Pets',
+  'beleza':             'Beleza',
+  'tecnologia':         'Tecnologia',
+  'viagem':             'Viagem',
+  'academia':           'Academia',
+  'servicos':           'Serviços',
+  'serviços':           'Serviços',
+  'presentes':          'Presentes',
+  'emprestimo':         'Empréstimo',
+  'empréstimo':         'Empréstimo',
+  'emprestimos':        'Empréstimo',
+  'empréstimos':        'Empréstimo',
+  'fatura cartao':      'Fatura Cartão',
+  'fatura cartão':      'Fatura Cartão',
+  'investimento':       'Investimento',
+  'outros':             'Outros',
+}
+
+// Aliases para cada categoria normalizada — usados para construir filtro SQL IN(...)
+const CATEGORIA_ALIASES_DESP: Record<string, string[]> = {
+  'Alimentação':   ['Alimentação','alimentação','Alimentacao','alimentacao'],
+  'Transporte':    ['Transporte','transporte'],
+  'Moradia':       ['Moradia','moradia'],
+  'Saúde':         ['Saúde','saúde','Saude','saude'],
+  'Educação':      ['Educação','educação','Educacao','educacao'],
+  'Lazer':         ['Lazer','lazer'],
+  'Roupas':        ['Roupas','roupas','Vestuário','vestuário','Vestuario','vestuario'],
+  'Vestuário':     ['Vestuário','vestuário','Vestuario','vestuario','Roupas','roupas'],
+  'Assinaturas':   ['Assinaturas','assinaturas','Assinatura','assinatura','Streaming','streaming'],
+  'Streaming':     ['Streaming','streaming','Assinaturas','assinaturas','Assinatura','assinatura'],
+  'Utilidades':    ['Utilidades','utilidades','Utilities','utilities'],
+  'Pessoal':       ['Pessoal','pessoal'],
+  'Pets':          ['Pets','pets'],
+  'Beleza':        ['Beleza','beleza'],
+  'Tecnologia':    ['Tecnologia','tecnologia'],
+  'Viagem':        ['Viagem','viagem'],
+  'Academia':      ['Academia','academia'],
+  'Serviços':      ['Serviços','serviços','Servicos','servicos'],
+  'Presentes':     ['Presentes','presentes'],
+  'Empréstimo':    ['Empréstimo','empréstimo','Emprestimo','emprestimo','Empréstimos','empréstimos','Emprestimos','emprestimos'],
+  'Fatura Cartão': ['Fatura Cartão','fatura cartão','Fatura Cartao','fatura cartao'],
+  'Investimento':  ['Investimento','investimento'],
+  'Outros':        ['Outros','outros'],
+}
+
+function normalizarCategoriaDesp(cat: string): string {
+  const key = cat.toLowerCase().trim()
+  return CATEGORIA_NORMALIZE_DESP[key] || cat
+}
+
+// Gera expressão CASE para normalizar categorias no SQL (GROUP BY e SELECT)
+function gerarCaseCategoriaDesp(): string {
+  const linhas: string[] = []
+  for (const [normalizado, aliases] of Object.entries(CATEGORIA_ALIASES_DESP)) {
+    const inList = aliases.map(a => `'${a.replace(/'/g, "''")}'`).join(',')
+    linhas.push(`WHEN categoria IN (${inList}) THEN '${normalizado.replace(/'/g, "''")}'`)
+  }
+  return `CASE ${linhas.join(' ')} ELSE categoria END`
+}
+
+// Gera cláusula WHERE para filtrar por categoria (case-insensitive, cobre aliases legados)
+function filtroCategoriaDespaSQL(categoria: string): string {
+  // Encontrar lista de aliases para esta categoria
+  const normalized = normalizarCategoriaDesp(categoria)
+  const aliases = CATEGORIA_ALIASES_DESP[normalized]
+  if (aliases && aliases.length > 0) {
+    const inList = aliases.map(a => `'${a.replace(/'/g, "''")}'`).join(',')
+    return ` AND categoria IN (${inList})`
+  }
+  // Fallback: case-insensitive simples
+  return ` AND LOWER(TRIM(categoria)) = LOWER('${categoria.replace(/'/g, "''")}')`
+}
+
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -31,7 +126,8 @@ despesas.get('/', requireAuth, async (c) => {
     params.push(ano)
   }
 
-  if (categoria) { query += ' AND categoria = ?'; params.push(categoria) }
+  // Filtro de categoria: case-insensitive cobrindo aliases legados
+  if (categoria) { query += filtroCategoriaDespaSQL(categoria) }
   if (status)    { query += ' AND status = ?';    params.push(status) }
   if (meio_pagamento) { query += ' AND meio_pagamento = ?'; params.push(meio_pagamento) }
   if (cartao_id)       { query += ' AND cartao_id = ?';       params.push(parseInt(cartao_id)) }
@@ -56,18 +152,20 @@ despesas.get('/', requireAuth, async (c) => {
     baseFilter += ' AND strftime("%Y", data) = ?'
     baseParams.push(ano)
   }
-  if (categoria)   { baseFilter += ' AND categoria = ?';       baseParams.push(categoria) }
+  if (categoria)   { baseFilter += filtroCategoriaDespaSQL(categoria) }
   if (status)      { baseFilter += ' AND status = ?';          baseParams.push(status) }
   if (meio_pagamento) { baseFilter += ' AND meio_pagamento = ?'; baseParams.push(meio_pagamento) }
   if (cartao_id)       { baseFilter += ' AND cartao_id = ?';       baseParams.push(parseInt(cartao_id)) }
   if (sem_cartao === '1') { baseFilter += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
   if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
 
+  const caseExpr = gerarCaseCategoriaDesp()
+
   const [totPago, totPendente, totGeral, catBreakdownR] = await c.env.DB.batch([
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pago'`).bind(...baseParams),
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter} AND status='pendente'`).bind(...baseParams),
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter}`).bind(...baseParams),
-    // breakdown por categoria (sem filtro de categoria pura para mostrar todas do período)
+    // breakdown por categoria normalizada (sem filtro de categoria pura para mostrar todas do período)
     (() => {
       let cbFilter = 'FROM despesas WHERE user_id = ? AND (tipo IS NULL OR tipo != \'aporte\')'
       const cbParams: any[] = [user.id]
@@ -75,7 +173,9 @@ despesas.get('/', requireAuth, async (c) => {
       else if (ano) { cbFilter += ' AND strftime("%Y", data) = ?'; cbParams.push(ano) }
       if (status) { cbFilter += ' AND status = ?'; cbParams.push(status) }
       if (busca) { cbFilter += ' AND descricao LIKE ?'; cbParams.push(`%${busca.replace(/'/g,"''")}%`) }
-      return c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total, COUNT(*) as qtd ${cbFilter} GROUP BY categoria ORDER BY total DESC LIMIT 10`).bind(...cbParams)
+      return c.env.DB.prepare(
+        `SELECT ${caseExpr} as categoria, COALESCE(SUM(valor),0) as total, COUNT(*) as qtd ${cbFilter} GROUP BY ${caseExpr} ORDER BY total DESC LIMIT 10`
+      ).bind(...cbParams)
     })(),
   ])
 
@@ -83,10 +183,17 @@ despesas.get('/', requireAuth, async (c) => {
   const rPendente = (totPendente.results?.[0]  as any) || { v: 0, n: 0 }
   const rGeral    = (totGeral.results?.[0]     as any) || { v: 0, n: 0 }
 
+  // Normalizar meio_pagamento nulo
+  const despesasNorm = (result.results || []).map((d: any) => ({
+    ...d,
+    meio_pagamento: d.meio_pagamento || 'dinheiro',
+    categoria: normalizarCategoriaDesp(d.categoria || 'outros'),
+  }))
+
   return c.json({ 
-    despesas:       result.results, 
+    despesas:       despesasNorm, 
     total:          rGeral.v,
-    count:          result.results.length,
+    count:          despesasNorm.length,
     total_count:    rGeral.n,
     total_pago:     rPago.v,
     count_pago:     rPago.n,
@@ -300,6 +407,62 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
   return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como ${status}!` })
 })
 
+// PATCH /api/despesas/bulk-pagar — marcar multiplas despesas como pagas
+// ATENÇÃO: deve ficar ANTES de PATCH /:id para não ser interceptado pelo handler genérico
+despesas.patch('/bulk-pagar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => null)
+  const ids: number[] = body?.ids || []
+  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
+  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
+
+  const hoje = new Date().toISOString().split('T')[0]
+  let atualizadas = 0
+  for (const id of ids) {
+    // Buscar dados antes de atualizar para sincronizar cartão
+    const desp = await c.env.DB.prepare(
+      'SELECT * FROM despesas WHERE id=? AND user_id=? AND status=\'pendente\''
+    ).bind(id, user.id).first() as any
+    if (!desp) continue
+
+    const res = await c.env.DB.prepare(
+      `UPDATE despesas SET status='pago', data_pagamento=? WHERE id=? AND user_id=? AND status='pendente'`
+    ).bind(hoje, id, user.id).run()
+    if (res.meta.changes > 0) {
+      atualizadas++
+      // Sincronizar cartão de crédito vinculado
+      if (desp.cartao_id) {
+        await c.env.DB.prepare('UPDATE card_charges SET status=\'pago\' WHERE expense_id=?').bind(id).run()
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id=? AND user_id=?'
+        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
+      }
+    }
+  }
+
+  return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como paga(s).` })
+})
+
+// GET /api/despesas/categorias
+// ATENÇÃO: deve ficar ANTES de PUT /:id e DELETE /:id para não ser interceptado
+despesas.get('/categorias', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { mes, ano } = c.req.query()
+  
+  const caseExpr = gerarCaseCategoriaDesp()
+  let query = `SELECT ${caseExpr} as categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM despesas WHERE user_id = ?`
+  const params: any[] = [user.id]
+  
+  if (mes && ano) {
+    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
+    params.push(mes.padStart(2, '0'), ano)
+  }
+  
+  query += ` GROUP BY ${caseExpr} ORDER BY total DESC`
+  const result = await c.env.DB.prepare(query).bind(...params).all()
+  return c.json({ categorias: result.results })
+})
+
 // PUT /api/despesas/:id
 despesas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
@@ -506,42 +669,8 @@ despesas.patch('/:id', requireAuth, async (c) => {
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
 })
 
-// PATCH /api/despesas/bulk-pagar — marcar multiplas despesas como pagas
-despesas.patch('/bulk-pagar', requireAuth, async (c) => {
-  const user = c.get('user')
-  const body = await c.req.json().catch(() => null)
-  const ids: number[] = body?.ids || []
-  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
-  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
-
-  const hoje = new Date().toISOString().split('T')[0]
-  let atualizadas = 0
-  for (const id of ids) {
-    // Buscar dados antes de atualizar para sincronizar cartão
-    const desp = await c.env.DB.prepare(
-      'SELECT * FROM despesas WHERE id=? AND user_id=? AND status=\'pendente\''
-    ).bind(id, user.id).first() as any
-    if (!desp) continue
-
-    const res = await c.env.DB.prepare(
-      `UPDATE despesas SET status='pago', data_pagamento=? WHERE id=? AND user_id=? AND status='pendente'`
-    ).bind(hoje, id, user.id).run()
-    if (res.meta.changes > 0) {
-      atualizadas++
-      // Sincronizar cartão de crédito vinculado
-      if (desp.cartao_id) {
-        await c.env.DB.prepare('UPDATE card_charges SET status=\'pago\' WHERE expense_id=?').bind(id).run()
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id=? AND user_id=?'
-        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
-      }
-    }
-  }
-
-  return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como paga(s).` })
-})
-
 // DELETE /api/despesas/bulk — excluir múltiplas despesas de uma vez
+// ATENÇÃO: deve ficar ANTES de DELETE /:id
 despesas.delete('/bulk', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
@@ -606,24 +735,6 @@ despesas.delete('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare('DELETE FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true, message: 'Despesa excluída!' })
-})
-
-// GET /api/despesas/categorias
-despesas.get('/categorias', requireAuth, async (c) => {
-  const user = c.get('user')
-  const { mes, ano } = c.req.query()
-  
-  let query = 'SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM despesas WHERE user_id = ?'
-  const params: any[] = [user.id]
-  
-  if (mes && ano) {
-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    params.push(mes.padStart(2, '0'), ano)
-  }
-  
-  query += ' GROUP BY categoria ORDER BY total DESC'
-  const result = await c.env.DB.prepare(query).bind(...params).all()
-  return c.json({ categorias: result.results })
 })
 
 async function verificarConquistaDespesa(db: D1Database, userId: number, codigo: string) {
