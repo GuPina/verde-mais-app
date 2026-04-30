@@ -8,6 +8,86 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const receitas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// Mapa de normalização de categorias legadas (lowercase sem acento → Title Case padrão do frontend)
+// IMPORTANTE: SQLite LOWER() não normaliza acentos, então usamos aliases explícitos para o filtro
+const CATEGORIA_NORMALIZE: Record<string, string> = {
+  salario: 'Salário',
+  freelance: 'Freelance',
+  'renda extra': 'Renda Extra',
+  investimentos: 'Investimentos',
+  aluguel: 'Aluguel',
+  dividendos: 'Dividendos',
+  dividendo: 'Dividendos',
+  vendas: 'Vendas',
+  bonus: 'Bônus',
+  '13 salario': '13º Salário',
+  ferias: 'Férias',
+  reembolso: 'Reembolso',
+  presente: 'Presente',
+  outros: 'Outros',
+}
+
+// Mapa reverso: valor normalizado → lista de aliases que representam o mesmo grupo
+const CATEGORIA_ALIASES: Record<string, string[]> = {
+  'Salário':      ['Salário', 'salário', 'Salario', 'salario', 'SALÁRIO', 'SALARIO'],
+  'Freelance':    ['Freelance', 'freelance', 'FREELANCE'],
+  'Renda Extra':  ['Renda Extra', 'renda extra', 'RENDA EXTRA'],
+  'Investimentos':['Investimentos', 'investimentos', 'INVESTIMENTOS'],
+  'Aluguel':      ['Aluguel', 'aluguel', 'ALUGUEL'],
+  'Dividendos':   ['Dividendos', 'dividendos', 'dividendo', 'DIVIDENDOS'],
+  'Vendas':       ['Vendas', 'vendas', 'VENDAS'],
+  'Bônus':        ['Bônus', 'bonus', 'Bonus', 'bônus', 'BÔNUS', 'BONUS'],
+  '13º Salário':  ['13º Salário', '13 salario', '13 Salário', '13º Salario'],
+  'Férias':       ['Férias', 'ferias', 'Ferias', 'férias', 'FÉRIAS'],
+  'Reembolso':    ['Reembolso', 'reembolso', 'REEMBOLSO'],
+  'Presente':     ['Presente', 'presente', 'PRESENTE'],
+  'Outros':       ['Outros', 'outros', 'OUTROS'],
+}
+
+function normalizarCategoria(cat: string): string {
+  if (!cat) return cat
+  const lower = cat.toLowerCase().trim()
+  return CATEGORIA_NORMALIZE[lower] || cat
+}
+
+// Monta cláusula SQL WHERE para filtro de categoria (compatível com dados legados)
+function filtroCategoriaSQL(categoria: string): string {
+  // Verifica se a categoria informada pertence a um grupo com aliases
+  for (const [norm, aliases] of Object.entries(CATEGORIA_ALIASES)) {
+    if (aliases.some(a => a.toLowerCase() === categoria.toLowerCase())) {
+      const lista = aliases.map(a => `'${a.replace(/'/g, "''")}'`).join(',')
+      return ` AND categoria IN (${lista})`
+    }
+  }
+  // Sem aliases — usa comparação simples (case-insensitive via LIKE com escape)
+  return ` AND LOWER(categoria) = LOWER('${categoria.replace(/'/g, "''")}')`
+}
+
+// Gera expressão CASE SQL para normalizar categorias legadas
+function gerarCaseCategoria(): string {
+  const casos = Object.entries(CATEGORIA_ALIASES).flatMap(([norm, aliases]) =>
+    aliases.map(a => `WHEN categoria = '${a.replace(/'/g, "''")}' THEN '${norm.replace(/'/g, "''")}'`)
+  )
+  return `CASE ${casos.join('\n    ')} ELSE categoria END`
+}
+
+// GET /api/receitas/categorias — deve vir ANTES de /:id para não ser capturada como parâmetro
+receitas.get('/categorias', requireAuth, async (c) => {
+  const user = c.get('user')
+  const caseExpr = gerarCaseCategoria()
+  // Usa subquery para agrupar pelo valor normalizado e evitar duplicatas
+  const result = await c.env.DB.prepare(
+    `SELECT cat_norm as categoria, SUM(valor) as total, COUNT(*) as count
+     FROM (
+       SELECT ${caseExpr} as cat_norm, valor
+       FROM receitas WHERE user_id = ?
+     )
+     GROUP BY cat_norm
+     ORDER BY total DESC`
+  ).bind(user.id).all()
+  return c.json({ categorias: result.results })
+})
+
 // GET /api/receitas
 receitas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -17,14 +97,20 @@ receitas.get('/', requireAuth, async (c) => {
   const filtrosMes = (mes && ano)
     ? ` AND strftime('%m', data) = '${mes.padStart(2, '0')}' AND strftime('%Y', data) = '${ano}'`
     : ano ? ` AND strftime('%Y', data) = '${ano}'` : ''
-  const filtroCategoria = categoria ? ` AND categoria = '${categoria.replace(/'/g, "''")}'` : ''
+
+  // Fix: filtro de categoria com aliases (compatível com dados legados sem acento/lowercase)
+  const filtroCategoria = categoria ? filtroCategoriaSQL(categoria) : ''
   const filtroBusca = busca ? ` AND descricao LIKE '%${busca.replace(/'/g, "''").replace(/%/g, '\\%')}%'` : ''
   const filtros = filtrosMes + filtroCategoria + filtroBusca
+
+  const caseCategoria = gerarCaseCategoria()
 
   // Buscar registros + métricas em batch
   const [resultR, metricsR, catBreakdownR] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT * FROM receitas WHERE user_id = ?${filtros} ORDER BY data DESC LIMIT ? OFFSET ?`
+      `SELECT id, user_id, descricao, data, ${caseCategoria} as categoria, valor, recorrente, frequencia, observacoes,
+              COALESCE(meio_pagamento, 'pix') as meio_pagamento, data_criacao, recorrencia_id, tipo
+       FROM receitas WHERE user_id = ?${filtros} ORDER BY data DESC LIMIT ? OFFSET ?`
     ).bind(user.id, parseInt(limit), parseInt(offset)),
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total,
@@ -37,9 +123,12 @@ receitas.get('/', requireAuth, async (c) => {
        FROM receitas WHERE user_id = ?${filtros}`
     ).bind(user.id),
     c.env.DB.prepare(
-      `SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
-       FROM receitas WHERE user_id = ?${filtrosMes}
-       GROUP BY categoria ORDER BY total DESC`
+      `SELECT cat_norm as categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
+       FROM (
+         SELECT ${caseCategoria} as cat_norm, valor
+         FROM receitas WHERE user_id = ?${filtrosMes}
+       )
+       GROUP BY cat_norm ORDER BY total DESC`
     ).bind(user.id),
   ])
 
@@ -82,7 +171,8 @@ receitas.post('/', requireAuth, async (c) => {
   }
 
   const body = await c.req.json()
-  const { descricao, data, categoria, valor, recorrente = false, frequencia, observacoes, meio_pagamento } = body
+  const { descricao, data, valor, recorrente = false, frequencia, observacoes, meio_pagamento } = body
+  let { categoria } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
@@ -92,6 +182,9 @@ receitas.post('/', requireAuth, async (c) => {
   if (isNaN(valorNum) || valorNum < 0) {
     return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
   }
+
+  // Normalizar categoria ao salvar (garante consistência)
+  categoria = normalizarCategoria(categoria)
 
   const result = await c.env.DB.prepare(
     'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -130,7 +223,8 @@ receitas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento } = body
+  const { descricao, data, valor, recorrente, frequencia, observacoes, meio_pagamento } = body
+  let { categoria } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
@@ -143,6 +237,9 @@ receitas.put('/:id', requireAuth, async (c) => {
 
   const existing = await c.env.DB.prepare('SELECT id FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)
+
+  // Normalizar categoria ao salvar
+  categoria = normalizarCategoria(categoria)
 
   await c.env.DB.prepare(
     'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ?, meio_pagamento = ? WHERE id = ? AND user_id = ?'
@@ -182,15 +279,6 @@ receitas.delete('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare('DELETE FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true, message: 'Receita excluída!' })
-})
-
-// GET /api/receitas/categorias
-receitas.get('/categorias', requireAuth, async (c) => {
-  const user = c.get('user')
-  const result = await c.env.DB.prepare(
-    'SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM receitas WHERE user_id = ? GROUP BY categoria ORDER BY total DESC'
-  ).bind(user.id).all()
-  return c.json({ categorias: result.results })
 })
 
 export default receitas
