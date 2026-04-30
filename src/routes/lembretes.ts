@@ -110,18 +110,42 @@ lembretes.get('/resumo', requireAuth, async (c) => {
     }
   }
 
+  // Calcular proximos_7_dias
+  const em7Dias = new Date(hoje)
+  em7Dias.setDate(hoje.getDate() + 7)
+  let proximos7 = 0
+  for (const l of (all.results as any[])) {
+    if (l.dia_vencimento && l.status_mes === 'aguardando') {
+      const dataVenc = new Date(hoje.getFullYear(), hoje.getMonth(), l.dia_vencimento)
+      if (dataVenc < hoje) dataVenc.setMonth(dataVenc.getMonth() + 1)
+      if (dataVenc <= em7Dias) proximos7++
+    }
+  }
+
+  const totalVal = Number(todos?.total || 0)
+  const ativosVal = Number(todos?.ativos || 0)
+  const valorMensal = Math.round(Number(todos?.valor_total_mensal || 0) * 100) / 100
+
   return c.json({
-    totais: {
-      total: Number(todos?.total || 0),
-      ativos: Number(todos?.ativos || 0),
-      urgentes: urgentesCount,
-      valor_total_mensal: Math.round(Number(todos?.valor_total_mensal || 0) * 100) / 100
-    },
+    // Campos no nível raiz para compatibilidade com frontend
+    total: totalVal,
+    ativos: ativosVal,
+    urgentes: urgentesCount,
+    valor_total_mensal: valorMensal,
+    proximos_7_dias: proximos7,
     por_tipo: (porTipo.results as any[]).map(r => ({
       tipo: r.tipo,
       qtd: Number(r.qtd),
       valor_total: Math.round(Number(r.valor_total) * 100) / 100
-    }))
+    })),
+    // Mantém bloco totais para compatibilidade retroativa
+    totais: {
+      total: totalVal,
+      ativos: ativosVal,
+      urgentes: urgentesCount,
+      valor_total_mensal: valorMensal,
+      proximos_7_dias: proximos7
+    }
   })
 })
 
@@ -457,7 +481,13 @@ lembretes.get('/calendario', requireAuth, async (c) => {
   })
 
   const totalValor = eventos.reduce((s, e) => s + e.valor_estimado, 0)
-  return c.json({ mes, ano, eventos, total_eventos: eventos.length, total_valor_estimado: Math.round(totalValor * 100) / 100 })
+  return c.json({
+    mes, ano,
+    lembretes: eventos,   // alias para compatibilidade com frontend
+    eventos,              // mantém campo original
+    total_eventos: eventos.length,
+    total_valor_estimado: Math.round(totalValor * 100) / 100
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
