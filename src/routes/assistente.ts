@@ -80,6 +80,8 @@ function detectarIntencao(msg: string): Intencao {
   // Regra 50/30/20
   if (/50.30.20|regra|distribuicao|como dividir|como organizar a renda/.test(t)) return 'regra503020'
   // Amortização (duplicata removida — movida para antes de dívidas)
+  // Compras impulsivas / Compras Fantasma
+  if (/impulso|impulsiv|compra.*impulso|gasto.*impulso|compras desnecessar|compras excessiv|compras fantasma|compra online|ifood|shopee|delivery.*demais|gastos.*desnecessar/.test(t)) return 'recorrencias'
   // Assinaturas
   if (/assinatura|streaming|netflix|spotify|esqueci|cobran|assino|mensalidade esquecida/.test(t)) return 'assinaturas'
   // Comparativo
