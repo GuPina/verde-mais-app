@@ -133,6 +133,29 @@ emprestimos.get('/', requireAuth, async (c) => {
   return c.json({ emprestimos: list, resumo: { total_saldo_devedor: totalSaldo, total_parcelas_mes: totalMensal } })
 })
 
+// GET /api/emprestimos/:id — detalhe individual com campos calculados
+emprestimos.get('/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const e = await c.env.DB.prepare(
+    'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!e) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  const percPago = e.numero_parcelas > 0 ? Math.round((e.parcelas_pagas / e.numero_parcelas) * 100) : 0
+  const totalPagar = e.valor_parcela * e.numero_parcelas
+  const totalJuros = totalPagar - e.valor_original
+  const custo_efetivo = e.valor_original > 0 ? ((totalJuros / e.valor_original) * 100) : 0
+
+  return c.json({
+    ...e,
+    perc_pago: percPago,
+    total_a_pagar: totalPagar,
+    total_juros: totalJuros,
+    custo_efetivo_total: Math.round(custo_efetivo * 100) / 100
+  })
+})
+
 // POST /api/emprestimos
 emprestimos.post('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -651,35 +674,22 @@ emprestimos.post('/:id/lembrete', requireAuth, async (c) => {
   const dataLembrete = new Date(proxVenc)
   dataLembrete.setDate(dataLembrete.getDate() - parseInt(dias_antes))
 
-  // Verificar se tabela lembretes existe e inserir
+  // Inserir lembrete usando schema real da tabela lembretes
   try {
     await c.env.DB.prepare(
-      `INSERT INTO lembretes (user_id, titulo, descricao, data_lembrete, categoria, referencia_id, referencia_tipo, recorrente, status)
-       VALUES (?, ?, ?, ?, 'Empréstimo', ?, 'emprestimo', 1, 'ativo')
-       ON CONFLICT DO NOTHING`
+      `INSERT INTO lembretes (user_id, titulo, descricao, tipo, dia_vencimento, frequencia, ativo, alertar_dias_antes, proximo_vencimento, notas)
+       VALUES (?, ?, ?, 'conta', ?, 'mensal', 1, ?, ?, ?)`
     ).bind(
       user.id,
       `📅 Parcela: ${emp.descricao}`,
-      `Parcela ${emp.parcelas_pagas + 1}/${emp.numero_parcelas} de ${emp.descricao} vence em ${proxVenc.toLocaleDateString('pt-BR')}. Valor: R$ ${emp.valor_parcela.toFixed(2)}`,
-      dataLembrete.toISOString().split('T')[0],
-      emp.id
+      `Parcela ${emp.parcelas_pagas + 1}/${emp.numero_parcelas} de ${emp.descricao}. Valor: R$ ${emp.valor_parcela.toFixed(2)}`,
+      emp.dia_vencimento || proxVenc.getDate(),
+      parseInt(dias_antes),
+      proxVenc.toISOString().split('T')[0],
+      `Empréstimo #${emp.id} — ${emp.credor || emp.tipo}`
     ).run()
-    return c.json({ success: true, data_lembrete: dataLembrete.toISOString().split('T')[0], dias_antes })
-  } catch (err: any) {
-    // Se a tabela lembretes não tiver as colunas esperadas, tenta inserção simplificada
-    try {
-      await c.env.DB.prepare(
-        `INSERT INTO lembretes (user_id, titulo, descricao, data_lembrete, categoria, status)
-         VALUES (?, ?, ?, ?, 'Empréstimo', 'ativo')`
-      ).bind(
-        user.id,
-        `📅 Parcela: ${emp.descricao}`,
-        `Parcela ${emp.parcelas_pagas + 1}/${emp.numero_parcelas} vence em ${proxVenc.toLocaleDateString('pt-BR')}. Valor: R$ ${emp.valor_parcela.toFixed(2)}`,
-        dataLembrete.toISOString().split('T')[0]
-      ).run()
-      return c.json({ success: true, data_lembrete: dataLembrete.toISOString().split('T')[0], dias_antes })
-    } catch (e2: any) {
-      return c.json({ error: 'Erro ao criar lembrete: ' + e2.message }, 500)
-    }
+    return c.json({ success: true, data_lembrete: dataLembrete.toISOString().split('T')[0], dias_antes, proximo_vencimento: proxVenc.toISOString().split('T')[0] })
+  } catch (e2: any) {
+    return c.json({ error: 'Erro ao criar lembrete: ' + e2.message }, 500)
   }
 })
