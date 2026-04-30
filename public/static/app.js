@@ -8687,14 +8687,19 @@ const VM = {
   _carregarProjecaoAnual(ano, relatorio) {
     const el = document.getElementById('rel-projecao-content')
     if (!el) return
+    // mesAtual: número 1-12. Para anos passados usa 12 (ano completo)
     const mesAtual = new Date().getFullYear() === parseInt(ano) ? new Date().getMonth() + 1 : 12
-    const mesesComDados = relatorio.filter(m => (m.receitas > 0 || m.despesas > 0) && m.mes <= mesAtual)
+    // m.numero_mes é o campo numérico (1-12); m.mes é string abreviada ("Jan"...)
+    const mesesComDados = relatorio.filter(m => (m.receitas > 0 || m.despesas > 0) && m.numero_mes <= mesAtual)
     if (mesesComDados.length === 0) { el.innerHTML = `<div style="color:#475569;font-size:0.82rem;">Lance receitas e despesas para ver a projeção anual.</div>`; return }
     const medRec  = mesesComDados.reduce((s,m) => s + m.receitas, 0) / mesesComDados.length
     const medDesp = mesesComDados.reduce((s,m) => s + m.despesas, 0) / mesesComDados.length
     const mesesRestantes = 12 - mesAtual
-    const projRec  = totais.receitas + medRec  * mesesRestantes
-    const projDesp = totais.despesas + medDesp * mesesRestantes
+    // Totais reais acumulados até o mês atual (não depende do escopo externo)
+    const totalRecAcum  = mesesComDados.reduce((s,m) => s + m.receitas, 0)
+    const totalDespAcum = mesesComDados.reduce((s,m) => s + m.despesas, 0)
+    const projRec  = totalRecAcum  + medRec  * mesesRestantes
+    const projDesp = totalDespAcum + medDesp * mesesRestantes
     const projSaldo = projRec - projDesp
     const cor = projSaldo >= 0 ? '#10B981' : '#F43F5E'
     el.innerHTML = `
