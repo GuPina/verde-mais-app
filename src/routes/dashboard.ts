@@ -732,12 +732,10 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
       c.env.DB.prepare(
         `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
          WHERE user_id = ?
-           AND CASE WHEN status = 'pago'
-                    THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                    ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                     AND strftime('%Y', COALESCE(vencimento, data)) = ?
-               END`
-      ).bind(user.id, m, ano, m, ano),
+           AND status != 'cancelado'
+           AND strftime('%m', COALESCE(vencimento, data)) = ?
+           AND strftime('%Y', COALESCE(vencimento, data)) = ?`
+      ).bind(user.id, m, ano),
     ])
   ])
 
