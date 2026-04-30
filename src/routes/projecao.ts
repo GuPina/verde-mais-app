@@ -18,7 +18,9 @@ projecao.get('/', requireAuth, async (c) => {
   }
 
   // S-P1: parâmetro meses (1–24, default 12)
-  const mesesParam = Math.min(24, Math.max(1, parseInt(c.req.query('meses') || '12') || 12))
+  const _mesesRaw = c.req.query('meses')
+  const _mesesParsed = _mesesRaw !== undefined ? parseInt(_mesesRaw) : NaN
+  const mesesParam = Math.min(24, Math.max(1, Number.isNaN(_mesesParsed) ? 12 : _mesesParsed))
 
   const hoje = new Date()
   const anoAtual = hoje.getFullYear()
