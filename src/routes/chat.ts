@@ -39,33 +39,33 @@ function detectarIntent(msg: string): Intent {
   if (/fatura|quanto devo (no|ao) cartao|valor (do|da) cartao|debito (no )?cartao/.test(m))
     return 'fatura_cartao'
 
-  // 4. gastos_categoria
-  if (/quanto gastei com|gastos? (com|em|de)|gasto(u|s)? (com|em)|alimentacao|transporte|lazer|saude|uber|ifood|mercado/.test(m))
-    return 'gastos_categoria'
+  // 4. status_saude — ANTES de gastos_categoria ('saude' é também categoria de gasto)
+  if (/qual (e |o )?meu score|saude financeira|score (de saude)?|minha pontuacao|estou (bem|mal) financeiramente/.test(m))
+    return 'status_saude'
 
-  // 5. minhas_metas
-  if (/como estao (as )?minhas metas|falta (muito|quanto) (pra|para) (a )?meta|progresso (das |da )?metas|minhas metas|ver metas/.test(m))
-    return 'minhas_metas'
-
-  // 6. dicas_economia
-  if (/como economizar|dicas? (de|para) (economizar|poupar|gastar menos)|poupar mais|reduzir gastos|gastar menos/.test(m))
-    return 'dicas_economia'
-
-  // 7. ver_investimentos
-  if (/meus investimentos|quanto rendeu|rendimento(s)?|investimento(s)?|carteira|patrimonio/.test(m))
-    return 'ver_investimentos'
-
-  // 8. adicionar_despesa (parse: "gastei X em Y")
+  // 5. adicionar_despesa — ANTES de gastos_categoria ('mercado','ifood' são destinos de compra)
   if (/gastei|paguei|comprei|despesa de|lancei/.test(m) && /\d+/.test(m))
     return 'adicionar_despesa'
 
-  // 9. ajuda_funcionalidade
+  // 6. gastos_categoria
+  if (/quanto gastei com|gastos? (com|em|de)|gasto(u|s)? (com|em)|alimentacao|transporte|lazer|uber|ifood|mercado/.test(m))
+    return 'gastos_categoria'
+
+  // 7. minhas_metas
+  if (/como estao (as )?minhas metas|falta (muito|quanto) (pra|para) (a )?meta|progresso (das |da )?metas|minhas metas|ver metas/.test(m))
+    return 'minhas_metas'
+
+  // 8. dicas_economia
+  if (/como economizar|dicas? (de|para) (economizar|poupar|gastar menos)|poupar mais|reduzir gastos|gastar menos/.test(m))
+    return 'dicas_economia'
+
+  // 9. ver_investimentos
+  if (/meus investimentos|quanto rendeu|rendimento(s)?|investimento(s)?|carteira|patrimonio/.test(m))
+    return 'ver_investimentos'
+
+  // 10. ajuda_funcionalidade
   if (/como (criar|adicionar|cadastrar|ver|acessar|usar)|onde (fico|vejo|encontro|acho)|ajuda|tutorial|como funciona/.test(m))
     return 'ajuda_funcionalidade'
-
-  // 10. status_saude
-  if (/qual (e |o )?meu score|saude financeira|score (de saude)?|minha pontuacao|estou (bem|mal) financeiramente/.test(m))
-    return 'status_saude'
 
   // 11. fallback
   return 'fallback'
@@ -133,7 +133,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
 
     case 'minhas_metas': {
       const metas = await db.prepare(
-        `SELECT nome, valor_meta, valor_atual, ROUND((valor_atual/valor_meta)*100,1) as pct FROM metas WHERE user_id=? AND status='ativa' ORDER BY pct DESC LIMIT 5`
+        `SELECT nome, valor_objetivo, valor_atual, ROUND((valor_atual/valor_objetivo)*100,1) as pct FROM metas WHERE user_id=? AND status='ativa' ORDER BY pct DESC LIMIT 5`
       ).bind(userId).all<any>()
       if (!metas.results?.length) {
         return {
@@ -142,7 +142,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
         }
       }
       const lista = metas.results.map((m: any) =>
-        `• ${m.nome}: ${fmt(m.valor_atual)} / ${fmt(m.valor_meta)} (${m.pct}%)`
+        `• ${m.nome}: ${fmt(m.valor_atual)} / ${fmt(m.valor_objetivo)} (${m.pct}%)`
       ).join('\n')
       return {
         response: `🎯 **Suas metas ativas:**\n${lista}`,

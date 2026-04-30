@@ -57,6 +57,8 @@ function detectarIntencao(msg: string): Intencao {
   if (/meta|objetivo|sonho|quanto falta|progresso|quanto preciso guardar|minha meta/.test(t)) return 'metas'
   // Investimentos
   if (/investimento|aplicacao|rendimento|cdi|acoes|caixinha|fii|renda fixa|tesouro|carteira|patrimonio/.test(t)) return 'investimentos'
+  // Amortização (DEVE vir antes de dívidas — 'financiamento' dispara ambos)
+  if (/amortiz|pagar antecipado|reduzir parcela|quitar mais rapido|extra no financiamento/.test(t)) return 'amortizacao'
   // Dívidas
   if (/divida|emprestimo|financiamento|parcela|devo|quanto devo|debito|parcelado/.test(t)) return 'dividas'
   // Reservas
@@ -77,8 +79,7 @@ function detectarIntencao(msg: string): Intencao {
   if (/lembrete|vencimento|pagar|data de pagamento|vencem/.test(t)) return 'lembretes'
   // Regra 50/30/20
   if (/50.30.20|regra|distribuicao|como dividir|como organizar a renda/.test(t)) return 'regra503020'
-  // Amortização
-  if (/amortiz|pagar antecipado|reduzir parcela|quitar mais rapido|extra no financiamento/.test(t)) return 'amortizacao'
+  // Amortização (duplicata removida — movida para antes de dívidas)
   // Assinaturas
   if (/assinatura|streaming|netflix|spotify|esqueci|cobran|assino|mensalidade esquecida/.test(t)) return 'assinaturas'
   // Comparativo
@@ -88,7 +89,7 @@ function detectarIntencao(msg: string): Intencao {
   // Elogio / conversa social
   if (/obrigad|valeu|otimo|excelente|muito bom|perfeito|top|show|parabens|legal|ajudou/.test(t)) return 'elogio'
   // Ajuda
-  if (/ajuda|o que voce faz|comandos|funcoes|help|menu|opcoes|o que sabe/.test(t)) return 'ajuda'
+  if (/ajuda|o que voce faz|o que voce sabe|comandos|funcoes|help|menu|opcoes|o que sabe|o que voces faz/.test(t)) return 'ajuda'
 
   return 'desconhecido'
 }
@@ -602,6 +603,7 @@ MISSÃO: Atuar como GPS financeiro — prescrever ações específicas com base 
 4. PRECISÃO MATEMÁTICA: Use valores exatos em R$, percentuais específicos e prazos definidos.
 5. NUNCA INVENTE DADOS: Use apenas informações fornecidas abaixo.
 6. Responda SEMPRE em português brasileiro. Tom: amigável, direto, concreto. Máximo 3 emojis.
+7. ESCOPO FINANCEIRO OBRIGATÓRIO: Se a pergunta não for sobre finanças pessoais, educação financeira ou o app VerdeMais, NÃO responda sobre o assunto e redirecione gentilmente: "Sou especialista em finanças pessoais. Posso ajudar com: saldo, gastos, metas, investimentos, dívidas ou conquistas. O que deseja saber?"
 
 ## DADOS DO USUÁRIO:
 👤 ${primeiro} | Perfil investidor: ${labelPerfil} | Situação: ${ctx.situacaoEmprego}
