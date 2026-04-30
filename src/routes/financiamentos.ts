@@ -66,12 +66,17 @@ financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
   const parcelasRestantes = fin.numero_parcelas - fin.parcelas_pagas
 
   // ── PRICE: parcela fixa ──────────────────────────────────────────────────
+  // Recalcula a parcela PRICE com base no saldo ATUAL e nas parcelas RESTANTES
+  // (não usar fin.valor_parcela, pois foi calculada para o valor original)
+  const parcelaPrice = taxaMensal > 0
+    ? saldo * (taxaMensal * Math.pow(1 + taxaMensal, parcelasRestantes)) / (Math.pow(1 + taxaMensal, parcelasRestantes) - 1)
+    : saldo / parcelasRestantes
   let totalJurosPrice = 0
   let saldoPrice = saldo
   const tabelaPrice = []
   for (let i = 1; i <= parcelasRestantes; i++) {
     const juros = saldoPrice * taxaMensal
-    const parcela = fin.valor_parcela
+    const parcela = parcelaPrice
     const amort = parcela - juros
     saldoPrice = Math.max(0, saldoPrice - amort)
     totalJurosPrice += juros
@@ -104,9 +109,9 @@ financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
     parcelas_restantes: parcelasRestantes,
     taxa_mensal: fin.taxa_juros_mensal,
     price: {
-      parcela_fixa: Math.round(fin.valor_parcela * 100) / 100,
+      parcela_fixa: Math.round(parcelaPrice * 100) / 100,
       total_juros: Math.round(totalJurosPrice * 100) / 100,
-      total_pagar: Math.round((fin.valor_parcela * parcelasRestantes) * 100) / 100,
+      total_pagar: Math.round((parcelaPrice * parcelasRestantes) * 100) / 100,
       primeiras_parcelas: tabelaPrice.slice(0, 6)
     },
     sac: {
@@ -119,7 +124,7 @@ financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
     economia_sac_vs_price: Math.round(economiaSAC * 100) / 100,
     recomendacao: economiaSAC > 0
       ? `SAC economiza R$ ${economiaSAC.toFixed(2)} em juros, mas exige parcelas iniciais maiores (R$ ${tabelaSAC[0]?.valor?.toFixed(2)}).`
-      : `PRICE é mais vantajoso neste cenário com parcelas menores (R$ ${fin.valor_parcela.toFixed(2)}).`
+      : `PRICE é mais vantajoso neste cenário com parcelas menores (R$ ${parcelaPrice.toFixed(2)}).`
   })
 })
 
