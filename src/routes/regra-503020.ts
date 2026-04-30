@@ -88,16 +88,29 @@ regra503020.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const mes = parseInt(c.req.query('mes') || String(new Date().getMonth() + 1))
   const ano = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
+  // Parâmetros de simulação dinâmica (usados pelo botão "Recalcular" do frontend)
+  // Se fornecidos e somam 100, substituem temporariamente os valores da config
+  const pctNeedsQ = c.req.query('pct_needs')
+  const pctWantsQ = c.req.query('pct_wants')
+  const pctSavingsQ = c.req.query('pct_savings')
+  const hasQueryPcts = pctNeedsQ !== undefined && pctWantsQ !== undefined && pctSavingsQ !== undefined
+  const qN = hasQueryPcts ? parseFloat(pctNeedsQ!) : NaN
+  const qD = hasQueryPcts ? parseFloat(pctWantsQ!) : NaN
+  const qP = hasQueryPcts ? parseFloat(pctSavingsQ!) : NaN
+  const queryPctsValid = hasQueryPcts && !isNaN(qN) && !isNaN(qD) && !isNaN(qP) && Math.abs(qN + qD + qP - 100) < 0.1
 
   // Melhoria 3.2: buscar config personalizada do usuário
   const configUsuario = await c.env.DB.prepare(
     `SELECT * FROM regra_config WHERE user_id = ? ORDER BY id DESC LIMIT 1`
   ).bind(user.id).first() as any
 
-  const PCT_NECESSIDADES = configUsuario?.pct_necessidades ?? 50
-  const PCT_DESEJOS      = configUsuario?.pct_desejos      ?? 30
-  const PCT_POUPANCA     = configUsuario?.pct_poupanca     ?? 20
-  const NOME_REGRA       = configUsuario?.nome_personalizado || 'Regra 50/30/20'
+  // Usar percentuais da query (simulação dinâmica) ou da config salva ou padrão
+  const PCT_NECESSIDADES = queryPctsValid ? qN : (configUsuario?.pct_necessidades ?? 50)
+  const PCT_DESEJOS      = queryPctsValid ? qD : (configUsuario?.pct_desejos      ?? 30)
+  const PCT_POUPANCA     = queryPctsValid ? qP : (configUsuario?.pct_poupanca     ?? 20)
+  const NOME_REGRA       = queryPctsValid
+    ? `Regra ${PCT_NECESSIDADES}/${PCT_DESEJOS}/${PCT_POUPANCA} (simulação)`
+    : (configUsuario?.nome_personalizado || 'Regra 50/30/20')
 
   // 1. Receitas do período
   const recRow = await c.env.DB.prepare(`
@@ -169,10 +182,11 @@ regra503020.get('/', requireAuth, async (c) => {
   const gapSavings = savings - income * (PCT_POUPANCA / 100)
 
   // 8. Score de aderência (0-100) com percentuais personalizados
+  // Se não há receita registrada, o score é 0 (sem dados para avaliar)
   const needsScore = Math.max(0, 100 - Math.abs(percentNeeds - PCT_NECESSIDADES) * 2)
   const wantsScore = Math.max(0, 100 - Math.abs(percentWants - PCT_DESEJOS) * 3)
   const savingsScore = Math.max(0, Math.min(100, (percentSavings / PCT_POUPANCA) * 100))
-  const score = Math.round((needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4))
+  const score = income === 0 ? 0 : Math.round((needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4))
 
   // 9. Recomendações
   const recommendations: string[] = []
