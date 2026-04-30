@@ -279,8 +279,11 @@ orcamentos.get('/verificar-despesa', requireAuth, async (c) => {
   const mes      = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
   const ano      = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
 
-  if (!catRaw || isNaN(valor) || valor <= 0) {
-    return c.json({ ok: true, avisos: [] })
+  if (!catRaw) {
+    return c.json({ error: 'Parâmetro obrigatório: categoria' }, 400)
+  }
+  if (isNaN(valor) || valor <= 0) {
+    return c.json({ error: 'Parâmetro obrigatório: valor (deve ser maior que zero)' }, 400)
   }
 
   const catNorm = normCat(catRaw)
@@ -401,6 +404,10 @@ orcamentos.get('/historico', requireAuth, async (c) => {
   const catRaw    = c.req.query('categoria') || ''
   const meses     = Math.min(parseInt(c.req.query('meses') || '6'), 24)
 
+  if (!catRaw) {
+    return c.json({ error: 'Parâmetro obrigatório: categoria' }, 400)
+  }
+
   const periodos: { mes: number; ano: number; label: string }[] = []
   const ref = new Date()
   for (let i = meses - 1; i >= 0; i--) {
@@ -438,32 +445,6 @@ orcamentos.get('/historico', requireAuth, async (c) => {
       meses
     })
   }
-
-  const rows = await c.env.DB.prepare(
-    `SELECT DISTINCT ${normSQL('categoria')} as cat FROM orcamentos WHERE user_id = ? AND ano >= ?`
-  ).bind(user.id, periodos[0].ano).all()
-
-  const resultado: any[] = []
-  for (const row of (rows.results as any[])) {
-    const cat = row.cat as string
-    const serie = []
-    for (const p of periodos) {
-      const orc = await c.env.DB.prepare(
-        'SELECT limite FROM orcamentos WHERE user_id = ? AND mes = ? AND ano = ? AND ' + normSQL('categoria') + ' = ?'
-      ).bind(user.id, p.mes, p.ano, cat).first() as any
-      const gasto    = await getGastoCategoria(c.env.DB, user.id, cat, p.mes, p.ano)
-      const rollover = await getRolloverCategoria(c.env.DB, user.id, cat, p.mes, p.ano)
-      const limite   = Number(orc?.limite || 0)
-      serie.push({ ...p, limite, limite_efetivo: limite + rollover, rollover, gasto: Math.round(gasto * 100) / 100 })
-    }
-    resultado.push({
-      categoria: cat,
-      label: `${CATEGORIAS_EMOJI[cat] || '📦'} ${CATEGORIAS_LABEL[cat] || cat}`,
-      serie
-    })
-  }
-
-  return c.json({ historico: resultado, periodos, meses })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -668,6 +649,11 @@ orcamentos.post('/', requireAuth, async (c) => {
   if (isNaN(alertaNum) || alertaNum < 50 || alertaNum > 100)
     return c.json({ error: 'alerta_percentual deve ser entre 50 e 100' }, 400)
 
+  const existing = await c.env.DB.prepare(
+    'SELECT id FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?'
+  ).bind(user.id, categoria, mes, ano).first()
+  const isUpdate = !!existing
+
   await c.env.DB.prepare(
     `INSERT INTO orcamentos (user_id, categoria, mes, ano, limite, alerta_percentual, notas, updated_at) ` +
     `VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now')) ` +
@@ -680,9 +666,16 @@ orcamentos.post('/', requireAuth, async (c) => {
     'SELECT * FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?'
   ).bind(user.id, categoria, mes, ano).first()
 
-  await verificarConquista(c.env.DB, user.id, 'primeiro_orcamento')
+  if (!isUpdate) {
+    await verificarConquista(c.env.DB, user.id, 'primeiro_orcamento')
+  }
 
-  return c.json({ success: true, orcamento: orc })
+  return c.json({
+    success: true,
+    is_update: isUpdate,
+    message: isUpdate ? 'Orçamento atualizado!' : 'Orçamento criado!',
+    orcamento: orc
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
