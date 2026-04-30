@@ -1049,6 +1049,10 @@ cartoes.patch('/lancamentos/:id/status', requireAuth, async (c) => {
   const id     = c.req.param('id')
   const { status } = await c.req.json()
 
+  const STATUS_VALIDOS = ['pendente', 'pago', 'cancelado']
+  if (!status || !STATUS_VALIDOS.includes(status))
+    return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+
   // Tentar pelo charge_id primeiro
   const charge = await c.env.DB.prepare(
     `SELECT cc.* FROM card_charges cc
