@@ -91,7 +91,7 @@ receitas.get('/categorias', requireAuth, async (c) => {
 // GET /api/receitas
 receitas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, busca, limit = '50', offset = '0' } = c.req.query()
+  const { mes, ano, categoria, busca, tipo, recorrente: recorrenteParam, limit = '50', offset = '0' } = c.req.query()
 
   // Filtros dinâmicos
   const filtrosMes = (mes && ano)
@@ -101,7 +101,12 @@ receitas.get('/', requireAuth, async (c) => {
   // Fix: filtro de categoria com aliases (compatível com dados legados sem acento/lowercase)
   const filtroCategoria = categoria ? filtroCategoriaSQL(categoria) : ''
   const filtroBusca = busca ? ` AND descricao LIKE '%${busca.replace(/'/g, "''").replace(/%/g, '\\%')}%'` : ''
-  const filtros = filtrosMes + filtroCategoria + filtroBusca
+  // Filtro por tipo (campo TEXT na tabela: 'receita', 'outros', etc.)
+  const filtroTipo = tipo ? ` AND LOWER(tipo) = LOWER('${tipo.replace(/'/g, "''")}')`  : ''
+  // Filtro por recorrente (0 ou 1)
+  const filtroRecorrente = recorrenteParam !== undefined
+    ? ` AND recorrente = ${recorrenteParam === '1' || recorrenteParam === 'true' ? 1 : 0}` : ''
+  const filtros = filtrosMes + filtroCategoria + filtroBusca + filtroTipo + filtroRecorrente
 
   const caseCategoria = gerarCaseCategoria()
 
@@ -244,6 +249,61 @@ receitas.put('/:id', requireAuth, async (c) => {
   await c.env.DB.prepare(
     'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ?, meio_pagamento = ? WHERE id = ? AND user_id = ?'
   ).bind(descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || null, id, user.id).run()
+
+  return c.json({ success: true, message: 'Receita atualizada!' })
+})
+
+// PATCH /api/receitas/:id — atualização parcial (qualquer subconjunto de campos)
+// Diferente do PUT, não exige todos os campos obrigatórios.
+// Útil para: atualizar apenas valor, data, categoria, observações, recorrente ou meio_pagamento.
+// ATENÇÃO: deve ficar ANTES de DELETE /bulk e DELETE /:id
+receitas.patch('/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+
+  // Rejeitar IDs não-numéricos (evita capturar rotas estáticas futuras)
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
+
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM receitas WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)
+
+  const body = await c.req.json()
+  const { descricao, data, categoria: categoriaBody, valor,
+    recorrente, frequencia, observacoes, meio_pagamento } = body
+
+  // Validar valor apenas se foi enviado
+  if (valor !== undefined) {
+    const valorNum = parseFloat(valor)
+    if (isNaN(valorNum) || valorNum < 0)
+      return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
+  }
+
+  // Normalizar categoria se enviada
+  const categoriaNorm = categoriaBody ? normalizarCategoria(categoriaBody) : undefined
+
+  // Montar UPDATE dinâmico — só atualiza os campos presentes no body
+  const sets: string[] = []
+  const vals: any[]    = []
+
+  if (descricao    !== undefined) { sets.push('descricao = ?');     vals.push(descricao) }
+  if (data         !== undefined) { sets.push('data = ?');          vals.push(data) }
+  if (categoriaNorm !== undefined){ sets.push('categoria = ?');     vals.push(categoriaNorm) }
+  if (valor        !== undefined) { sets.push('valor = ?');         vals.push(parseFloat(valor)) }
+  if (recorrente   !== undefined) { sets.push('recorrente = ?');    vals.push(recorrente ? 1 : 0) }
+  if (frequencia   !== undefined) { sets.push('frequencia = ?');    vals.push(frequencia || null) }
+  if (observacoes  !== undefined) { sets.push('observacoes = ?');   vals.push(observacoes || null) }
+  if (meio_pagamento !== undefined){ sets.push('meio_pagamento = ?'); vals.push(meio_pagamento || null) }
+
+  if (sets.length === 0)
+    return c.json({ error: 'Nenhum campo para atualizar' }, 400)
+
+  vals.push(id, user.id)
+
+  await c.env.DB.prepare(
+    `UPDATE receitas SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
+  ).bind(...vals).run()
 
   return c.json({ success: true, message: 'Receita atualizada!' })
 })
