@@ -85,7 +85,7 @@ antecipacao.post('/', requireAuth, async (c) => {
     ).bind(user.id, `[Antecipado] ${descricao}`, valorTotal, data_antecipacao, data_antecipacao, categ).run()
     despesaAntecipadaId = despRes.meta.last_row_id
 
-    // 2. Se havia despesa futura vinculada, cancelá-la
+    // 2. Se havia despesa futura vinculada diretamente (referencia_tipo='despesa'), cancelá-la
     if (referencia_id && referencia_tipo === 'despesa') {
       await c.env.DB.prepare(
         `UPDATE despesas SET status='cancelado', observacoes=COALESCE(observacoes||' ','') || '[Antecipado - ver antecipacao #${antecipacaoId}]'
@@ -93,15 +93,28 @@ antecipacao.post('/', requireAuth, async (c) => {
       ).bind(referencia_id, user.id).run()
     }
 
-    // 3. Se for fatura de cartão, registrar que a fatura foi antecipada
+    // 3. Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges
     if (tipo === 'fatura_cartao' && cartao_id && mes_fatura && ano_fatura) {
-      // Marcar as despesas pendentes do cartão naquele mês como pagas
       const mesPad = String(mes_fatura).padStart(2,'0')
+      const anoStr = String(ano_fatura)
+
+      // 3a. Cancelar despesas pendentes do cartão naquele mês (billing_month/billing_year ou vencimento)
+      await c.env.DB.prepare(
+        `UPDATE despesas SET status='cancelado',
+            observacoes=COALESCE(observacoes||' ','') || '[Fatura antecipada - ver antecipacao #${antecipacaoId}]'
+         WHERE user_id=? AND cartao_id=? AND status='pendente'
+           AND (
+             (billing_month=? AND billing_year=?)
+             OR (billing_month IS NULL AND strftime('%m', vencimento)=? AND strftime('%Y', vencimento)=?)
+           )`
+      ).bind(user.id, cartao_id, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
+
+      // 3b. Marcar card_charges do cartão naquele mês como pago
       await c.env.DB.prepare(
         `UPDATE card_charges SET status='pago'
          WHERE card_id=? AND status='pendente'
            AND strftime('%m', data_vencimento)=? AND strftime('%Y', data_vencimento)=?`
-      ).bind(cartao_id, mesPad, String(ano_fatura)).run().catch(() => {})
+      ).bind(cartao_id, mesPad, anoStr).run().catch(() => {})
     }
   }
 
@@ -268,12 +281,41 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
     ).bind(user.id, `[Antecipado] ${ant.descricao}`, ant.valor_total, dataRef, dataRef, categ).run()
     despesaId = dr.meta.last_row_id
 
-    // Cancelar despesa original futura se referenciada
+    // Cancelar despesa original futura se referenciada diretamente
     if (ant.referencia_id && ant.referencia_tipo === 'despesa') {
       await c.env.DB.prepare(
-        `UPDATE despesas SET status='cancelado'
+        `UPDATE despesas SET status='cancelado',
+            observacoes=COALESCE(observacoes||' ','') || '[Antecipado - ver antecipacao #${id}]'
          WHERE id=? AND user_id=? AND status='pendente'`
       ).bind(ant.referencia_id, user.id).run()
+    }
+
+    // Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges
+    if (ant.tipo === 'fatura_cartao' && ant.referencia_id && ant.referencia_tipo === 'cartao') {
+      // Extrair mês/ano do data_vencimento_original da antecipação
+      const dataVenc = ant.data_vencimento_original || ant.data_antecipacao
+      const dtParts  = dataVenc ? dataVenc.split('-') : []
+      const anoStr   = dtParts[0] || String(new Date().getFullYear())
+      const mesPad   = dtParts[1] || String(new Date().getMonth() + 1).padStart(2,'0')
+      const cartaoId = ant.referencia_id
+
+      // Cancelar despesas pendentes do cartão naquele mês
+      await c.env.DB.prepare(
+        `UPDATE despesas SET status='cancelado',
+            observacoes=COALESCE(observacoes||' ','') || '[Fatura antecipada - ver antecipacao #${id}]'
+         WHERE user_id=? AND cartao_id=? AND status='pendente'
+           AND (
+             (billing_month=? AND billing_year=?)
+             OR (billing_month IS NULL AND strftime('%m', vencimento)=? AND strftime('%Y', vencimento)=?)
+           )`
+      ).bind(user.id, cartaoId, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
+
+      // Marcar card_charges do cartão naquele mês como pago
+      await c.env.DB.prepare(
+        `UPDATE card_charges SET status='pago'
+         WHERE card_id=? AND status='pendente'
+           AND strftime('%m', data_vencimento)=? AND strftime('%Y', data_vencimento)=?`
+      ).bind(cartaoId, mesPad, anoStr).run().catch(() => {})
     }
   }
 
