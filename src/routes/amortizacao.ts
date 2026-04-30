@@ -87,7 +87,7 @@ amortizacao.post('/simular', requireAuth, async (c) => {
     system = (fin.sistema_amortizacao || 'price').toUpperCase()
   } else {
     // Validar campos manuais
-    if (!manual_balance || !manual_installment || !manual_remaining_months || !manual_annual_rate)
+    if (!manual_balance || !manual_installment || !manual_remaining_months || manual_annual_rate === undefined || manual_annual_rate === null || manual_annual_rate === '')
       return c.json({ error: 'Forneça financing_id ou preencha todos os campos manuais' }, 400)
 
     balance = parseFloat(manual_balance)
