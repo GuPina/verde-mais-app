@@ -23,21 +23,28 @@ desafio52.get('/', requireAuth, async (c) => {
   `).bind(user.id, ano).all()
 
   const existing = result.results as any[]
+  const existingWeeks = new Set(existing.map((r: any) => r.week_number))
 
-  // Criar semanas faltantes (1-52)
-  if (existing.length === 0) {
-    // Primeiro acesso: criar todas as 52 semanas
-    const batch = []
-    for (let w = 1; w <= 52; w++) {
-      batch.push(c.env.DB.prepare(
+  // Criar semanas faltantes (1-52) — cobre primeiro acesso e registros parciais
+  const missingWeeks: number[] = []
+  for (let w = 1; w <= 52; w++) {
+    if (!existingWeeks.has(w)) missingWeeks.push(w)
+  }
+
+  if (missingWeeks.length > 0) {
+    const batch = missingWeeks.map(w =>
+      c.env.DB.prepare(
         `INSERT OR IGNORE INTO weekly_challenges (user_id, year, week_number, target_amount, status) VALUES (?, ?, ?, ?, 'pending')`
-      ).bind(user.id, ano, w, w))
-    }
+      ).bind(user.id, ano, w, w)
+    )
     await c.env.DB.batch(batch)
 
-    await c.env.DB.prepare(
-      `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'desafio_52_iniciou', 0)`
-    ).bind(user.id).run()
+    if (existing.length === 0) {
+      // Conquista apenas no primeiro acesso real
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO conquistas_usuario (user_id, conquista_codigo, visualizado) VALUES (?, 'desafio_52_iniciou', 0)`
+      ).bind(user.id).run()
+    }
   }
 
   const allWeeks = await c.env.DB.prepare(`
