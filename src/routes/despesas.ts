@@ -449,6 +449,63 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
 })
 
+// PATCH /api/despesas/:id — atualizar status (e opcionalmente data) de uma despesa
+// Chamado pelo dashboard no botão "pagar" dos próximos vencimentos
+despesas.patch('/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  // Rejeitar IDs que não são numéricos (evitar capturar rotas como /bulk-pagar)
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
+
+  const body = await c.req.json()
+  const { status, data: dataBody } = body
+
+  const statusValidos = ['pago', 'pendente', 'cancelado']
+  if (!status || !statusValidos.includes(status)) {
+    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
+  }
+
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first() as any
+  if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
+
+  // Atualizar status e, se fornecida, a data de pagamento
+  if (dataBody) {
+    await c.env.DB.prepare(
+      'UPDATE despesas SET status = ?, data = ?, data_pagamento = ? WHERE id = ? AND user_id = ?'
+    ).bind(status, dataBody, status === 'pago' ? dataBody : null, id, user.id).run()
+  } else {
+    await c.env.DB.prepare(
+      'UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?'
+    ).bind(status, id, user.id).run()
+  }
+
+  // Sincronizar card_charge vinculado
+  if (existing.cartao_id) {
+    const charge = await c.env.DB.prepare(
+      'SELECT * FROM card_charges WHERE expense_id = ?'
+    ).bind(id).first() as any
+    if (charge && charge.status !== status) {
+      await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE id = ?').bind(
+        status === 'pago' ? 'pago' : 'pendente', charge.id
+      ).run()
+      if (status === 'pago' && charge.status === 'pendente') {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
+        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
+      }
+      if (status !== 'pago' && charge.status === 'pago') {
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
+      }
+    }
+  }
+
+  return c.json({ success: true, message: `Status atualizado para ${status}!` })
+})
+
 // PATCH /api/despesas/bulk-pagar — marcar multiplas despesas como pagas
 despesas.patch('/bulk-pagar', requireAuth, async (c) => {
   const user = c.get('user')
