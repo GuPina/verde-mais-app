@@ -1253,6 +1253,10 @@ const VM = {
               <a class="nav-item" id="nav-importacao" onclick="VM.navigate('importacao')">
                 <span class="nav-icon"><i class="fas fa-file-import" style="color:#38bdf8;"></i></span> Importar CSV
               </a>
+              <a class="nav-item" id="nav-despesas-compartilhadas" onclick="VM.navigate('despesas-compartilhadas')">
+                <span class="nav-icon"><i class="fas fa-users" style="color:#a78bfa;"></i></span> Despesas Compartilhadas
+                <span id="badge-desp-comp" style="display:none;margin-left:auto;background:#a78bfa;color:#000;font-size:0.65rem;padding:2px 7px;border-radius:50px;font-weight:700;"></span>
+              </a>
             </div>
 
             <!-- ── GRUPO 6: PERFIL & CONQUISTAS ───────────── -->
@@ -1816,7 +1820,8 @@ const VM = {
       'desafio-52': ['🎯 Desafio 52 Semanas', 'Poupe R$ 1.378 ao longo do ano'],
       'amortizacao': ['🏦 Simulador de Amortização', 'Compare cenários e economize em juros'],
       'assistente': ['🤖 Assistente VerdeMais', 'Tire dúvidas sobre suas finanças com IA'],
-      'importacao': ['📥 Importar CSV', 'Importe extratos de receitas e despesas']
+      'importacao': ['📥 Importar CSV', 'Importe extratos de receitas e despesas'],
+      'despesas-compartilhadas': ['👥 Despesas Compartilhadas', 'Divida despesas com amigos e família']
     }
 
     const [title, sub] = titles[page] || ['', '']
@@ -1856,6 +1861,7 @@ const VM = {
       'amortizacao': () => this.pageAmortizacao(),
       'assistente': () => this.pageAssistente(),
       'importacao': () => this.pageImportacao(),
+      'despesas-compartilhadas': () => this.pageDespesasCompartilhadas(),
       'antecipacao': () => this.pageAntecipacao(),
       'recebimentos-parcelados': () => this.pageRecebimentosParcelados()
     }
@@ -2029,6 +2035,9 @@ const VM = {
             </button>
           </div>
         </div>
+
+        <!-- ALERTAS DE CATEGORIA (carregado async) -->
+        <div id="dash-alertas-categoria" style="margin-bottom:4px;"></div>
 
         <!-- BANNER ALERTA OUTROS > 15% (Phase 1.2) -->
         ${alerta_outros?.ativo ? `
@@ -2624,6 +2633,8 @@ const VM = {
       if (planoUser !== 'free') {
         this.carregarWidgetOrcamentos()
       }
+      // Carregar alertas de categoria no dashboard
+      this._carregarAlertasCategoriaDash()
 
       // Chart Evolução (barras + linha de saldo)
       const ctxEv = document.getElementById('chart-evolucao')
@@ -21377,6 +21388,371 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       btn.disabled = false; btn.textContent = 'Criar Recebimento'
     }
   },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DESPESAS COMPARTILHADAS — Categoria 1 #1
+  // ══════════════════════════════════════════════════════════════════════════
+  async pageDespesasCompartilhadas() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+        <div>
+          <div class="section-title">👥 Despesas Compartilhadas</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Divida despesas com amigos e família</div>
+        </div>
+        <button onclick="VM._abrirModalNovaCompPartilhada()" class="btn-primary" style="display:flex;align-items:center;gap:8px;width:auto;padding:10px 20px;">
+          <i class="fas fa-plus"></i> Nova Divisão
+        </button>
+      </div>
+
+      <!-- Resumo de pendências -->
+      <div id="dc-resumo" style="margin-bottom:20px;">
+        <div class="skeleton" style="height:80px;border-radius:16px;"></div>
+      </div>
+
+      <!-- Filtro de status -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <button id="dc-filter-all" onclick="VM._dcFiltrar('all')" style="background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.5);color:#a78bfa;border-radius:20px;padding:6px 16px;cursor:pointer;font-size:0.8rem;font-weight:600;">Todas</button>
+        <button id="dc-filter-pending" onclick="VM._dcFiltrar('pending')" style="background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);color:#ffc400;border-radius:20px;padding:6px 16px;cursor:pointer;font-size:0.8rem;">Pendentes</button>
+        <button id="dc-filter-settled" onclick="VM._dcFiltrar('settled')" style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);color:#2FBF71;border-radius:20px;padding:6px 16px;cursor:pointer;font-size:0.8rem;">Quitadas</button>
+      </div>
+
+      <!-- Lista -->
+      <div id="dc-lista">
+        <div class="skeleton" style="height:200px;border-radius:16px;"></div>
+      </div>
+    `
+    await this._dcCarregar('all')
+  },
+
+  async _dcCarregar(filtroStatus = 'all') {
+    this._dcFiltroAtual = filtroStatus
+    try {
+      // Resumo de pendências
+      const resumoData = await this.api('GET', 'despesas-compartilhadas/resumo/pendencias')
+      const resumoEl = document.getElementById('dc-resumo')
+      if (resumoEl) {
+        const totalP = resumoData.total_a_receber || 0
+        const parceiros = resumoData.pendencias_por_parceiro || []
+        resumoEl.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+            <div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:14px;padding:16px;">
+              <div style="font-size:0.7rem;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💜 Total a Receber</div>
+              <div style="font-size:1.4rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(totalP)}</div>
+              <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${parceiros.length} parceiro${parceiros.length !== 1 ? 's' : ''} com pendências</div>
+            </div>
+            ${parceiros.slice(0,3).map(p => `
+              <div style="background:rgba(255,196,0,0.06);border:1px solid rgba(255,196,0,0.15);border-radius:14px;padding:16px;">
+                <div style="font-size:0.7rem;color:#ffc400;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">${p.partner_name}</div>
+                <div style="font-size:1.2rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(p.total_a_receber)}</div>
+                <div style="font-size:0.72rem;color:#64748B;margin-top:3px;">${p.qtd_despesas} despesa${p.qtd_despesas !== 1 ? 's' : ''} pendente${p.qtd_despesas !== 1 ? 's' : ''}</div>
+              </div>`).join('')}
+          </div>
+        `
+      }
+
+      // Lista de despesas compartilhadas
+      const params = filtroStatus !== 'all' ? `?status=${filtroStatus}` : ''
+      const data = await this.api('GET', `despesas-compartilhadas${params}`)
+      const lista = data.despesas || []
+      const listaEl = document.getElementById('dc-lista')
+      if (!listaEl) return
+
+      // Atualizar badge sidebar
+      const badge = document.getElementById('badge-desp-comp')
+      const pendQtd = data.resumo?.pendentes || 0
+      if (badge) {
+        badge.style.display = pendQtd > 0 ? 'inline' : 'none'
+        badge.textContent = pendQtd
+      }
+
+      if (lista.length === 0) {
+        listaEl.innerHTML = `
+          <div style="text-align:center;padding:60px 20px;color:#555;">
+            <div style="font-size:3rem;margin-bottom:16px;">👥</div>
+            <div style="font-size:1rem;font-weight:700;color:#888;margin-bottom:8px;">${filtroStatus === 'pending' ? 'Nenhuma pendência!' : filtroStatus === 'settled' ? 'Nenhuma quitada' : 'Nenhuma despesa compartilhada'}</div>
+            <div style="font-size:0.84rem;color:#555;margin-bottom:20px;">Compartilhe uma despesa existente ou crie uma nova</div>
+            <button onclick="VM._abrirModalNovaCompPartilhada()" class="btn-primary" style="width:auto;padding:10px 24px;">
+              <i class="fas fa-plus"></i> Compartilhar Despesa
+            </button>
+          </div>`
+        return
+      }
+
+      listaEl.innerHTML = lista.map(item => {
+        const isPending = item.status === 'pending'
+        const statusCor = isPending ? '#ffc400' : '#2FBF71'
+        const statusBg  = isPending ? 'rgba(255,196,0,0.1)' : 'rgba(47,191,113,0.1)'
+        const statusLabel = isPending ? '⏳ Pendente' : '✅ Quitado'
+        const dataFmt = item.data ? new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
+        return `
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <div style="width:42px;height:42px;border-radius:10px;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.25);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">👥</div>
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-bottom:2px;">${this.escapeHtml(item.descricao || '—')}</div>
+              <div style="font-size:0.76rem;color:#64748B;">
+                Com: <strong style="color:#a78bfa;">${this.escapeHtml(item.partner_name)}</strong>
+                ${item.partner_email ? `<span style="color:#555;"> · ${this.escapeHtml(item.partner_email)}</span>` : ''}
+                · ${dataFmt} · ${item.categoria || '—'}
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+              <div style="font-size:0.72rem;color:#64748B;">Total: <strong style="color:#f1f5f9;">${this.formatMoney(item.total_valor)}</strong></div>
+              <div style="font-size:0.78rem;color:#2FBF71;font-weight:700;">Minha parte: ${this.formatMoney(item.minha_parte)} (${item.user_percentage}%)</div>
+              <div style="font-size:0.72rem;color:#ffc400;">Parte deles: ${this.formatMoney(item.parte_parceiro)} (${item.partner_percentage}%)</div>
+              <span style="font-size:0.68rem;font-weight:700;color:${statusCor};background:${statusBg};padding:2px 9px;border-radius:20px;">${statusLabel}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+              ${isPending
+                ? `<button onclick="VM._dcAtualizarStatus(${item.id},'settled')" style="background:rgba(47,191,113,0.12);border:1px solid rgba(47,191,113,0.3);color:#2FBF71;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.75rem;font-weight:600;white-space:nowrap;">✅ Quitar</button>`
+                : `<button onclick="VM._dcAtualizarStatus(${item.id},'pending')" style="background:rgba(255,196,0,0.1);border:1px solid rgba(255,196,0,0.25);color:#ffc400;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.75rem;font-weight:600;white-space:nowrap;">↩ Reabrir</button>`}
+              <button onclick="VM._dcExcluir(${item.id},'${this.escapeHtml(item.descricao||'').replace(/'/g,"\\'")}',${item.expense_id})" style="background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);color:#ff6b6b;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.75rem;font-weight:600;">🗑 Remover</button>
+            </div>
+          </div>`
+      }).join('')
+    } catch(e) {
+      const listaEl = document.getElementById('dc-lista')
+      if (listaEl) listaEl.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${e.message || 'Erro ao carregar'}</p></div>`
+    }
+  },
+
+  _dcFiltrar(status) {
+    this._dcFiltroAtual = status
+    ;['all','pending','settled'].forEach(s => {
+      const btn = document.getElementById(`dc-filter-${s}`)
+      if (!btn) return
+      if (s === status) {
+        btn.style.opacity = '1'
+        btn.style.fontWeight = '700'
+        btn.style.border = s === 'all' ? '1px solid rgba(167,139,250,0.5)' : s === 'pending' ? '1px solid rgba(255,196,0,0.5)' : '1px solid rgba(47,191,113,0.5)'
+      } else {
+        btn.style.opacity = '0.5'
+        btn.style.fontWeight = '400'
+      }
+    })
+    const listaEl = document.getElementById('dc-lista')
+    if (listaEl) listaEl.innerHTML = '<div class="skeleton" style="height:120px;border-radius:16px;"></div>'
+    this._dcCarregar(status)
+  },
+
+  async _dcAtualizarStatus(id, novoStatus) {
+    try {
+      await this.api('PATCH', `despesas-compartilhadas/${id}/status`, { status: novoStatus })
+      const label = novoStatus === 'settled' ? 'quitado' : 'reaberto'
+      this.toast(`✅ Compartilhamento ${label}!`, 'success')
+      this._dcCarregar(this._dcFiltroAtual || 'all')
+    } catch(e) {
+      this.toast('Erro ao atualizar: ' + e.message, 'error')
+    }
+  },
+
+  async _dcExcluir(id, descricao, expenseId) {
+    const ok = await this.vmConfirm(
+      `Remover a divisão de "${descricao}"? A despesa original não será excluída.`,
+      { titulo: 'Remover Compartilhamento', textoBotao: 'Remover', corBotao: '#ff6b6b', icone: '🗑️' }
+    )
+    if (!ok) return
+    try {
+      await this.api('DELETE', `despesas-compartilhadas/${id}`)
+      this.toast('🗑️ Compartilhamento removido!', 'success')
+      this._dcCarregar(this._dcFiltroAtual || 'all')
+    } catch(e) {
+      this.toast('Erro: ' + e.message, 'error')
+    }
+  },
+
+  async _abrirModalNovaCompPartilhada() {
+    // Buscar despesas recentes para seleção
+    let despesasOpcoes = ''
+    try {
+      const resp = await this.api('GET', 'despesas?limit=30&status=pendente')
+      const despesas = resp.despesas || []
+      despesasOpcoes = despesas.map(d =>
+        `<option value="${d.id}">[${d.data}] ${this.escapeHtml(d.descricao)} — ${this.formatMoney(d.valor)}</option>`
+      ).join('')
+    } catch(_) {}
+
+    const today = new Date().toISOString().split('T')[0]
+    this.showModal(`
+      <div style="max-height:80vh;overflow-y:auto;">
+      <h3 style="margin-bottom:16px;font-size:1rem;font-weight:700;">👥 Nova Divisão de Despesa</h3>
+
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <button id="dc-modo-existente" onclick="VM._dcToggleModo('existente')"
+          style="flex:1;padding:10px;border-radius:10px;border:2px solid #a78bfa;background:rgba(167,139,250,0.15);color:#a78bfa;cursor:pointer;font-size:0.82rem;font-weight:700;">
+          Usar despesa existente
+        </button>
+        <button id="dc-modo-nova" onclick="VM._dcToggleModo('nova')"
+          style="flex:1;padding:10px;border-radius:10px;border:1px solid #333;background:transparent;color:#666;cursor:pointer;font-size:0.82rem;">
+          Criar despesa nova
+        </button>
+      </div>
+
+      <!-- Modo: despesa existente -->
+      <div id="dc-form-existente">
+        <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Despesa pendente</label>
+        <select id="dc-expense-id" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;margin-bottom:12px;">
+          <option value="">Selecione uma despesa...</option>
+          ${despesasOpcoes}
+        </select>
+      </div>
+
+      <!-- Modo: criar nova -->
+      <div id="dc-form-nova" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Descrição</label>
+            <input id="dc-descricao" type="text" placeholder="Ex: Jantar" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Valor total (R$)</label>
+            <input id="dc-valor" type="number" step="0.01" min="0.01" placeholder="0,00" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Data</label>
+            <input id="dc-data" type="date" value="${today}" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
+            <input id="dc-categoria" type="text" value="Alimentação" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Campos comuns -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Nome do parceiro *</label>
+          <input id="dc-partner-name" type="text" placeholder="Ex: João" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">E-mail do parceiro (opt.)</label>
+          <input id="dc-partner-email" type="email" placeholder="joao@email.com" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:6px;">Minha parte: <span id="dc-pct-label" style="color:#2FBF71;font-weight:700;">50%</span></label>
+        <input id="dc-pct" type="range" min="0" max="100" value="50" style="width:100%;accent-color:#a78bfa;"
+          oninput="document.getElementById('dc-pct-label').textContent=this.value+'%'">
+        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#555;margin-top:4px;">
+          <span>Tudo deles (0%)</span><span>50/50</span><span>Tudo meu (100%)</span>
+        </div>
+      </div>
+      <button onclick="VM._dcSalvar()" class="btn-primary" style="width:100%;justify-content:center;">
+        <i class="fas fa-save"></i> Compartilhar Despesa
+      </button>
+      </div>
+    `)
+  },
+
+  _dcToggleModo(modo) {
+    const eEl = document.getElementById('dc-form-existente')
+    const nEl = document.getElementById('dc-form-nova')
+    const bE  = document.getElementById('dc-modo-existente')
+    const bN  = document.getElementById('dc-modo-nova')
+    if (modo === 'existente') {
+      eEl.style.display = 'block'; nEl.style.display = 'none'
+      bE.style.border = '2px solid #a78bfa'; bE.style.background = 'rgba(167,139,250,0.15)'; bE.style.color = '#a78bfa'; bE.style.fontWeight = '700'
+      bN.style.border = '1px solid #333'; bN.style.background = 'transparent'; bN.style.color = '#666'; bN.style.fontWeight = '400'
+    } else {
+      eEl.style.display = 'none'; nEl.style.display = 'block'
+      bN.style.border = '2px solid #a78bfa'; bN.style.background = 'rgba(167,139,250,0.15)'; bN.style.color = '#a78bfa'; bN.style.fontWeight = '700'
+      bE.style.border = '1px solid #333'; bE.style.background = 'transparent'; bE.style.color = '#666'; bE.style.fontWeight = '400'
+    }
+  },
+
+  async _dcSalvar() {
+    const modoNova = document.getElementById('dc-form-nova')?.style.display !== 'none'
+    const partnerName = document.getElementById('dc-partner-name')?.value?.trim()
+    const partnerEmail = document.getElementById('dc-partner-email')?.value?.trim()
+    const pct = parseInt(document.getElementById('dc-pct')?.value || '50')
+
+    if (!partnerName) { this.toast('Informe o nome do parceiro', 'error'); return }
+
+    const body = { partner_name: partnerName, partner_email: partnerEmail || undefined, user_percentage: pct }
+
+    if (modoNova) {
+      const descricao = document.getElementById('dc-descricao')?.value?.trim()
+      const valor = parseFloat(document.getElementById('dc-valor')?.value || '0')
+      const data = document.getElementById('dc-data')?.value
+      const categoria = document.getElementById('dc-categoria')?.value?.trim() || 'Outros'
+      if (!descricao || !valor || !data) { this.toast('Preencha descrição, valor e data', 'error'); return }
+      body.criar_despesa = true
+      body.descricao = descricao
+      body.valor = valor
+      body.data = data
+      body.categoria = categoria
+    } else {
+      const expId = document.getElementById('dc-expense-id')?.value
+      if (!expId) { this.toast('Selecione uma despesa', 'error'); return }
+      body.expense_id = parseInt(expId)
+    }
+
+    try {
+      const res = await this.api('POST', 'despesas-compartilhadas', body)
+      this.toast(res.message || '✅ Divisão criada!', 'success')
+      this.closeModal()
+      this._dcCarregar('all')
+    } catch(e) {
+      this.toast('Erro: ' + (e.response?.data?.error || e.message), 'error')
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE CATEGORIA NO DASHBOARD — Categoria 1 #2
+  // ══════════════════════════════════════════════════════════════════════════
+  async _carregarAlertasCategoriaDash() {
+    const el = document.getElementById('dash-alertas-categoria')
+    if (!el) return
+    try {
+      const now = new Date()
+      const mes = now.getMonth() + 1
+      const ano = now.getFullYear()
+      const data = await this.api('GET', `alertas-categoria?mes=${mes}&ano=${ano}`)
+      if (!data.has_alertas) { el.innerHTML = ''; return }
+
+      const criticos = data.alertas.filter(a => a.nivel === 'critico')
+      const atencao  = data.alertas.filter(a => a.nivel !== 'critico')
+
+      el.innerHTML = `
+        <div style="background:linear-gradient(135deg,rgba(255,107,107,0.06),rgba(255,196,0,0.04));border:1px solid rgba(255,196,0,0.25);border-radius:16px;padding:16px 20px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:1.2rem;">⚠️</span>
+              <div>
+                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;">Alertas de Gasto por Categoria</div>
+                <div style="font-size:0.72rem;color:#64748B;">Gastos acima da média dos últimos 3 meses</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${criticos.length > 0 ? `<span style="background:rgba(255,107,107,0.15);color:#ff6b6b;font-size:0.7rem;padding:2px 9px;border-radius:20px;font-weight:700;">${criticos.length} crítico${criticos.length!==1?'s':''}</span>` : ''}
+              ${atencao.length  > 0 ? `<span style="background:rgba(255,196,0,0.15);color:#ffc400;font-size:0.7rem;padding:2px 9px;border-radius:20px;font-weight:700;">${atencao.length} atenção</span>` : ''}
+              <button onclick="VM.navigate('ia')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#888;border-radius:8px;padding:4px 10px;font-size:0.7rem;cursor:pointer;">Ver análise completa →</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+            ${data.alertas.slice(0,6).map(a => {
+              const cor = a.nivel === 'critico' ? '#ff6b6b' : '#ffc400'
+              const bg  = a.nivel === 'critico' ? 'rgba(255,107,107,0.08)' : 'rgba(255,196,0,0.06)'
+              const icon = a.nivel === 'critico' ? '🔴' : '🟡'
+              return `
+                <div style="background:${bg};border:1px solid ${a.nivel==='critico'?'rgba(255,107,107,0.2)':'rgba(255,196,0,0.15)'};border-radius:10px;padding:10px 12px;cursor:pointer;" onclick="VM.navigate('despesas')">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:0.8rem;font-weight:700;color:${cor};">${icon} ${a.categoria}</span>
+                    <span style="font-size:0.85rem;font-weight:800;color:${cor};">+${a.variacao_pct}%</span>
+                  </div>
+                  <div style="font-size:0.7rem;color:#64748B;">
+                    <span>${this.formatMoney(a.total_atual)}</span>
+                    <span style="margin:0 4px;">vs</span>
+                    <span>média ${this.formatMoney(a.media_3m)}</span>
+                  </div>
+                </div>`
+            }).join('')}
+          </div>
+        </div>
+      `
+    } catch(_) { /* silencioso */ }
+  },
 }
 
 // Init
@@ -21409,3 +21785,7 @@ document.addEventListener('DOMContentLoaded', () => {
   })
   if (!navigator.onLine) _showOfflineBanner(true)
 })
+// ──────────────────────────────────────────────────────────────────────────────
+// PATCH: methods added for Categoria 1 features
+// ──────────────────────────────────────────────────────────────────────────────
+Void(0)
