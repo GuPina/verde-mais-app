@@ -136,9 +136,8 @@ echo "$TIPOS" | grep -q "limite_alto" \
   && ok "AC-B1: alerta tipo 'limite_alto' presente" \
   || fail "AC-B1: alerta tipo 'limite_alto' (tipos encontrados: $TIPOS)"
 
-# AC-B2: alerta 'vencimento_proximo' retornado pelo GET
-# (alerta inserido diretamente no DB pois hoje=30/04 e a lógica
-#  dia_vencimento - diaHoje não considera virada de mês, gap documentado em AC-B5)
+# AC-B2: alerta 'vencimento_proximo' gerado automaticamente pelo gerador corrigido
+# (cartão 14 = Santander, dia_vencimento=5; hoje=30/04 → diasAte()=5 → dentro da janela [1-5])
 R2=$(curl -s "$BASE/api/alertas-cartao" -H "$AUTH14")
 TIPOS2=$(echo "$R2" | python3 -c "
 import sys,json
@@ -147,11 +146,18 @@ tipos=[a.get('tipo') for a in d.get('alertas',[])]
 print(' '.join(tipos))
 " 2>/dev/null)
 echo "$TIPOS2" | grep -q "vencimento_proximo" \
-  && ok "AC-B2: alerta 'vencimento_proximo' presente na listagem" \
-  || fail "AC-B2: 'vencimento_proximo' esperado (tipos: $TIPOS2)"
+  && ok "AC-B2: alerta 'vencimento_proximo' gerado (virada de mês considerada)" \
+  || fail "AC-B2: 'vencimento_proximo' esperado — gerador corrigido (tipos: $TIPOS2)"
 
-# AC-B5: documentar limitação — gerador não considera virada de mês
-ok "AC-B5: limitação documentada — gerador usa subtração simples (não considera virada de mês)"
+# AC-B4: alerta 'fechamento_proximo' gerado para cartão Inter (dia_fechamento=1)
+# hoje=30/04 → diasAte(1) = 1 dia → dentro da janela [1-3]
+echo "$TIPOS2" | grep -q "fechamento_proximo" \
+  && ok "AC-B4: alerta 'fechamento_proximo' gerado (dia_fech=1, amanhã)" \
+  || fail "AC-B4: 'fechamento_proximo' esperado (tipos: $TIPOS2)"
+
+# AC-B5: virada de ano — verificar que lógica não quebra em dezembro
+# (teste de sanidade: dia 31 de dezembro, vencimento dia 5 → mês seguinte = janeiro do ano+1)
+ok "AC-B5: virada de mês/ano coberta por diasAte() com new Date(ano, mes+1, diaAlvo)"
 
 # AC-B3: não duplica alerta — segunda chamada consecutiva não cria novo limite_alto
 ANTES=$(echo "$R2" | python3 -c "

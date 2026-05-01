@@ -53,9 +53,37 @@ alertasCartao.patch('/:id/lido', requireAuth, async (c) => {
 })
 
 // ─── Gerador de Alertas Inteligentes ─────────────────────────────────────────
+
+/**
+ * Calcula quantos dias faltam até o dia-alvo (dia do mês).
+ * Considera virada de mês corretamente:
+ *   - se dia_alvo > diaHoje → está no mês corrente
+ *   - se dia_alvo <= diaHoje → já passou; próxima ocorrência é no mês seguinte
+ * Usa a diferença real entre datas para não depender de quantos dias tem o mês.
+ */
+function diasAte(diaAlvo: number, hoje: Date): number {
+  const ano  = hoje.getFullYear()
+  const mes  = hoje.getMonth()          // 0-indexado
+  const dia  = hoje.getDate()
+
+  // Candidato no mês corrente
+  let alvo = new Date(ano, mes, diaAlvo)
+
+  // Se o dia-alvo já passou hoje (ou é hoje), avança para o próximo mês
+  if (alvo.getTime() <= hoje.setHours(0, 0, 0, 0)) {
+    alvo = new Date(ano, mes + 1, diaAlvo)
+  }
+
+  // Reinicializar 'hoje' com hora zerada para diff limpa
+  const hojeZero = new Date(ano, mes, dia)
+  const diffMs   = alvo.getTime() - hojeZero.getTime()
+  return Math.round(diffMs / (1000 * 60 * 60 * 24))
+}
+
 async function gerarAlertas(db: D1Database, userId: number) {
   const hoje    = new Date()
-  const diaHoje = hoje.getDate()
+  const mesAtual = hoje.getMonth() + 1
+  const anoAtual = hoje.getFullYear()
 
   // Buscar cartões ativos do usuário
   const cartoes = await db.prepare(
@@ -71,7 +99,6 @@ async function gerarAlertas(db: D1Database, userId: number) {
 
     // Alerta 1: limite acima de 80%
     if (utilizacaoPercent >= 80) {
-      const chave = `limite_alto_${cartao.id}_${hoje.getMonth()}_${hoje.getFullYear()}`
       const jaExiste = await db.prepare(
         `SELECT id FROM alertas_cartao
          WHERE user_id=? AND cartao_id=? AND tipo='limite_alto'
@@ -90,8 +117,8 @@ async function gerarAlertas(db: D1Database, userId: number) {
       }
     }
 
-    // Alerta 2: fechamento em 3 dias
-    const diasFechamento = cartao.dia_fechamento - diaHoje
+    // Alerta 2: fechamento em até 3 dias (considera virada de mês)
+    const diasFechamento = diasAte(cartao.dia_fechamento, new Date())
     if (diasFechamento >= 1 && diasFechamento <= 3) {
       const jaExisteFech = await db.prepare(
         `SELECT id FROM alertas_cartao
@@ -100,9 +127,6 @@ async function gerarAlertas(db: D1Database, userId: number) {
       ).bind(userId, cartao.id).first()
 
       if (!jaExisteFech) {
-        // Buscar fatura atual
-        const mesAtual = hoje.getMonth() + 1
-        const anoAtual = hoje.getFullYear()
         const faturaAtual = await db.prepare(
           `SELECT COALESCE(SUM(valor),0) as total
            FROM card_charges
@@ -122,8 +146,8 @@ async function gerarAlertas(db: D1Database, userId: number) {
       }
     }
 
-    // Alerta 3: vencimento em 5 dias
-    const diasVencimento = cartao.dia_vencimento - diaHoje
+    // Alerta 3: vencimento em até 5 dias (considera virada de mês)
+    const diasVencimento = diasAte(cartao.dia_vencimento, new Date())
     if (diasVencimento >= 1 && diasVencimento <= 5) {
       const jaExisteVenc = await db.prepare(
         `SELECT id FROM alertas_cartao
@@ -132,8 +156,6 @@ async function gerarAlertas(db: D1Database, userId: number) {
       ).bind(userId, cartao.id).first()
 
       if (!jaExisteVenc) {
-        const mesAtual = hoje.getMonth() + 1
-        const anoAtual = hoje.getFullYear()
         const fatura = await db.prepare(
           `SELECT COALESCE(SUM(valor),0) as total
            FROM card_charges
