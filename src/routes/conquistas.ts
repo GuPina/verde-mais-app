@@ -1498,7 +1498,7 @@ export async function verificarConquistasParaUsuario(
     if (mesesPositivos >= 1) await ganhar('primeiro_saldo_positivo')
     if (mesesPositivos >= 3) await ganhar('saldo_positivo_3m')
     if (mesesPositivos >= 3) await ganhar('saldo_verde_3m')
-    if (mesesPositivos >= 3) await ganhar('salvo_positivo_3m')
+    if (mesesPositivos >= 3) await ganhar('saldo_positivo_3m')
   } catch { }
 
   // Usuário completo
@@ -1802,7 +1802,7 @@ export async function verificarConquistasParaUsuario(
     const invMaiorQGastos = await db.prepare(`SELECT COALESCE(SUM(valor_investido),0) as total FROM investimentos WHERE user_id=? AND strftime('%m',data_inicio)=? AND strftime('%Y',data_inicio)=?`).bind(user.id, mes, ano).first() as any
     const despMes2 = await db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' AND strftime('%m',COALESCE(data,vencimento))=? AND strftime('%Y',COALESCE(data,vencimento))=?`).bind(user.id, mes, ano).first() as any
     if ((invMaiorQGastos?.total || 0) > 0 && (invMaiorQGastos?.total || 0) > (despMes2?.total || 0)) await ganhar('investiu_mais_que_gastou')
-    if (valorAtual >= 500000) await ganhar('barreira_500k')
+    if (valorAtual >= 500000) await ganhar('patrimonio_500k')
     if (valorAtual >= 100000) await ganhar('barreira_100k')
     if (valorAtual >= 50000)  await ganhar('barreira_50k')
     if (valorAtual >= 10000)  await ganhar('barreira_10k')
