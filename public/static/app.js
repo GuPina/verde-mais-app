@@ -3972,6 +3972,7 @@ const VM = {
             <button onclick="VM._selTodosDespesas(true)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.78rem;cursor:pointer;">Selec. tudo</button>
             <button onclick="VM._selTodosDespesas(false)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.78rem;cursor:pointer;">Limpar</button>
             <button onclick="VM._pagarSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#10B981;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-check"></i> Pagar sel.</button>
+            <button onclick="VM._pendenteSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#ffc400;color:#1a1a2e;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-undo"></i> Pendente sel.</button>
             <button onclick="VM._excluirSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash"></i> Excluir sel.</button>
           </div>
           <div id="desp-sel-empty" style="font-size:0.78rem;color:#555;">Selecione itens para ações em lote</div>
@@ -4745,6 +4746,20 @@ const VM = {
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao pagar despesas', 'error')
+    }
+  },
+
+  async _pendenteSelecionadasDespesas() {
+    const ids = [...document.querySelectorAll('.desp-chk:checked')].map(c => Number(c.dataset.id))
+    if (!ids.length) return
+    const ok = await this.vmConfirm(`Reverter ${ids.length} despesa${ids.length !== 1 ? 's' : ''} para <strong>Pendente</strong>?`, { titulo: 'Reverter para Pendente', corBotao: '#ffc400', textoBotao: `Reverter ${ids.length}`, icone: '↩️' })
+    if (!ok) return
+    try {
+      const res = await this.api('PATCH', 'despesas/bulk-pendente', { ids })
+      this.toast(`${res.atualizadas || ids.length} despesa${ids.length !== 1 ? 's' : ''} revertida${ids.length !== 1 ? 's' : ''} para pendente!`, 'success')
+      this.carregarDespesas()
+    } catch (e) {
+      this.toast('Erro ao reverter despesas', 'error')
     }
   },
 
@@ -10804,11 +10819,16 @@ const VM = {
       `
 
       // Botões de ação da fatura
+      const totalPagoFatura = lancamentos.filter(l => l.status === 'pago' || l.status === 'cancelado').reduce((s,l) => s + Number(l.valor), 0)
       const btnAcoesFatura = `
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:16px;flex-wrap:wrap;">
           ${fatura.total_pendente > 0 ? `<button onclick="VM._pagarFaturaCompleta(${cartaoId}, ${mes}, ${ano})"
             style="background:rgba(47,191,113,0.15);color:#2FBF71;border:1px solid rgba(47,191,113,0.3);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;">
             <i class="fas fa-check-double"></i> Pagar Fatura (${this.formatMoney(fatura.total_pendente)})
+          </button>` : ''}
+          ${totalPagoFatura > 0 ? `<button onclick="VM._reverterFaturaPendente(${cartaoId}, ${mes}, ${ano})"
+            style="background:rgba(255,196,0,0.12);color:#ffc400;border:1px solid rgba(255,196,0,0.3);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;">
+            <i class="fas fa-undo"></i> Reverter para Pendente
           </button>` : ''}
           <button onclick="VM._exportarFaturaPDF(${cartaoId}, ${mes}, ${ano})"
             style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:8px 16px;cursor:pointer;font-size:0.82rem;font-weight:600;">
@@ -10968,6 +10988,20 @@ const VM = {
       this.carregarCartoes()
     } catch(e) {
       this.toast(e.response?.data?.error || 'Erro ao pagar fatura', 'error')
+    }
+  },
+
+  async _reverterFaturaPendente(cartaoId, mes, ano) {
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const ok = await this.vmConfirm(`Reverter <strong>todos os lançamentos pagos/cancelados</strong> da fatura de ${meses[mes-1]}/${ano} para <strong>Pendente</strong>?`, { titulo: 'Reverter Fatura para Pendente', corBotao: '#ffc400', textoBotao: 'Reverter', icone: '↩️' })
+    if (!ok) return
+    try {
+      const r = await this.api('PATCH', `cartoes/${cartaoId}/pendente-fatura`, { mes, ano })
+      this.toast(r.message || 'Fatura revertida para pendente!', 'success')
+      await this._carregarFatura()
+      this.carregarCartoes()
+    } catch(e) {
+      this.toast(e.response?.data?.error || 'Erro ao reverter fatura', 'error')
     }
   },
 

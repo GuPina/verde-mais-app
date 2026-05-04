@@ -443,6 +443,40 @@ despesas.patch('/bulk-pagar', requireAuth, async (c) => {
   return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) marcada(s) como paga(s).` })
 })
 
+// PATCH /api/despesas/bulk-pendente — reverter múltiplas despesas para pendente
+// ATENÇÃO: deve ficar ANTES de PATCH /:id para não ser interceptado pelo handler genérico
+despesas.patch('/bulk-pendente', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => null)
+  const ids: number[] = body?.ids || []
+  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
+  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
+
+  let atualizadas = 0
+  for (const id of ids) {
+    const desp = await c.env.DB.prepare(
+      'SELECT * FROM despesas WHERE id=? AND user_id=? AND status IN (\'pago\',\'cancelado\')'
+    ).bind(id, user.id).first() as any
+    if (!desp) continue
+
+    const res = await c.env.DB.prepare(
+      `UPDATE despesas SET status='pendente', data_pagamento=NULL WHERE id=? AND user_id=?`
+    ).bind(id, user.id).run()
+    if (res.meta.changes > 0) {
+      atualizadas++
+      // Reverter charge vinculado e limite do cartão
+      if (desp.cartao_id && desp.status === 'pago') {
+        await c.env.DB.prepare('UPDATE card_charges SET status=\'pendente\' WHERE expense_id=?').bind(id).run()
+        await c.env.DB.prepare(
+          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?'
+        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
+      }
+    }
+  }
+
+  return c.json({ success: true, atualizadas, message: `${atualizadas} despesa(s) revertida(s) para pendente.` })
+})
+
 // GET /api/despesas/categorias
 // ATENÇÃO: deve ficar ANTES de PUT /:id e DELETE /:id para não ser interceptado
 despesas.get('/categorias', requireAuth, async (c) => {

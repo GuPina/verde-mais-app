@@ -685,6 +685,63 @@ cartoes.patch('/:id/pagar-fatura', requireAuth, async (c) => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/cartoes/:id/pendente-fatura — Reverte TODA a fatura de um mês para pendente
+// ─────────────────────────────────────────────────────────────────────────────
+cartoes.patch('/:id/pendente-fatura', requireAuth, async (c) => {
+  const user   = c.get('user')
+  const cardId = c.req.param('id')
+  const { mes, ano } = await c.req.json()
+  if (!mes || !ano) return c.json({ error: 'Informe mes e ano' }, 400)
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+  ).bind(cardId, user.id).first() as any
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  // Buscar todos os charges pagos/cancelados da fatura
+  const charges = await c.env.DB.prepare(
+    `SELECT cc.*, d.status as despesa_status FROM card_charges cc
+     LEFT JOIN despesas d ON d.id = cc.expense_id
+     WHERE cc.card_id = ? AND cc.billing_month = ? AND cc.billing_year = ?
+       AND cc.status IN ('pago', 'cancelado')`
+  ).bind(cardId, mes, ano).all()
+
+  const lista = charges.results as any[]
+  if (lista.length === 0)
+    return c.json({ error: 'Nenhum lançamento pago/cancelado nesta fatura' }, 400)
+
+  const totalRevertido = lista
+    .filter(r => r.status === 'pago')
+    .reduce((s, r) => s + Number(r.valor), 0)
+
+  for (const ch of lista) {
+    // Reverter charge
+    await c.env.DB.prepare(
+      "UPDATE card_charges SET status = 'pendente' WHERE id = ?"
+    ).bind(ch.id).run()
+    // Reverter despesa vinculada
+    if (ch.expense_id) {
+      await c.env.DB.prepare(
+        "UPDATE despesas SET status = 'pendente', data_pagamento = NULL WHERE id = ? AND user_id = ?"
+      ).bind(ch.expense_id, user.id).run()
+    }
+  }
+
+  // Descontar limite restaurado anteriormente (pago → pendente reduz limite_disponivel)
+  if (totalRevertido > 0) {
+    await c.env.DB.prepare(
+      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
+    ).bind(totalRevertido, cardId, user.id).run()
+  }
+
+  return c.json({
+    success: true,
+    revertidos: lista.length,
+    message: `${lista.length} lançamento(s) revertido(s) para pendente.`
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/cartoes/:id/compras — lista compras agrupadas por purchase_group_id
 // ─────────────────────────────────────────────────────────────────────────────
 cartoes.get('/:id/compras', requireAuth, async (c) => {
