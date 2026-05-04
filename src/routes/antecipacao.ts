@@ -93,6 +93,26 @@ antecipacao.post('/', requireAuth, async (c) => {
       ).bind(referencia_id, user.id).run()
     }
 
+    // 2b. Para empréstimo/financiamento sem referencia direta: cancelar despesa automática
+    //     do mês original (gerada automaticamente pelo sistema de parcelas)
+    if (!referencia_id && (tipo === 'emprestimo' || tipo === 'financiamento') && dataVenc) {
+      const dtParts  = dataVenc.split('-')
+      const anoStr   = dtParts[0] || ''
+      const mesPad   = dtParts[1] || ''
+      if (anoStr && mesPad) {
+        const tipoLabel = tipo === 'emprestimo' ? 'Empréstimo' : 'Financiamento'
+        await c.env.DB.prepare(
+          `UPDATE despesas SET status='cancelado',
+              observacoes=COALESCE(observacoes||' ','') || '[Antecipado - ver antecipacao #${antecipacaoId}]'
+           WHERE user_id=? AND status='pendente'
+             AND strftime('%m', COALESCE(vencimento, data)) = ?
+             AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             AND ABS(valor - ?) < 0.02
+             AND observacoes LIKE ?`
+        ).bind(user.id, mesPad, anoStr, valorTotal, `%${tipoLabel} automático%`).run().catch(() => {})
+      }
+    }
+
     // 3. Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges
     if (tipo === 'fatura_cartao' && cartao_id && mes_fatura && ano_fatura) {
       const mesPad = String(mes_fatura).padStart(2,'0')
@@ -288,6 +308,27 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
             observacoes=COALESCE(observacoes||' ','') || '[Antecipado - ver antecipacao #${id}]'
          WHERE id=? AND user_id=? AND status='pendente'`
       ).bind(ant.referencia_id, user.id).run()
+    }
+
+    // Para empréstimo/financiamento sem referencia direta: cancelar despesa automática
+    // do mês original (gerada automaticamente pelo sistema de parcelas)
+    if (!ant.referencia_id && (ant.tipo === 'emprestimo' || ant.tipo === 'financiamento') && ant.data_vencimento_original) {
+      const dataVencOrig = ant.data_vencimento_original
+      const dtParts      = dataVencOrig.split('-')
+      const anoStr       = dtParts[0] || ''
+      const mesPad       = dtParts[1] || ''
+      if (anoStr && mesPad) {
+        const tipoLabel = ant.tipo === 'emprestimo' ? 'Empréstimo' : 'Financiamento'
+        await c.env.DB.prepare(
+          `UPDATE despesas SET status='cancelado',
+              observacoes=COALESCE(observacoes||' ','') || '[Antecipado - ver antecipacao #${id}]'
+           WHERE user_id=? AND status='pendente'
+             AND strftime('%m', COALESCE(vencimento, data)) = ?
+             AND strftime('%Y', COALESCE(vencimento, data)) = ?
+             AND ABS(valor - ?) < 0.02
+             AND observacoes LIKE ?`
+        ).bind(user.id, mesPad, anoStr, ant.valor_total, `%${tipoLabel} automático%`).run().catch(() => {})
+      }
     }
 
     // Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges

@@ -734,8 +734,20 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
          WHERE user_id = ?
            AND status != 'cancelado'
            AND strftime('%m', COALESCE(vencimento, data)) = ?
-           AND strftime('%Y', COALESCE(vencimento, data)) = ?`
-      ).bind(user.id, m, ano),
+           AND strftime('%Y', COALESCE(vencimento, data)) = ?
+           AND id NOT IN (
+             SELECT d2.id FROM despesas d2
+             JOIN antecipacoes a ON a.user_id = d2.user_id
+               AND a.status = 'antecipada'
+               AND a.referencia_id IS NULL
+               AND (a.tipo = 'emprestimo' OR a.tipo = 'financiamento')
+               AND strftime('%m', COALESCE(d2.vencimento, d2.data)) = strftime('%m', a.data_vencimento_original)
+               AND strftime('%Y', COALESCE(d2.vencimento, d2.data)) = strftime('%Y', a.data_vencimento_original)
+               AND ABS(d2.valor - a.valor_total) < 0.02
+               AND (d2.observacoes LIKE '%Empréstimo automático%' OR d2.observacoes LIKE '%Financiamento automático%')
+             WHERE d2.user_id = ? AND d2.status = 'pendente'
+           )`
+      ).bind(user.id, m, ano, user.id),
     ])
   ])
 
