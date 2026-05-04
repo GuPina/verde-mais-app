@@ -21034,6 +21034,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       // Auto-fill descrição se vazia
       const descEl = document.getElementById('ant-desc')
       if (descEl && !descEl.value) descEl.value = `Fatura ${r.cartao?.nome || ''} ${meses[parseInt(mes)-1]}/${ano}`
+      // Auto-fill data de vencimento original da fatura (ESSENCIAL para o cancel correto no mês certo)
+      const vencEl = document.getElementById('ant-vencimento')
+      if (vencEl && r.data_vencimento_fatura) vencEl.value = r.data_vencimento_fatura
     } catch(e) {
       if (infoTxt) infoTxt.textContent = 'Não foi possível buscar a fatura.'
     }

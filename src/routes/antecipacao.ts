@@ -61,11 +61,16 @@ antecipacao.post('/', requireAuth, async (c) => {
   const refId   = referencia_id   || cartao_id   || null
   const refTipo = referencia_tipo || (cartao_id ? 'cartao' : null)
 
+  // Para fatura_cartao: garantir mes_fatura/ano_fatura a partir do data_vencimento_original se não informado
+  const mesFaturaFinal = mes_fatura || (tipo === 'fatura_cartao' && dataVenc ? parseInt(dataVenc.split('-')[1]) : null)
+  const anoFaturaFinal = ano_fatura || (tipo === 'fatura_cartao' && dataVenc ? parseInt(dataVenc.split('-')[0]) : null)
+
   const res = await c.env.DB.prepare(
-    `INSERT INTO antecipacoes (user_id, descricao, valor_total, data_vencimento_original, data_antecipacao, economia_juros, tipo, referencia_id, referencia_tipo, observacoes, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO antecipacoes (user_id, descricao, valor_total, data_vencimento_original, data_antecipacao, economia_juros, tipo, referencia_id, referencia_tipo, observacoes, status, mes_fatura, ano_fatura)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(user.id, descricao, valorTotal, dataVenc, data_antecipacao,
-    eco, tipo, refId, refTipo, observacoes || null, statusFinal).run()
+    eco, tipo, refId, refTipo, observacoes || null, statusFinal,
+    mesFaturaFinal || null, anoFaturaFinal || null).run()
 
   const antecipacaoId = res.meta.last_row_id
 
@@ -114,9 +119,15 @@ antecipacao.post('/', requireAuth, async (c) => {
     }
 
     // 3. Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges
-    if (tipo === 'fatura_cartao' && cartao_id && mes_fatura && ano_fatura) {
-      const mesPad = String(mes_fatura).padStart(2,'0')
-      const anoStr = String(ano_fatura)
+    // Usa mes_fatura/ano_fatura (enviados pelo frontend) como fonte primária;
+    // fallback para o mês/ano derivado do data_vencimento_original
+    const mesFaturaCancel = mes_fatura || mesFaturaFinal
+    const anoFaturaCancel = ano_fatura || anoFaturaFinal
+    // Aceitar cartao_id direto ou via refId (referencia_id)
+    const cartaoIdCancel = cartao_id || (referencia_tipo === 'cartao' ? referencia_id : null) || (refTipo === 'cartao' ? refId : null)
+    if (tipo === 'fatura_cartao' && cartaoIdCancel && mesFaturaCancel && anoFaturaCancel) {
+      const mesPad = String(mesFaturaCancel).padStart(2,'0')
+      const anoStr = String(anoFaturaCancel)
 
       // 3a. Cancelar despesas pendentes do cartão naquele mês (billing_month/billing_year ou vencimento)
       await c.env.DB.prepare(
@@ -127,14 +138,14 @@ antecipacao.post('/', requireAuth, async (c) => {
              (billing_month=? AND billing_year=?)
              OR (billing_month IS NULL AND strftime('%m', vencimento)=? AND strftime('%Y', vencimento)=?)
            )`
-      ).bind(user.id, cartao_id, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
+      ).bind(user.id, cartaoIdCancel, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
 
       // 3b. Marcar card_charges do cartão naquele mês como pago
       await c.env.DB.prepare(
         `UPDATE card_charges SET status='pago'
          WHERE card_id=? AND status='pendente'
            AND strftime('%m', data_vencimento)=? AND strftime('%Y', data_vencimento)=?`
-      ).bind(cartao_id, mesPad, anoStr).run().catch(() => {})
+      ).bind(cartaoIdCancel, mesPad, anoStr).run().catch(() => {})
     }
   }
 
@@ -170,7 +181,7 @@ antecipacao.get('/fatura-cartao', requireAuth, async (c) => {
 
   // Verificar propriedade do cartão
   const cartao = await c.env.DB.prepare(
-    `SELECT id, nome, bandeira, limite_total, limite_disponivel FROM cartoes WHERE id=? AND user_id=?`
+    `SELECT id, nome, bandeira, limite_total, limite_disponivel, dia_vencimento FROM cartoes WHERE id=? AND user_id=?`
   ).bind(cartaoId, user.id).first() as any
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
@@ -192,11 +203,20 @@ antecipacao.get('/fatura-cartao', requireAuth, async (c) => {
 
   const totalFatura = Math.max(Number(faturaRow?.total || 0), Number(chargesRow?.total || 0))
 
+  // Calcular data de vencimento da fatura para o mês/ano selecionado
+  const diaVenc = cartao.dia_vencimento || 10
+  const anoNum  = parseInt(ano)
+  const mesNum  = parseInt(mes)
+  const maxDia  = new Date(anoNum, mesNum, 0).getDate() // último dia do mês
+  const diaFinal = Math.min(diaVenc, maxDia)
+  const dataVencFatura = `${anoNum}-${mesPad}-${String(diaFinal).padStart(2,'0')}`
+
   return c.json({
-    cartao: { id: cartao.id, nome: cartao.nome, bandeira: cartao.bandeira },
-    mes: parseInt(mes), ano: parseInt(ano),
+    cartao: { id: cartao.id, nome: cartao.nome, bandeira: cartao.bandeira, dia_vencimento: diaVenc },
+    mes: mesNum, ano: anoNum,
     valor_fatura: Math.round(totalFatura * 100) / 100,
-    qtd_lancamentos: Number(chargesRow?.qtd || faturaRow?.qtd || 0)
+    qtd_lancamentos: Number(chargesRow?.qtd || faturaRow?.qtd || 0),
+    data_vencimento_fatura: dataVencFatura
   })
 })
 
@@ -333,11 +353,19 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
 
     // Se for fatura de cartão: cancelar despesas do cartão naquele mês E card_charges
     if (ant.tipo === 'fatura_cartao' && ant.referencia_id && ant.referencia_tipo === 'cartao') {
-      // Extrair mês/ano do data_vencimento_original da antecipação
-      const dataVenc = ant.data_vencimento_original || ant.data_antecipacao
-      const dtParts  = dataVenc ? dataVenc.split('-') : []
-      const anoStr   = dtParts[0] || String(new Date().getFullYear())
-      const mesPad   = dtParts[1] || String(new Date().getMonth() + 1).padStart(2,'0')
+      // Usar mes_fatura/ano_fatura armazenados como fonte primária (confiável)
+      // Fallback: derivar do data_vencimento_original
+      let mesPad: string
+      let anoStr: string
+      if (ant.mes_fatura && ant.ano_fatura) {
+        mesPad = String(ant.mes_fatura).padStart(2,'0')
+        anoStr = String(ant.ano_fatura)
+      } else {
+        const dataVenc = ant.data_vencimento_original || ant.data_antecipacao
+        const dtParts  = dataVenc ? dataVenc.split('-') : []
+        anoStr = dtParts[0] || String(new Date().getFullYear())
+        mesPad = dtParts[1] || String(new Date().getMonth() + 1).padStart(2,'0')
+      }
       const cartaoId = ant.referencia_id
 
       // Cancelar despesas pendentes do cartão naquele mês
