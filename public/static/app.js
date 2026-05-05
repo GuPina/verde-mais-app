@@ -7,6 +7,42 @@ const VM = {
   currentPage: null,
   charts: {},
   limites: null, // limites do plano atual, carregados junto com o dashboard
+  _anosCache: null, // cache dos anos disponíveis [{ano}] buscados do backend
+
+  // Retorna <option> tags para seletores de ano, cobrindo todos os anos com lançamentos
+  // anoSelecionado: ano pré-selecionado (string ou int)
+  // Usa cache local; se não houver cache, gera range estático conservador (anoAtual-3 até anoAtual+3)
+  _anosOpcoes(anoSelecionado) {
+    const anoAtual = new Date().getFullYear()
+    const sel = parseInt(anoSelecionado) || anoAtual
+    let anos
+    if (this._anosCache && this._anosCache.length) {
+      // Garante que o ano selecionado também apareça mesmo se fora do cache
+      const set = new Set(this._anosCache)
+      set.add(sel)
+      set.add(anoAtual)
+      set.add(anoAtual + 1)
+      set.add(anoAtual + 2)
+      anos = Array.from(set).sort((a, b) => a - b)
+    } else {
+      // Fallback estático enquanto cache não carregou
+      anos = []
+      for (let a = Math.min(anoAtual - 3, sel - 1); a <= Math.max(anoAtual + 2, sel + 1); a++) anos.push(a)
+    }
+    return anos.map(a => `<option value="${a}" ${a === sel ? 'selected' : ''}>${a}</option>`).join('')
+  },
+
+  // Carrega (ou atualiza) o cache de anos disponíveis do backend
+  async _carregarAnosCache() {
+    try {
+      const data = await this.api('GET', 'dashboard/anos')
+      if (data && data.anos) {
+        this._anosCache = data.anos
+      }
+    } catch (_) {
+      // silencioso — o fallback estático cobre
+    }
+  },
 
   // ======= UPSELL / PLANOS =======
   planoTem(feature) {
@@ -83,6 +119,8 @@ const VM = {
     if (path.startsWith('/app')) {
       if (!this.token) return window.location.href = '/login'
       this.renderApp()
+      // Carregar cache de anos disponíveis (usado pelos seletores de filtro)
+      setTimeout(() => this._carregarAnosCache(), 1500)
       // Iniciar polling de conquistas (F2)
       setTimeout(() => this.startConqPoll(), 5000)
 
@@ -2931,7 +2969,7 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="filtro-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
-              ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
+              ${VM._anosOpcoes(ano)}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
@@ -3673,7 +3711,7 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="filtro-ano-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
-              ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano), parseInt(ano)+1].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
+              ${VM._anosOpcoes(ano)}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
@@ -6550,7 +6588,7 @@ const VM = {
             }).join('')}
           </select>
           <select id="comp-ano" class="form-select" style="width:auto;padding:8px 12px;">
-            ${[anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${a === anoAtual ? 'selected' : ''}>${a}</option>`).join('')}
+            ${VM._anosOpcoes(anoAtual)}
           </select>
           <button onclick="VM._navComparativo(1)" title="Próximo mês"
             style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;"
@@ -7755,7 +7793,7 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="hig-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;">
-              ${[ano-1, ano, ano+1].map(a => `<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
+              ${VM._anosOpcoes(ano)}
             </select>
           </div>
           <div style="margin-top:16px;">
@@ -8473,7 +8511,7 @@ const VM = {
         <div class="section-title">📋 Relatórios</div>
         <div style="display:flex;gap:12px;align-items:center;">
           <select id="rel-ano" class="form-select" style="width:auto;padding:8px 14px;">
-            ${[parseInt(ano)-2, parseInt(ano)-1, parseInt(ano)].map(a => `<option value="${a}" ${String(a) === ano ? 'selected' : ''}>${a}</option>`).join('')}
+            ${VM._anosOpcoes(ano)}
           </select>
           <button onclick="VM.carregarRelatorio()" class="btn-secondary"><i class="fas fa-sync"></i> Atualizar</button>
           <button onclick="VM.exportarRelatorioPDF()" class="btn-primary" style="width:auto;padding:9px 16px;background:linear-gradient(135deg,#7C3AED,#6D28D9);">
@@ -15237,7 +15275,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${m===mesSel?'selected':''}>${mesNomes[m]}</option>`).join('')}
             </select>
             <select id="sel-ano" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
-              ${Array.from({length:6},(_,i)=>new Date().getFullYear()-2+i).map(a => `<option value="${a}" ${a===anoSel?'selected':''}>${a}</option>`).join('')}
+              ${VM._anosOpcoes(anoSel)}
             </select>
             <button onclick="VM._abrirOrcamentoGlobal()" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:#818CF8;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
               🌐 Global
@@ -18762,7 +18800,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             </select>
             <select id="sel-ano-503020" class="form-input" style="padding:8px 12px;font-size:0.82rem;width:auto;"
               onchange="VM.recarregar503020()">
-              ${[ano-1,ano,ano+1].map(y=>`<option value="${y}" ${y===ano?'selected':''}>${y}</option>`).join('')}
+              ${VM._anosOpcoes(ano)}
             </select>
             <button onclick="VM._nav503020(1)" title="Próximo mês"
               style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
@@ -20975,7 +21013,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div>
               <label style="color:#94A3B8;font-size:0.73rem;font-weight:600;display:block;margin-bottom:4px;">Ano</label>
               <select id="ant-ano-fatura" onchange="VM._antCarregarFatura()" style="width:100%;padding:8px 10px;background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:9px;color:#f1f5f9;font-size:0.82rem;">
-                ${[new Date().getFullYear()-1, new Date().getFullYear(), new Date().getFullYear()+1].map(a=>`<option value="${a}" ${a===new Date().getFullYear()?'selected':''}>${a}</option>`).join('')}
+                ${VM._anosOpcoes(new Date().getFullYear())}
               </select>
             </div>
           </div>

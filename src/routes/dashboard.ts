@@ -788,4 +788,46 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
   })
 })
 
+// GET /api/dashboard/anos
+// Retorna os anos com lançamentos (despesas + receitas) + ano atual + 2 anos à frente
+// Garante que o seletor de ano sempre exibe todos os anos relevantes, inclusive futuros
+dashboard.get('/anos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const anoAtual = new Date().getFullYear()
+
+  const [despAnos, recAnos] = await Promise.all([
+    c.env.DB.prepare(`
+      SELECT DISTINCT CAST(strftime('%Y', data_vencimento) AS INTEGER) AS ano
+      FROM despesas
+      WHERE usuario_id = ? AND status != 'cancelado'
+      ORDER BY ano
+    `).bind(user.id).all(),
+    c.env.DB.prepare(`
+      SELECT DISTINCT CAST(strftime('%Y', data_recebimento) AS INTEGER) AS ano
+      FROM receitas
+      WHERE usuario_id = ?
+      ORDER BY ano
+    `).bind(user.id).all(),
+  ])
+
+  const anosSet = new Set<number>()
+
+  // Adiciona anos das despesas e receitas
+  for (const row of (despAnos.results || []) as { ano: number }[]) {
+    if (row.ano && row.ano >= 2020) anosSet.add(row.ano)
+  }
+  for (const row of (recAnos.results || []) as { ano: number }[]) {
+    if (row.ano && row.ano >= 2020) anosSet.add(row.ano)
+  }
+
+  // Garante que o ano atual e os 2 próximos sempre aparecem
+  anosSet.add(anoAtual)
+  anosSet.add(anoAtual + 1)
+  anosSet.add(anoAtual + 2)
+
+  const anos = Array.from(anosSet).sort((a, b) => a - b)
+
+  return c.json({ anos, ano_atual: anoAtual })
+})
+
 export default dashboard
