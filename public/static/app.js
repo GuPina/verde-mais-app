@@ -3664,11 +3664,12 @@ const VM = {
   async pageDespesas() {
     const now = new Date()
     const saved = this._despesaFiltro || {}
-    const mes   = saved.mes    || String(now.getMonth() + 1)
-    const ano   = saved.ano    || String(now.getFullYear())
-    const stat  = saved.status || ''
-    const catD  = saved.cat    || ''
-    const busca = saved.busca  || ''
+    const mes      = saved.mes    || String(now.getMonth() + 1)
+    const ano      = saved.ano    || String(now.getFullYear())
+    const stat     = saved.status || ''
+    const catD     = saved.cat    || ''
+    const busca    = saved.busca  || ''
+    const tagFiltro = saved.tagFiltro || ''
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
@@ -3738,6 +3739,14 @@ const VM = {
               <div id="filtro-cartao-options-placeholder"></div>
             </select>
           </div>
+          <!-- Filtro por Tag -->
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Tag</label>
+            <select id="filtro-tag-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:140px;" onchange="VM.carregarDespesas()">
+              <option value="">Todas as tags</option>
+              <option value="__sem_tag__">🚫 Sem tag</option>
+            </select>
+          </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
             <div style="position:relative;">
@@ -3777,8 +3786,9 @@ const VM = {
     `
 
     this.carregarDespesas()
-    // Carregar cartões no filtro
+    // Carregar cartões e tags nos filtros
     this._carregarCartoesNoFiltroDesp()
+    this._carregarTagsNoFiltroDesp()
   },
 
   async _carregarCartoesNoFiltroDesp() {
@@ -3803,6 +3813,48 @@ const VM = {
     } catch(e) {}
   },
 
+  async _carregarTagsNoFiltroDesp() {
+    const sel = document.getElementById('filtro-tag-d')
+    if (!sel) return
+    try {
+      const tags = await this.api('GET', 'tags').catch(() => [])
+      const lista = Array.isArray(tags) ? tags : (tags.tags || [])
+      // Manter apenas opções fixas ("Todas as tags" e "Sem tag") e recriar as demais
+      Array.from(sel.options).slice(2).forEach(o => o.remove())
+      // Ordenar: primeiro as que têm despesas, depois por nome
+      const comDespesas = lista.filter(t => (t.usos_despesas || 0) > 0)
+        .sort((a, b) => (b.usos_despesas || 0) - (a.usos_despesas || 0) || a.nome.localeCompare(b.nome))
+      const semDespesas = lista.filter(t => (t.usos_despesas || 0) === 0)
+        .sort((a, b) => a.nome.localeCompare(b.nome))
+      const ordenadas = [...comDespesas, ...semDespesas]
+      // Separador visual
+      if (comDespesas.length > 0 && semDespesas.length > 0) {
+        const sep = document.createElement('option')
+        sep.disabled = true
+        sep.textContent = '──────────────'
+        // Será inserido entre os grupos
+      }
+      ordenadas.forEach((t, idx) => {
+        // Inserir separador antes das sem despesas
+        if (idx === comDespesas.length && semDespesas.length > 0 && comDespesas.length > 0) {
+          const sep = document.createElement('option')
+          sep.disabled = true
+          sep.textContent = '──────────────'
+          sel.appendChild(sep)
+        }
+        const opt = document.createElement('option')
+        opt.value = t.id
+        const count = t.usos_despesas > 0 ? ` (${t.usos_despesas})` : ''
+        opt.textContent = `🏷️ ${t.nome}${count}`
+        // Adiciona cor como indicador visual via title
+        opt.title = t.cor || ''
+        sel.appendChild(opt)
+      })
+      // Restaurar seleção salva
+      if (this._despesaFiltro?.tagFiltro) sel.value = this._despesaFiltro.tagFiltro
+    } catch(e) {}
+  },
+
   _limparFiltrosDespesas() {
     const now = new Date()
     const el = (id) => document.getElementById(id)
@@ -3812,6 +3864,7 @@ const VM = {
     if (el('filtro-cat-d'))    el('filtro-cat-d').value    = ''
     if (el('filtro-busca-d'))  el('filtro-busca-d').value  = ''
     if (el('filtro-cartao-d')) el('filtro-cartao-d').value = ''
+    if (el('filtro-tag-d'))    el('filtro-tag-d').value    = ''
     this.carregarDespesas()
   },
 
@@ -3858,10 +3911,11 @@ const VM = {
     const cat    = document.getElementById('filtro-cat-d')?.value    || ''
     const busca  = document.getElementById('filtro-busca-d')?.value  || ''
     const cartaoFiltro = document.getElementById('filtro-cartao-d')?.value || ''
+    const tagFiltro    = document.getElementById('filtro-tag-d')?.value    || ''
     const limit  = 20
     const offset = (pagina - 1) * limit
 
-    this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro }
+    this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro, tagFiltro }
 
     let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
     if (status) qs += `&status=${status}`
@@ -3871,8 +3925,13 @@ const VM = {
     if (cartaoFiltro && cartaoFiltro !== '__sem_cartao__') {
       qs += `&cartao_id=${cartaoFiltro}`
     } else if (cartaoFiltro === '__sem_cartao__') {
-      // Excluir despesas com cartão (sem cartao_id preenchido)
       qs += `&sem_cartao=1`
+    }
+    // Filtro por tag
+    if (tagFiltro && tagFiltro !== '__sem_tag__') {
+      qs += `&tag_id=${tagFiltro}`
+    } else if (tagFiltro === '__sem_tag__') {
+      qs += `&sem_tag=1`
     }
 
     try {
@@ -4097,14 +4156,17 @@ const VM = {
       // Sync checkbox all → bar visibility
       document.getElementById('desp-chk-all')?.addEventListener('change', (e) => VM._selTodosDespesas(e.target.checked))
 
-      // Carregar tags de cada despesa de forma lazy (sem bloquear a renderização)
+      // Renderizar tags de cada despesa — usa dados já incluídos na resposta (sem chamadas extras)
       setTimeout(() => {
         ;(data.despesas || []).forEach(async d => {
           const el = document.getElementById('desp-tags-' + d.id)
           if (!el || el.dataset.loaded === '1') return
           el.dataset.loaded = '1'
           try {
-            const tags = await this.api('GET', 'tags/despesa/' + d.id).catch(() => [])
+            // Tags já vêm no objeto despesa desde a atualização do backend
+            const tags = (d.tags && d.tags.length > 0)
+              ? d.tags
+              : await this.api('GET', 'tags/despesa/' + d.id).catch(() => [])
             if (tags && tags.length > 0) {
               el.innerHTML = tags.map(t =>
                 '<span style="background:' + t.cor + '22;color:' + t.cor + ';border:1px solid ' + t.cor + '55;padding:1px 7px;border-radius:8px;font-size:0.65rem;font-weight:600;">' + t.nome + '</span>'

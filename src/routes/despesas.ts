@@ -105,7 +105,7 @@ function filtroCategoriaDespaSQL(categoria: string): string {
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao } = c.req.query()
+  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, tag_id, sem_tag } = c.req.query()
 
   let query = 'SELECT * FROM despesas WHERE user_id = ?'
   const params: any[] = [user.id]
@@ -136,6 +136,13 @@ despesas.get('/', requireAuth, async (c) => {
     query += ' AND descricao LIKE ?'
     params.push(`%${busca.replace(/'/g, "''")}%`)
   }
+  if (tag_id) {
+    query += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'
+    params.push(parseInt(tag_id))
+  }
+  if (sem_tag === '1') {
+    query += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)'
+  }
 
   query += ' ORDER BY data DESC, id DESC LIMIT ? OFFSET ?'
   params.push(parseInt(limit), parseInt(offset))
@@ -158,6 +165,8 @@ despesas.get('/', requireAuth, async (c) => {
   if (cartao_id)       { baseFilter += ' AND cartao_id = ?';       baseParams.push(parseInt(cartao_id)) }
   if (sem_cartao === '1') { baseFilter += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
   if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
+  if (tag_id)      { baseFilter += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'; baseParams.push(parseInt(tag_id)) }
+  if (sem_tag === '1') { baseFilter += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)' }
 
   const caseExpr = gerarCaseCategoriaDesp()
 
@@ -183,11 +192,30 @@ despesas.get('/', requireAuth, async (c) => {
   const rPendente = (totPendente.results?.[0]  as any) || { v: 0, n: 0 }
   const rGeral    = (totGeral.results?.[0]     as any) || { v: 0, n: 0 }
 
-  // Normalizar meio_pagamento nulo
-  const despesasNorm = (result.results || []).map((d: any) => ({
+  // Buscar tags de cada despesa retornada
+  const despesasResult = result.results || []
+  let tagsMap: Record<number, {id:number;nome:string;cor:string}[]> = {}
+  if (despesasResult.length > 0) {
+    const ids = (despesasResult as any[]).map((d: any) => d.id)
+    const inPlaceholders = ids.map(() => '?').join(',')
+    const tagsRows = await c.env.DB.prepare(
+      `SELECT dt.despesa_id, t.id, t.nome, t.cor
+       FROM despesa_tags dt JOIN tags t ON t.id = dt.tag_id
+       WHERE dt.despesa_id IN (${inPlaceholders})
+       ORDER BY t.nome ASC`
+    ).bind(...ids).all<{despesa_id:number;id:number;nome:string;cor:string}>()
+    for (const row of (tagsRows.results || [])) {
+      if (!tagsMap[row.despesa_id]) tagsMap[row.despesa_id] = []
+      tagsMap[row.despesa_id].push({ id: row.id, nome: row.nome, cor: row.cor })
+    }
+  }
+
+  // Normalizar meio_pagamento nulo e injetar tags
+  const despesasNorm = despesasResult.map((d: any) => ({
     ...d,
     meio_pagamento: d.meio_pagamento || 'dinheiro',
     categoria: normalizarCategoriaDesp(d.categoria || 'outros'),
+    tags: tagsMap[d.id] || [],
   }))
 
   return c.json({ 
