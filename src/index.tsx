@@ -37,6 +37,7 @@ import importacaoRoutes from './routes/importacao'
 import alertasCategoriaRoutes from './routes/alertas-categoria'
 import antecipacaoRoutes from './routes/antecipacao'
 import categorizacaoRoutes from './routes/categorizacao'
+import organizadorRoutes from './routes/organizador'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -88,6 +89,7 @@ app.route('/api/importacao', importacaoRoutes)
 app.route('/api/alertas-categoria', alertasCategoriaRoutes)
 app.route('/api/antecipacao', antecipacaoRoutes)
 app.route('/api/categorizacao', categorizacaoRoutes)
+app.route('/api/organizador', organizadorRoutes)
 
 // Alias: POST /api/chat/mensagem → /api/assistente/chat (compatibilidade)
 app.post('/api/chat/mensagem', async (c) => {

@@ -1281,6 +1281,9 @@ const VM = {
               <a class="nav-item" id="nav-compras-fantasma" onclick="VM.navigate('compras-fantasma')">
                 <span class="nav-icon">🛍️</span> Compras Fantasma
               </a>
+              <a class="nav-item" id="nav-organizador" onclick="VM.navigate('organizador')">
+                <span class="nav-icon">🗂️</span> Central de Organização
+              </a>
               <a class="nav-item" id="nav-tags" onclick="VM.navigate('tags')">
                 <span class="nav-icon"><i class="fas fa-tags" style="color:#a3e635;"></i></span> Tags & Filtros
               </a>
@@ -1850,6 +1853,7 @@ const VM = {
       conquistas: ['Conquistas', 'Sua evolução financeira'],
       perfil: ['Meu Perfil', 'Configurações da conta'],
       tags: ['Tags & Filtros 🏷️', 'Organize suas despesas com etiquetas'],
+      'organizador': ['🗂️ Central de Organização', 'Categorias e tags em massa — passado e futuro'],
       'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada'],
       'reservas-esp': ['🛡️ Minhas Reservas', 'Múltiplas reservas por objetivos específicos'],
       'assinaturas-fantasma': ['👻 Assinaturas Fantasma', 'Detecte gastos recorrentes esquecidos'],
@@ -1889,6 +1893,7 @@ const VM = {
       perfil: () => this.pagePerfil(),
       reserva: () => this.pageReserva(),
       tags: () => this.pageTags(),
+      'organizador': () => this.pageOrganizador(),
       'alertas-cartao': () => this.pageAlertasCartao(),
       'reservas-esp': () => this.pageReservasEsp(),
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
@@ -6946,6 +6951,710 @@ const VM = {
       if (selCat) selCat.value = categoria
       this.carregarDespesas()
     }, 350)
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CENTRAL DE ORGANIZAÇÃO
+  // ═══════════════════════════════════════════════════════════════════════════
+  async pageOrganizador() {
+    const content = document.getElementById('page-content')
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
+        <div>
+          <div style="font-size:1.3rem;font-weight:800;color:#F1F5F9;display:flex;align-items:center;gap:10px;">
+            <span style="background:linear-gradient(135deg,#8B5CF6,#06B6D4);width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem;box-shadow:0 4px 12px rgba(139,92,246,0.3);">🗂️</span>
+            Central de Organização
+          </div>
+          <div style="font-size:0.82rem;color:#94A3B8;margin-top:4px;">Organize categorias e tags em massa — passado e futuro</div>
+        </div>
+      </div>
+
+      <!-- Abas -->
+      <div style="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;" id="org-tabs">
+        <button onclick="VM._orgAba('higienizacao')" id="org-tab-higienizacao"
+          style="padding:8px 18px;border-radius:20px;border:none;font-size:0.85rem;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#8B5CF6,#06B6D4);color:#fff;box-shadow:0 2px 8px rgba(139,92,246,0.3);">
+          🧹 Higienização de Categorias
+        </button>
+        <button onclick="VM._orgAba('tags')" id="org-tab-tags"
+          style="padding:8px 18px;border-radius:20px;border:none;font-size:0.85rem;font-weight:600;cursor:pointer;background:#1E293B;color:#94A3B8;border:1px solid #334155;">
+          🏷️ Tags em Massa
+        </button>
+        <button onclick="VM._orgAba('ia')" id="org-tab-ia"
+          style="padding:8px 18px;border-radius:20px;border:none;font-size:0.85rem;font-weight:600;cursor:pointer;background:#1E293B;color:#94A3B8;border:1px solid #334155;">
+          🤖 Sugestões da IA
+        </button>
+      </div>
+
+      <!-- Conteúdo das abas -->
+      <div id="org-aba-content">
+        <div style="text-align:center;padding:40px;color:#64748B;">Carregando...</div>
+      </div>
+    `
+    // Carregar aba padrão
+    await VM._orgAba('higienizacao')
+  },
+
+  _orgAbaAtiva: 'higienizacao',
+  _orgCategorias: null,
+  _orgTags: null,
+
+  async _orgAba(aba) {
+    VM._orgAbaAtiva = aba
+    // Atualizar visual dos botões
+    const abas = ['higienizacao','tags','ia']
+    for (const a of abas) {
+      const btn = document.getElementById('org-tab-' + a)
+      if (!btn) continue
+      if (a === aba) {
+        btn.style.background = 'linear-gradient(135deg,#8B5CF6,#06B6D4)'
+        btn.style.color = '#fff'
+        btn.style.border = 'none'
+        btn.style.boxShadow = '0 2px 8px rgba(139,92,246,0.3)'
+      } else {
+        btn.style.background = '#1E293B'
+        btn.style.color = '#94A3B8'
+        btn.style.border = '1px solid #334155'
+        btn.style.boxShadow = 'none'
+      }
+    }
+
+    const abaContent = document.getElementById('org-aba-content')
+    if (!abaContent) return
+    abaContent.innerHTML = '<div style="text-align:center;padding:40px;color:#64748B;"><span style="font-size:1.5rem;">⏳</span><br>Carregando...</div>'
+
+    if (aba === 'higienizacao') await VM._orgCarregarHigienizacao()
+    else if (aba === 'tags') await VM._orgCarregarTags()
+    else if (aba === 'ia') await VM._orgCarregarIA()
+  },
+
+  // ─── ABA: HIGIENIZAÇÃO DE CATEGORIAS ─────────────────────────────────────
+  async _orgCarregarHigienizacao() {
+    const abaContent = document.getElementById('org-aba-content')
+    try {
+      const data = await this.api('GET', 'organizador/categorias')
+      VM._orgCategorias = data.categorias || []
+
+      const duplicatas = VM._orgCategorias.filter(c => c.tem_duplicata)
+      const semDuplicata = VM._orgCategorias.filter(c => !c.tem_duplicata)
+
+      abaContent.innerHTML = `
+        <div style="display:grid;gap:20px;">
+
+          ${duplicatas.length > 0 ? `
+          <!-- Alertas de possíveis duplicatas -->
+          <div style="background:#1E293B;border-radius:12px;padding:20px;border:1px solid #F59E0B33;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+              <span style="font-size:1.1rem;">⚠️</span>
+              <span style="font-size:0.95rem;font-weight:700;color:#F59E0B;">${duplicatas.length} possíve${duplicatas.length > 1 ? 'is duplicatas' : 'l duplicata'} detectada${duplicatas.length > 1 ? 's' : ''}</span>
+              <span style="font-size:0.78rem;color:#64748B;margin-left:auto;">Clique em "Mesclar" para unificar</span>
+            </div>
+            <div style="display:grid;gap:10px;">
+              ${duplicatas.map(cat => `
+                <div style="background:#0F172A;border-radius:10px;padding:14px 16px;border:1px solid #F59E0B44;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:180px;">
+                    <div style="font-size:0.88rem;font-weight:700;color:#F1F5F9;">${cat.categoria}</div>
+                    <div style="font-size:0.75rem;color:#64748B;margin-top:2px;">${cat.total_despesas} despesa${cat.total_despesas !== 1 ? 's' : ''} · R$ ${Number(cat.total_valor).toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+                    <div style="font-size:0.73rem;color:#F59E0B;margin-top:3px;">Similar a: ${cat.possiveis_duplicatas.join(', ')}</div>
+                  </div>
+                  <button onclick="VM._orgMesclarModal('${cat.categoria.replace(/'/g, "\\'")}', ${JSON.stringify(cat.possiveis_duplicatas).replace(/"/g, '&quot;')})"
+                    style="padding:7px 14px;background:linear-gradient(135deg,#F59E0B,#EF4444);color:#fff;border:none;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+                    🔀 Mesclar
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+
+          <!-- Todas as categorias -->
+          <div style="background:#1E293B;border-radius:12px;padding:20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+              <div style="font-size:0.95rem;font-weight:700;color:#F1F5F9;">
+                📋 Todas as Categorias <span style="font-size:0.8rem;color:#64748B;font-weight:400;">(${data.total_categorias} no total)</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="VM._orgMesclarManual()"
+                  style="padding:7px 14px;background:#334155;color:#94A3B8;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer;">
+                  🔀 Mesclar Selecionadas
+                </button>
+                <button onclick="VM._orgRenomearModal()"
+                  style="padding:7px 14px;background:#334155;color:#94A3B8;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer;">
+                  ✏️ Renomear
+                </button>
+              </div>
+            </div>
+
+            <!-- Input de busca -->
+            <input id="org-cat-busca" type="text" placeholder="🔍 Buscar categoria..."
+              oninput="VM._orgFiltrarCategorias(this.value)"
+              style="width:100%;padding:9px 14px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#F1F5F9;font-size:0.85rem;margin-bottom:14px;box-sizing:border-box;">
+
+            <div id="org-lista-categorias" style="display:grid;gap:6px;max-height:450px;overflow-y:auto;">
+              ${VM._orgCategorias.map(cat => `
+                <div class="org-cat-row" data-cat="${cat.categoria.replace(/"/g, '&quot;')}"
+                  style="background:#0F172A;border-radius:8px;padding:11px 14px;display:flex;align-items:center;gap:10px;border:1px solid #1E293B;">
+                  <input type="checkbox" class="org-cat-check" value="${cat.categoria.replace(/"/g, '&quot;')}"
+                    style="width:16px;height:16px;accent-color:#8B5CF6;cursor:pointer;flex-shrink:0;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:0.85rem;font-weight:600;color:#F1F5F9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat.categoria}</div>
+                    <div style="font-size:0.73rem;color:#64748B;margin-top:1px;">${cat.total_despesas} despesa${cat.total_despesas !== 1 ? 's' : ''} · R$ ${Number(cat.total_valor).toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+                  </div>
+                  ${cat.tem_duplicata ? `<span style="font-size:0.7rem;background:#F59E0B22;color:#F59E0B;padding:2px 7px;border-radius:10px;white-space:nowrap;">⚠️ Duplicata</span>` : ''}
+                  <button onclick="VM._orgRenomearModal('${cat.categoria.replace(/'/g, "\\'")}')"
+                    title="Renomear categoria"
+                    style="padding:5px 9px;background:#1E293B;color:#94A3B8;border:1px solid #334155;border-radius:6px;font-size:0.75rem;cursor:pointer;flex-shrink:0;">
+                    ✏️
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+        </div>
+      `
+    } catch(e) {
+      abaContent.innerHTML = `<div style="color:#EF4444;padding:20px;">Erro ao carregar categorias: ${e.message}</div>`
+    }
+  },
+
+  _orgFiltrarCategorias(busca) {
+    const rows = document.querySelectorAll('.org-cat-row')
+    const b = busca.toLowerCase()
+    rows.forEach(row => {
+      const cat = (row.dataset.cat || '').toLowerCase()
+      row.style.display = cat.includes(b) ? '' : 'none'
+    })
+  },
+
+  // Modal Mesclar (a partir de duplicata detectada)
+  _orgMesclarModal(catPrincipal, similares) {
+    const todasStr = JSON.stringify([catPrincipal, ...(Array.isArray(similares) ? similares : [])])
+    const opts = [catPrincipal, ...(Array.isArray(similares) ? similares : [])].map(c =>
+      `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`
+    ).join('')
+    document.getElementById('modal-body').innerHTML = `
+      <div style="padding:0 4px;">
+        <h3 style="color:#F1F5F9;font-size:1rem;font-weight:700;margin:0 0 16px;">🔀 Mesclar Categorias</h3>
+        <p style="font-size:0.82rem;color:#94A3B8;margin-bottom:16px;">
+          Todas as despesas das categorias selecionadas serão movidas para o <b style="color:#F1F5F9;">destino</b> escolhido.
+          Esta ação <b style="color:#EF4444;">não pode ser desfeita</b>.
+        </p>
+
+        <div style="margin-bottom:14px;">
+          <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Categorias a mesclar (origens):</label>
+          <div id="org-mesclar-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:#0F172A;border-radius:8px;border:1px solid #334155;min-height:42px;">
+            ${[catPrincipal, ...(Array.isArray(similares) ? similares : [])].map(c => `
+              <span class="org-mesclar-chip" data-val="${c.replace(/"/g, '&quot;')}"
+                style="background:#8B5CF622;color:#A78BFA;padding:4px 10px;border-radius:14px;font-size:0.78rem;cursor:pointer;border:1px solid #8B5CF633;"
+                title="Clique para remover" onclick="this.style.opacity=this.style.opacity==='0.35'?'1':'0.35';this.dataset.ativo=this.dataset.ativo==='0'?'1':'0';"
+                data-ativo="1">
+                ${c} ✕
+              </span>
+            `).join('')}
+          </div>
+          <div style="font-size:0.73rem;color:#64748B;margin-top:4px;">Clique em uma categoria para incluir/excluir da mesclagem</div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Categoria destino (nome final):</label>
+          <select id="org-mesclar-destino"
+            style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#F1F5F9;font-size:0.85rem;">
+            ${opts}
+          </select>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+            <span style="font-size:0.73rem;color:#64748B;">Ou digitar nome personalizado:</span>
+            <input id="org-mesclar-destino-custom" type="text" placeholder="Ex: Financiamentos"
+              style="flex:1;padding:6px 10px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#F1F5F9;font-size:0.8rem;">
+          </div>
+        </div>
+
+        <div id="org-mesclar-preview" style="font-size:0.78rem;color:#64748B;margin-bottom:16px;min-height:20px;"></div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="VM._fecharModal()" style="padding:9px 18px;background:#334155;color:#94A3B8;border:none;border-radius:8px;font-size:0.85rem;cursor:pointer;">Cancelar</button>
+          <button onclick="VM._orgExecutarMesclar()" style="padding:9px 18px;background:linear-gradient(135deg,#8B5CF6,#06B6D4);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">✅ Confirmar Mesclagem</button>
+        </div>
+      </div>
+    `
+    VM._abrirModal()
+  },
+
+  // Modal Mesclar manual (a partir de checkboxes selecionados)
+  _orgMesclarManual() {
+    const checks = document.querySelectorAll('.org-cat-check:checked')
+    if (checks.length < 2) {
+      VM._toast('⚠️ Selecione ao menos 2 categorias para mesclar', '#F59E0B')
+      return
+    }
+    const selecionadas = Array.from(checks).map(c => c.value)
+    VM._orgMesclarModal(selecionadas[0], selecionadas.slice(1))
+  },
+
+  async _orgExecutarMesclar() {
+    const chips = document.querySelectorAll('.org-mesclar-chip')
+    const origens = Array.from(chips)
+      .filter(c => c.dataset.ativo !== '0')
+      .map(c => c.dataset.val)
+      .filter(Boolean)
+
+    const selectDestino = document.getElementById('org-mesclar-destino')
+    const inputCustom = document.getElementById('org-mesclar-destino-custom')
+    const destino = (inputCustom?.value?.trim()) || (selectDestino?.value?.trim()) || ''
+
+    if (!destino) { VM._toast('⚠️ Informe o nome de destino', '#F59E0B'); return }
+    if (origens.length < 1) { VM._toast('⚠️ Selecione ao menos uma categoria de origem', '#F59E0B'); return }
+
+    const btn = document.querySelector('#modal-body button:last-child')
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Mesclando...' }
+
+    try {
+      const res = await this.api('POST', 'organizador/mesclar', {
+        categorias_origem: origens,
+        categoria_destino: destino
+      })
+      VM._fecharModal()
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgCategorias = null
+      await VM._orgCarregarHigienizacao()
+    } catch(e) {
+      VM._toast(`❌ Erro: ${e.message}`, '#EF4444')
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar Mesclagem' }
+    }
+  },
+
+  // Modal Renomear
+  _orgRenomearModal(categoriaAtual) {
+    // Se não foi passada, ver se há exatamente 1 selecionada
+    if (!categoriaAtual) {
+      const checks = document.querySelectorAll('.org-cat-check:checked')
+      if (checks.length !== 1) {
+        VM._toast('⚠️ Selecione exatamente 1 categoria para renomear', '#F59E0B')
+        return
+      }
+      categoriaAtual = checks[0].value
+    }
+    document.getElementById('modal-body').innerHTML = `
+      <div style="padding:0 4px;">
+        <h3 style="color:#F1F5F9;font-size:1rem;font-weight:700;margin:0 0 16px;">✏️ Renomear Categoria</h3>
+        <p style="font-size:0.82rem;color:#94A3B8;margin-bottom:16px;">
+          Todas as despesas com a categoria atual serão atualizadas para o novo nome (passado e futuro).
+        </p>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Nome atual:</label>
+          <input type="text" value="${categoriaAtual.replace(/"/g, '&quot;')}" disabled
+            style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#64748B;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:20px;">
+          <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Novo nome:</label>
+          <input id="org-rename-novo" type="text" placeholder="Ex: Financiamentos" maxlength="40"
+            style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #8B5CF6;border-radius:8px;color:#F1F5F9;font-size:0.85rem;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="VM._fecharModal()" style="padding:9px 18px;background:#334155;color:#94A3B8;border:none;border-radius:8px;font-size:0.85rem;cursor:pointer;">Cancelar</button>
+          <button onclick="VM._orgExecutarRenomear('${categoriaAtual.replace(/'/g, "\\'")}')"
+            style="padding:9px 18px;background:linear-gradient(135deg,#8B5CF6,#06B6D4);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">✅ Renomear</button>
+        </div>
+      </div>
+    `
+    VM._abrirModal()
+    setTimeout(() => document.getElementById('org-rename-novo')?.focus(), 100)
+  },
+
+  async _orgExecutarRenomear(origemCat) {
+    const novoNome = document.getElementById('org-rename-novo')?.value?.trim()
+    if (!novoNome) { VM._toast('⚠️ Informe o novo nome', '#F59E0B'); return }
+
+    const btn = document.querySelector('#modal-body button:last-child')
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Renomeando...' }
+
+    try {
+      const res = await this.api('POST', 'organizador/renomear', {
+        categoria_origem: origemCat,
+        categoria_destino: novoNome
+      })
+      VM._fecharModal()
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgCategorias = null
+      await VM._orgCarregarHigienizacao()
+    } catch(e) {
+      VM._toast(`❌ Erro: ${e.message}`, '#EF4444')
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Renomear' }
+    }
+  },
+
+  // ─── ABA: TAGS EM MASSA ───────────────────────────────────────────────────
+  async _orgCarregarTags() {
+    const abaContent = document.getElementById('org-aba-content')
+    try {
+      const [dataTags, dataCats] = await Promise.all([
+        this.api('GET', 'organizador/tags'),
+        VM._orgCategorias ? Promise.resolve({ categorias: VM._orgCategorias }) : this.api('GET', 'organizador/categorias')
+      ])
+      VM._orgTags = dataTags.tags || []
+      if (!VM._orgCategorias) VM._orgCategorias = dataCats.categorias || []
+
+      const cats = VM._orgCategorias
+      const tags = VM._orgTags
+
+      abaContent.innerHTML = `
+        <div style="display:grid;gap:20px;">
+
+          <!-- Aplicar tag em lote -->
+          <div style="background:#1E293B;border-radius:12px;padding:20px;">
+            <div style="font-size:0.95rem;font-weight:700;color:#F1F5F9;margin-bottom:16px;">
+              ➕ Aplicar Tag em Massa
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" class="resp-grid-1">
+
+              <div>
+                <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Tag a aplicar *</label>
+                <select id="org-tag-sel" onchange="VM._orgTagPreview()"
+                  style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#F1F5F9;font-size:0.85rem;">
+                  <option value="">— selecione —</option>
+                  ${tags.map(t => `<option value="${t.id}" data-cor="${t.cor}">${t.nome} (${t.total_despesas})</option>`).join('')}
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Filtrar por Categoria</label>
+                <select id="org-tag-cat" onchange="VM._orgTagPreview()"
+                  style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#F1F5F9;font-size:0.85rem;">
+                  <option value="">— todas as categorias —</option>
+                  ${cats.map(c => `<option value="${c.categoria.replace(/"/g, '&quot;')}">${c.categoria} (${c.total_despesas})</option>`).join('')}
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:0.8rem;color:#94A3B8;display:block;margin-bottom:6px;">Descrição contém</label>
+                <input id="org-tag-desc" type="text" placeholder="Ex: Mercado, Netflix, Parcela..."
+                  oninput="clearTimeout(VM._orgTagPreviewTimer);VM._orgTagPreviewTimer=setTimeout(()=>VM._orgTagPreview(),600)"
+                  style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#F1F5F9;font-size:0.85rem;box-sizing:border-box;">
+              </div>
+
+              <div style="display:flex;align-items:flex-end;gap:10px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;color:#94A3B8;padding-bottom:10px;">
+                  <input type="checkbox" id="org-tag-semtag" onchange="VM._orgTagPreview()"
+                    style="width:16px;height:16px;accent-color:#8B5CF6;">
+                  Apenas despesas sem tag
+                </label>
+              </div>
+            </div>
+
+            <!-- Preview -->
+            <div id="org-tag-preview" style="background:#0F172A;border-radius:8px;padding:12px;margin-bottom:14px;min-height:48px;border:1px solid #334155;">
+              <span style="color:#64748B;font-size:0.82rem;">Configure os filtros acima e veja o preview aqui</span>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button onclick="VM._orgAplicarTagLote()"
+                style="padding:9px 20px;background:linear-gradient(135deg,#8B5CF6,#06B6D4);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                ✅ Aplicar Tag
+              </button>
+              <button onclick="VM._orgRemoverTagLote()"
+                style="padding:9px 20px;background:#EF444422;color:#F87171;border:1px solid #EF444444;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                🗑️ Remover Tag do Filtro
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de tags com uso -->
+          <div style="background:#1E293B;border-radius:12px;padding:20px;">
+            <div style="font-size:0.95rem;font-weight:700;color:#F1F5F9;margin-bottom:16px;">
+              🏷️ Suas Tags <span style="font-size:0.8rem;color:#64748B;font-weight:400;">(${tags.length} total)</span>
+            </div>
+            <div style="display:grid;gap:8px;max-height:350px;overflow-y:auto;">
+              ${tags.length === 0 ? `<div style="color:#64748B;font-size:0.85rem;padding:10px;">Nenhuma tag cadastrada ainda.</div>` :
+                tags.map(t => `
+                  <div style="background:#0F172A;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;border:1px solid #1E293B;">
+                    <span style="width:12px;height:12px;border-radius:50%;background:${t.cor};flex-shrink:0;"></span>
+                    <span style="flex:1;font-size:0.85rem;font-weight:600;color:#F1F5F9;">${t.nome}</span>
+                    <span style="font-size:0.75rem;color:#64748B;">${t.total_despesas} despesa${t.total_despesas !== 1 ? 's' : ''}</span>
+                    <span style="font-size:0.75rem;color:#94A3B8;">R$ ${Number(t.total_valor).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
+                  </div>
+                `).join('')
+              }
+            </div>
+          </div>
+
+        </div>
+      `
+    } catch(e) {
+      abaContent.innerHTML = `<div style="color:#EF4444;padding:20px;">Erro: ${e.message}</div>`
+    }
+  },
+
+  _orgTagPreviewTimer: null,
+
+  async _orgTagPreview() {
+    const preview = document.getElementById('org-tag-preview')
+    if (!preview) return
+    const cat = document.getElementById('org-tag-cat')?.value || ''
+    const desc = document.getElementById('org-tag-desc')?.value?.trim() || ''
+    const semTag = document.getElementById('org-tag-semtag')?.checked ? '1' : ''
+
+    if (!cat && !desc && !semTag) {
+      preview.innerHTML = '<span style="color:#64748B;font-size:0.82rem;">Configure os filtros acima e veja o preview aqui</span>'
+      return
+    }
+
+    preview.innerHTML = '<span style="color:#64748B;font-size:0.82rem;">⏳ Calculando...</span>'
+
+    try {
+      const qs = new URLSearchParams()
+      if (cat) qs.set('categoria', cat)
+      if (desc) qs.set('descricao_contem', desc)
+      if (semTag) qs.set('sem_tag', '1')
+
+      const data = await this.api('GET', `organizador/preview?${qs.toString()}`)
+      const amostra = data.amostra || []
+      preview.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <span style="font-size:1rem;font-weight:700;color:#8B5CF6;">${data.total}</span>
+          <span style="font-size:0.82rem;color:#94A3B8;">despesa${data.total !== 1 ? 's' : ''} encontrada${data.total !== 1 ? 's' : ''}</span>
+        </div>
+        ${amostra.length > 0 ? `
+          <div style="font-size:0.73rem;color:#64748B;margin-bottom:4px;">Amostra:</div>
+          ${amostra.map(d => `
+            <div style="font-size:0.75rem;color:#94A3B8;padding:2px 0;">
+              • <b style="color:#F1F5F9;">${d.descricao}</b> — ${d.categoria} — R$ ${Number(d.valor).toLocaleString('pt-BR', {minimumFractionDigits:2})}
+            </div>
+          `).join('')}
+        ` : ''}
+      `
+    } catch {
+      preview.innerHTML = '<span style="color:#64748B;font-size:0.82rem;">Não foi possível calcular preview</span>'
+    }
+  },
+
+  async _orgAplicarTagLote() {
+    const tagSel = document.getElementById('org-tag-sel')
+    const tagId = Number(tagSel?.value)
+    if (!tagId) { VM._toast('⚠️ Selecione uma tag', '#F59E0B'); return }
+
+    const cat = document.getElementById('org-tag-cat')?.value || ''
+    const desc = document.getElementById('org-tag-desc')?.value?.trim() || ''
+    const semTag = document.getElementById('org-tag-semtag')?.checked
+
+    const filtro = {}
+    if (cat) filtro.categoria = cat
+    if (desc) filtro.descricao_contem = desc
+    if (semTag) filtro.sem_tag = true
+
+    if (!cat && !desc && !semTag) {
+      VM._toast('⚠️ Configure ao menos um filtro antes de aplicar', '#F59E0B')
+      return
+    }
+
+    try {
+      const res = await this.api('POST', 'organizador/aplicar-tags-lote', { tag_id: tagId, filtro })
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgTags = null
+      await VM._orgCarregarTags()
+    } catch(e) {
+      VM._toast(`❌ Erro: ${e.message}`, '#EF4444')
+    }
+  },
+
+  async _orgRemoverTagLote() {
+    const tagSel = document.getElementById('org-tag-sel')
+    const tagId = Number(tagSel?.value)
+    if (!tagId) { VM._toast('⚠️ Selecione uma tag para remover', '#F59E0B'); return }
+
+    const cat = document.getElementById('org-tag-cat')?.value || ''
+    const desc = document.getElementById('org-tag-desc')?.value?.trim() || ''
+
+    if (!cat && !desc) {
+      VM._toast('⚠️ Configure ao menos um filtro antes de remover', '#F59E0B')
+      return
+    }
+
+    const filtro = {}
+    if (cat) filtro.categoria = cat
+    if (desc) filtro.descricao_contem = desc
+
+    try {
+      const res = await this.api('POST', 'organizador/remover-tags-lote', { tag_id: tagId, filtro })
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgTags = null
+      await VM._orgCarregarTags()
+    } catch(e) {
+      VM._toast(`❌ Erro: ${e.message}`, '#EF4444')
+    }
+  },
+
+  // ─── ABA: IA ──────────────────────────────────────────────────────────────
+  async _orgCarregarIA() {
+    const abaContent = document.getElementById('org-aba-content')
+
+    // Garantir que temos as categorias carregadas
+    if (!VM._orgCategorias) {
+      try {
+        const data = await this.api('GET', 'organizador/categorias')
+        VM._orgCategorias = data.categorias || []
+      } catch(e) {
+        abaContent.innerHTML = `<div style="color:#EF4444;padding:20px;">Erro ao carregar categorias: ${e.message}</div>`
+        return
+      }
+    }
+
+    const cats = VM._orgCategorias
+
+    abaContent.innerHTML = `
+      <div style="display:grid;gap:20px;">
+
+        <div style="background:#1E293B;border-radius:12px;padding:20px;">
+          <div style="font-size:0.95rem;font-weight:700;color:#F1F5F9;margin-bottom:8px;">
+            🤖 Análise Inteligente de Categorias
+          </div>
+          <p style="font-size:0.82rem;color:#94A3B8;margin:0 0 16px;">
+            A IA analisa suas categorias e identifica duplicatas, variações de escrita e oportunidades de organização.
+            Você revisa cada sugestão antes de aplicar.
+          </p>
+
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+            <div style="font-size:0.82rem;color:#64748B;">${cats.length} categorias para analisar</div>
+            <button id="org-ia-btn" onclick="VM._orgExecutarIA()"
+              style="padding:9px 20px;background:linear-gradient(135deg,#8B5CF6,#EC4899);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;">
+              🚀 Analisar com IA
+            </button>
+          </div>
+
+          <div id="org-ia-resultado" style="display:none;"></div>
+        </div>
+
+        <!-- Instrução manual se não tiver API key -->
+        <div style="background:#1E293B;border-radius:12px;padding:20px;border:1px dashed #334155;">
+          <div style="font-size:0.85rem;font-weight:600;color:#F1F5F9;margin-bottom:8px;">💡 Dica: Análise Local</div>
+          <p style="font-size:0.8rem;color:#94A3B8;margin:0 0 12px;">
+            Mesmo sem IA, a aba <b>Higienização</b> já detecta automaticamente possíveis duplicatas de categorias
+            usando comparação inteligente de nomes.
+          </p>
+          <button onclick="VM._orgAba('higienizacao')"
+            style="padding:7px 16px;background:#334155;color:#94A3B8;border:none;border-radius:8px;font-size:0.82rem;cursor:pointer;">
+            🧹 Ir para Higienização
+          </button>
+        </div>
+      </div>
+    `
+  },
+
+  async _orgExecutarIA() {
+    const btn = document.getElementById('org-ia-btn')
+    const resultado = document.getElementById('org-ia-resultado')
+    if (!btn || !resultado) return
+
+    btn.disabled = true
+    btn.innerHTML = '⏳ Analisando...'
+
+    const cats = (VM._orgCategorias || []).map((c) => c.categoria)
+
+    try {
+      const data = await this.api('POST', 'organizador/sugerir-ia', { categorias: cats })
+      const sug = data.sugestoes || {}
+      const grupos = sug.grupos || []
+      const renomear = sug.renomear || []
+      const ok = sug.ok || []
+
+      resultado.style.display = 'block'
+      resultado.innerHTML = `
+        <div style="border-top:1px solid #334155;margin-top:16px;padding-top:16px;">
+          <div style="font-size:0.85rem;color:#64748B;margin-bottom:12px;">Fonte: <b style="color:#94A3B8;">${data.fonte === 'ia' ? '🤖 IA' : '⚙️ Análise local'}</b></div>
+
+          ${grupos.length === 0 && renomear.length === 0 ? `
+            <div style="text-align:center;padding:24px;color:#10B981;font-size:0.9rem;">
+              ✅ Ótimo! Suas categorias estão bem organizadas.
+            </div>
+          ` : ''}
+
+          ${grupos.length > 0 ? `
+            <div style="margin-bottom:20px;">
+              <div style="font-size:0.88rem;font-weight:700;color:#F59E0B;margin-bottom:10px;">
+                🔀 Grupos para Mesclar (${grupos.length})
+              </div>
+              <div style="display:grid;gap:10px;">
+                ${grupos.map((g, i) => `
+                  <div style="background:#0F172A;border-radius:8px;padding:14px;border:1px solid #F59E0B33;">
+                    <div style="font-size:0.82rem;color:#94A3B8;margin-bottom:6px;">${g.motivo}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+                      ${g.categorias.map(c => `<span style="background:#1E293B;color:#F1F5F9;padding:3px 10px;border-radius:10px;font-size:0.78rem;">${c}</span>`).join('')}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                      <span style="font-size:0.78rem;color:#64748B;">Destino sugerido:</span>
+                      <input id="org-ia-destino-${i}" type="text" value="${g.destino_sugerido.replace(/"/g, '&quot;')}"
+                        style="padding:5px 10px;background:#1E293B;border:1px solid #8B5CF6;border-radius:6px;color:#F1F5F9;font-size:0.8rem;flex:1;min-width:120px;max-width:200px;">
+                      <button onclick="VM._orgExecutarMesclarIA(${JSON.stringify(g.categorias).replace(/"/g, '&quot;')}, document.getElementById('org-ia-destino-${i}').value)"
+                        style="padding:6px 12px;background:linear-gradient(135deg,#8B5CF6,#06B6D4);color:#fff;border:none;border-radius:6px;font-size:0.78rem;font-weight:600;cursor:pointer;">
+                        Mesclar
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          ${renomear.length > 0 ? `
+            <div style="margin-bottom:20px;">
+              <div style="font-size:0.88rem;font-weight:700;color:#06B6D4;margin-bottom:10px;">
+                ✏️ Renomeações Sugeridas (${renomear.length})
+              </div>
+              <div style="display:grid;gap:8px;">
+                ${renomear.map((r) => `
+                  <div style="background:#0F172A;border-radius:8px;padding:12px;border:1px solid #06B6D444;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span style="font-size:0.82rem;color:#94A3B8;flex:1;min-width:120px;">${r.origem} → <b style="color:#06B6D4;">${r.destino}</b></span>
+                    <span style="font-size:0.73rem;color:#64748B;flex:2;">${r.motivo}</span>
+                    <button onclick="VM._orgExecutarRenomearDireto('${r.origem.replace(/'/g, "\\'")}', '${r.destino.replace(/'/g, "\\'")}')"
+                      style="padding:5px 12px;background:#06B6D422;color:#06B6D4;border:1px solid #06B6D444;border-radius:6px;font-size:0.78rem;cursor:pointer;">
+                      Renomear
+                    </button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          ${ok.length > 0 ? `
+            <div style="font-size:0.8rem;color:#64748B;">
+              ✅ Categorias OK: ${ok.join(', ')}
+            </div>
+          ` : ''}
+        </div>
+      `
+    } catch(e) {
+      resultado.style.display = 'block'
+      resultado.innerHTML = `<div style="color:#EF4444;padding:12px;">Erro na análise: ${e.message}</div>`
+    } finally {
+      btn.disabled = false
+      btn.innerHTML = '🚀 Analisar com IA'
+    }
+  },
+
+  async _orgExecutarMesclarIA(categorias, destino) {
+    if (!destino) { VM._toast('⚠️ Informe o nome de destino', '#F59E0B'); return }
+    try {
+      const res = await this.api('POST', 'organizador/mesclar', {
+        categorias_origem: categorias.filter(c => c !== destino),
+        categoria_destino: destino
+      })
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgCategorias = null
+      await VM._orgExecutarIA()
+    } catch(e) {
+      VM._toast(`❌ ${e.message}`, '#EF4444')
+    }
+  },
+
+  async _orgExecutarRenomearDireto(origem, destino) {
+    try {
+      const res = await this.api('POST', 'organizador/renomear', {
+        categoria_origem: origem,
+        categoria_destino: destino
+      })
+      VM._toast(`✅ ${res.mensagem}`, '#10B981')
+      VM._orgCategorias = null
+      await VM._orgExecutarIA()
+    } catch(e) {
+      VM._toast(`❌ ${e.message}`, '#EF4444')
+    }
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
