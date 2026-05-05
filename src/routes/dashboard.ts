@@ -797,15 +797,15 @@ dashboard.get('/anos', requireAuth, async (c) => {
 
   const [despAnos, recAnos] = await Promise.all([
     c.env.DB.prepare(`
-      SELECT DISTINCT CAST(strftime('%Y', data_vencimento) AS INTEGER) AS ano
+      SELECT DISTINCT CAST(strftime('%Y', vencimento) AS INTEGER) AS ano
       FROM despesas
-      WHERE usuario_id = ? AND status != 'cancelado'
+      WHERE user_id = ? AND status != 'cancelado'
       ORDER BY ano
     `).bind(user.id).all(),
     c.env.DB.prepare(`
-      SELECT DISTINCT CAST(strftime('%Y', data_recebimento) AS INTEGER) AS ano
+      SELECT DISTINCT CAST(strftime('%Y', data) AS INTEGER) AS ano
       FROM receitas
-      WHERE usuario_id = ?
+      WHERE user_id = ?
       ORDER BY ano
     `).bind(user.id).all(),
   ])
