@@ -3806,8 +3806,8 @@ const VM = {
       if (cartoes.length === 0) return
       // Guardar valor atual
       const atual = sel.value
-      // Remover opções antigas de cartão (manter "Todos" e "Sem cartão")
-      Array.from(sel.options).slice(2).forEach(o => o.remove())
+      // Remover opções antigas de cartão (manter "Todos", "Com cartão" e "Sem cartão")
+      Array.from(sel.options).slice(3).forEach(o => o.remove())
       cartoes.forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.id
