@@ -3740,6 +3740,7 @@ const VM = {
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Cartão</label>
             <select id="filtro-cartao-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:130px;" onchange="VM.carregarDespesas()">
               <option value="">Todos</option>
+              <option value="__com_cartao__">Com cartão</option>
               <option value="__sem_cartao__">Sem cartão</option>
               <div id="filtro-cartao-options-placeholder"></div>
             </select>
@@ -3926,11 +3927,13 @@ const VM = {
     if (status) qs += `&status=${status}`
     if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
     if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
-    // Filtro por cartão: __sem_cartao__ → mean_pagamento sem cartão; ID numérico → cartao_id
-    if (cartaoFiltro && cartaoFiltro !== '__sem_cartao__') {
+    // Filtro por cartão: __sem_cartao__ → sem cartão; __com_cartao__ → qualquer cartão; ID numérico → cartao_id
+    if (cartaoFiltro && cartaoFiltro !== '__sem_cartao__' && cartaoFiltro !== '__com_cartao__') {
       qs += `&cartao_id=${cartaoFiltro}`
     } else if (cartaoFiltro === '__sem_cartao__') {
       qs += `&sem_cartao=1`
+    } else if (cartaoFiltro === '__com_cartao__') {
+      qs += `&com_cartao=1`
     }
     // Filtro por tag
     if (tagFiltro && tagFiltro !== '__sem_tag__') {

@@ -105,7 +105,7 @@ function filtroCategoriaDespaSQL(categoria: string): string {
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, tag_id, sem_tag } = c.req.query()
+  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag } = c.req.query()
 
   let query = 'SELECT * FROM despesas WHERE user_id = ?'
   const params: any[] = [user.id]
@@ -130,8 +130,9 @@ despesas.get('/', requireAuth, async (c) => {
   if (categoria) { query += filtroCategoriaDespaSQL(categoria) }
   if (status)    { query += ' AND status = ?';    params.push(status) }
   if (meio_pagamento) { query += ' AND meio_pagamento = ?'; params.push(meio_pagamento) }
-  if (cartao_id)       { query += ' AND cartao_id = ?';       params.push(parseInt(cartao_id)) }
+  if (cartao_id)          { query += ' AND cartao_id = ?';                    params.push(parseInt(cartao_id)) }
   if (sem_cartao === '1') { query += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
+  if (com_cartao === '1') { query += ' AND cartao_id IS NOT NULL AND cartao_id != 0' }
   if (busca) {
     query += ' AND descricao LIKE ?'
     params.push(`%${busca.replace(/'/g, "''")}%`)
@@ -162,8 +163,9 @@ despesas.get('/', requireAuth, async (c) => {
   if (categoria)   { baseFilter += filtroCategoriaDespaSQL(categoria) }
   if (status)      { baseFilter += ' AND status = ?';          baseParams.push(status) }
   if (meio_pagamento) { baseFilter += ' AND meio_pagamento = ?'; baseParams.push(meio_pagamento) }
-  if (cartao_id)       { baseFilter += ' AND cartao_id = ?';       baseParams.push(parseInt(cartao_id)) }
+  if (cartao_id)          { baseFilter += ' AND cartao_id = ?';                    baseParams.push(parseInt(cartao_id)) }
   if (sem_cartao === '1') { baseFilter += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
+  if (com_cartao === '1') { baseFilter += ' AND cartao_id IS NOT NULL AND cartao_id != 0' }
   if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
   if (tag_id)      { baseFilter += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'; baseParams.push(parseInt(tag_id)) }
   if (sem_tag === '1') { baseFilter += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)' }
