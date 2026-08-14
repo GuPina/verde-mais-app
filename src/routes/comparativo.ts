@@ -231,7 +231,7 @@ comparativo.get('/historico', requireAuth, async (c) => {
               COALESCE(SUM(valor),0) as total
        FROM receitas
        WHERE user_id=? AND data BETWEEN ? AND ?
-       GROUP BY strftime('%Y-%m', data)`
+       GROUP BY strftime('%Y-%m', data), strftime('%m', data), strftime('%Y', data)`
     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
 
     c.env.DB.prepare(
@@ -241,7 +241,9 @@ comparativo.get('/historico', requireAuth, async (c) => {
        FROM despesas
        WHERE user_id=? AND status!='cancelado'
          AND COALESCE(vencimento,data) BETWEEN ? AND ?
-       GROUP BY strftime('%Y-%m', COALESCE(vencimento,data))`
+       GROUP BY strftime('%Y-%m', COALESCE(vencimento,data)),
+                strftime('%m', COALESCE(vencimento,data)),
+                strftime('%Y', COALESCE(vencimento,data))`
     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
   ])
 

@@ -132,7 +132,7 @@ admin.get('/api/stats', async (c) => {
     `SELECT cd.titulo, cd.icone, COUNT(*) as total
      FROM conquistas_usuario cu
      JOIN conquistas_definicoes cd ON cu.conquista_codigo = cd.codigo
-     GROUP BY cu.conquista_codigo ORDER BY total DESC LIMIT 10`
+     GROUP BY cu.conquista_codigo, cd.titulo, cd.icone ORDER BY total DESC LIMIT 10`
   ).all()
 
   const planos = await db.prepare(
@@ -391,7 +391,7 @@ admin.patch('/api/user/:id/plano', async (c) => {
 // ─── GET /admin/api/tables ────────────────────────────────────────────────────
 admin.get('/api/tables', async (c) => {
   const result = await c.env.DB.prepare(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'd1_%' ORDER BY name`
+    `SELECT table_name AS name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name`
   ).all()
   return c.json({ tables: (result.results as any[]).map(r => r.name) })
 })

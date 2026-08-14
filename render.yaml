@@ -1,0 +1,61 @@
+# VerdeMais — Blueprint do Render
+# ============================================================================
+# IMPORTANTE — região: o Render não tem região na América do Sul (só Oregon,
+# Ohio, Virginia, Frankfurt e Singapura). O Neon TEM São Paulo (aws-sa-east-1),
+# mas NÃO use as duas coisas separadas: o dashboard dispara ~35 queries por
+# carregamento, e a ~120 ms de ida e volta entre Virginia e São Paulo isso vira
+# uma tela de vários segundos. Mantenha app e banco na MESMA região — Render
+# `virginia` com um projeto Neon em `aws-us-east-1`.
+#
+# Após o primeiro deploy:
+#   1. psql "$DATABASE_URL" -f migrations-postgres/0000_baseline_postgres.sql
+#   2. wrangler d1 export verdemais-production --remote --output=d1-dump.sql
+#   3. DATABASE_URL=... node scripts/migrar-d1-para-neon.mjs d1-dump.sql
+
+services:
+  - type: web
+    name: verdemais
+    runtime: node
+    region: virginia
+    plan: starter          # o free hiberna: a 1ª visita após ociosidade leva ~1 min
+    buildCommand: npm ci && npm run build:node
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false        # connection string *pooled* do Neon (-pooler no host)
+      - key: ADMIN_PASSWORD
+        generateValue: true # nunca reutilizar a senha que estava no repositório
+      - key: PG_POOL_MAX
+        value: "10"
+      - key: ASAAS_API_KEY
+        sync: false
+      - key: ASAAS_WEBHOOK_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+
+  # Recorrências, lembretes e atrasos passam a rodar sozinhos — hoje eles só
+  # são processados quando o usuário abre a tela correspondente.
+  - type: cron
+    name: verdemais-cron
+    runtime: node
+    region: virginia
+    plan: starter
+    schedule: "0 9 * * *"   # 06:00 em São Paulo (UTC-3); o Render agenda em UTC
+    buildCommand: npm ci && npm run build:cron
+    startCommand: node dist-node/cron.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false

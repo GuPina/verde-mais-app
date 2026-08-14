@@ -33,3 +33,5 @@ lerna-debug.log*
 .DS_Store
 core
 *.core
+dist-node/
+d1-dump.sql

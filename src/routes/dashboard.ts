@@ -455,9 +455,9 @@ dashboard.get('/', requireAuth, async (c) => {
         AND strftime('%m', COALESCE(d.vencimento,d.data)) = ?
         AND strftime('%Y', COALESCE(d.vencimento,d.data)) = ?
       WHERE o.user_id = ? AND o.mes = ? AND o.ano = ? AND o.limite > 0
-      GROUP BY o.categoria
-      HAVING (gasto * 1.0 / o.limite) > 0.8
-      ORDER BY (gasto * 1.0 / o.limite) DESC
+      GROUP BY o.categoria, o.limite
+      HAVING (COALESCE(SUM(d.valor),0) * 1.0 / o.limite) > 0.8
+      ORDER BY (COALESCE(SUM(d.valor),0) * 1.0 / o.limite) DESC
       LIMIT 2
     `).bind(mes, ano, user.id, parseInt(mes), parseInt(ano)).all()
     for (const orc of (orcamentosRisco.results || []) as any[]) {

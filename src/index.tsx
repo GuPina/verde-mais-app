@@ -96,7 +96,9 @@ app.post('/api/chat/mensagem', async (c) => {
   const newUrl = new URL(c.req.url)
   newUrl.pathname = '/api/assistente/chat'
   const newReq = new Request(newUrl.toString(), { method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body })
-  return fetch(newReq)
+  // Despacho interno: no Node um fetch() para si mesmo seria um round-trip HTTP
+  // real, consumindo uma conexão do próprio servidor para se atender.
+  return app.fetch(newReq, c.env)
 })
 
 // Admin panel — protegido por Basic Auth

@@ -213,7 +213,7 @@ ia.get('/insights', requireAuth, async (c) => {
        LEFT JOIN despesas d ON d.user_id=o.user_id AND d.categoria=o.categoria
          AND strftime('%m',COALESCE(d.vencimento,d.data))=? AND strftime('%Y',COALESCE(d.vencimento,d.data))=?
        WHERE o.user_id=? AND o.mes=? AND o.ano=?
-       GROUP BY o.categoria`
+       GROUP BY o.categoria, o.limite`
     ).bind(mes, ano, uid, parseInt(mes), parseInt(ano)).all(),
 
     // M6 – Recorrências
@@ -885,7 +885,9 @@ ia.get('/analise360', requireAuth, async (c) => {
   // Reutiliza o handler de /insights passando o mesmo contexto
   // Constrói request interno SEM Accept-Encoding para evitar corpo comprimido
   const insightsUrl = new URL(c.req.url)
-  insightsUrl.pathname = '/api/ia/insights'
+  // Caminho relativo ao sub-app: `ia` está montado em /api/ia, então suas
+  // rotas internas são resolvidas a partir de '/'.
+  insightsUrl.pathname = '/insights'
   const internalReq = new Request(insightsUrl.toString(), {
     method: 'GET',
     headers: (() => {
@@ -894,7 +896,7 @@ ia.get('/analise360', requireAuth, async (c) => {
       return h
     })()
   })
-  return fetch(internalReq)
+  return ia.fetch(internalReq, c.env)
 })
 
 // ─── GET /api/ia/score-saude — score simplificado de saúde financeira ───────

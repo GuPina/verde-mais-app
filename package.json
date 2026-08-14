@@ -15,20 +15,34 @@
     "db:seed": "wrangler d1 execute verdemais-production --local --file=./seed.sql",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local",
     "db:console:local": "wrangler d1 execute verdemais-production --local",
-    "clean-port": "fuser -k 3000/tcp 2>/dev/null || true"
+    "clean-port": "fuser -k 3000/tcp 2>/dev/null || true",
+    "start": "node dist-node/server.js",
+    "build:node": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist-node/server.js && npm run build:cron",
+    "dev:node": "tsx watch src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "db:baseline": "psql \"$DATABASE_URL\" -f migrations-postgres/0000_baseline_postgres.sql",
+    "db:migrar-dados": "node scripts/migrar-d1-para-neon.mjs",
+    "cron:recorrencias": "node dist-node/cron.js",
+    "build:cron": "esbuild src/cron.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist-node/cron.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.2",
     "hono": "^4.12.5",
-    "jsonwebtoken": "^9.0.2"
+    "@hono/node-server": "^1.13.7",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260307.1",
     "@hono/vite-build": "^1.2.0",
     "@hono/vite-dev-server": "^0.18.2",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.9",
     "vite": "^6.3.5",
-    "wrangler": "^4.4.0"
+    "wrangler": "^4.4.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "esbuild": "^0.24.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

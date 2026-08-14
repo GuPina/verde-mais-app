@@ -3,8 +3,12 @@ import { hashPassword, verifyPassword, generateToken, getTokenExpiry } from '../
 import { verificarConquistasParaUsuario } from './conquistas'
 
 type Bindings = { DB: D1Database }
+type Variables = {
+  user: { id: number; nome: string; email: string; plano: string; perfil_investidor?: string }
+  token: string
+}
 
-const auth = new Hono<{ Bindings: Bindings }>()
+const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ─── Domínios de e-mail temporário bloqueados ────────────────────────────────
 const BLOCKED_DOMAINS = new Set([
@@ -314,10 +318,17 @@ auth.get('/me', requireAuth, async (c) => {
 // ─── Aliases para compatibilidade ────────────────────────────────────────────
 // /registro → /register  (alguns clientes usam PT-BR)
 auth.post('/registro', async (c) => {
-  const newReq = new Request(c.req.url.replace('/registro', '/register'), {
-    method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body
+  // Despacho interno no próprio sub-app (montado em /api/auth, logo o caminho
+  // relativo é '/register'). Antes isso era um fetch() de saída para a própria
+  // aplicação — no Node seria o servidor abrindo uma conexão consigo mesmo.
+  const url = new URL(c.req.url)
+  url.pathname = '/register'
+  const newReq = new Request(url.toString(), {
+    method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body,
+    // @ts-expect-error — exigido pelo undici quando há body em stream
+    duplex: 'half',
   })
-  return fetch(newReq)
+  return auth.fetch(newReq, c.env)
 })
 
 export default auth

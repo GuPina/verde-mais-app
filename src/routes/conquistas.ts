@@ -345,12 +345,12 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     `SELECT strftime('%Y-%m', r.data) as mes,
             COALESCE(SUM(r.valor),0) - COALESCE((
               SELECT SUM(d.valor) FROM despesas d
-              WHERE d.user_id=r.user_id
-              AND strftime('%Y-%m',d.data)=strftime('%Y-%m',r.data)
+              WHERE d.user_id=MIN(r.user_id)
+              AND strftime('%Y-%m',d.data)=MIN(strftime('%Y-%m',r.data))
               AND COALESCE(d.tipo,'normal')!='aporte'
             ),0) as saldo
      FROM receitas r WHERE r.user_id=?
-     GROUP BY mes ORDER BY mes DESC LIMIT 6`
+     GROUP BY mes, r.user_id ORDER BY mes DESC LIMIT 6`
   ).bind(user.id).all() as any
   const mesesPositivos = (saldosMes?.results || []).filter((m: any) => (m.saldo || 0) > 0).length
   if (mesesPositivos >= 1) await ganhar('primeiro_saldo_positivo')
@@ -749,11 +749,12 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
     // Reduziu gastos em 3 categorias (este mês vs mês anterior)
     const reducaoRows = await c.env.DB.prepare(
-      `SELECT categoria,
+      `SELECT * FROM (
+       SELECT categoria,
               SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now') THEN valor ELSE 0 END) as atual,
               SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now','-1 month') THEN valor ELSE 0 END) as anterior
        FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte'
-       GROUP BY categoria HAVING anterior > 0 AND atual < anterior`
+       GROUP BY categoria) t WHERE t.anterior > 0 AND t.atual < t.anterior`
     ).bind(user.id).all() as any
     if ((reducaoRows?.results?.length || 0) >= 3) await ganhar('reduziu_3_categorias')
 
@@ -1126,12 +1127,12 @@ conquistas.post('/verificar', requireAuth, async (c) => {
       `SELECT COUNT(*) as cnt FROM (
          SELECT strftime('%Y-%m',r.data) as mes,
                 SUM(r.valor) as rec,
-                COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=r.user_id
-                          AND strftime('%Y-%m',d.data)=strftime('%Y-%m',r.data)
+                COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=MIN(r.user_id)
+                          AND strftime('%Y-%m',d.data)=MIN(strftime('%Y-%m',r.data))
                           AND COALESCE(d.tipo,'normal')!='aporte'),0) as desp
          FROM receitas r WHERE r.user_id=?
-         GROUP BY mes HAVING rec > 0 AND (rec - desp) / rec >= 0.20
-       )`
+         GROUP BY mes, r.user_id
+       ) t WHERE t.rec > 0 AND (t.rec - t.desp) / t.rec >= 0.20`
     ).bind(user.id).first() as any
     if ((poupaMeses?.cnt || 0) >= 1) await ganhar('poupador')
     if ((poupaMeses?.cnt || 0) >= 3) await ganhar('poupador_3m')
@@ -1165,7 +1166,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     const disciplinadoRows = await c.env.DB.prepare(
       `SELECT strftime('%Y-%m', COALESCE(data, vencimento)) as mes, COUNT(*) as cnt
        FROM despesas WHERE user_id=? AND status='pago'
-       GROUP BY mes HAVING cnt >= 10 LIMIT 1`
+       GROUP BY mes HAVING COUNT(*) >= 10 LIMIT 1`
     ).bind(user.id).first() as any
     if (disciplinadoRows) await ganhar('disciplinado')
   } catch { /* orcamento / disciplinado */ }
@@ -1491,8 +1492,8 @@ export async function verificarConquistasParaUsuario(
   try {
     const saldosMes = await db.prepare(
       `SELECT strftime('%Y-%m', r.data) as mes,
-       COALESCE(SUM(r.valor),0) - COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=r.user_id AND strftime('%Y-%m',d.data)=strftime('%Y-%m',r.data) AND COALESCE(d.tipo,'normal')!='aporte'),0) as saldo
-       FROM receitas r WHERE r.user_id=? GROUP BY mes ORDER BY mes DESC LIMIT 6`
+       COALESCE(SUM(r.valor),0) - COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=MIN(r.user_id) AND strftime('%Y-%m',d.data)=MIN(strftime('%Y-%m',r.data)) AND COALESCE(d.tipo,'normal')!='aporte'),0) as saldo
+       FROM receitas r WHERE r.user_id=? GROUP BY mes, r.user_id ORDER BY mes DESC LIMIT 6`
     ).bind(user.id).all() as any
     const mesesPositivos = (saldosMes?.results || []).filter((m: any) => (m.saldo || 0) > 0).length
     if (mesesPositivos >= 1) await ganhar('primeiro_saldo_positivo')
@@ -1761,14 +1762,14 @@ export async function verificarConquistasParaUsuario(
     if ((despMes?.total || 0) === 0 && (recMes2?.total || 0) > 0) await ganhar('mes_zerado')
 
     const reducaoRows = await db.prepare(
-      `SELECT categoria, SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now') THEN valor ELSE 0 END) as atual, SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now','-1 month') THEN valor ELSE 0 END) as anterior FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' GROUP BY categoria HAVING anterior > 0 AND atual < anterior`
+      `SELECT * FROM (SELECT categoria, SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now') THEN valor ELSE 0 END) as atual, SUM(CASE WHEN strftime('%Y-%m',COALESCE(data,vencimento))=strftime('%Y-%m','now','-1 month') THEN valor ELSE 0 END) as anterior FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' GROUP BY categoria) t WHERE t.anterior > 0 AND t.atual < t.anterior`
     ).bind(user.id).all() as any
     if ((reducaoRows?.results?.length || 0) >= 3) await ganhar('reduziu_3_categorias')
 
     const vencidas = await db.prepare(`SELECT COUNT(*) as total FROM despesas WHERE user_id=? AND status='pendente' AND vencimento < date('now')`).bind(user.id).first() as any
     if ((vencidas?.total || 0) === 0 && (despesas?.total || 0) >= 5) await ganhar('sem_atraso')
 
-    const disciplinadoRows = await db.prepare(`SELECT strftime('%Y-%m', COALESCE(data, vencimento)) as mes, COUNT(*) as cnt FROM despesas WHERE user_id=? AND status='pago' GROUP BY mes HAVING cnt >= 10 LIMIT 1`).bind(user.id).first() as any
+    const disciplinadoRows = await db.prepare(`SELECT strftime('%Y-%m', COALESCE(data, vencimento)) as mes, COUNT(*) as cnt FROM despesas WHERE user_id=? AND status='pago' GROUP BY mes HAVING COUNT(*) >= 10 LIMIT 1`).bind(user.id).first() as any
     if (disciplinadoRows) await ganhar('disciplinado')
   } catch { }
 
@@ -1816,7 +1817,7 @@ export async function verificarConquistasParaUsuario(
   // Poupador / realizador
   try {
     const poupaMeses = await db.prepare(
-      `SELECT COUNT(*) as cnt FROM (SELECT strftime('%Y-%m',r.data) as mes, SUM(r.valor) as rec, COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=r.user_id AND strftime('%Y-%m',d.data)=strftime('%Y-%m',r.data) AND COALESCE(d.tipo,'normal')!='aporte'),0) as desp FROM receitas r WHERE r.user_id=? GROUP BY mes HAVING rec > 0 AND (rec - desp) / rec >= 0.20)`
+      `SELECT COUNT(*) as cnt FROM (SELECT strftime('%Y-%m',r.data) as mes, SUM(r.valor) as rec, COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.user_id=MIN(r.user_id) AND strftime('%Y-%m',d.data)=MIN(strftime('%Y-%m',r.data)) AND COALESCE(d.tipo,'normal')!='aporte'),0) as desp FROM receitas r WHERE r.user_id=? GROUP BY mes, r.user_id) t WHERE t.rec > 0 AND (t.rec - t.desp) / t.rec >= 0.20`
     ).bind(user.id).first() as any
     if ((poupaMeses?.cnt || 0) >= 1) await ganhar('poupador')
     if ((poupaMeses?.cnt || 0) >= 3) { await ganhar('poupador_3m'); await ganhar('regra_3meses'); await ganhar('desafio_trimestre') }
