@@ -404,8 +404,7 @@ auth.post('/registro', async (c) => {
   url.pathname = '/register'
   const newReq = new Request(url.toString(), {
     method: 'POST', headers: c.req.raw.headers, body: c.req.raw.body,
-    // @ts-expect-error — exigido pelo undici quando há body em stream
-    duplex: 'half',
+    duplex: 'half', // exigido pelo undici quando o body é stream
   })
   return auth.fetch(newReq, c.env)
 })

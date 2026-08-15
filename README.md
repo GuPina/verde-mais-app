@@ -1,13 +1,20 @@
 # VerdeMais — SaaS de Finanças Pessoais
 
-## Visão Geral
-Plataforma completa de gestão financeira pessoal com gamificação, IA conversacional e análise preditiva.
+Plataforma de gestão financeira pessoal com gamificação, IA conversacional e
+análise preditiva.
 
-- **Stack**: Hono + TypeScript + Cloudflare D1 (SQLite) + Wrangler Pages
-- **Frontend**: SPA em JavaScript puro (public/static/app.js — ~9.8k linhas)
-- **Backend**: 33 rotas em `src/routes/*.ts`
-- **Banco**: 38 tabelas no Cloudflare D1 (16 migrations aplicadas)
-- **Versão**: 3.0.0 — Fase 3B+3C+4
+- **Stack**: Hono + TypeScript + Node 22 + Postgres (Neon), hospedado no Render
+- **Frontend**: SPA em JavaScript puro (`public/static/app.js`, ~22,6k linhas)
+- **Backend**: 37 routers em `src/routes/*.ts`, ~300 endpoints
+- **Banco**: 64 tabelas — schema em `migrations-postgres/`
+- **Versão**: 3.1.0
+
+Para subir o projeto, veja **[DEPLOY.md](DEPLOY.md)**.
+
+> Histórico: até a v3.1 o projeto rodava em Cloudflare Workers + D1. A migração
+> para Node + Postgres está documentada em
+> [MIGRACAO-RENDER-NEON.md](MIGRACAO-RENDER-NEON.md); as migrations SQLite
+> antigas ficaram em `legado/migrations-d1/`.
 
 ---
 
@@ -18,14 +25,6 @@ Plataforma completa de gestão financeira pessoal com gamificação, IA conversa
 | FREE    | Gratuito   | Receitas, Despesas, Metas (3), Cartões (1), Lembretes  |
 | PREMIUM | R$ 19/mês  | + Score Saúde, Projeção, Relatório Anual, Simulações   |
 | PRO     | R$ 49/mês  | + Sem limites, IA Insights, Export PDF, Amortização    |
-
----
-
-## URLs
-
-- **Produção local**: http://localhost:3000
-- **Health check**: http://localhost:3000/api/health
-- **Admin**: http://localhost:3000/admin (Basic Auth)
 
 ---
 
@@ -138,7 +137,7 @@ Plataforma completa de gestão financeira pessoal com gamificação, IA conversa
 
 ## Estrutura de Dados
 
-### Tabelas Principais (38 total)
+### Tabelas Principais (64 total)
 ```
 users, sessions, email_verifications
 receitas, despesas, despesa_tags
@@ -169,70 +168,17 @@ assinaturas
 
 ---
 
-## Arquitetura
-
-```
-webapp/
-├── src/
-│   ├── index.tsx           # App principal + rotas + health check + SW
-│   └── routes/             # 33 arquivos de rota
-├── public/
-│   └── static/
-│       ├── app.js          # SPA frontend (~9.8k linhas)
-│       └── styles.css      # CSS customizado
-├── migrations/             # 16 migrations SQL (0001→0016)
-├── dist/                   # Build de produção
-├── ecosystem.config.cjs    # PM2 config
-└── wrangler.jsonc          # Config Cloudflare
-```
-
----
-
-## Migrations Aplicadas
-
-| Migration | Descrição                                         |
-|-----------|---------------------------------------------------|
-| 0001      | Schema inicial                                    |
-| 0002–0011 | Funcionalidades v1.0→v2.2                         |
-| 0012      | Limpeza tabelas órfãs + assistente_conversas      |
-| 0013      | Desafio 52 configurável + regra_config            |
-| 0014      | Novas conquistas (22 conquistas)                  |
-| 0015      | Tags para receitas (receita_tags)                 |
-| 0016      | Integrações v3B (shared_expenses, etc.)           |
-
----
-
-## Como Executar (Desenvolvimento)
+## Como Executar
 
 ```bash
-# Instalar dependências
-npm install
-
-# Aplicar migrations locais
-npm run db:migrate:local
-
-# Build
-npm run build
-
-# Iniciar com PM2
-pm2 start ecosystem.config.cjs
-
-# Verificar
-curl http://localhost:3000/api/health
+npm ci
+export DATABASE_URL="postgresql://..."
+export ADMIN_PASSWORD="algo-seu"
+npm run db:migrate
+npm run dev
 ```
 
----
-
-## Deploy Cloudflare Pages
-
-```bash
-# Configurar API key
-# (use setup_cloudflare_api_key via Genspark)
-
-# Build + deploy
-npm run deploy:prod
-# ou: wrangler pages deploy dist --project-name verdemais
-```
+Detalhes e deploy: [DEPLOY.md](DEPLOY.md).
 
 ---
 
@@ -246,5 +192,4 @@ npm run deploy:prod
 | 4         | ✅ Done  | Assistente IA, Integrações entre módulos           |
 | **Atual** | **3B+3C+4** | Todas as fases concluídas                      |
 
-**Última atualização**: 2026-03-14  
-**Próximos passos sugeridos**: Deploy em Cloudflare Pages, testes de integração com dados reais, configuração do plano PREMIUM/PRO via Asaas
+**Última atualização**: 2026-08-15
