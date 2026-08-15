@@ -1,8 +1,14 @@
 import { Hono } from 'hono'
 import { hashPassword, verifyPassword, generateToken, getTokenExpiry } from '../lib/auth'
 import { verificarConquistasParaUsuario } from './conquistas'
+import { enviarOTP } from '../lib/email'
+import { comparaSegura, ipDoCliente } from '../lib/seguranca'
 
-type Bindings = { DB: D1Database }
+type Bindings = {
+  DB: D1Database
+  RESEND_API_KEY?: string
+  EMAIL_REMETENTE?: string
+}
 type Variables = {
   user: { id: number; nome: string; email: string; plano: string; perfil_investidor?: string }
   token: string
@@ -39,7 +45,13 @@ function isValidEmailFormat(email: string): boolean {
 }
 
 function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+  // Math.random() não é criptograficamente seguro e é previsível a partir de
+  // saídas anteriores — inadequado para um código que autoriza uma conta.
+  // Rejeição de amostra para não enviesar os dígitos por módulo.
+  const buf = new Uint32Array(1)
+  let n: number
+  do { crypto.getRandomValues(buf); n = buf[0] } while (n >= 4_294_000_000)
+  return String(100000 + (n % 900000))
 }
 
 function getOTPExpiry(): string {
@@ -77,6 +89,37 @@ export async function requireAuth(c: any, next: any) {
   } catch (e) {
     return c.json({ error: 'Token inválido' }, 401)
   }
+}
+
+
+// ─── Rate limiting de login ──────────────────────────────────────────────────
+// Janela deslizante em duas chaves:
+//   • e-mail+IP  → força bruta contra uma conta a partir de uma origem
+//   • IP         → varredura de muitas contas a partir da mesma origem
+//
+// Deliberadamente NÃO existe bloqueio só por e-mail: ele seria uma negação de
+// serviço direcionada — bastaria errar a senha de alguém oito vezes para
+// trancá-lo fora da própria conta pelos 15 minutos seguintes.
+const JANELA_MINUTOS = 15
+const MAX_FALHAS_ORIGEM = 8    // mesmo e-mail vindo do mesmo IP
+const MAX_FALHAS_IP = 30       // qualquer e-mail vindo do mesmo IP
+
+async function contarFalhas(db: any, chave: string): Promise<number> {
+  const r = await db.prepare(
+    `SELECT COUNT(*) as n FROM tentativas_login
+     WHERE chave = ? AND sucesso = 0 AND criado_em > datetime('now', ?)`
+  ).bind(chave, `-${JANELA_MINUTOS} minutes`).first()
+  return Number(r?.n || 0)
+}
+
+async function registrarTentativa(db: any, chave: string, sucesso: boolean) {
+  await db.prepare('INSERT INTO tentativas_login (chave, sucesso) VALUES (?, ?)')
+    .bind(chave, sucesso ? 1 : 0).run()
+}
+
+/** Após um login bem-sucedido, zera o histórico de falhas daquele e-mail. */
+async function limparFalhas(db: any, chave: string) {
+  await db.prepare('DELETE FROM tentativas_login WHERE chave = ?').bind(chave).run()
 }
 
 // ─── GET /api/auth/check-email ────────────────────────────────────────────────
@@ -158,14 +201,22 @@ auth.post('/register', async (c) => {
       'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)'
     ).bind(userId, token, tokenExpiry).run()
 
+    // O código vai por e-mail e NUNCA na resposta. Se o envio falhar, a conta
+    // continua criada — o usuário pede reenvio — mas o motivo fica no log.
+    const envio = await enviarOTP(c.env, email.toLowerCase(), nome.trim(), otp)
+    if (!envio.enviado) {
+      console.error(`OTP não enviado para ${email.toLowerCase()}: ${envio.motivo} · código=${otp}`)
+    }
+
     return c.json({
       success: true,
-      message: 'Conta criada! Verifique seu e-mail.',
+      message: envio.enviado
+        ? 'Conta criada! Enviamos um código de 6 dígitos para o seu e-mail.'
+        : 'Conta criada! Não conseguimos enviar o e-mail agora — use "Reenviar código".',
       user: { id: userId, nome: nome.trim(), email: email.toLowerCase(), plano: 'free' },
       token,
       otp_required: true,
-      // Em produção NUNCA retornar o OTP — aqui somente para demo/dev
-      _dev_otp: otp
+      email_enviado: envio.enviado
     }, 201)
   } catch (e: any) {
     return c.json({ error: 'Erro ao criar conta', details: e.message }, 500)
@@ -201,7 +252,7 @@ auth.post('/verify-otp', async (c) => {
       'UPDATE email_verifications SET attempts = attempts + 1 WHERE id = ?'
     ).bind(record.id).run()
 
-    if (record.code !== String(code)) {
+    if (!comparaSegura(String(record.code), String(code))) {
       const remaining = 4 - record.attempts
       return c.json({ error: `Código incorreto. ${remaining > 0 ? remaining + ' tentativas restantes.' : 'Última tentativa.'}`, invalid: true }, 400)
     }
@@ -244,10 +295,15 @@ auth.post('/resend-otp', async (c) => {
        VALUES (?, ?, ?, 0, ?)`
     ).bind(user.id, email.toLowerCase(), otp, expiresAt).run()
 
+    const envio = await enviarOTP(c.env, email.toLowerCase(), '', otp)
+    if (!envio.enviado) {
+      console.error(`Reenvio de OTP falhou para ${email.toLowerCase()}: ${envio.motivo} · código=${otp}`)
+      return c.json({ error: 'Não foi possível enviar o e-mail agora. Tente novamente em instantes.' }, 502)
+    }
+
     return c.json({
       success: true,
-      message: 'Novo código enviado!',
-      _dev_otp: otp
+      message: 'Novo código enviado! Verifique sua caixa de entrada.'
     })
   } catch (e: any) {
     return c.json({ error: 'Erro ao reenviar código', details: e.message }, 500)
@@ -263,18 +319,41 @@ auth.post('/login', async (c) => {
       return c.json({ error: 'Email e senha são obrigatórios' }, 400)
     }
 
+    const ip           = ipDoCliente(c)
+    const chaveOrigem  = `origem:${String(email).toLowerCase()}|${ip}`
+    const chaveIp      = `ip:${ip}`
+
+    const [falhasOrigem, falhasIp] = await Promise.all([
+      contarFalhas(c.env.DB, chaveOrigem),
+      contarFalhas(c.env.DB, chaveIp),
+    ])
+    if (falhasOrigem >= MAX_FALHAS_ORIGEM || falhasIp >= MAX_FALHAS_IP) {
+      return c.json({
+        error: `Muitas tentativas de login. Tente novamente em ${JANELA_MINUTOS} minutos.`,
+        bloqueado: true,
+      }, 429, { 'Retry-After': String(JANELA_MINUTOS * 60) })
+    }
+
     const user = await c.env.DB.prepare(
       'SELECT * FROM users WHERE email = ?'
     ).bind(email).first() as any
 
+    // Mesma mensagem e mesmo custo para usuário inexistente e senha errada:
+    // respostas diferentes revelariam quais e-mails têm conta.
     if (!user) {
+      await registrarTentativa(c.env.DB, chaveOrigem, false)
+      await registrarTentativa(c.env.DB, chaveIp, false)
       return c.json({ error: 'Email ou senha incorretos' }, 401)
     }
 
     const valid = await verifyPassword(senha, user.senha)
     if (!valid) {
+      await registrarTentativa(c.env.DB, chaveOrigem, false)
+      await registrarTentativa(c.env.DB, chaveIp, false)
       return c.json({ error: 'Email ou senha incorretos' }, 401)
     }
+
+    await limparFalhas(c.env.DB, chaveOrigem)
 
     await c.env.DB.prepare('UPDATE users SET ultimo_acesso = datetime("now") WHERE id = ?').bind(user.id).run()
 

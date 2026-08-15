@@ -848,9 +848,9 @@ const VM = {
         const res = await axios.post('/api/auth/register', { nome, email, senha })
         localStorage.setItem('vm_token', res.data.token)
         localStorage.setItem('vm_user', JSON.stringify(res.data.user))
-        // Guardar e-mail + OTP dev para a tela de verificação
+        // Guardar apenas o e-mail. O código vai por e-mail e nunca trafega
+        // na resposta da API — nada de OTP no localStorage.
         localStorage.setItem('vm_pending_email', email)
-        if (res.data._dev_otp) localStorage.setItem('vm_dev_otp', res.data._dev_otp)
         window.location.href = '/verificar-email'
       } catch (e) {
         errEl.textContent = e.response?.data?.error || 'Erro ao criar conta'
@@ -877,7 +877,6 @@ const VM = {
   // ======= OTP VERIFICATION =======
   renderOTP() {
     const email = localStorage.getItem('vm_pending_email') || ''
-    const devOTP = localStorage.getItem('vm_dev_otp') || ''
     if (!email) { window.location.href = '/cadastro'; return }
 
     document.getElementById('app').innerHTML = `
@@ -898,8 +897,7 @@ const VM = {
             </p>
           </div>
 
-          <!-- Dev hint -->
-          ${devOTP ? `<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 14px;margin-bottom:20px;text-align:center;font-size:0.82rem;color:#34D399;font-family:'JetBrains Mono',monospace;">🔧 Dev mode — Código: <strong style="letter-spacing:4px;">${devOTP}</strong></div>` : ''}
+
 
           <!-- Alert erro/sucesso -->
           <div id="otp-alert" style="display:none;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:0.83rem;"></div>
@@ -1089,7 +1087,7 @@ const VM = {
         this.user = res.data.user
       }
       localStorage.removeItem('vm_pending_email')
-      localStorage.removeItem('vm_dev_otp')
+      localStorage.removeItem('vm_dev_otp') // legado: remove resíduo de versões anteriores
 
       // Sucesso visual
       const iconWrap = document.getElementById('otp-icon-wrap')
@@ -1127,7 +1125,6 @@ const VM = {
 
     try {
       const res = await axios.post('/api/auth/resend-otp', { email })
-      if (res.data._dev_otp) localStorage.setItem('vm_dev_otp', res.data._dev_otp)
       this._showOTPAlert('Novo código enviado! Verifique sua caixa de entrada.', 'success')
 
       // Reiniciar countdown

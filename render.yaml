@@ -1,11 +1,49 @@
 # VerdeMais — Blueprint do Render
 # ============================================================================
-# IMPORTANTE — região: o Render não tem região na América do Sul (só Oregon,
-# Ohio, Virginia, Frankfurt e Singapura). O Neon TEM São Paulo (aws-sa-east-1),
-# mas NÃO use as duas coisas separadas: o dashboard dispara ~35 queries por
-# carregamento, e a ~120 ms de ida e volta entre Virginia e São Paulo isso vira
-# uma tela de vários segundos. Mantenha app e banco na MESMA região — Render
-# `virginia` com um projeto Neon em `aws-us-east-1`.
+# REGIÃO — o Render não tem região na América do Sul (só Oregon, Ohio,
+# Virginia, Frankfurt e Singapura). O Neon TEM São Paulo (aws-sa-east-1), mas
+# NÃO separe os dois: o dashboard dispara ~35 queries por carregamento, e a
+# ~120 ms de ida e volta entre Virginia e São Paulo isso vira uma tela de
+# vários segundos. App e banco na MESMA região — Render `virginia` com um
+# projeto Neon em `aws-us-east-1`.
+#
+# ============================================================================
+# CARREGAMENTO RÁPIDO — ponha o Cloudflare na frente (grátis, e é o que devolve
+# o desempenho que você tinha no Workers)
+# ============================================================================
+# Medições feitas neste projeto:
+#   • O servidor responde o dashboard (35 queries) em 3–5 ms. O banco NÃO é o
+#     gargalo — o custo é todo de rede.
+#   • O primeiro carregamento baixava 1.447.242 bytes. Com a compressão que
+#     entrou no src/server.ts, são 295.056 bytes: 4,9× menos.
+#
+# O que falta é a distância. Sem CDN, o usuário em São Paulo paga ~130 ms de
+# ida e volta até a Virginia — e paga isso no handshake TLS, no HTML, em cada
+# pedaço do JS e em cada chamada de API. Colocando o domínio no Cloudflare em
+# modo proxy (nuvem laranja):
+#   1. O TLS passa a terminar no PoP de São Paulo (~15 ms), não na Virginia.
+#   2. O app.js sai do cache do PoP, em brotli (~230 KB), sem cruzar o oceano.
+#   3. As chamadas de API viajam pela rede do Cloudflare, sobre conexão já
+#      aberta e aquecida até a origem.
+#
+# Configuração no painel do Cloudflare (DNS apontando para o Render):
+#   • Cache Rule  →  se URI Path começa com "/static/"
+#                    Cache eligibility: Eligible for cache
+#                    Edge TTL: Respect origin (o server.ts já manda
+#                    "immutable" quando a URL traz ?v=)
+#   • Cache Rule  →  se URI Path começa com "/api/" ou é "/healthz"
+#                    Cache eligibility: Bypass cache
+#   • Speed → Optimization: Brotli ligado
+#   • SSL/TLS: Full (strict)
+# O src/lib/seguranca.ts já lê CF-Connecting-IP, então o rate limiting continua
+# enxergando o IP real do usuário e não o do proxy.
+#
+# Duas fontes de lentidão que nenhum CDN resolve:
+#   • Plano free do Render hiberna: a 1ª visita após ociosidade leva ~1 min.
+#     Por isso o `plan: starter` abaixo.
+#   • O Neon suspende o compute após ~5 min sem query; a consulta seguinte
+#     acorda o banco e paga ~500 ms. Em projeto com tráfego real isso quase
+#     não acontece; se acontecer, desative o autosuspend (plano pago do Neon).
 #
 # Após o primeiro deploy:
 #   1. psql "$DATABASE_URL" -f migrations-postgres/0000_baseline_postgres.sql

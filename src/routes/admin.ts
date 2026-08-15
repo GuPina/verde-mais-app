@@ -1,34 +1,46 @@
 import { Hono } from 'hono'
 import { verificarConquistasParaUsuario } from './conquistas'
+import { comparaSegura, emitirToken, validarToken } from '../lib/seguranca'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
 const admin = new Hono<{ Bindings: Bindings }>()
 
 // ─── Middleware de autenticação ─────────────────────────────────────────────
+/**
+ * Autenticação do painel.
+ *
+ * O que mudou e por quê:
+ *  - Não há mais senha padrão embutida. Sem ADMIN_PASSWORD configurada o painel
+ *    fica indisponível, em vez de abrir com uma senha que está no histórico do
+ *    repositório público.
+ *  - O cookie deixou de ser a própria senha e passou a ser um token HMAC com
+ *    validade de 8 horas: quem o captura não descobre a senha e ele expira.
+ *  - Removido o aceite por query string (`/admin?token=…`), que vazava o
+ *    segredo em logs de acesso, histórico do navegador e header Referer.
+ */
 admin.use('/*', async (c, next) => {
-  const PASS = c.env.ADMIN_PASSWORD || 'verdemais@admin2026'
-
-  const queryToken   = c.req.query('token') || ''
-  const authHeader   = c.req.header('Authorization') || ''
-  const bearerToken  = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-  const cookieHeader = c.req.header('Cookie') || ''
-  const cookieToken  = cookieHeader.match(/admin_token=([^;]+)/)?.[1] || ''
+  const PASS = c.env.ADMIN_PASSWORD
+  if (!PASS) {
+    return c.req.path.startsWith('/admin/api/')
+      ? c.json({ error: 'Painel administrativo não configurado' }, 503)
+      : c.html(loginPage('Painel indisponível: ADMIN_PASSWORD não está configurada no servidor.'), 503)
+  }
 
   // Rota de login sempre livre
   if (c.req.path === '/admin/login') return next()
 
-  // Autenticado?
-  if (queryToken === PASS || bearerToken === PASS || cookieToken === PASS) {
-    return next()
+  const authHeader  = c.req.header('Authorization') || ''
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  const cookieToken = (c.req.header('Cookie') || '').match(/admin_token=([^;]+)/)?.[1] || ''
+
+  for (const token of [cookieToken, bearerToken]) {
+    if (token && await validarToken(PASS, decodeURIComponent(token))) return next()
   }
 
-  // Para rotas de API, retornar 401 JSON
   if (c.req.path.startsWith('/admin/api/')) {
     return c.json({ error: 'Não autorizado' }, 401)
   }
-
-  // Para rotas HTML, redirecionar para login
   return c.redirect('/admin/login')
 })
 
@@ -38,16 +50,19 @@ admin.get('/login', (c) => c.html(loginPage()))
 admin.post('/login', async (c) => {
   const body  = await c.req.parseBody()
   const senha = String(body['senha'] || '')
-  const PASS  = c.env.ADMIN_PASSWORD || 'verdemais@admin2026'
-  const isSecure = c.req.url.startsWith('https://')
-  const secureFlag = isSecure ? '; Secure' : ''
+  const PASS  = c.env.ADMIN_PASSWORD
+  if (!PASS) return c.html(loginPage('Painel indisponível: ADMIN_PASSWORD não configurada.'), 503)
 
-  if (senha === PASS) {
+  const secureFlag = c.req.url.startsWith('https://') ? '; Secure' : ''
+
+  if (comparaSegura(senha, PASS)) {
+    // 8h de validade e o token não permite recuperar a senha.
+    const token = await emitirToken(PASS, 'admin', 8 * 60 * 60)
     return new Response(null, {
       status: 302,
       headers: {
         'Location': '/admin',
-        'Set-Cookie': `admin_token=${PASS}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureFlag}`
+        'Set-Cookie': `admin_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${secureFlag}`
       }
     })
   }

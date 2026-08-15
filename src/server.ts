@@ -9,6 +9,8 @@
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
+import { compress } from 'hono/compress'
+import { etag } from 'hono/etag'
 import app from './index'
 import { criarBanco } from './lib/d1-compat'
 
@@ -36,6 +38,26 @@ const bindings = {
 }
 
 const root = new Hono()
+
+// ── Desempenho ──────────────────────────────────────────────────────────────
+// O Cloudflare Pages comprimia tudo sozinho. Sem isto, o app.js sai com 1,4 MB
+// em vez de ~282 KB — no 4G brasileiro é a diferença entre segundos e
+// milissegundos, e é de longe o maior custo do carregamento.
+root.use('*', compress())
+
+// ETag deixa a revalidação custar 304 sem corpo em vez de baixar tudo de novo.
+root.use('/static/*', etag())
+
+root.use('/static/*', async (c, next) => {
+  await next()
+  // O appShell referencia os arquivos com ?v=... a cada deploy. Quando a versão
+  // vem fixada na URL, o conteúdo daquela URL é imutável e pode ser cacheado
+  // para sempre. Sem ?v=, cai num cache curto para não servir versão velha
+  // caso alguém esqueça de trocar o parâmetro.
+  c.header('Cache-Control', c.req.query('v')
+    ? 'public, max-age=31536000, immutable'
+    : 'public, max-age=300, must-revalidate')
+})
 
 // Estáticos — no Pages isso era automático; aqui é responsabilidade nossa.
 root.use('/static/*', serveStatic({ root: './public' }))

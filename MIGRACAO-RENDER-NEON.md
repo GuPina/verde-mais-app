@@ -17,7 +17,7 @@ um entrypoint Node e um cron. Nenhuma das 37 rotas precisou ser reescrita.
 | `src/lib/d1-compat.ts` | Camada D1→Postgres: mesma API (`prepare/bind/first/all/run/batch`), traduz o dialeto SQLite por baixo |
 | `src/server.ts` | Entrypoint Node: monta o pool do Neon, serve `public/`, repassa tudo ao app original |
 | `src/cron.ts` | Tarefas agendadas (recorrências, atrasos, lembretes) — não existiam antes |
-| `migrations-postgres/0000_baseline_postgres.sql` | Schema baseline: 62 tabelas, 81 FKs, 80 índices |
+| `migrations-postgres/0000_baseline_postgres.sql` | Schema baseline: 63 tabelas, 81 FKs, 81 índices |
 | `scripts/migrar-d1-para-neon.mjs` | Copia os dados do D1 para o Neon, com conferência por tabela |
 | `render.yaml` | Blueprint do Render (web + cron) |
 
@@ -96,10 +96,10 @@ desenvolvimento.
 
 Contra um Postgres 16 real, não em teoria:
 
-- Schema: **62 tabelas, 81 FKs, 80 índices — 0 erros** ao carregar.
-- Queries: as **1.140 queries estáticas** foram extraídas do código, traduzidas e
+- Schema: **63 tabelas, 81 FKs, 81 índices — 0 erros** ao carregar.
+- Queries: as **1.141 queries estáticas** foram extraídas do código, traduzidas e
   submetidas a `PREPARE` (valida sintaxe, tabelas e colunas).
-  **1.127 passam.** As 13 restantes: 4 são artefatos do extrator (query montada em
+  **1.128 passam.** As 13 restantes: 4 são artefatos do extrator (query montada em
   pedaços) e **9 já falham hoje no D1** — ver §7.
   **Incompatibilidades exclusivas do Postgres: 0.**
 - Runtime: app subindo em Node contra Postgres, **79 endpoints GET** exercitados —
@@ -161,21 +161,160 @@ Poucas, todas por estritismo do Postgres (e todas continuam válidas em SQLite):
 - `package.json` — removidos `bcryptjs` e `jsonwebtoken` (nunca foram importados;
   a autenticação usa Web Crypto).
 
-## 9. O que **não** foi resolvido aqui
+## 9. Segurança
 
-A migração não corrige os problemas de segurança levantados na análise anterior.
-Continuam pendentes e são mais urgentes que a infraestrutura:
+Tratada na **Parte 2** deste documento, e aplicável ao Cloudflare antes da
+migração.
 
-1. `POST /api/asaas/ativar-manual` ainda compara com a string
-   `'verdemais@admin2026'` **hardcoded** — qualquer usuário logado que leia o
-   repositório público se promove a `pro`. Apagar o endpoint.
-2. O webhook do Asaas continua sem validar assinatura.
-3. O OTP ainda volta no corpo da resposta (`_dev_otp`) e nenhum e-mail é enviado.
-   *Agora em Node isso ficou fácil de resolver — o ecossistema npm inteiro está
-   disponível.*
-4. Sem rate limiting no login.
+---
 
-O `render.yaml` já usa `generateValue: true` para o `ADMIN_PASSWORD` e o
-`src/server.ts` **recusa subir** sem ele — o fallback hardcoded do `admin.ts`
-deixou de ser alcançável em produção. Mas a senha antiga está no histórico do
-git: precisa ser considerada vazada.
+# Parte 2 — Correções de segurança (aplicar ANTES de migrar)
+
+Escritas só com Web Crypto e `fetch`, então rodam igual no Cloudflare Workers e
+no Node. Podem ir para produção no D1 hoje; a migração para o Render aproveita
+tudo depois.
+
+**Nova migration:** `migrations/0056_seguranca_rate_limit.sql` (tabela
+`tentativas_login`). O baseline do Postgres já foi regerado com ela — agora são
+63 tabelas.
+
+## 1. Auto-upgrade de plano — REMOVIDO
+
+`POST /api/asaas/ativar-manual` comparava com a senha `'verdemais@admin2026'`
+**hardcoded**, sem sequer fallback de variável de ambiente. Como o repositório é
+público, qualquer usuário autenticado se promovia a `pro`. O endpoint foi
+apagado; para conceder plano manualmente use `PATCH /admin/api/user/:id/plano`.
+
+Verificado: `POST /api/asaas/ativar-manual` → **404**.
+
+## 2. Painel admin
+
+- Não existe mais senha padrão embutida. Sem `ADMIN_PASSWORD` o painel responde
+  503 em vez de abrir com a senha que está no histórico do git.
+- O cookie deixou de ser a própria senha e virou um **token HMAC-SHA256 com 8h
+  de validade** (`src/lib/seguranca.ts`). Quem captura o cookie não descobre a
+  senha, e ele expira sozinho.
+- Removido o aceite por query string (`/admin?token=…`), que vazava o segredo
+  em log de acesso, histórico do navegador e header `Referer`.
+- Login com comparação em tempo constante.
+
+Verificado: sem cookie → 302 · `?token=<senha>` → 302 (não autentica mais) ·
+`/admin/api/*` sem auth → 401 · cookie adulterado → 401 · cookie válido → 200 ·
+o cookie **não contém** a senha.
+
+## 3. Webhook do Asaas
+
+Passou a exigir o header `asaas-access-token` conferido contra
+`ASAAS_WEBHOOK_TOKEN` — o binding já existia no tipo desde sempre, mas nunca era
+lido. Comparação em tempo constante.
+
+Verificado: sem token → 401 · token errado → 401 · token correto → 200.
+
+> Configure o mesmo valor no painel do Asaas, em Integrações → Webhooks.
+
+## 4. OTP: enviado de verdade, nunca devolvido
+
+- `src/lib/email.ts` — envio pela API HTTP do **Resend** (sem dependência nova).
+- `_dev_otp` **removido** das respostas de `/register` e `/resend-otp`, e também
+  do frontend: o `app.js` não guarda mais o código no `localStorage` nem mostra
+  a caixinha "Dev mode — Código: ******" na tela de verificação.
+- Sem `RESEND_API_KEY`, o código vai para o log do servidor e a resposta diz que
+  o envio falhou — o OTP nunca volta pela API.
+- `generateOTP()` passou a usar `crypto.getRandomValues` com rejeição de
+  amostra. Antes era `Math.random()`, que é previsível a partir de saídas
+  anteriores.
+- Conferência do código em tempo constante.
+
+**Não mexi na exigência de verificação**, conforme combinado: contas existentes
+seguem funcionando sem confirmar e-mail. Quando quiser ligar isso, o gancho é o
+`requireAuth` em `src/routes/auth.ts`.
+
+Variáveis novas: `RESEND_API_KEY`, `EMAIL_REMETENTE`
+(ex.: `VerdeMais <nao-responda@verdemais.app>` — valide o domínio no Resend,
+senão o OTP cai em spam).
+
+## 5. Rate limiting no login
+
+Janela deslizante de 15 min em duas chaves:
+
+| Chave | Limite | Cobre |
+|---|---:|---|
+| `origem:{email}\|{ip}` | 8 falhas | força bruta contra uma conta |
+| `ip:{ip}` | 30 falhas | varredura de muitas contas do mesmo IP |
+
+Deliberadamente **não** há bloqueio só por e-mail: seria uma negação de serviço
+direcionada — bastaria errar a senha de alguém 8 vezes para trancá-lo fora da
+própria conta. Login bem-sucedido zera o contador. Usuário inexistente e senha
+errada seguem o mesmo caminho e a mesma mensagem, para não revelar quais
+e-mails têm conta.
+
+Verificado: 8 falhas → 401 · 9ª → **429** com `Retry-After` · a vítima continua
+entrando **de outro IP** → 200.
+
+## 6. O que ainda está aberto
+
+- O console SQL do admin (`POST /admin/api/query`) filtra com
+  `startsWith('SELECT'|'PRAGMA')`. É frágil (`WITH … DELETE` passa) e `PRAGMA`
+  não existe no Postgres.
+- A landing page afirma "Criptografia AES-256" e "conformidade total com a
+  LGPD", e exibe métricas ("+2.400 usuários", "R$ 1.2M economizados", "4.9⭐").
+- A senha antiga do admin está no histórico do git: considere-a vazada e não a
+  reutilize em lugar nenhum.
+
+---
+
+# Parte 3 — Carregamento
+
+## O que foi medido
+
+| | Antes | Depois |
+|---|---:|---:|
+| Primeiro carregamento (HTML + JS + CSS) | 1.447.242 bytes | **295.056 bytes** |
+| `app.js` isolado | 1.408.235 bytes | 285.899 bytes |
+| Compressão | nenhuma | gzip |
+| Cache de estáticos | nenhum | `immutable` com `?v=`, ETag |
+| Dashboard no servidor (35 queries) | — | **3–5 ms** |
+
+O ponto que muda o diagnóstico: **o servidor responde o dashboard em 5 ms**. O
+banco não é o gargalo e a quantidade de queries não é o problema. O tempo que o
+usuário sente é payload + distância.
+
+## O que entrou no código
+
+`src/server.ts` ganhou compressão (`hono/compress`), `ETag` e uma política de
+cache: quando a URL traz `?v=` — como o `appShell` já faz — o arquivo daquela
+URL é imutável e vale cache de um ano; sem `?v=`, cai para 5 minutos com
+revalidação, para não servir versão velha se alguém esquecer de trocar o
+parâmetro no deploy.
+
+## O que depende de configuração (e vale mais que o resto)
+
+Colocar o domínio no **Cloudflare em modo proxy** na frente do Render. É grátis
+e é o que recupera o desempenho que você tinha no Workers: o TLS passa a
+terminar no PoP de São Paulo em vez da Virginia, e o `app.js` sai do cache do
+PoP em brotli (~230 KB) sem cruzar o oceano. As regras exatas estão comentadas
+no topo do `render.yaml`.
+
+Estimativa de primeiro carregamento para um usuário em São Paulo — **estimativa,
+não medição**, porque depende da conexão dele:
+
+| Arranjo | Estimado |
+|---|---|
+| Render sozinho, sem compressão | ~3–5 s |
+| Render sozinho, com a compressão que entrou | ~1,2–1,8 s |
+| Render + Cloudflare na frente | ~0,4–0,7 s |
+| Visita seguinte (estáticos em cache) | ~0,2–0,3 s |
+
+## Duas lentidões que CDN nenhum resolve
+
+- **Free do Render hiberna**: a primeira visita após ociosidade leva ~1 min.
+  O `render.yaml` usa `starter` por isso.
+- **Neon suspende o compute** após ~5 min sem query; a consulta seguinte acorda
+  o banco e paga ~500 ms. Com tráfego real quase não acontece.
+
+## Se ainda quiser mais
+
+O dashboard dispara ~5 chamadas de API em paralelo (`dashboard`, `cartoes`,
+`conquistas/novas`, `orcamentos`, `cdi/atual`). Dá para juntá-las num endpoint
+só e economizar uma ida e volta, mas mexe no `app.js` de 22 mil linhas — só
+vale depois que ele estiver modularizado.

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { comparaSegura } from '../lib/seguranca'
 
 type Bindings = { DB: D1Database; ASAAS_API_KEY?: string; ASAAS_WEBHOOK_TOKEN?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -185,6 +186,19 @@ asaas.post('/checkout', requireAuth, async (c) => {
 
 // ─── POST /api/plano/webhook ── recebe eventos do Asaas ──────────────────────
 asaas.post('/webhook', async (c) => {
+  // Sem esta checagem, um POST anônimo com event=PAYMENT_CONFIRMED e um
+  // subscription id qualquer ativava plano pago. O binding ASAAS_WEBHOOK_TOKEN
+  // já existia no tipo desde sempre, mas nunca era lido.
+  const esperado = c.env.ASAAS_WEBHOOK_TOKEN
+  if (!esperado) {
+    console.error('Webhook Asaas recusado: ASAAS_WEBHOOK_TOKEN não configurado')
+    return c.json({ error: 'Webhook não configurado' }, 503)
+  }
+  const recebido = c.req.header('asaas-access-token') || ''
+  if (!comparaSegura(recebido, esperado)) {
+    return c.json({ error: 'Assinatura inválida' }, 401)
+  }
+
   const body = await c.req.json() as any
   const event = body.event
   const payment = body.payment
@@ -241,22 +255,11 @@ asaas.post('/webhook', async (c) => {
   return c.json({ received: true })
 })
 
-// ─── GET /api/plano/ativar-teste ── ativar premium manualmente (dev only) ─────
-asaas.post('/ativar-manual', requireAuth, async (c) => {
-  const user = c.get('user')
-
-  // Apenas em ambiente de desenvolvimento
-  const body = await c.req.json().catch(() => ({})) as any
-  const { plano = 'premium', senha_admin } = body
-
-  if (senha_admin !== 'verdemais@admin2026') {
-    return c.json({ error: 'Não autorizado' }, 401)
-  }
-
-  await c.env.DB.prepare(`UPDATE users SET plano = ? WHERE id = ?`).bind(plano, user.id).run()
-  await c.env.DB.prepare(`UPDATE assinaturas SET plano = ?, status = 'ativo' WHERE user_id = ?`).bind(plano, user.id).run()
-
-  return c.json({ success: true, message: `Plano ${plano} ativado para ${user.nome}` })
-})
+// ─── POST /api/plano/ativar-manual — REMOVIDO ────────────────────────────────
+// Este endpoint permitia que QUALQUER usuário autenticado se promovesse a
+// premium/pro enviando uma senha que estava hardcoded
+// aqui — num repositório público. Não havia sequer fallback de variável de
+// ambiente. Para conceder plano manualmente, use o painel:
+//   PATCH /admin/api/user/:id/plano  (autenticado com ADMIN_PASSWORD)
 
 export default asaas
