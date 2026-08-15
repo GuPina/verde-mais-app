@@ -11,8 +11,10 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { compress } from 'hono/compress'
 import { etag } from 'hono/etag'
+import path from 'node:path'
 import app from './index'
 import { criarBanco } from './lib/d1-compat'
+import { aplicarMigrations } from './lib/migrar'
 
 const { DATABASE_URL, PORT, ADMIN_PASSWORD, ASAAS_API_KEY, ASAAS_WEBHOOK_TOKEN,
         OPENAI_API_KEY, OPENAI_BASE_URL } = process.env
@@ -81,6 +83,26 @@ root.get('/healthz', async (c) => {
 root.all('*', (c) => app.fetch(c.req.raw, bindings))
 
 const porta = Number(PORT ?? 3000)
+
+// Schema antes de servir. O free do Render não tem shell nem one-off job, então
+// este é o único momento em que dá para aplicar migration sem alguém apontar
+// para o banco de produção da própria máquina.
+try {
+  const r = await aplicarMigrations(
+    bindings.DB.poolInterno,
+    path.join(process.cwd(), 'migrations-postgres'),
+  )
+  if (!r.puladas) {
+    console.log(r.aplicadas.length
+      ? `✓ migrations: ${r.aplicadas.length} aplicada(s) agora, ${r.jaAplicadas} já existiam`
+      : `✓ migrations: nada pendente (${r.jaAplicadas} já aplicadas)`)
+  }
+} catch (e: any) {
+  console.error(`✗ falha ao aplicar migrations: ${e.message}`)
+  console.error('  O servidor não vai subir sobre um schema pela metade.')
+  process.exit(1)
+}
+
 serve({ fetch: root.fetch, port: porta }, (info) => {
   console.log(`✓ VerdeMais em http://0.0.0.0:${info.port}`)
 })

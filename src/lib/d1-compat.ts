@@ -399,6 +399,9 @@ class Preparada {
 export class BancoCompativel {
   constructor(private pool: pg.Pool) {}
 
+  /** Pool subjacente — usado pelo runner de migrations no boot. */
+  get poolInterno(): pg.Pool { return this.pool }
+
   prepare(sql: string): Preparada {
     return new Preparada(this.pool, sql)
   }
