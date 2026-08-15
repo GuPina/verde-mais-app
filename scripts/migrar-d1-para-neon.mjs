@@ -86,6 +86,9 @@ async function colunasGravaveis(cli) {
     ORDER BY table_name, ordinal_position`)
   const m = new Map()
   for (const r of rows) {
+    // schema_migrations é o controle do runner de migrations, não dado do app.
+    // Apagá-la faria o servidor reaplicar tudo no próximo boot.
+    if (r.table_name === 'schema_migrations') continue
     if (!m.has(r.table_name)) m.set(r.table_name, [])
     m.get(r.table_name).push(r.column_name)
   }
@@ -138,9 +141,34 @@ const tabelasOrigem = new Set(
 console.log(`\nTabelas no Postgres: ${tabelasPg.length} | presentes no dump do D1: ${tabelasOrigem.size}`)
 if (dryRun) console.log('MODO DRY-RUN — nada será escrito\n')
 
+// ── Trava contra colisão de id ───────────────────────────────────────────────
+// O INSERT usa ON CONFLICT DO NOTHING. Se o destino já tiver linhas, os ids do
+// D1 colidem com os que existem e a linha do D1 é DESCARTADA em silêncio — mas
+// as filhas dela (despesas, receitas) entram apontando para o id existente.
+// Ou seja: não é perda de dados, é troca de dono. Melhor parar do que misturar.
+if (!truncate && !dryRun) {
+  const ocupadas = []
+  for (const t of ordem) {
+    const n = Number((await cli.query(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n)
+    if (n > 0) ocupadas.push(`${t} (${n})`)
+  }
+  // conquistas_definicoes e csv_templates vêm populadas pelo próprio schema
+  const relevantes = ocupadas.filter(o => !/^(conquistas_definicoes|csv_templates)\b/.test(o))
+  if (relevantes.length) {
+    console.error('\n✗ O banco de destino JÁ TEM DADOS:')
+    console.error('   ' + relevantes.join(', '))
+    console.error('\n  Importar por cima misturaria os registros: os ids do D1 colidem com os')
+    console.error('  existentes, a linha do D1 é descartada e as filhas dela acabam penduradas')
+    console.error('  no usuário errado.')
+    console.error('\n  Rode com --truncate para limpar o destino antes de importar.\n')
+    await cli.release(); await pool.end()
+    process.exit(1)
+  }
+}
+
 if (truncate && !dryRun) {
   for (const t of [...ordem].reverse()) await cli.query(`DELETE FROM ${t}`)
-  console.log('Tabelas do destino limpas.\n')
+  console.log('Tabelas do destino limpas (schema_migrations preservada).\n')
 }
 
 const relatorio = []
@@ -200,8 +228,11 @@ if (!dryRun) {
 console.log('\n── Conferência ─────────────────────────────────────────────')
 const divergentes = relatorio.filter(r => typeof r.origem === 'number' && r.origem !== r.destino && !dryRun)
 for (const r of relatorio.filter(r => r.origem !== 0 && r.origem !== '—')) {
-  const marca = typeof r.origem === 'number' && r.origem === r.destino ? '✓' : '✗'
-  console.log(`  ${marca} ${r.tabela.padEnd(32)} origem=${String(r.origem).padStart(7)}  destino=${String(r.destino).padStart(7)}${r.nota ? '  ' + r.nota : ''}`)
+  // Em dry-run nada é escrito, então destino=0 é o esperado e não significa
+  // divergência — marcar tudo com ✗ ali só assustava sem motivo.
+  const marca = dryRun ? '·' : (typeof r.origem === 'number' && r.origem === r.destino ? '✓' : '✗')
+  const destino = dryRun ? '(dry-run)' : String(r.destino).padStart(7)
+  console.log(`  ${marca} ${r.tabela.padEnd(32)} origem=${String(r.origem).padStart(7)}  destino=${destino}${r.nota ? '  ' + r.nota : ''}`)
 }
 console.log(`\nTotal de linhas lidas do D1: ${totalLinhas}`)
 console.log(divergentes.length
