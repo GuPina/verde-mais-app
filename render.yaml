@@ -30,8 +30,9 @@
 # limiting continua enxergando o IP real do usuário atrás do proxy.
 #
 # Duas lentidões que CDN nenhum resolve:
-#   • O plano free do Render hiberna: a 1ª visita após ociosidade leva ~1 min.
-#     Por isso o `starter` abaixo.
+#   • ATENÇÃO — este blueprint está no plano `free`, que HIBERNA o serviço após
+#     ~15 min sem tráfego. A primeira visita depois disso leva perto de 1 min.
+#     Para produção de verdade, troque `plan: free` por `plan: starter`.
 #   • O Neon suspende o compute após ~5 min sem query; a consulta seguinte
 #     acorda o banco e paga ~500 ms. Com tráfego real quase não acontece.
 
@@ -40,7 +41,7 @@ services:
     name: verdemais
     runtime: node
     region: virginia
-    plan: starter          # o free hiberna — não use em produção
+    plan: free             # ver a nota sobre hibernação no topo deste arquivo
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
@@ -78,23 +79,36 @@ services:
       - key: OPENAI_BASE_URL
         sync: false
 
-  # Recorrências, lembretes e verificação de atrasos passam a rodar sozinhos.
-  # Antes só eram processados quando o usuário abria a tela correspondente —
-  # quem não entrasse no app não tinha os lançamentos gerados.
-  - type: cron
-    name: verdemais-cron
-    runtime: node
-    region: virginia
-    plan: starter
-    schedule: "0 9 * * *"   # 06:00 em São Paulo (UTC-3) — o Render agenda em UTC
-    buildCommand: npm ci && npm run build:cron
-    startCommand: npm run cron
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: DATABASE_URL
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_BASE_URL
-        sync: false
+  # ── Cron job: REMOVIDO enquanto o projeto estiver no plano free ────────────
+  #
+  # O Render não oferece cron job no free — há cobrança mínima de US$ 1/mês por
+  # serviço de cron. Deixá-lo aqui faz o blueprint exigir cartão, que é
+  # justamente o que queremos evitar por ora.
+  #
+  # Consequência: recorrências, lembretes e verificação de atrasos voltam a ser
+  # processados apenas quando o usuário abre a tela correspondente — o
+  # comportamento que o projeto sempre teve. Nada regride em relação a hoje; o
+  # que fica pendente é a melhoria.
+  #
+  # Duas formas de recuperar isso depois:
+  #   a) reativar o bloco abaixo (custa a partir de US$ 1/mês); ou
+  #   b) um workflow agendado no GitHub Actions chamando um endpoint do app —
+  #      sai de graça em repositório público e ainda desperta o serviço.
+  #
+  # - type: cron
+  #   name: verdemais-cron
+  #   runtime: node
+  #   region: virginia
+  #   plan: starter
+  #   schedule: "0 9 * * *"   # 06:00 em São Paulo (UTC-3) — o Render agenda em UTC
+  #   buildCommand: npm ci && npm run build:cron
+  #   startCommand: npm run cron
+  #   envVars:
+  #     - key: NODE_VERSION
+  #       value: "22"
+  #     - key: DATABASE_URL
+  #       sync: false
+  #     - key: OPENAI_API_KEY
+  #       sync: false
+  #     - key: OPENAI_BASE_URL
+  #       sync: false
