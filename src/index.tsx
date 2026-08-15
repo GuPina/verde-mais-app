@@ -290,16 +290,16 @@ function landingPage() {
       </div>
       <div style="display:flex;gap:32px;">
         <div>
-          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">+2.400</div>
-          <div style="color:#666;font-size:0.85rem;">usuários ativos</div>
+          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">R$ 0</div>
+          <div style="color:#666;font-size:0.85rem;">plano free, sem prazo</div>
         </div>
         <div>
-          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">R$1.2M</div>
-          <div style="color:#666;font-size:0.85rem;">economizados</div>
+          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">20+</div>
+          <div style="color:#666;font-size:0.85rem;">módulos financeiros</div>
         </div>
         <div>
-          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">4.9⭐</div>
-          <div style="color:#666;font-size:0.85rem;">avaliação média</div>
+          <div style="font-size:1.8rem;font-weight:800;color:#2FBF71;">🇧🇷</div>
+          <div style="color:#666;font-size:0.85rem;">feito para o Brasil</div>
         </div>
       </div>
     </div>
@@ -487,14 +487,14 @@ function landingPage() {
 <!-- SEGURANÇA -->
 <section>
   <div style="max-width:1000px;margin:0 auto;text-align:center;">
-    <h2 class="section-title">Segurança de <span class="gradient-text">nível bancário</span></h2>
-    <p class="section-sub">Seus dados financeiros merecem a máxima proteção.</p>
+    <h2 class="section-title">Como seus dados são <span class="gradient-text">protegidos</span></h2>
+    <p class="section-sub">Sem jargão: exatamente o que fazemos com as suas informações.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px;">
       ${[
-        { icon: '🔐', title: 'Criptografia', desc: 'Dados criptografados com AES-256' },
-        { icon: '🛡️', title: 'LGPD', desc: '100% em conformidade com a lei' },
-        { icon: '🔒', title: 'Autenticação', desc: 'Tokens seguros e sessões protegidas' },
-        { icon: '☁️', title: 'Edge Computing', desc: 'Hospedado na rede Cloudflare global' }
+        { icon: '🔐', title: 'Senhas', desc: 'Guardadas com PBKDF2, 100 mil iterações' },
+        { icon: '🛡️', title: 'Em trânsito', desc: 'Todo o tráfego cifrado com TLS' },
+        { icon: '🔒', title: 'Sessões', desc: 'Tokens com validade e limite de tentativas' },
+        { icon: '🤝', title: 'Seus dados', desc: 'Nunca vendidos nem cedidos a terceiros' }
       ].map(s => `
         <div class="card" style="text-align:center;padding:24px;">
           <div style="font-size:2rem;margin-bottom:12px;">${s.icon}</div>
@@ -512,10 +512,10 @@ function landingPage() {
   <div style="max-width:700px;margin:0 auto;" id="faq">
     ${[
       { q: 'O plano Free é realmente gratuito para sempre?', a: 'Sim! O plano Free do VerdeMais não tem prazo de expiração. Você pode usar as funcionalidades básicas sem pagar nada, para sempre.' },
-      { q: 'Meus dados financeiros ficam seguros?', a: 'Absolutamente. Usamos criptografia de nível bancário, hospedagem na rede global da Cloudflare e estamos em conformidade total com a LGPD.' },
+      { q: 'Meus dados financeiros ficam seguros?', a: 'Sua senha é guardada com PBKDF2 (100 mil iterações) e nunca em texto claro, todo o tráfego é cifrado com TLS e o banco fica em infraestrutura gerenciada com criptografia em repouso. Seus dados não são vendidos nem cedidos a terceiros.' },
       { q: 'Posso cancelar minha assinatura quando quiser?', a: 'Sim, sem multa e sem burocracia. Se cancelar, você continua com acesso até o fim do período pago, depois migra automaticamente para o Free.' },
       { q: 'O aplicativo funciona no celular?', a: 'Sim! VerdeMais é responsivo e funciona perfeitamente em qualquer dispositivo — desktop, tablet ou smartphone.' },
-      { q: 'Quando haverá integração com bancos?', a: 'Estamos desenvolvendo a integração com Open Banking. Usuários Pro terão acesso em primeira mão quando lançarmos.' }
+      { q: 'Dá para importar meus extratos?', a: 'Sim — o VerdeMais importa extratos e faturas em CSV, com detecção de duplicatas e categorização automática. Integração direta com bancos via Open Banking não existe hoje e não tem data definida.' }
     ].map((f, i) => `
       <div class="faq-item" onclick="toggleFaq(${i})">
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -533,7 +533,7 @@ function landingPage() {
   <div style="max-width:600px;margin:0 auto;">
     <div style="font-size:3rem;margin-bottom:16px;">💚</div>
     <h2 style="font-size:2.5rem;font-weight:800;margin-bottom:16px;">Pronto para assumir o controle?</h2>
-    <p style="color:#888;margin-bottom:40px;font-size:1.1rem;">Junte-se a milhares de brasileiros que já estão construindo patrimônio com o VerdeMais.</p>
+    <p style="color:#888;margin-bottom:40px;font-size:1.1rem;">Crie sua conta e comece a organizar as finanças hoje. O plano gratuito não expira.</p>
     <a href="/cadastro" class="btn-primary" style="font-size:1.1rem;padding:16px 40px;">
       <i class="fas fa-rocket"></i> Criar minha conta grátis
     </a>

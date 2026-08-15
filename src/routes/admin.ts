@@ -301,19 +301,49 @@ admin.get('/api/metricas', async (c) => {
   })
 })
 
-// ─── POST /admin/api/query  → SQL (somente SELECT/PRAGMA) ────────────────────
+// ─── POST /admin/api/query  → console SQL somente leitura ────────────────────
+//
+// O filtro anterior era `sql.trim().toUpperCase().startsWith('SELECT'|'PRAGMA')`.
+// Isso é frágil por três motivos:
+//   • `PRAGMA` não existe no Postgres — o ramo era morto e enganoso;
+//   • um comentário à frente (`/*x*/DELETE …`) ou uma CTE (`WITH t AS (…) DELETE
+//     FROM …`, válido no Postgres) driblam o startsWith;
+//   • nada impedia vários statements separados por ponto e vírgula.
+//
+// A defesa de verdade não é casar string: é pedir ao banco uma transação
+// READ ONLY. Aí o próprio Postgres recusa qualquer escrita, inclusive as que
+// nenhum filtro textual pegaria. O timeout e o teto de linhas evitam que uma
+// consulta distraída prenda uma conexão do pool ou devolva a base inteira.
 admin.post('/api/query', async (c) => {
   const { sql } = await c.req.json()
   if (!sql || typeof sql !== 'string') return c.json({ error: 'SQL obrigatório' }, 400)
 
-  const normalized = sql.trim().toUpperCase()
-  if (!normalized.startsWith('SELECT') && !normalized.startsWith('PRAGMA')) {
-    return c.json({ error: 'Apenas SELECT e PRAGMA são permitidos neste painel.' }, 403)
+  // Tira comentários antes de olhar o início, senão `/*x*/DELETE` passaria.
+  const semComentarios = sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .trim()
+
+  if (/;\s*\S/.test(semComentarios)) {
+    return c.json({ error: 'Envie um único statement por vez.' }, 400)
+  }
+  if (!/^(SELECT|WITH|TABLE|VALUES|EXPLAIN|SHOW)\b/i.test(semComentarios)) {
+    return c.json({ error: 'Somente consultas de leitura são permitidas neste painel.' }, 403)
   }
 
+  const TETO_LINHAS = 500
   try {
-    const result = await c.env.DB.prepare(sql).all()
-    return c.json({ rows: result.results, count: result.results.length })
+    // A garantia real está aqui: o Postgres recusa qualquer escrita dentro de
+    // uma transação READ ONLY, independentemente do texto da consulta.
+    const linhas = await c.env.DB.consultaSomenteLeitura(
+      semComentarios.replace(/;\s*$/, ''),
+      { limite: TETO_LINHAS, timeoutMs: 5000 },
+    )
+    return c.json({
+      rows: linhas.slice(0, TETO_LINHAS),
+      count: Math.min(linhas.length, TETO_LINHAS),
+      truncado: linhas.length > TETO_LINHAS,
+    })
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }

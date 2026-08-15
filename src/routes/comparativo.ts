@@ -168,7 +168,7 @@ comparativo.get('/', requireAuth, async (c) => {
   // Bloco 5: conquista 'analitico' — usou comparativo 5+ vezes (deve ser ANTES do return)
   try {
     await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', datetime('now'))`
+      `INSERT INTO ia_insights (user_id, tipo, titulo, conteudo, data_criacao) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', 'Usou comparativo mensal', datetime('now'))`
     ).bind(user.id).run().catch(() => {})
     const cnt = await c.env.DB.prepare(
       `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='comparativo_visto'`

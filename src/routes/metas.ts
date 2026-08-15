@@ -435,13 +435,13 @@ async function calcDebtTotals(
 
   if (debtType === 'all') {
     const [f, e] = await Promise.all([
-      db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_pago),0) as pago FROM financiamentos WHERE user_id = ? AND status = 'ativo'`).bind(userId).first() as any,
+      db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_financiado - saldo_devedor),0) as pago FROM financiamentos WHERE user_id = ? AND status = 'ativo'`).bind(userId).first() as any,
       db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_pago),0) as pago FROM emprestimos WHERE user_id = ? AND status = 'ativo'`).bind(userId).first() as any,
     ])
     return { total: Number(f?.saldo || 0) + Number(e?.saldo || 0), pago: Number(f?.pago || 0) + Number(e?.pago || 0) }
   }
   if (debtType === 'financiamento') {
-    const r = await db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_pago),0) as pago FROM financiamentos WHERE user_id = ? AND status = 'ativo'`).bind(userId).first() as any
+    const r = await db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as saldo, COALESCE(SUM(valor_financiado - saldo_devedor),0) as pago FROM financiamentos WHERE user_id = ? AND status = 'ativo'`).bind(userId).first() as any
     return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
   }
   if (debtType === 'emprestimo') {
@@ -449,7 +449,7 @@ async function calcDebtTotals(
     return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
   }
   if (debtType === 'especifico' && debtId) {
-    let r = await db.prepare('SELECT saldo_devedor as saldo, valor_pago as pago FROM financiamentos WHERE id = ? AND user_id = ?').bind(debtId, userId).first() as any
+    let r = await db.prepare('SELECT saldo_devedor as saldo, (valor_financiado - saldo_devedor) as pago FROM financiamentos WHERE id = ? AND user_id = ?').bind(debtId, userId).first() as any
     if (!r) r = await db.prepare('SELECT saldo_devedor as saldo, valor_pago as pago FROM emprestimos WHERE id = ? AND user_id = ?').bind(debtId, userId).first() as any
     return { total: Number(r?.saldo || 0), pago: Number(r?.pago || 0) }
   }

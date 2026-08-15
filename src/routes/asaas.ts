@@ -226,9 +226,11 @@ asaas.post('/webhook', async (c) => {
           `UPDATE users SET plano = ? WHERE id = ?`
         ).bind(pag.plano, pag.user_id).run()
 
+        // Grava também o expira_em: o GET /api/plano/status devolve esse campo
+        // e, sem ele preenchido, a resposta saía com `expira_em: undefined`.
         await c.env.DB.prepare(
-          `UPDATE assinaturas SET plano = ?, status = 'ativo', updated_at = datetime('now') WHERE user_id = ?`
-        ).bind(pag.plano, pag.user_id).run()
+          `UPDATE assinaturas SET plano = ?, status = 'ativo', expira_em = ?, updated_at = datetime('now') WHERE user_id = ?`
+        ).bind(pag.plano, expira.toISOString(), pag.user_id).run()
 
         // Conquista assinante
         await c.env.DB.prepare(

@@ -36,6 +36,15 @@ interface D1Database {
   /** Executa em transação e devolve os resultados na mesma ordem. */
   batch<T = any>(stmts: D1PreparedStatement[]): Promise<D1Result<T>[]>
   exec(sql: string): Promise<void>
+  /**
+   * Consulta arbitrária numa transação READ ONLY — o banco recusa qualquer
+   * escrita, independentemente do texto. Usado pelo console SQL do admin.
+   * Não existia no D1; é adição desta camada.
+   */
+  consultaSomenteLeitura(
+    sql: string,
+    opts?: { limite?: number; timeoutMs?: number },
+  ): Promise<any[]>
 }
 
 /**

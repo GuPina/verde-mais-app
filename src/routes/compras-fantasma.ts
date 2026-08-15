@@ -76,7 +76,7 @@ function calcularCustoOportunidade(
 async function getCDIAtual(db: D1Database): Promise<number> {
   try {
     const row = await db.prepare(
-      `SELECT taxa_anual FROM cdi_historico ORDER BY data DESC LIMIT 1`
+      `SELECT ROUND((POW(1 + taxa/100, 252) - 1) * 100, 4) as taxa_anual FROM cdi_historico ORDER BY data DESC LIMIT 1`
     ).first() as any
     if (row?.taxa_anual && row.taxa_anual > 0) {
       return Number(row.taxa_anual) / 100  // converte % para decimal

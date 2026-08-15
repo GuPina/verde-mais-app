@@ -426,6 +426,39 @@ export class BancoCompativel {
   async exec(sql: string): Promise<void> {
     await this.pool.query(traduzir(sql))
   }
+
+  /**
+   * Executa uma consulta arbitrária dentro de uma transação READ ONLY.
+   *
+   * É o que sustenta o console SQL do painel admin. Filtro por texto —
+   * `startsWith('SELECT')` e afins — é sempre contornável: um comentário à
+   * frente, uma CTE `WITH ... DELETE` (válida no Postgres), um segundo
+   * statement. Aqui quem recusa a escrita é o próprio banco, então nenhuma
+   * criatividade no texto da consulta muda o resultado.
+   *
+   * O timeout e o teto de linhas evitam que uma consulta distraída prenda uma
+   * conexão do pool ou tente devolver a base inteira.
+   */
+  async consultaSomenteLeitura(
+    sql: string,
+    opts: { limite?: number; timeoutMs?: number } = {},
+  ): Promise<any[]> {
+    const limite = opts.limite ?? 500
+    const timeoutMs = opts.timeoutMs ?? 5000
+    const cliente = await this.pool.connect()
+    try {
+      await cliente.query('BEGIN READ ONLY')
+      await cliente.query(`SET LOCAL statement_timeout = ${Number(timeoutMs)}`)
+      const r = await cliente.query(sql)
+      await cliente.query('COMMIT')
+      return (r.rows || []).slice(0, limite + 1)
+    } catch (e) {
+      await cliente.query('ROLLBACK').catch(() => {})
+      throw e
+    } finally {
+      cliente.release()
+    }
+  }
 }
 
 export function criarBanco(connectionString: string): BancoCompativel {

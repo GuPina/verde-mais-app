@@ -168,7 +168,7 @@ reserva.get('/historico', requireAuth, async (c) => {
 
   if (reservaEsp) {
     const transactions = await c.env.DB.prepare(
-      `SELECT * FROM reserve_transactions WHERE reserve_id = ? ORDER BY created_at DESC LIMIT 24`
+      `SELECT * FROM reserve_transactions WHERE reserve_id = ? ORDER BY date DESC LIMIT 24`
     ).bind(reservaEsp.id).all()
     return c.json({ historico: transactions.results, reserve_id: reservaEsp.id, fonte: 'specialized' })
   }

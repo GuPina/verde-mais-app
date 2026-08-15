@@ -220,7 +220,7 @@ relatorio.get('/anual', requireAuth, async (c) => {
   try {
     await verificarConquista(c.env.DB, user.id, 'analista')
     await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, descricao, created_at) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', datetime('now'))`
+      `INSERT INTO ia_insights (user_id, tipo, titulo, conteudo, data_criacao) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', 'Visualizou relatório anual', datetime('now'))`
     ).bind(user.id).run().catch(() => {})
     const totalViz = await c.env.DB.prepare(
       `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='relatorio_anual_visto'`
