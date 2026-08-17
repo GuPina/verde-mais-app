@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites as getPlanLimits } from './planos'
+import { competenciaMes, filtroDespesaDoMes, filtroDespesaDoAno } from '../lib/competencia'
 
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -53,9 +54,8 @@ relatorio.get('/dados', requireAuth, async (c) => {
              JOIN tags t ON t.id=dt.tag_id WHERE dt.despesa_id=d.id) as tags
      FROM despesas d
      LEFT JOIN cartoes c ON c.id = d.cartao_id
-     WHERE d.user_id=? AND d.status!='cancelado'
-       AND strftime('%m',COALESCE(d.vencimento,d.data))=?
-       AND strftime('%Y',COALESCE(d.vencimento,d.data))=?
+     WHERE d.user_id=?
+       ${filtroDespesaDoMes('d')}
      ORDER BY d.data ASC`
   ).bind(user.id, ms, as).all<any>()
 
@@ -65,9 +65,8 @@ relatorio.get('/dados', requireAuth, async (c) => {
             SUM(valor) as total,
             COUNT(*) as qtd
      FROM despesas
-     WHERE user_id=? AND status!='cancelado'
-       AND strftime('%m',COALESCE(vencimento,data))=?
-       AND strftime('%Y',COALESCE(vencimento,data))=?
+     WHERE user_id=?
+       ${filtroDespesaDoMes()}
      GROUP BY categoria
      ORDER BY total DESC`
   ).bind(user.id, ms, as).all<any>()
@@ -118,12 +117,11 @@ relatorio.get('/dados', requireAuth, async (c) => {
     JOIN despesa_tags dt ON dt.tag_id = t.id
     JOIN despesas d ON d.id = dt.despesa_id
     WHERE t.user_id = ?
-      AND strftime('%Y-%m', d.data) = printf('%04d-%02d', ?, ?)
-      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
+      ${filtroDespesaDoMes('d')}
     GROUP BY t.id, t.nome, t.cor
     ORDER BY total DESC
     LIMIT 10
-  `).bind(user.id, ano, mes).all<any>()
+  `).bind(user.id, ms, as).all<any>()
 
   return c.json({
     meta: {
@@ -185,10 +183,11 @@ relatorio.get('/anual', requireAuth, async (c) => {
     ).bind(user.id, as).all<{mes:string;total:number}>(),
 
     c.env.DB.prepare(
-      `SELECT strftime('%m', COALESCE(vencimento,data)) as mes, COALESCE(SUM(valor),0) as total
+      `SELECT (${competenciaMes()}) as mes, COALESCE(SUM(valor),0) as total
        FROM despesas
-       WHERE user_id=? AND status!='cancelado' AND strftime('%Y',COALESCE(vencimento,data))=?
-       GROUP BY strftime('%m', COALESCE(vencimento,data))`
+       WHERE user_id=?
+         ${filtroDespesaDoAno()}
+       GROUP BY (${competenciaMes()})`
     ).bind(user.id, as).all<{mes:string;total:number}>(),
   ])
 

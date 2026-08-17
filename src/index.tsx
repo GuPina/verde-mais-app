@@ -38,6 +38,7 @@ import alertasCategoriaRoutes from './routes/alertas-categoria'
 import antecipacaoRoutes from './routes/antecipacao'
 import categorizacaoRoutes from './routes/categorizacao'
 import organizadorRoutes from './routes/organizador'
+import aportesRoutes from './routes/aportes'
 
 type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
@@ -90,6 +91,7 @@ app.route('/api/alertas-categoria', alertasCategoriaRoutes)
 app.route('/api/antecipacao', antecipacaoRoutes)
 app.route('/api/categorizacao', categorizacaoRoutes)
 app.route('/api/organizador', organizadorRoutes)
+app.route('/api/aportes', aportesRoutes)
 
 // Alias: POST /api/chat/mensagem → /api/assistente/chat (compatibilidade)
 app.post('/api/chat/mensagem', async (c) => {
@@ -476,7 +478,6 @@ function landingPage() {
         <li><span class="check">✓</span> Cartões ilimitados</li>
         <li><span class="check">✓</span> Projeção patrimonial avançada</li>
         <li><span class="check">✓</span> Regra 50/30/20 personalizável</li>
-        <li><span class="check">✓</span> Acesso à API REST para integrações</li>
         <li><span class="check">✓</span> Suporte prioritário</li>
       </ul>
       <a href="/cadastro" class="btn-outline" style="width:100%;justify-content:center;">Assinar Pro</a>
@@ -630,7 +631,7 @@ function appShell() {
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=20260318-2"></script>
+  <script src="/static/app.js?v=20260817-1"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

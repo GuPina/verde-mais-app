@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -43,8 +44,7 @@ projecao.get('/', requireAuth, async (c) => {
     const desp = await c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas
        WHERE user_id = ? AND status IN ('pago','pendente')
-         AND strftime('%m', COALESCE(vencimento, data)) = ?
-         AND strftime('%Y', COALESCE(vencimento, data)) = ?`
+         ${filtroDespesaDoMes()}`
     ).bind(user.id, mesStr, String(a)).first() as any
 
     const r = Number(rec?.total || 0)

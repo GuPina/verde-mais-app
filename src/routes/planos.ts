@@ -3,7 +3,9 @@
  *
  * FREE     → grátis, para sempre, funcionalidades essenciais com limites
  * PREMIUM  → R$19/mês, tudo do free sem limites + score + IA + relatórios
- * PRO      → R$49/mês, tudo do premium + projeções avançadas + API
+ * PRO      → R$49/mês, tudo do premium + cartões ilimitados + regra 50/30/20
+ *            personalizável. (Acesso via API está no modelo mas NÃO existe:
+ *            por isso saiu da landing.)
  */
 
 export type Plano = 'free' | 'premium' | 'pro'
@@ -28,8 +30,9 @@ export const LIMITES: Record<Plano, {
   reserva_emergencia: boolean
   conquistas: boolean
   cartao_compras: boolean   // lançamentos em cartão
-  amortizacao: boolean      // amortização extraordinária
-  api_acesso: boolean       // acesso à API externa
+  amortizacao: boolean         // amortização extraordinária
+  regra_personalizada: boolean // editar os percentuais da regra 50/30/20
+  api_acesso: boolean          // reservado: não existe implementação ainda
 }> = {
   free: {
     metas:              3,
@@ -49,6 +52,7 @@ export const LIMITES: Record<Plano, {
     conquistas:         true,
     cartao_compras:     true,
     amortizacao:        false,
+    regra_personalizada: false,
     api_acesso:         false,
   },
   premium: {
@@ -69,6 +73,7 @@ export const LIMITES: Record<Plano, {
     conquistas:         true,
     cartao_compras:     true,
     amortizacao:        true,
+    regra_personalizada: false,
     api_acesso:         false,
   },
   pro: {
@@ -89,6 +94,7 @@ export const LIMITES: Record<Plano, {
     conquistas:         true,
     cartao_compras:     true,
     amortizacao:        true,
+    regra_personalizada: true,
     api_acesso:         true,
   },
 }
@@ -104,6 +110,32 @@ export function podeUsar(plano: string, feature: keyof typeof LIMITES.free): boo
   const val = lim[feature]
   if (typeof val === 'boolean') return val
   return (val as number) > 0
+}
+
+/**
+ * Middleware de porteiro para features booleanas.
+ *
+ * Antes, cada rota decidia sozinha se checava o plano — e três esqueceram:
+ * amortização e a regra 50/30/20 personalizável respondiam 200 no plano free,
+ * e a simulação de investimentos não tinha nem `requireAuth`, respondendo a
+ * qualquer um na internet. Todas as três eram anunciadas como pagas.
+ *
+ * Com o porteiro, esquecer passa a ser visível: ou a rota tem
+ * `exigeFeature('x')`, ou não tem. Usar SEMPRE depois de `requireAuth`.
+ */
+export function exigeFeature(feature: keyof typeof LIMITES.free) {
+  return async (c: any, next: any) => {
+    const user = c.get('user')
+    if (!user) return c.json({ error: 'Não autorizado' }, 401)
+    if (!podeUsar(user.plano, feature)) {
+      return c.json({
+        error:   MSG_UPGRADE[feature] || 'Recurso disponível em um plano pago.',
+        upgrade: true,
+        feature,
+      }, 403)
+    }
+    await next()
+  }
 }
 
 // ─── Mensagens de upgrade ────────────────────────────────────────────────────
@@ -122,5 +154,9 @@ export const MSG_UPGRADE: Record<string, string> = {
   simulacao:          'A simulação de investimentos está disponível no plano Premium.',
   exportar_pdf:       'Exportação em PDF está disponível no plano Premium.',
   amortizacao:        'A amortização extraordinária está disponível no plano Premium.',
-  api_acesso:         'Acesso à API está disponível no plano Pro.',
+  regra_personalizada: 'Personalizar os percentuais da regra 50/30/20 está disponível no plano Pro.',
+  // api_acesso continua no modelo, mas NÃO é anunciado em lugar nenhum: não
+  // existe endpoint de API externa nem emissão de chave. Vender isso seria
+  // cobrar por algo que não foi construído.
+  api_acesso:         'Acesso à API ainda não está disponível.',
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
+import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroDespesaDoAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { classificarObrigacoesTemporais, calcularEconomiaAmortizacao } from '../utils/obrigacoes-temporais'
 
 type Bindings = { DB: D1Database }
@@ -53,27 +54,15 @@ dashboard.get('/', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
        WHERE user_id = ?
-         AND COALESCE(tipo,'normal') != 'aporte'
-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
-         AND CASE WHEN status = 'pago'
-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
-             END`
-    ).bind(user.id, mes, ano, mes, ano),
+         ${filtroDespesaDoMes()}`
+    ).bind(user.id, mes, ano),
     // despesas por status
     c.env.DB.prepare(
       `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
        WHERE user_id = ?
-         AND COALESCE(tipo,'normal') != 'aporte'
-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
-         AND CASE WHEN status = 'pago'
-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
-             END
+         ${filtroDespesaDoMes()}
        GROUP BY status`
-    ).bind(user.id, mes, ano, mes, ano),
+    ).bind(user.id, mes, ano),
     // total investimentos
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor_atual), 0) as total, COALESCE(SUM(valor_investido), 0) as investido FROM investimentos WHERE user_id = ?`
@@ -126,13 +115,9 @@ dashboard.get('/', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM despesas 
        WHERE user_id = ?
-         AND CASE WHEN status = 'pago'
-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
-             END
+         ${filtroDespesaDoMes()}
        GROUP BY categoria ORDER BY total DESC LIMIT 8`
-    ).bind(user.id, mes, ano, mes, ano),
+    ).bind(user.id, mes, ano),
     // categorias receitas
     c.env.DB.prepare(
       `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM receitas 
@@ -161,14 +146,8 @@ dashboard.get('/', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
        WHERE user_id = ?
-         AND COALESCE(tipo,'normal') != 'aporte'
-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
-         AND CASE WHEN status = 'pago'
-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
-             END`
-    ).bind(user.id, mesAnt, anoAnt, mesAnt, anoAnt),
+         ${filtroDespesaDoMes()}`
+    ).bind(user.id, mesAnt, anoAnt),
   ])
 
   const receitasMes        = receitasMesR.results?.[0]        ?? receitasMesR as any
@@ -233,12 +212,8 @@ dashboard.get('/', requireAuth, async (c) => {
       c.env.DB.prepare(
         `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
          WHERE user_id = ?
-           AND CASE WHEN status = 'pago'
-                    THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
-                    ELSE strftime('%m', COALESCE(vencimento, data)) = ?
-                     AND strftime('%Y', COALESCE(vencimento, data)) = ?
-               END`
-      ).bind(user.id, m, a, m, a),
+           ${filtroDespesaDoMes()}`
+      ).bind(user.id, m, a),
     ])
   ])
 
@@ -334,17 +309,11 @@ dashboard.get('/', requireAuth, async (c) => {
     JOIN tags t ON t.id = dt.tag_id
     JOIN despesas d ON d.id = dt.despesa_id
     WHERE d.user_id = ?
-      AND COALESCE(d.tipo,'normal') != 'aporte'
-      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
-      AND CASE WHEN d.status = 'pago'
-               THEN strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?
-               ELSE strftime('%m', COALESCE(d.vencimento, d.data)) = ?
-                AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
-           END
+      ${filtroDespesaDoMes('d')}
     GROUP BY t.id, t.nome, t.cor
     ORDER BY total DESC
     LIMIT 5
-  `).bind(user.id, mes, ano, mes, ano).all()
+  `).bind(user.id, mes, ano).all()
   const topTags = topTagsResult.results || []
 
   // Bloco 5: conquistas saude_ferro, score_50/70/80
@@ -452,8 +421,7 @@ dashboard.get('/', requireAuth, async (c) => {
       FROM orcamentos o
       LEFT JOIN despesas d ON d.user_id = o.user_id
         AND d.categoria = o.categoria
-        AND strftime('%m', COALESCE(d.vencimento,d.data)) = ?
-        AND strftime('%Y', COALESCE(d.vencimento,d.data)) = ?
+        ${filtroDespesaDoMes('d')}
       WHERE o.user_id = ? AND o.mes = ? AND o.ano = ? AND o.limite > 0
       GROUP BY o.categoria, o.limite
       HAVING (COALESCE(SUM(d.valor),0) * 1.0 / o.limite) > 0.8
@@ -719,9 +687,8 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
        FROM despesas
-       WHERE user_id = ? AND strftime('%Y', COALESCE(vencimento, data)) = ?
-         AND COALESCE(tipo,'normal') != 'aporte'
-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+       WHERE user_id = ?
+         ${filtroDespesaDoAno()}
        GROUP BY categoria ORDER BY total DESC LIMIT 8`
     ).bind(user.id, ano),
     // receitas e despesas de cada mês (12 × 2 = 24 queries)
@@ -732,9 +699,7 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
       c.env.DB.prepare(
         `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
          WHERE user_id = ?
-           AND status != 'cancelado'
-           AND strftime('%m', COALESCE(vencimento, data)) = ?
-           AND strftime('%Y', COALESCE(vencimento, data)) = ?
+           ${filtroDespesaDoMes()}
            AND id NOT IN (
              SELECT d2.id FROM despesas d2
              JOIN antecipacoes a ON a.user_id = d2.user_id

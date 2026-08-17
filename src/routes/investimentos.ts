@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
-import { getLimites, MSG_UPGRADE } from './planos'
+import { getLimites, MSG_UPGRADE, exigeFeature } from './planos'
 import { ensureTag, tagInvestimento, COR_MODULO } from '../utils/tags-helper'
 
 type Bindings = { DB: D1Database }
@@ -951,7 +951,7 @@ investimentos.delete('/:id', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/investimentos/simulacao
 // ─────────────────────────────────────────────────────────────────────────────
-investimentos.get('/simulacao', async (c) => {
+investimentos.get('/simulacao', requireAuth, exigeFeature('simulacao'), async (c) => {
   const { valor, tipo, prazo_meses = '12', taxa_personalizada, percentual_cdi, aporte_mensal = '0' } = c.req.query()
   if (!valor || !tipo) return c.json({ error: 'Parâmetros: valor, tipo, prazo_meses' }, 400)
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -95,7 +96,7 @@ ia.get('/insights', requireAuth, async (c) => {
 
     const [recR, despR, invR, reservaR] = await Promise.all([
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first(),
-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' AND strftime('%m',COALESCE(vencimento,data))=? AND strftime('%Y',COALESCE(vencimento,data))=?`).bind(uid,mes,ano).first(),
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first(),
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(uid).first(),
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM reserva_emergencia WHERE user_id=?`).bind(uid).first(),
     ]) as any[]
@@ -153,23 +154,15 @@ ia.get('/insights', requireAuth, async (c) => {
     // M2 – Despesas do mês (critério temporal consistente)
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
-       AND CASE WHEN status='pago'
-                THEN strftime('%m',data)=? AND strftime('%Y',data)=?
-                ELSE strftime('%m',COALESCE(vencimento,data))=?
-                 AND strftime('%Y',COALESCE(vencimento,data))=?
-           END`
-    ).bind(uid, mes, ano, mes, ano).first() as any,
+       ${filtroDespesaDoMes()}`
+    ).bind(uid, mes, ano).first() as any,
 
     // M2 – Categorias de despesas
     c.env.DB.prepare(
       `SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
-       AND CASE WHEN status='pago'
-                THEN strftime('%m',data)=? AND strftime('%Y',data)=?
-                ELSE strftime('%m',COALESCE(vencimento,data))=?
-                 AND strftime('%Y',COALESCE(vencimento,data))=?
-           END
+       ${filtroDespesaDoMes()}
        GROUP BY categoria ORDER BY total DESC LIMIT 8`
-    ).bind(uid, mes, ano, mes, ano).all(),
+    ).bind(uid, mes, ano).all(),
 
     // M1 – Receitas últimos 6 meses
     c.env.DB.prepare(
@@ -180,8 +173,10 @@ ia.get('/insights', requireAuth, async (c) => {
 
     // M2 – Despesas últimos 6 meses
     c.env.DB.prepare(
-      `SELECT strftime('%Y-%m',COALESCE(vencimento,data)) as ym, COALESCE(SUM(valor),0) as total
-       FROM despesas WHERE user_id=? AND COALESCE(vencimento,data) >= date('now','-6 months')
+      `SELECT strftime('%Y-%m',${competenciaData()}) as ym, COALESCE(SUM(valor),0) as total
+       FROM despesas WHERE user_id=?
+         AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
+         AND (${competenciaData()}) >= date('now','-6 months')
        GROUP BY ym ORDER BY ym`
     ).bind(uid).all(),
 
@@ -211,7 +206,7 @@ ia.get('/insights', requireAuth, async (c) => {
               COALESCE(SUM(d.valor),0) as gasto
        FROM orcamentos o
        LEFT JOIN despesas d ON d.user_id=o.user_id AND d.categoria=o.categoria
-         AND strftime('%m',COALESCE(d.vencimento,d.data))=? AND strftime('%Y',COALESCE(d.vencimento,d.data))=?
+         ${filtroDespesaDoMes('d')}
        WHERE o.user_id=? AND o.mes=? AND o.ano=?
        GROUP BY o.categoria, o.limite`
     ).bind(mes, ano, uid, parseInt(mes), parseInt(ano)).all(),
@@ -910,7 +905,7 @@ ia.get('/score-saude', requireAuth, async (c) => {
   try {
     const [recRow, despRow, reservaRow, dividaRow] = await Promise.all([
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first() as any,
       // Soma reserva_emergencia (legada) + specialized_reserves
       c.env.DB.prepare(`
         SELECT COALESCE(
@@ -985,8 +980,8 @@ ia.post('/insights', requireAuth, async (c) => {
     // Buscar dados financeiros completos
     const [recRow, despRow, topCats, investRow, reservaRow, dividaRow, metasRow, recorRow, perfilRow] = await Promise.all([
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
-      c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
+      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first() as any,
+      c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total, COUNT(*) as cnt FROM investimentos WHERE user_id=?`).bind(uid).first() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(current_amount),0) as total FROM specialized_reserves WHERE user_id=? AND status!='cancelled'`).bind(uid).first() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,

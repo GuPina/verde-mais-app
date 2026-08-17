@@ -1216,6 +1216,9 @@ const VM = {
               <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
                 <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Investimentos
               </a>
+              <a class="nav-item" id="nav-aportes" onclick="VM.navigate('aportes')">
+                <span class="nav-icon">💰</span> Aportes
+              </a>
               <a class="nav-item" id="nav-reserva" onclick="VM.navigate('reserva')">
                 <span class="nav-icon"><i class="fas fa-shield-alt" style="color:#2FBF71;"></i></span> Reserva de Emergência
               </a>
@@ -1891,6 +1894,7 @@ const VM = {
       reserva: () => this.pageReserva(),
       tags: () => this.pageTags(),
       'organizador': () => this.pageOrganizador(),
+      'aportes': () => this.pageAportes(),
       'alertas-cartao': () => this.pageAlertasCartao(),
       'reservas-esp': () => this.pageReservasEsp(),
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
@@ -21524,6 +21528,124 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       financiamento:  { icon: '🏠', label: 'Financiamento',  cor: '#FB923C' },
       outros:         { icon: '📁', label: 'Outros',         cor: '#94A3B8' },
     }[tipo] || { icon: '📋', label: tipo, cor: '#818CF8' }
+  },
+
+  // ── Aportes ────────────────────────────────────────────────────────────────
+  // Aporte é dinheiro que saiu da conta e virou patrimônio. Ele NÃO entra na
+  // soma de despesas (senão quem investe apareceria como gastador e o score
+  // caía). Esta tela existe para o dinheiro não sumir de vista: mostra quanto
+  // foi aportado e para onde foi.
+  async pageAportes() {
+    const content = document.getElementById('page-content')
+    const hoje = new Date()
+    this._apMes = this._apMes || (hoje.getMonth() + 1)
+    this._apAno = this._apAno || hoje.getFullYear()
+    content.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">💰 Aportes</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Dinheiro que saiu da conta e virou patrimônio seu</div>
+        </div>
+      </div>
+      <div id="aportes-container"><div class="skeleton" style="height:180px;border-radius:16px;"></div></div>`
+    this._carregarAportes()
+  },
+
+  async _carregarAportes() {
+    const cont = document.getElementById('aportes-container')
+    if (!cont) return
+    const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    try {
+      const d = await this.api('GET', `aportes?mes=${this._apMes}&ano=${this._apAno}`)
+      const r = d.resumo || {}
+      const lista = d.aportes || []
+      const destinos = d.por_destino || []
+      const evol = d.evolucao || []
+      const maxEvol = Math.max(1, ...evol.map(e => Number(e.total) || 0))
+
+      const seletorMes = MESES.map((m, i) => `
+        <button onclick="VM._apMes=${i + 1};VM._carregarAportes()"
+          style="background:${this._apMes === i + 1 ? '#2FBF71' : 'transparent'};color:${this._apMes === i + 1 ? '#fff' : '#888'};border:1px solid ${this._apMes === i + 1 ? '#2FBF71' : '#2a2a3e'};border-radius:8px;padding:5px 10px;font-size:0.75rem;cursor:pointer;">${m}</button>`).join('')
+
+      cont.innerHTML = `
+        <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:0.84rem;color:#a5b4fc;">
+          ℹ️ ${d.explicacao || ''}
+        </div>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;">${seletorMes}</div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:22px;">
+          <div class="stat-card">
+            <div style="color:#888;font-size:0.8rem;">💰 Aportado em ${MESES[this._apMes - 1]}/${this._apAno}</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#818cf8;">${this.formatMoney(r.total_mes || 0)}</div>
+            <div style="color:#666;font-size:0.75rem;">${r.qtd_mes || 0} aporte(s)</div>
+          </div>
+          <div class="stat-card">
+            <div style="color:#888;font-size:0.8rem;">📅 Aportado em ${this._apAno}</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#34d399;">${this.formatMoney(r.total_ano || 0)}</div>
+            <div style="color:#666;font-size:0.75rem;">${r.qtd_ano || 0} aporte(s) no ano</div>
+          </div>
+          <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;">
+            <div style="color:#888;font-size:0.8rem;">📈 Virou investimento</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#2FBF71;">${this.formatMoney(r.patrimonio_investimentos || 0)}</div>
+            <div style="color:#666;font-size:0.75rem;">valor atual da carteira →</div>
+          </div>
+          <div class="stat-card" onclick="VM.navigate('reservas-esp')" style="cursor:pointer;">
+            <div style="color:#888;font-size:0.8rem;">🛡️ Virou reserva</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#60a5fa;">${this.formatMoney(r.patrimonio_reservas || 0)}</div>
+            <div style="color:#666;font-size:0.75rem;">guardado em caixinhas →</div>
+          </div>
+        </div>
+
+        ${evol.length ? `
+        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
+          <div style="font-weight:700;margin-bottom:14px;">📊 Evolução dos aportes (12 meses)</div>
+          <div style="display:flex;align-items:flex-end;gap:6px;height:120px;">
+            ${evol.map(e => `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;" title="${e.ym}: ${this.formatMoney(e.total)}">
+                <div style="width:100%;background:linear-gradient(180deg,#818cf8,#6366f1);border-radius:4px 4px 0 0;height:${Math.max(3, (Number(e.total) / maxEvol) * 96)}px;"></div>
+                <div style="font-size:0.62rem;color:#666;">${String(e.ym).slice(5)}</div>
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
+
+        ${destinos.length ? `
+        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
+          <div style="font-weight:700;margin-bottom:14px;">🎯 Para onde foi o dinheiro em ${this._apAno}</div>
+          ${destinos.map(x => {
+            const totalAno = destinos.reduce((s, y) => s + Number(y.total), 0) || 1
+            const pct = Math.round((Number(x.total) / totalAno) * 100)
+            return `
+            <div style="margin-bottom:12px;">
+              <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px;">
+                <span>${x.destino} <span style="color:#666;">(${x.qtd})</span></span>
+                <strong>${this.formatMoney(x.total)} · ${pct}%</strong>
+              </div>
+              <div style="background:#1a1a2e;border-radius:6px;height:8px;overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#818cf8,#6366f1);height:100%;width:${pct}%;"></div>
+              </div>
+            </div>`
+          }).join('')}
+        </div>` : ''}
+
+        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;">
+          <div style="font-weight:700;margin-bottom:14px;">📋 Aportes de ${MESES[this._apMes - 1]}/${this._apAno}</div>
+          ${lista.length ? lista.map(a => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1a1a2e;gap:12px;">
+              <div style="min-width:0;">
+                <div style="font-weight:600;">${a.descricao}</div>
+                <div style="color:#666;font-size:0.76rem;">${this.formatDate ? this.formatDate(a.data) : a.data}${a.subcategoria ? ' · ' + a.subcategoria : ''}</div>
+              </div>
+              <div style="font-weight:700;color:#818cf8;white-space:nowrap;">${this.formatMoney(a.valor)}</div>
+            </div>`).join('') : `
+            <div style="text-align:center;color:#555;padding:26px 0;">
+              Nenhum aporte neste mês.<br>
+              <span style="font-size:0.8rem;">Um aporte aparece aqui quando você cadastra um investimento ou marca uma despesa como aporte patrimonial.</span>
+            </div>`}
+        </div>`
+    } catch (e) {
+      cont.innerHTML = `<div style="text-align:center;color:#ff4757;padding:30px;">Não foi possível carregar os aportes. ${e?.message || ''}</div>`
+    }
   },
 
   async pageAntecipacao() {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { exigeFeature } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -51,7 +52,7 @@ function sacRemainingMonths(newBalance: number, originalBalance: number, origina
 }
 
 // ── POST /api/amortizacao/simular ─────────────────────────────────────────
-amortizacao.post('/simular', requireAuth, async (c) => {
+amortizacao.post('/simular', requireAuth, exigeFeature('amortizacao'), async (c) => {
   const user = c.get('user')
 
   const body = await c.req.json()
@@ -240,7 +241,7 @@ amortizacao.post('/simular', requireAuth, async (c) => {
 })
 
 // ── GET /api/amortizacao/historico ────────────────────────────────────────
-amortizacao.get('/historico', requireAuth, async (c) => {
+amortizacao.get('/historico', requireAuth, exigeFeature('amortizacao'), async (c) => {
   const user = c.get('user')
   const result = await c.env.DB.prepare(`
     SELECT a.*, f.descricao as financing_name

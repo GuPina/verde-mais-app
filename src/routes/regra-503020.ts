@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
+import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
+import { exigeFeature } from './planos'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -47,7 +49,7 @@ regra503020.get('/config', requireAuth, async (c) => {
 })
 
 // ── POST /api/regra-503020/config — Melhoria 3.2 ─────────────────────────────
-regra503020.post('/config', requireAuth, async (c) => {
+regra503020.post('/config', requireAuth, exigeFeature('regra_personalizada'), async (c) => {
   const user = c.get('user')
   const { pct_necessidades = 50, pct_desejos = 30, pct_poupanca = 20, nome_personalizado } = await c.req.json()
 
@@ -126,8 +128,7 @@ regra503020.get('/', requireAuth, async (c) => {
     SELECT categoria, COALESCE(SUM(valor), 0) as total
     FROM despesas
     WHERE user_id = ?
-      AND strftime('%m', COALESCE(vencimento, data)) = ?
-      AND strftime('%Y', COALESCE(vencimento, data)) = ?
+      ${filtroDespesaDoMes()}
       AND status = 'pago'
     GROUP BY categoria
   `).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()

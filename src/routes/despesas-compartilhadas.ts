@@ -30,8 +30,9 @@ despesasCompartilhadas.get('/', requireAuth, async (c) => {
       d.valor as total_valor,
       d.data,
       d.categoria,
-      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
-      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
+      COALESCE(se.valor_total, d.valor) as total_conta,
+      ROUND(COALESCE(se.valor_total, d.valor) * se.user_percentage / 100, 2) as minha_parte,
+      ROUND(COALESCE(se.valor_total, d.valor) * se.partner_percentage / 100, 2) as parte_parceiro
     FROM shared_expenses se
     LEFT JOIN despesas d ON se.expense_id = d.id
     WHERE se.user_id = ?
@@ -96,16 +97,23 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
 
   let despesaId = expense_id
 
+  // `valorTotalConta` é o valor CHEIO da conta — o que foi consumido pelas duas
+  // pessoas. É diferente do que vai para `despesas.valor` no modo
+  // criar+compartilhar, onde gravamos só a minha fatia (a despesa do parceiro
+  // não é minha). Confundir os dois era a origem da divisão dupla.
+  let valorTotalConta: number | null = null
+
   // Modo criar+compartilhar
   if (criar_despesa) {
     if (!descricao || !valor || !data) {
       return c.json({ error: 'Para criar despesa: descricao, valor e data são obrigatórios' }, 400)
     }
-    const minhaParte = parseFloat(valor) * userPct / 100
+    valorTotalConta = parseFloat(valor)
+    const minhaParte = Math.round(valorTotalConta * userPct / 100 * 100) / 100
     const newDesp = await c.env.DB.prepare(`
       INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, meio_pagamento)
       VALUES (?, ?, ?, ?, ?, 'pendente', 'outros')
-    `).bind(user.id, descricao, data, categoria, Math.round(minhaParte * 100) / 100).run()
+    `).bind(user.id, descricao, data, categoria, minhaParte).run()
     despesaId = newDesp.meta.last_row_id
   }
 
@@ -119,29 +127,36 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
   ).bind(despesaId, user.id).first() as any
   if (!despesa) return c.json({ error: 'Despesa não encontrada ou sem permissão' }, 404)
 
+  // Dividindo uma despesa que já existia: ali `despesas.valor` É o valor cheio.
+  if (valorTotalConta === null) valorTotalConta = parseFloat(despesa.valor)
+
   const result = await c.env.DB.prepare(`
-    INSERT INTO shared_expenses (user_id, expense_id, partner_name, partner_email, user_percentage, partner_percentage, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    INSERT INTO shared_expenses (user_id, expense_id, partner_name, partner_email, user_percentage, partner_percentage, valor_total, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
   `).bind(
     user.id,
     despesaId,
     partner_name,
     partner_email || null,
     userPct,
-    partnerPct
+    partnerPct,
+    valorTotalConta
   ).run()
 
   const novoId = result.meta.last_row_id
-  const minhaParte = Math.round(parseFloat(despesa.valor) * userPct / 100 * 100) / 100
-  const parteParceiro = Math.round(parseFloat(despesa.valor) * partnerPct / 100 * 100) / 100
+  const minhaParte = Math.round(valorTotalConta * userPct / 100 * 100) / 100
+  // A parte do parceiro sai por subtração para as duas SEMPRE fecharem o total
+  // — com 33%/67% o arredondamento separado deixaria um centavo sobrando.
+  const parteParceiro = Math.round((valorTotalConta - minhaParte) * 100) / 100
 
   return c.json({
     success: true,
     id: novoId,
     expense_id: despesaId,
+    total_conta: valorTotalConta,
     minha_parte: minhaParte,
     parte_parceiro: parteParceiro,
-    message: `Despesa compartilhada com ${partner_name}! Você paga R$ ${minhaParte.toFixed(2)} (${userPct}%)`
+    message: `Conta de R$ ${valorTotalConta.toFixed(2)} dividida com ${partner_name}! Você paga R$ ${minhaParte.toFixed(2)} (${userPct}%)`
   }, 201)
 })
 
@@ -154,8 +169,9 @@ despesasCompartilhadas.get('/:id', requireAuth, async (c) => {
     SELECT 
       se.*,
       d.descricao, d.valor as total_valor, d.data, d.categoria,
-      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
-      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
+      COALESCE(se.valor_total, d.valor) as total_conta,
+      ROUND(COALESCE(se.valor_total, d.valor) * se.user_percentage / 100, 2) as minha_parte,
+      ROUND(COALESCE(se.valor_total, d.valor) * se.partner_percentage / 100, 2) as parte_parceiro
     FROM shared_expenses se
     LEFT JOIN despesas d ON se.expense_id = d.id
     WHERE se.id = ? AND se.user_id = ?

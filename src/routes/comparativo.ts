@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { competenciaMes, competenciaAno, competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings  = { DB: D1Database }
@@ -46,16 +47,14 @@ comparativo.get('/', requireAuth, async (c) => {
 
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor),0) as total FROM despesas
-       WHERE user_id=? AND status!='cancelado'
-         AND strftime('%m',COALESCE(vencimento,data))=?
-         AND strftime('%Y',COALESCE(vencimento,data))=?`
+       WHERE user_id=?
+         ${filtroDespesaDoMes()}`
     ).bind(user.id, mesStr, anoStr).first<{total:number}>(),
 
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor),0) as total FROM despesas
-       WHERE user_id=? AND status!='cancelado'
-         AND strftime('%m',COALESCE(vencimento,data))=?
-         AND strftime('%Y',COALESCE(vencimento,data))=?`
+       WHERE user_id=?
+         ${filtroDespesaDoMes()}`
     ).bind(user.id, mesAntStr, anoAntStr).first<{total:number}>(),
   ])
 
@@ -65,9 +64,8 @@ comparativo.get('/', requireAuth, async (c) => {
             COALESCE(SUM(valor),0) as total,
             COUNT(*) as qtd
      FROM despesas
-     WHERE user_id=? AND status!='cancelado'
-       AND strftime('%m',COALESCE(vencimento,data))=?
-       AND strftime('%Y',COALESCE(vencimento,data))=?
+     WHERE user_id=?
+       ${filtroDespesaDoMes()}
      GROUP BY categoria
      ORDER BY total DESC`
   ).bind(user.id, mesStr, anoStr).all<{categoria:string;total:number;qtd:number}>()
@@ -78,9 +76,8 @@ comparativo.get('/', requireAuth, async (c) => {
             COALESCE(SUM(valor),0) as total,
             COUNT(*) as qtd
      FROM despesas
-     WHERE user_id=? AND status!='cancelado'
-       AND strftime('%m',COALESCE(vencimento,data))=?
-       AND strftime('%Y',COALESCE(vencimento,data))=?
+     WHERE user_id=?
+       ${filtroDespesaDoMes()}
      GROUP BY categoria`
   ).bind(user.id, mesAntStr, anoAntStr).all<{categoria:string;total:number;qtd:number}>()
 
@@ -235,15 +232,15 @@ comparativo.get('/historico', requireAuth, async (c) => {
     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
 
     c.env.DB.prepare(
-      `SELECT strftime('%m',COALESCE(vencimento,data)) as mes,
-              strftime('%Y',COALESCE(vencimento,data)) as ano,
+      `SELECT (${competenciaMes()}) as mes,
+              (${competenciaAno()}) as ano,
               COALESCE(SUM(valor),0) as total
        FROM despesas
-       WHERE user_id=? AND status!='cancelado'
-         AND COALESCE(vencimento,data) BETWEEN ? AND ?
-       GROUP BY strftime('%Y-%m', COALESCE(vencimento,data)),
-                strftime('%m', COALESCE(vencimento,data)),
-                strftime('%Y', COALESCE(vencimento,data))`
+       WHERE user_id=?
+         AND ${filtroNaoCancelada()}
+         AND ${filtroSemAporte()}
+         AND (${competenciaData()}) BETWEEN ? AND ?
+       GROUP BY (${competenciaAno()}), (${competenciaMes()})`
     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
   ])
 

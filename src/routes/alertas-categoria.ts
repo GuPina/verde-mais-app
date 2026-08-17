@@ -1,6 +1,7 @@
 // src/routes/alertas-categoria.ts
 // Alerta quando gasto de uma categoria está >20% acima da média dos últimos 3 meses
 import { Hono } from 'hono'
+import { competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -19,9 +20,8 @@ alertasCategoria.get('/', requireAuth, async (c) => {
   const atual = await c.env.DB.prepare(`
     SELECT categoria, SUM(valor) as total
     FROM despesas
-    WHERE user_id = ? 
-      AND strftime('%m', data) = ? 
-      AND strftime('%Y', data) = ?
+    WHERE user_id = ?
+      ${filtroDespesaDoMes()}
     GROUP BY categoria
   `).bind(user.id, String(mes).padStart(2,'0'), String(ano)).all()
 
@@ -29,12 +29,13 @@ alertasCategoria.get('/', requireAuth, async (c) => {
   const media = await c.env.DB.prepare(`
     SELECT categoria, AVG(total) as media_3m
     FROM (
-      SELECT categoria, strftime('%Y-%m', data) as periodo, SUM(valor) as total
+      SELECT categoria, strftime('%Y-%m', ${competenciaData()}) as periodo, SUM(valor) as total
       FROM despesas
       WHERE user_id = ?
-        AND data < date(? || '-' || printf('%02d', ?) || '-01')
-        AND data >= date(? || '-' || printf('%02d', ?) || '-01', '-3 months')
-      GROUP BY categoria, strftime('%Y-%m', data)
+        AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
+        AND (${competenciaData()}) < date(? || '-' || printf('%02d', ?) || '-01')
+        AND (${competenciaData()}) >= date(? || '-' || printf('%02d', ?) || '-01', '-3 months')
+      GROUP BY categoria, strftime('%Y-%m', ${competenciaData()})
     )
     GROUP BY categoria
   `).bind(user.id, String(ano), mes, String(ano), mes).all()

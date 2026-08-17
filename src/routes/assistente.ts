@@ -2,6 +2,7 @@
 // Assistente IA Conversacional VerdeMais — v3.0 — OpenAI gpt-5-mini + perfil investidor
 
 import { Hono } from 'hono'
+import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
@@ -119,11 +120,11 @@ async function buscarContexto(db: D1Database, userId: number) {
     // Receitas mês atual
     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesStr, anoStr).first() as Promise<any>,
     // Despesas mês atual
-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as cnt FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`).bind(userId, mesStr, anoStr).first() as Promise<any>,
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as cnt FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(userId, mesStr, anoStr).first() as Promise<any>,
     // Receitas mês anterior
     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
     // Despesas mês anterior
-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
+    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
     // Metas ativas
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as total_obj, COALESCE(SUM(valor_atual),0) as total_atual FROM metas WHERE user_id=? AND status='ativo'`).bind(userId).first() as Promise<any>,
     // Investimentos
@@ -141,9 +142,9 @@ async function buscarContexto(db: D1Database, userId: number) {
     // Cartões
     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite_total),0) as total_limite, COALESCE(SUM(limite_disponivel),0) as disponivel FROM cartoes WHERE user_id=?`).bind(userId).first() as Promise<any>,
     // Top 5 categorias de despesas do mês
-    db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+    db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
     // Top tags do mês
-    db.prepare(`SELECT t.nome, COALESCE(SUM(d.valor),0) as total FROM despesa_tags dt JOIN tags t ON t.id=dt.tag_id JOIN despesas d ON d.id=dt.despesa_id WHERE d.user_id=? AND strftime('%m',d.data)=? AND strftime('%Y',d.data)=? GROUP BY t.id ORDER BY total DESC LIMIT 3`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+    db.prepare(`SELECT t.nome, COALESCE(SUM(d.valor),0) as total FROM despesa_tags dt JOIN tags t ON t.id=dt.tag_id JOIN despesas d ON d.id=dt.despesa_id WHERE d.user_id=? ${filtroDespesaDoMes('d')} GROUP BY t.id ORDER BY total DESC LIMIT 3`).bind(userId, mesStr, anoStr).all() as Promise<any>,
     // Lembretes próximos (30 dias)
     db.prepare(`SELECT COUNT(*) as cnt FROM lembretes WHERE user_id=? AND ativo=1 AND proximo_vencimento <= date('now', '+30 days')`).bind(userId).first() as Promise<any>,
     // Recorrências ativas
@@ -542,9 +543,11 @@ assistente.post('/chat', requireAuth, async (c) => {
           GROUP BY ym
         ),
         desp6m AS (
-          SELECT strftime('%Y-%m', COALESCE(vencimento,data)) as ym,
+          SELECT strftime('%Y-%m', ${competenciaData()}) as ym,
                  COALESCE(SUM(valor),0) as despesas
-          FROM despesas WHERE user_id=? AND COALESCE(vencimento,data) >= date('now','-6 months')
+          FROM despesas WHERE user_id=?
+            AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
+            AND (${competenciaData()}) >= date('now','-6 months')
           GROUP BY ym
         )
         SELECT m.ym,

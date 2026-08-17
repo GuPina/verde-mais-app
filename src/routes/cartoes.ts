@@ -442,6 +442,27 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
 
   const nparcelas    = Math.max(1, parseInt(numero_parcelas))
   const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
+
+  // ── Limite disponível ──────────────────────────────────────────────────────
+  // O cartão aceitava qualquer valor: uma compra de R$ 999.999 num limite de
+  // R$ 15.000 entrava com 201 e sem aviso, e o "disponível" ficava travado em
+  // zero enquanto o percentual de uso ia a 6.687%. Um cartão de verdade recusa.
+  const usoAtual = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
+     WHERE card_id = ? AND status = 'pendente'`
+  ).bind(parseInt(cardId)).first() as any
+  const utilizado  = Math.round(Number(usoAtual?.total || 0) * 100) / 100
+  const disponivel = Math.round((Number(cartao.limite_total) - utilizado) * 100) / 100
+
+  if (parseFloat(valor_total) > disponivel) {
+    return c.json({
+      error: `Compra de R$ ${parseFloat(valor_total).toFixed(2)} excede o limite disponível do ${cartao.nome}.`,
+      limite_total:      Number(cartao.limite_total),
+      limite_utilizado:  utilizado,
+      limite_disponivel: Math.max(0, disponivel),
+      valor_solicitado:  parseFloat(valor_total),
+    }, 422)
+  }
   const groupId      = uuid()
   const chargeIds: number[] = []
   const despesaIds:  number[] = []

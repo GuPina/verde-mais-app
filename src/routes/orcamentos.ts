@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { filtroDespesaDoMes } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -65,10 +66,9 @@ async function getGastoCategoria(db: D1Database, userId: number, catNorm: string
     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas ` +
     `WHERE user_id = ? ` +
     `AND ${normExpr} = ? ` +
-    `AND ((strftime('%m', data) = ? AND strftime('%Y', data) = ?) ` +
-    `OR (vencimento IS NOT NULL AND strftime('%m', vencimento) = ? AND strftime('%Y', vencimento) = ?)) ` +
-    `AND status IN ('pago', 'pendente')`
-  ).bind(userId, catNorm, mesStr, anoStr, mesStr, anoStr).first() as any
+    filtroDespesaDoMes() +
+    ` AND status IN ('pago', 'pendente')`
+  ).bind(userId, catNorm, mesStr, anoStr).first() as any
   return Number(raw?.total || 0)
 }
 
@@ -78,10 +78,9 @@ async function getGastoGlobal(db: D1Database, userId: number, mes: number, ano: 
   const raw = await db.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas ` +
     `WHERE user_id = ? ` +
-    `AND ((strftime('%m', data) = ? AND strftime('%Y', data) = ?) ` +
-    `OR (vencimento IS NOT NULL AND strftime('%m', vencimento) = ? AND strftime('%Y', vencimento) = ?)) ` +
-    `AND status IN ('pago', 'pendente')`
-  ).bind(userId, mesStr, String(ano), mesStr, String(ano)).first() as any
+    filtroDespesaDoMes() +
+    ` AND status IN ('pago', 'pendente')`
+  ).bind(userId, mesStr, String(ano)).first() as any
   return Number(raw?.total || 0)
 }
 
@@ -255,10 +254,9 @@ orcamentos.get('/resumo', requireAuth, async (c) => {
     `FROM despesas d ` +
     `INNER JOIN orcamentos o ON ${normD} = ${normO} AND o.user_id = d.user_id ` +
     `WHERE d.user_id = ? AND o.mes = ? AND o.ano = ? ` +
-    `AND ((strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?) ` +
-    `OR (d.vencimento IS NOT NULL AND strftime('%m', d.vencimento) = ? AND strftime('%Y', d.vencimento) = ?)) ` +
-    `AND d.status IN ('pago', 'pendente')`
-  ).bind(user.id, mes, ano, mesStr, anoStr, mesStr, anoStr).first() as any
+    filtroDespesaDoMes('d') +
+    ` AND d.status IN ('pago', 'pendente')`
+  ).bind(user.id, mes, ano, mesStr, anoStr).first() as any
 
   return c.json({
     qtd_orcamentos: total?.qtd || 0,

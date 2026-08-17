@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
+import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
+import { ehViolacaoUnicidade } from '../lib/erros-banco'
 
 type Bindings  = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -130,7 +132,10 @@ tags.post('/', requireAuth, async (c) => {
 
     return c.json(created, 201)
   } catch (e: any) {
-    if (e?.message?.includes('UNIQUE')) {
+    // Postgres não diz "UNIQUE" na mensagem — diz "duplicate key ... unique
+    // constraint", código 23505. Enquanto a checagem olhava só a palavra do
+    // SQLite, este catch não pegava nada e o usuário via 500.
+    if (ehViolacaoUnicidade(e)) {
       return c.json({ error: 'Você já tem uma tag com esse nome' }, 409)
     }
     throw e
@@ -156,9 +161,16 @@ tags.patch('/:id', requireAuth, async (c) => {
   if (!updates.length) return c.json({ error: 'Nada a atualizar' }, 400)
 
   vals.push(tagId, user.id)
-  await c.env.DB.prepare(
-    `UPDATE tags SET ${updates.join(',')} WHERE id=? AND user_id=?`
-  ).bind(...vals).run()
+  try {
+    await c.env.DB.prepare(
+      `UPDATE tags SET ${updates.join(',')} WHERE id=? AND user_id=?`
+    ).bind(...vals).run()
+  } catch (e: any) {
+    if (ehViolacaoUnicidade(e)) {
+      return c.json({ error: 'Você já tem uma tag com esse nome' }, 409)
+    }
+    throw e
+  }
 
   return c.json({ success: true })
 })
@@ -566,7 +578,7 @@ tags.get('/analise', requireAuth, async (c) => {
 
   // Totais gerais do período para calcular percentuais
   const totals = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`
+    `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`
   ).bind(user.id, mesStr, anoStr).first() as any
   const totalGeral = parseFloat(totals?.total || 0)
 

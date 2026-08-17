@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { competenciaData } from '../lib/competencia'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -81,7 +82,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
     case 'saldo_atual': {
       const [rec, desp] = await Promise.all([
         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND status='pago' AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>()
+        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND status='pago' AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>()
       ])
       const saldo = (rec?.t || 0) - (desp?.t || 0)
       const emoji = saldo >= 0 ? '✅' : '⚠️'
@@ -94,7 +95,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
     case 'resumo_mes': {
       const [rec, desp, metas, invest] = await Promise.all([
         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
+        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
         db.prepare(`SELECT COUNT(*) as t FROM metas WHERE user_id=? AND status='ativa'`).bind(userId).first<any>(),
         db.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(userId).first<any>()
       ])
@@ -108,7 +109,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
 
     case 'fatura_cartao': {
       const fatura = await db.prepare(
-        `SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND meio_pagamento IN ('cartao_credito','parcelado_cartao') AND status='pendente' AND strftime('%Y-%m',data)=?`
+        `SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND meio_pagamento IN ('cartao_credito','parcelado_cartao') AND status='pendente' AND strftime('%Y-%m',${competenciaData()})=?`
       ).bind(userId, prefix).first<any>()
       const total = fatura?.t || 0
       const emoji = total > 0 ? '💳' : '✅'
@@ -120,7 +121,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
 
     case 'gastos_categoria': {
       const categorias = await db.prepare(
-        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 5`
+        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 5`
       ).bind(userId, prefix).all<any>()
       const lista = (categorias.results || [])
         .map((c: any, i: number) => `${i + 1}. ${c.categoria}: ${fmt(c.total)}`)
@@ -152,7 +153,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
 
     case 'dicas_economia': {
       const desp = await db.prepare(
-        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 3`
+        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 3`
       ).bind(userId, prefix).all<any>()
       const maiores = (desp.results || []).map((c: any) => c.categoria).join(', ')
       return {
@@ -223,7 +224,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
     case 'status_saude': {
       const [rec, desp, dividas, invest] = await Promise.all([
         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
+        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
         db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as t FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(userId).first<any>(),
         db.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(userId).first<any>()
       ])

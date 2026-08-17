@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { filtroCompetencia, filtroCompetenciaAno, filtroSemAporte, mesDoisDigitos } from '../lib/competencia'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -107,7 +108,7 @@ despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag } = c.req.query()
 
-  let query = 'SELECT * FROM despesas WHERE user_id = ?'
+  let query = 'SELECT * FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
   const params: any[] = [user.id]
 
   if (purchase_group_id) {
@@ -119,10 +120,10 @@ despesas.get('/', requireAuth, async (c) => {
   }
 
   if (mes && ano) {
-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    params.push(mes.padStart(2, '0'), ano)
+    query += ' AND ' + filtroCompetencia()
+    params.push(mesDoisDigitos(mes), ano)
   } else if (ano) {
-    query += ' AND strftime("%Y", data) = ?'
+    query += ' AND ' + filtroCompetenciaAno()
     params.push(ano)
   }
 
@@ -151,13 +152,13 @@ despesas.get('/', requireAuth, async (c) => {
   const result = await c.env.DB.prepare(query).bind(...params).all()
 
   // totais por status respeitando filtros (sem busca para não distorcer o total do mês)
-  let baseFilter = 'FROM despesas WHERE user_id = ?'
+  let baseFilter = 'FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
   const baseParams: any[] = [user.id]
   if (mes && ano) {
-    baseFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    baseParams.push(mes.padStart(2, '0'), ano)
+    baseFilter += ' AND ' + filtroCompetencia()
+    baseParams.push(mesDoisDigitos(mes), ano)
   } else if (ano) {
-    baseFilter += ' AND strftime("%Y", data) = ?'
+    baseFilter += ' AND ' + filtroCompetenciaAno()
     baseParams.push(ano)
   }
   if (categoria)   { baseFilter += filtroCategoriaDespaSQL(categoria) }
@@ -180,8 +181,8 @@ despesas.get('/', requireAuth, async (c) => {
     (() => {
       let cbFilter = 'FROM despesas WHERE user_id = ? AND (tipo IS NULL OR tipo != \'aporte\')'
       const cbParams: any[] = [user.id]
-      if (mes && ano) { cbFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'; cbParams.push(mes.padStart(2,'0'), ano) }
-      else if (ano) { cbFilter += ' AND strftime("%Y", data) = ?'; cbParams.push(ano) }
+      if (mes && ano) { cbFilter += ' AND ' + filtroCompetencia(); cbParams.push(mesDoisDigitos(mes), ano) }
+      else if (ano) { cbFilter += ' AND ' + filtroCompetenciaAno(); cbParams.push(ano) }
       if (status) { cbFilter += ' AND status = ?'; cbParams.push(status) }
       if (busca) { cbFilter += ' AND descricao LIKE ?'; cbParams.push(`%${busca.replace(/'/g,"''")}%`) }
       return c.env.DB.prepare(
@@ -417,7 +418,7 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
   }
 
   const pendentes = await c.env.DB.prepare(
-    `SELECT * FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ? AND status = 'pendente'`
+    `SELECT * FROM despesas WHERE user_id = ? AND ${filtroCompetencia()} AND status = 'pendente'`
   ).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
 
   const rows = (pendentes.results || []) as any[]
@@ -518,8 +519,8 @@ despesas.get('/categorias', requireAuth, async (c) => {
   const params: any[] = [user.id]
   
   if (mes && ano) {
-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
-    params.push(mes.padStart(2, '0'), ano)
+    query += ' AND ' + filtroCompetencia()
+    params.push(mesDoisDigitos(mes), ano)
   }
   
   query += ` GROUP BY ${caseExpr} ORDER BY total DESC`
