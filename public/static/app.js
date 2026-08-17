@@ -21600,9 +21600,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         ${evol.length ? `
         <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
           <div style="font-weight:700;margin-bottom:14px;">📊 Evolução dos aportes (12 meses)</div>
-          <div style="display:flex;align-items:flex-end;gap:6px;height:120px;">
+          <div style="display:flex;align-items:flex-end;justify-content:${evol.length < 6 ? 'flex-start' : 'space-between'};gap:10px;height:120px;">
             ${evol.map(e => `
-              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;" title="${e.ym}: ${this.formatMoney(e.total)}">
+              <div style="flex:1;max-width:70px;min-width:26px;display:flex;flex-direction:column;align-items:center;gap:4px;" title="${e.ym}: ${this.formatMoney(e.total)}">
                 <div style="width:100%;background:linear-gradient(180deg,#818cf8,#6366f1);border-radius:4px 4px 0 0;height:${Math.max(3, (Number(e.total) / maxEvol) * 96)}px;"></div>
                 <div style="font-size:0.62rem;color:#666;">${String(e.ym).slice(5)}</div>
               </div>`).join('')}
