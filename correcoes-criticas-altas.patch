@@ -1,0 +1,1651 @@
+From 2ea7fbdf0f16d3f799d3237d1d67d6e30acba9d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 17 Aug 2026 20:17:26 +0000
+Subject: [PATCH] fix: uma regra so de competencia, tela de Aportes e 5
+ correcoes criticas/altas
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Item 1 — o app tinha TRES definicoes de "gasto do mes", escritas a mao em
+modulos diferentes. Medido em producao na mesma conta e no mesmo instante,
+agosto/2026: R$ 5.838,60 (listagem/score/assistente) vs R$ 9.338,60
+(dashboard) vs R$ 10.838,60 (relatorio/comparativo/insights).
+
+Agora ha uma so, em src/lib/competencia.ts, e todo modulo a consome:
+  - despesa paga     -> conta no mes em que o dinheiro saiu (data)
+  - despesa pendente -> conta no mes em que vence (vencimento)
+  - aporte           -> nao e gasto; sai de toda soma de despesa
+
+Aplicada em dashboard, relatorio, comparativo, ia (insights/score/analise360),
+assistente, chat, projecao, regra-503020, orcamentos, alertas-categoria, tags
+e na listagem de despesas. Validado contra Postgres real: os seis endpoints
+que somam despesa passaram a devolver o MESMO numero.
+
+De quebra, orcamentos contava em dobro: filtrava por (mes da data) OR (mes do
+vencimento), somando duas vezes a despesa cujos dois campos caiam no mes.
+
+Item 1b — nova tela de Aportes (src/routes/aportes.ts + sidebar). Tirar o
+aporte das despesas sem mais nada deixaria dinheiro que saiu da conta sem
+aparecer em tela alguma. A tela mostra quanto foi aportado no mes e no ano,
+para onde foi e quanto virou patrimonio.
+
+Item 2 — despesa compartilhada aplicava o percentual DUAS vezes: gravava a
+despesa ja com a minha metade e recalculava "minha parte" sobre esse valor.
+Jantar de R$ 200 meio a meio dizia "voce paga R$ 50,00". Nova coluna
+shared_expenses.valor_total (migration 0002) guarda o valor cheio; as partes
+saem dele, e a do parceiro sai por subtracao para sempre fecharem o total.
+
+Itens 3, 4, 5 — tres features anunciadas como pagas respondiam 200 no plano
+free; a simulacao de investimentos nao tinha nem requireAuth (respondia a
+qualquer um na internet). Novo middleware exigeFeature() em planos.ts fecha as
+tres e torna o esquecimento visivel no proximo caso.
+
+Item 6 — "Acesso a API REST" saiu da landing: nenhuma rota consulta a flag
+api_acesso e nao existe endpoint nem emissao de chave. Era o unico diferencial
+anunciado do Pro (R$ 49) sobre o Premium (R$ 19).
+
+Item 7 — cartao aceitava compra de R$ 999.999 num limite de R$ 15.000 com 201
+e sem aviso. Agora recusa com 422 e devolve limite, utilizado e disponivel.
+
+Item 8 — nome de tag repetido devolvia HTTP 500. O catch procurava a palavra
+"UNIQUE" da mensagem do SQLite; no Postgres a mensagem e outra (codigo 23505),
+entao nada era capturado. src/lib/erros-banco.ts cobre os dois dialetos, e o
+PATCH de tag — que tinha o mesmo furo e nem catch tinha — agora responde 409.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JsEvDMjrfjuDwXNxHsZMz5
+---
+ .../0002_shared_expenses_valor_total.sql      |  26 ++++
+ public/static/app.js                          | 122 +++++++++++++++++
+ src/index.tsx                                 |   5 +-
+ src/lib/competencia.ts                        | 116 ++++++++++++++++
+ src/lib/erros-banco.ts                        |  38 ++++++
+ src/routes/alertas-categoria.ts               |  15 ++-
+ src/routes/amortizacao.ts                     |   5 +-
+ src/routes/aportes.ts                         | 125 ++++++++++++++++++
+ src/routes/assistente.ts                      |  15 ++-
+ src/routes/cartoes.ts                         |  21 +++
+ src/routes/chat.ts                            |  13 +-
+ src/routes/comparativo.ts                     |  35 +++--
+ src/routes/dashboard.ts                       |  69 +++-------
+ src/routes/despesas-compartilhadas.ts         |  40 ++++--
+ src/routes/despesas.ts                        |  27 ++--
+ src/routes/ia.ts                              |  33 ++---
+ src/routes/investimentos.ts                   |   4 +-
+ src/routes/orcamentos.ts                      |  22 ++-
+ src/routes/planos.ts                          |  44 +++++-
+ src/routes/projecao.ts                        |   4 +-
+ src/routes/regra-503020.ts                    |   7 +-
+ src/routes/relatorio.ts                       |  23 ++--
+ src/routes/tags.ts                            |  22 ++-
+ 23 files changed, 653 insertions(+), 178 deletions(-)
+
+diff --git a/migrations-postgres/0002_shared_expenses_valor_total.sql b/migrations-postgres/0002_shared_expenses_valor_total.sql
+new file mode 100644
+index 0000000..5ec1dbe
+--- /dev/null
++++ b/migrations-postgres/0002_shared_expenses_valor_total.sql
+@@ -0,0 +1,26 @@
++-- 0002 — `shared_expenses.valor_total`: guarda o valor CHEIO da conta dividida.
++--
++-- O bug que isto corrige: ao criar uma despesa já compartilhada, o app gravava
++-- em `despesas` apenas a MINHA parte (R$ 100 de um jantar de R$ 200) e, logo
++-- em seguida, calculava "minha parte" aplicando o percentual OUTRA VEZ sobre
++-- esse valor — devolvendo R$ 50. As duas partes somadas davam R$ 100 numa
++-- conta de R$ 200.
++--
++-- A raiz é que `despesas.valor` tem dois significados diferentes dependendo de
++-- como a divisão nasceu:
++--   • criada junto com a divisão  → guarda só a minha fatia
++--   • divisão de despesa existente → guarda o valor cheio
++-- Sem saber qual é o caso, não dá para derivar as partes. Esta coluna passa a
++-- guardar o valor cheio explicitamente, e as partes saem sempre dela.
++
++ALTER TABLE shared_expenses ADD COLUMN IF NOT EXISTS valor_total real;
++
++-- Backfill: para as linhas antigas não há como distinguir os dois casos, então
++-- assume-se o caso documentado no código original (despesa existente = valor
++-- cheio). Linhas criadas pelo modo "criar+compartilhar" ficam subestimadas —
++-- é o mesmo número que a tela já mostrava antes, não uma piora.
++UPDATE shared_expenses se
++   SET valor_total = d.valor
++  FROM despesas d
++ WHERE d.id = se.expense_id
++   AND se.valor_total IS NULL;
+diff --git a/public/static/app.js b/public/static/app.js
+index bb95881..1ec197e 100644
+--- a/public/static/app.js
++++ b/public/static/app.js
+@@ -1216,6 +1216,9 @@ const VM = {
+               <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
+                 <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Investimentos
+               </a>
++              <a class="nav-item" id="nav-aportes" onclick="VM.navigate('aportes')">
++                <span class="nav-icon">💰</span> Aportes
++              </a>
+               <a class="nav-item" id="nav-reserva" onclick="VM.navigate('reserva')">
+                 <span class="nav-icon"><i class="fas fa-shield-alt" style="color:#2FBF71;"></i></span> Reserva de Emergência
+               </a>
+@@ -1891,6 +1894,7 @@ const VM = {
+       reserva: () => this.pageReserva(),
+       tags: () => this.pageTags(),
+       'organizador': () => this.pageOrganizador(),
++      'aportes': () => this.pageAportes(),
+       'alertas-cartao': () => this.pageAlertasCartao(),
+       'reservas-esp': () => this.pageReservasEsp(),
+       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
+@@ -21526,6 +21530,124 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
+     }[tipo] || { icon: '📋', label: tipo, cor: '#818CF8' }
+   },
+ 
++  // ── Aportes ────────────────────────────────────────────────────────────────
++  // Aporte é dinheiro que saiu da conta e virou patrimônio. Ele NÃO entra na
++  // soma de despesas (senão quem investe apareceria como gastador e o score
++  // caía). Esta tela existe para o dinheiro não sumir de vista: mostra quanto
++  // foi aportado e para onde foi.
++  async pageAportes() {
++    const content = document.getElementById('page-content')
++    const hoje = new Date()
++    this._apMes = this._apMes || (hoje.getMonth() + 1)
++    this._apAno = this._apAno || hoje.getFullYear()
++    content.innerHTML = `
++      <div class="section-header">
++        <div>
++          <div class="section-title">💰 Aportes</div>
++          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Dinheiro que saiu da conta e virou patrimônio seu</div>
++        </div>
++      </div>
++      <div id="aportes-container"><div class="skeleton" style="height:180px;border-radius:16px;"></div></div>`
++    this._carregarAportes()
++  },
++
++  async _carregarAportes() {
++    const cont = document.getElementById('aportes-container')
++    if (!cont) return
++    const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
++    try {
++      const d = await this.api('GET', `aportes?mes=${this._apMes}&ano=${this._apAno}`)
++      const r = d.resumo || {}
++      const lista = d.aportes || []
++      const destinos = d.por_destino || []
++      const evol = d.evolucao || []
++      const maxEvol = Math.max(1, ...evol.map(e => Number(e.total) || 0))
++
++      const seletorMes = MESES.map((m, i) => `
++        <button onclick="VM._apMes=${i + 1};VM._carregarAportes()"
++          style="background:${this._apMes === i + 1 ? '#2FBF71' : 'transparent'};color:${this._apMes === i + 1 ? '#fff' : '#888'};border:1px solid ${this._apMes === i + 1 ? '#2FBF71' : '#2a2a3e'};border-radius:8px;padding:5px 10px;font-size:0.75rem;cursor:pointer;">${m}</button>`).join('')
++
++      cont.innerHTML = `
++        <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:0.84rem;color:#a5b4fc;">
++          ℹ️ ${d.explicacao || ''}
++        </div>
++
++        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;">${seletorMes}</div>
++
++        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:22px;">
++          <div class="stat-card">
++            <div style="color:#888;font-size:0.8rem;">💰 Aportado em ${MESES[this._apMes - 1]}/${this._apAno}</div>
++            <div style="font-size:1.7rem;font-weight:800;color:#818cf8;">${this.formatMoney(r.total_mes || 0)}</div>
++            <div style="color:#666;font-size:0.75rem;">${r.qtd_mes || 0} aporte(s)</div>
++          </div>
++          <div class="stat-card">
++            <div style="color:#888;font-size:0.8rem;">📅 Aportado em ${this._apAno}</div>
++            <div style="font-size:1.7rem;font-weight:800;color:#34d399;">${this.formatMoney(r.total_ano || 0)}</div>
++            <div style="color:#666;font-size:0.75rem;">${r.qtd_ano || 0} aporte(s) no ano</div>
++          </div>
++          <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;">
++            <div style="color:#888;font-size:0.8rem;">📈 Virou investimento</div>
++            <div style="font-size:1.7rem;font-weight:800;color:#2FBF71;">${this.formatMoney(r.patrimonio_investimentos || 0)}</div>
++            <div style="color:#666;font-size:0.75rem;">valor atual da carteira →</div>
++          </div>
++          <div class="stat-card" onclick="VM.navigate('reservas-esp')" style="cursor:pointer;">
++            <div style="color:#888;font-size:0.8rem;">🛡️ Virou reserva</div>
++            <div style="font-size:1.7rem;font-weight:800;color:#60a5fa;">${this.formatMoney(r.patrimonio_reservas || 0)}</div>
++            <div style="color:#666;font-size:0.75rem;">guardado em caixinhas →</div>
++          </div>
++        </div>
++
++        ${evol.length ? `
++        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
++          <div style="font-weight:700;margin-bottom:14px;">📊 Evolução dos aportes (12 meses)</div>
++          <div style="display:flex;align-items:flex-end;gap:6px;height:120px;">
++            ${evol.map(e => `
++              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;" title="${e.ym}: ${this.formatMoney(e.total)}">
++                <div style="width:100%;background:linear-gradient(180deg,#818cf8,#6366f1);border-radius:4px 4px 0 0;height:${Math.max(3, (Number(e.total) / maxEvol) * 96)}px;"></div>
++                <div style="font-size:0.62rem;color:#666;">${String(e.ym).slice(5)}</div>
++              </div>`).join('')}
++          </div>
++        </div>` : ''}
++
++        ${destinos.length ? `
++        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
++          <div style="font-weight:700;margin-bottom:14px;">🎯 Para onde foi o dinheiro em ${this._apAno}</div>
++          ${destinos.map(x => {
++            const totalAno = destinos.reduce((s, y) => s + Number(y.total), 0) || 1
++            const pct = Math.round((Number(x.total) / totalAno) * 100)
++            return `
++            <div style="margin-bottom:12px;">
++              <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px;">
++                <span>${x.destino} <span style="color:#666;">(${x.qtd})</span></span>
++                <strong>${this.formatMoney(x.total)} · ${pct}%</strong>
++              </div>
++              <div style="background:#1a1a2e;border-radius:6px;height:8px;overflow:hidden;">
++                <div style="background:linear-gradient(90deg,#818cf8,#6366f1);height:100%;width:${pct}%;"></div>
++              </div>
++            </div>`
++          }).join('')}
++        </div>` : ''}
++
++        <div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:20px;">
++          <div style="font-weight:700;margin-bottom:14px;">📋 Aportes de ${MESES[this._apMes - 1]}/${this._apAno}</div>
++          ${lista.length ? lista.map(a => `
++            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1a1a2e;gap:12px;">
++              <div style="min-width:0;">
++                <div style="font-weight:600;">${a.descricao}</div>
++                <div style="color:#666;font-size:0.76rem;">${this.formatDate ? this.formatDate(a.data) : a.data}${a.subcategoria ? ' · ' + a.subcategoria : ''}</div>
++              </div>
++              <div style="font-weight:700;color:#818cf8;white-space:nowrap;">${this.formatMoney(a.valor)}</div>
++            </div>`).join('') : `
++            <div style="text-align:center;color:#555;padding:26px 0;">
++              Nenhum aporte neste mês.<br>
++              <span style="font-size:0.8rem;">Um aporte aparece aqui quando você cadastra um investimento ou marca uma despesa como aporte patrimonial.</span>
++            </div>`}
++        </div>`
++    } catch (e) {
++      cont.innerHTML = `<div style="text-align:center;color:#ff4757;padding:30px;">Não foi possível carregar os aportes. ${e?.message || ''}</div>`
++    }
++  },
++
+   async pageAntecipacao() {
+     const content = document.getElementById('page-content')
+     content.innerHTML = `
+diff --git a/src/index.tsx b/src/index.tsx
+index 5fcc149..4c40706 100644
+--- a/src/index.tsx
++++ b/src/index.tsx
+@@ -38,6 +38,7 @@ import alertasCategoriaRoutes from './routes/alertas-categoria'
+ import antecipacaoRoutes from './routes/antecipacao'
+ import categorizacaoRoutes from './routes/categorizacao'
+ import organizadorRoutes from './routes/organizador'
++import aportesRoutes from './routes/aportes'
+ 
+ type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
+ 
+@@ -90,6 +91,7 @@ app.route('/api/alertas-categoria', alertasCategoriaRoutes)
+ app.route('/api/antecipacao', antecipacaoRoutes)
+ app.route('/api/categorizacao', categorizacaoRoutes)
+ app.route('/api/organizador', organizadorRoutes)
++app.route('/api/aportes', aportesRoutes)
+ 
+ // Alias: POST /api/chat/mensagem → /api/assistente/chat (compatibilidade)
+ app.post('/api/chat/mensagem', async (c) => {
+@@ -476,7 +478,6 @@ function landingPage() {
+         <li><span class="check">✓</span> Cartões ilimitados</li>
+         <li><span class="check">✓</span> Projeção patrimonial avançada</li>
+         <li><span class="check">✓</span> Regra 50/30/20 personalizável</li>
+-        <li><span class="check">✓</span> Acesso à API REST para integrações</li>
+         <li><span class="check">✓</span> Suporte prioritário</li>
+       </ul>
+       <a href="/cadastro" class="btn-outline" style="width:100%;justify-content:center;">Assinar Pro</a>
+@@ -630,7 +631,7 @@ function appShell() {
+       </div>
+     </div>
+   </div>
+-  <script src="/static/app.js?v=20260318-2"></script>
++  <script src="/static/app.js?v=20260817-1"></script>
+   <script>
+     // Registrar Service Worker para notificações push
+     if ('serviceWorker' in navigator) {
+diff --git a/src/lib/competencia.ts b/src/lib/competencia.ts
+new file mode 100644
+index 0000000..299fa21
+--- /dev/null
++++ b/src/lib/competencia.ts
+@@ -0,0 +1,116 @@
++/**
++ * VerdeMais — regra única de competência de despesa
++ * ============================================================================
++ * Antes desta camada o app tinha TRÊS regras diferentes para responder
++ * "quanto eu gastei neste mês", escritas à mão em módulos diferentes:
++ *
++ *   A) `despesas.ts`, score de saúde e assistente  → sempre por `data`
++ *   B) `dashboard.ts`                              → `data` se paga, senão
++ *                                                    `vencimento`; sem aportes
++ *   C) `relatorio.ts`, `comparativo.ts`, insights  → sempre por `vencimento`;
++ *                                                    com aportes
++ *
++ * Medido em produção, na mesma conta e no mesmo instante, agosto/2026:
++ * R$ 5.838,60 (A) · R$ 9.338,60 (B) · R$ 10.838,60 (C). Três telas, três
++ * respostas para o mesmo dinheiro.
++ *
++ * A regra escolhida é a (B), a de fluxo de caixa:
++ *
++ *   • despesa PAGA      → conta no mês em que o dinheiro saiu (`data`)
++ *   • despesa PENDENTE  → conta no mês em que vai vencer (`vencimento`,
++ *                         caindo para `data` quando não houver vencimento)
++ *   • APORTE            → não é gasto, é transferência de patrimônio. Fica
++ *                         fora de toda soma de despesa e aparece na tela
++ *                         própria de Aportes.
++ *
++ * Todo módulo que soma despesa usa as funções daqui. Nenhum monta o filtro à
++ * mão — foi assim que as três regras nasceram.
++ */
++
++const pref = (alias: string) => (alias ? `${alias}.` : '')
++
++/**
++ * A data de competência em si ('YYYY-MM-DD'). Útil em consultas por intervalo
++ * (`BETWEEN`) e em `GROUP BY`, onde mês e ano separados não bastam.
++ */
++export function competenciaData(alias = ''): string {
++  const c = pref(alias)
++  return `CASE WHEN ${c}status = 'pago'
++               THEN ${c}data
++               ELSE COALESCE(${c}vencimento, ${c}data) END`
++}
++
++/** Mês de competência ('01'–'12') como expressão SQL. */
++export function competenciaMes(alias = ''): string {
++  const c = pref(alias)
++  return `CASE WHEN ${c}status = 'pago'
++               THEN strftime('%m', ${c}data)
++               ELSE strftime('%m', COALESCE(${c}vencimento, ${c}data)) END`
++}
++
++/** Ano de competência ('YYYY') como expressão SQL. */
++export function competenciaAno(alias = ''): string {
++  const c = pref(alias)
++  return `CASE WHEN ${c}status = 'pago'
++               THEN strftime('%Y', ${c}data)
++               ELSE strftime('%Y', COALESCE(${c}vencimento, ${c}data)) END`
++}
++
++/**
++ * Filtro de mês+ano. Consome DOIS placeholders, nesta ordem: mês, ano.
++ * O mês precisa vir com dois dígitos ('08', não '8') — use `mesDoisDigitos`.
++ */
++export function filtroCompetencia(alias = ''): string {
++  return `(${competenciaMes(alias)}) = ? AND (${competenciaAno(alias)}) = ?`
++}
++
++/** Filtro só de ano. Consome UM placeholder. */
++export function filtroCompetenciaAno(alias = ''): string {
++  return `(${competenciaAno(alias)}) = ?`
++}
++
++/**
++ * Exclui aportes patrimoniais da soma de despesa.
++ *
++ * Um aporte é dinheiro que sai da conta corrente e vira investimento — o
++ * patrimônio não diminuiu, mudou de lugar. Contá-lo como gasto faz quem
++ * investe parecer gastador e derruba o score de quem está indo bem.
++ */
++export function filtroSemAporte(alias = ''): string {
++  const c = pref(alias)
++  return `COALESCE(${c}tipo,'normal') != 'aporte' AND COALESCE(${c}eh_aporte_patrimonial, 0) = 0`
++}
++
++/** O complemento: só os aportes. Usado pela tela de Aportes. */
++export function filtroApenasAporte(alias = ''): string {
++  const c = pref(alias)
++  return `(COALESCE(${c}tipo,'normal') = 'aporte' OR COALESCE(${c}eh_aporte_patrimonial, 0) = 1)`
++}
++
++/** Despesa cancelada não é gasto. */
++export function filtroNaoCancelada(alias = ''): string {
++  return `${pref(alias)}status != 'cancelado'`
++}
++
++/**
++ * O bloco completo que quase toda soma de despesa quer: não cancelada, não
++ * aporte, no mês de competência. Já vem com o `AND` inicial.
++ * Consome DOIS placeholders: mês, ano.
++ */
++export function filtroDespesaDoMes(alias = ''): string {
++  return ` AND ${filtroNaoCancelada(alias)}
++           AND ${filtroSemAporte(alias)}
++           AND ${filtroCompetencia(alias)}`
++}
++
++/** Mesma coisa, o ano inteiro. Consome UM placeholder: ano. */
++export function filtroDespesaDoAno(alias = ''): string {
++  return ` AND ${filtroNaoCancelada(alias)}
++           AND ${filtroSemAporte(alias)}
++           AND ${filtroCompetenciaAno(alias)}`
++}
++
++/** '8' → '08'. O filtro compara string com string. */
++export function mesDoisDigitos(mes: string | number): string {
++  return String(mes).padStart(2, '0')
++}
+diff --git a/src/lib/erros-banco.ts b/src/lib/erros-banco.ts
+new file mode 100644
+index 0000000..0324c07
+--- /dev/null
++++ b/src/lib/erros-banco.ts
+@@ -0,0 +1,38 @@
++/**
++ * VerdeMais — tradução de erro de banco para resposta HTTP
++ * ============================================================================
++ * O app nasceu no SQLite/D1, onde a violação de unicidade vem com a palavra
++ * "UNIQUE" na mensagem. As rotas checavam exatamente isso:
++ *
++ *     if (e?.message?.includes('UNIQUE')) return c.json({...}, 409)
++ *
++ * No Postgres a mensagem é outra — "duplicate key value violates unique
++ * constraint" — e o código é `23505`. O `includes('UNIQUE')` passou a dar
++ * falso, o erro escapou do catch e virou **HTTP 500**: criar uma tag com nome
++ * repetido devolvia "Internal Server Error", como se o app tivesse quebrado.
++ *
++ * Aqui a checagem cobre os dois dialetos, para não depender de qual banco está
++ * embaixo.
++ */
++
++/** Violação de índice único (nome repetido, e-mail repetido, etc). */
++export function ehViolacaoUnicidade(e: any): boolean {
++  if (!e) return false
++  if (e.code === '23505') return true                    // Postgres
++  const msg = String(e.message ?? e)
++  return /unique constraint|duplicate key|UNIQUE/i.test(msg)  // Postgres + SQLite
++}
++
++/** Violação de chave estrangeira — referência para linha que não existe. */
++export function ehViolacaoChaveEstrangeira(e: any): boolean {
++  if (!e) return false
++  if (e.code === '23503') return true
++  return /foreign key/i.test(String(e.message ?? e))
++}
++
++/** Violação de NOT NULL. */
++export function ehCampoObrigatorio(e: any): boolean {
++  if (!e) return false
++  if (e.code === '23502') return true
++  return /not null|NOT NULL/i.test(String(e.message ?? e))
++}
+diff --git a/src/routes/alertas-categoria.ts b/src/routes/alertas-categoria.ts
+index 13bb831..3c292e5 100644
+--- a/src/routes/alertas-categoria.ts
++++ b/src/routes/alertas-categoria.ts
+@@ -1,6 +1,7 @@
+ // src/routes/alertas-categoria.ts
+ // Alerta quando gasto de uma categoria está >20% acima da média dos últimos 3 meses
+ import { Hono } from 'hono'
++import { competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings = { DB: D1Database }
+@@ -19,9 +20,8 @@ alertasCategoria.get('/', requireAuth, async (c) => {
+   const atual = await c.env.DB.prepare(`
+     SELECT categoria, SUM(valor) as total
+     FROM despesas
+-    WHERE user_id = ? 
+-      AND strftime('%m', data) = ? 
+-      AND strftime('%Y', data) = ?
++    WHERE user_id = ?
++      ${filtroDespesaDoMes()}
+     GROUP BY categoria
+   `).bind(user.id, String(mes).padStart(2,'0'), String(ano)).all()
+ 
+@@ -29,12 +29,13 @@ alertasCategoria.get('/', requireAuth, async (c) => {
+   const media = await c.env.DB.prepare(`
+     SELECT categoria, AVG(total) as media_3m
+     FROM (
+-      SELECT categoria, strftime('%Y-%m', data) as periodo, SUM(valor) as total
++      SELECT categoria, strftime('%Y-%m', ${competenciaData()}) as periodo, SUM(valor) as total
+       FROM despesas
+       WHERE user_id = ?
+-        AND data < date(? || '-' || printf('%02d', ?) || '-01')
+-        AND data >= date(? || '-' || printf('%02d', ?) || '-01', '-3 months')
+-      GROUP BY categoria, strftime('%Y-%m', data)
++        AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
++        AND (${competenciaData()}) < date(? || '-' || printf('%02d', ?) || '-01')
++        AND (${competenciaData()}) >= date(? || '-' || printf('%02d', ?) || '-01', '-3 months')
++      GROUP BY categoria, strftime('%Y-%m', ${competenciaData()})
+     )
+     GROUP BY categoria
+   `).bind(user.id, String(ano), mes, String(ano), mes).all()
+diff --git a/src/routes/amortizacao.ts b/src/routes/amortizacao.ts
+index 46431ee..194c899 100644
+--- a/src/routes/amortizacao.ts
++++ b/src/routes/amortizacao.ts
+@@ -1,5 +1,6 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
++import { exigeFeature } from './planos'
+ 
+ type Bindings = { DB: D1Database }
+ type Variables = { user: { id: number; nome: string; email: string; plano: string } }
+@@ -51,7 +52,7 @@ function sacRemainingMonths(newBalance: number, originalBalance: number, origina
+ }
+ 
+ // ── POST /api/amortizacao/simular ─────────────────────────────────────────
+-amortizacao.post('/simular', requireAuth, async (c) => {
++amortizacao.post('/simular', requireAuth, exigeFeature('amortizacao'), async (c) => {
+   const user = c.get('user')
+ 
+   const body = await c.req.json()
+@@ -240,7 +241,7 @@ amortizacao.post('/simular', requireAuth, async (c) => {
+ })
+ 
+ // ── GET /api/amortizacao/historico ────────────────────────────────────────
+-amortizacao.get('/historico', requireAuth, async (c) => {
++amortizacao.get('/historico', requireAuth, exigeFeature('amortizacao'), async (c) => {
+   const user = c.get('user')
+   const result = await c.env.DB.prepare(`
+     SELECT a.*, f.descricao as financing_name
+diff --git a/src/routes/aportes.ts b/src/routes/aportes.ts
+new file mode 100644
+index 0000000..c83640c
+--- /dev/null
++++ b/src/routes/aportes.ts
+@@ -0,0 +1,125 @@
++/**
++ * VerdeMais — Aportes patrimoniais
++ * ============================================================================
++ * Um aporte é dinheiro que sai da conta corrente e vira patrimônio: entra num
++ * investimento, numa reserva, numa caixinha. O saldo do mês cai, mas você não
++ * ficou mais pobre — o dinheiro mudou de lugar.
++ *
++ * Por isso o aporte **não entra na soma de despesa** em lugar nenhum do app
++ * (ver `src/lib/competencia.ts`). Só que tirá-lo das despesas sem mais nada
++ * criaria um buraco: dinheiro que saiu da conta e não aparece em tela alguma.
++ *
++ * Esta rota é o outro lado dessa decisão. Ela responde, com os mesmos dados:
++ * quanto você aportou no mês, para onde foi cada real e como isso vem
++ * evoluindo — para o dinheiro sumir das despesas sem sumir da sua vista.
++ */
++import { Hono } from 'hono'
++import { requireAuth } from './auth'
++import { competenciaData, filtroApenasAporte, filtroCompetencia, filtroNaoCancelada, mesDoisDigitos } from '../lib/competencia'
++
++type Bindings = { DB: D1Database }
++type Variables = { user: { id: number; nome: string; email: string; plano: string } }
++
++const aportes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
++
++// ─── GET /api/aportes?mes=8&ano=2026 ────────────────────────────────────────
++aportes.get('/', requireAuth, async (c) => {
++  const user = c.get('user')
++  const hoje = new Date()
++  const mes  = mesDoisDigitos(c.req.query('mes') || String(hoje.getMonth() + 1))
++  const ano  = String(c.req.query('ano') || hoje.getFullYear())
++
++  const [lista, totalMes, totalAno, porDestino, evolucao, patrimonio] = await Promise.all([
++    // Aportes do mês, do mais recente para o mais antigo
++    c.env.DB.prepare(
++      `SELECT id, descricao, valor, data, categoria, subcategoria, observacoes, meio_pagamento
++       FROM despesas
++       WHERE user_id = ?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroApenasAporte()}
++         AND ${filtroCompetencia()}
++       ORDER BY data DESC, id DESC`
++    ).bind(user.id, mes, ano).all(),
++
++    c.env.DB.prepare(
++      `SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as qtd
++       FROM despesas
++       WHERE user_id = ?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroApenasAporte()}
++         AND ${filtroCompetencia()}`
++    ).bind(user.id, mes, ano).first(),
++
++    c.env.DB.prepare(
++      `SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as qtd
++       FROM despesas
++       WHERE user_id = ?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroApenasAporte()}
++         AND strftime('%Y', ${competenciaData()}) = ?`
++    ).bind(user.id, ano).first(),
++
++    // Para onde foi: agrupado pelo destino registrado na subcategoria
++    c.env.DB.prepare(
++      `SELECT COALESCE(NULLIF(subcategoria,''), 'Outros') as destino,
++              COALESCE(SUM(valor),0) as total,
++              COUNT(*) as qtd
++       FROM despesas
++       WHERE user_id = ?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroApenasAporte()}
++         AND strftime('%Y', ${competenciaData()}) = ?
++       GROUP BY COALESCE(NULLIF(subcategoria,''), 'Outros')
++       ORDER BY total DESC`
++    ).bind(user.id, ano).all(),
++
++    // Últimos 12 meses, para o gráfico
++    c.env.DB.prepare(
++      `SELECT strftime('%Y-%m', ${competenciaData()}) as ym,
++              COALESCE(SUM(valor),0) as total
++       FROM despesas
++       WHERE user_id = ?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroApenasAporte()}
++         AND (${competenciaData()}) >= date('now','-12 months')
++       GROUP BY ym
++       ORDER BY ym`
++    ).bind(user.id).all(),
++
++    // O destino real do dinheiro, do outro lado: quanto virou patrimônio
++    c.env.DB.prepare(
++      `SELECT
++         (SELECT COALESCE(SUM(valor_atual),0) FROM investimentos WHERE user_id = ?) as investimentos,
++         (SELECT COALESCE(SUM(valor_atual),0) FROM reserva_emergencia WHERE user_id = ?) as reserva,
++         (SELECT COALESCE(SUM(current_amount),0) FROM specialized_reserves
++           WHERE user_id = ? AND status != 'cancelled') as reservas_esp`
++    ).bind(user.id, user.id, user.id).first(),
++  ])
++
++  const t   = totalMes as any
++  const ta  = totalAno as any
++  const pat = patrimonio as any
++
++  const investido = Number(pat?.investimentos || 0)
++  const guardado  = Number(pat?.reserva || 0) + Number(pat?.reservas_esp || 0)
++
++  return c.json({
++    periodo: { mes, ano },
++    resumo: {
++      total_mes:  Math.round(Number(t?.total || 0) * 100) / 100,
++      qtd_mes:    Number(t?.qtd || 0),
++      total_ano:  Math.round(Number(ta?.total || 0) * 100) / 100,
++      qtd_ano:    Number(ta?.qtd || 0),
++      // Onde o dinheiro está agora
++      patrimonio_investimentos: Math.round(investido * 100) / 100,
++      patrimonio_reservas:      Math.round(guardado * 100) / 100,
++      patrimonio_total:         Math.round((investido + guardado) * 100) / 100,
++    },
++    aportes:     lista.results || [],
++    por_destino: porDestino.results || [],
++    evolucao:    evolucao.results || [],
++    explicacao:  'Aportes não entram na soma de despesas: o dinheiro saiu da conta, mas virou patrimônio seu. Aqui você acompanha para onde ele foi.',
++  })
++})
++
++export default aportes
+diff --git a/src/routes/assistente.ts b/src/routes/assistente.ts
+index b2d9b38..59464af 100644
+--- a/src/routes/assistente.ts
++++ b/src/routes/assistente.ts
+@@ -2,6 +2,7 @@
+ // Assistente IA Conversacional VerdeMais — v3.0 — OpenAI gpt-5-mini + perfil investidor
+ 
+ import { Hono } from 'hono'
++import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
+@@ -119,11 +120,11 @@ async function buscarContexto(db: D1Database, userId: number) {
+     // Receitas mês atual
+     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesStr, anoStr).first() as Promise<any>,
+     // Despesas mês atual
+-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as cnt FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`).bind(userId, mesStr, anoStr).first() as Promise<any>,
++    db.prepare(`SELECT COALESCE(SUM(valor),0) as total, COUNT(*) as cnt FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(userId, mesStr, anoStr).first() as Promise<any>,
+     // Receitas mês anterior
+     db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
+     // Despesas mês anterior
+-    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
++    db.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(userId, mesAntStr, anoAntStr).first() as Promise<any>,
+     // Metas ativas
+     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as total_obj, COALESCE(SUM(valor_atual),0) as total_atual FROM metas WHERE user_id=? AND status='ativo'`).bind(userId).first() as Promise<any>,
+     // Investimentos
+@@ -141,9 +142,9 @@ async function buscarContexto(db: D1Database, userId: number) {
+     // Cartões
+     db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite_total),0) as total_limite, COALESCE(SUM(limite_disponivel),0) as disponivel FROM cartoes WHERE user_id=?`).bind(userId).first() as Promise<any>,
+     // Top 5 categorias de despesas do mês
+-    db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
++    db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+     // Top tags do mês
+-    db.prepare(`SELECT t.nome, COALESCE(SUM(d.valor),0) as total FROM despesa_tags dt JOIN tags t ON t.id=dt.tag_id JOIN despesas d ON d.id=dt.despesa_id WHERE d.user_id=? AND strftime('%m',d.data)=? AND strftime('%Y',d.data)=? GROUP BY t.id ORDER BY total DESC LIMIT 3`).bind(userId, mesStr, anoStr).all() as Promise<any>,
++    db.prepare(`SELECT t.nome, COALESCE(SUM(d.valor),0) as total FROM despesa_tags dt JOIN tags t ON t.id=dt.tag_id JOIN despesas d ON d.id=dt.despesa_id WHERE d.user_id=? ${filtroDespesaDoMes('d')} GROUP BY t.id ORDER BY total DESC LIMIT 3`).bind(userId, mesStr, anoStr).all() as Promise<any>,
+     // Lembretes próximos (30 dias)
+     db.prepare(`SELECT COUNT(*) as cnt FROM lembretes WHERE user_id=? AND ativo=1 AND proximo_vencimento <= date('now', '+30 days')`).bind(userId).first() as Promise<any>,
+     // Recorrências ativas
+@@ -542,9 +543,11 @@ assistente.post('/chat', requireAuth, async (c) => {
+           GROUP BY ym
+         ),
+         desp6m AS (
+-          SELECT strftime('%Y-%m', COALESCE(vencimento,data)) as ym,
++          SELECT strftime('%Y-%m', ${competenciaData()}) as ym,
+                  COALESCE(SUM(valor),0) as despesas
+-          FROM despesas WHERE user_id=? AND COALESCE(vencimento,data) >= date('now','-6 months')
++          FROM despesas WHERE user_id=?
++            AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
++            AND (${competenciaData()}) >= date('now','-6 months')
+           GROUP BY ym
+         )
+         SELECT m.ym,
+diff --git a/src/routes/cartoes.ts b/src/routes/cartoes.ts
+index 962fc90..fb6fd7d 100644
+--- a/src/routes/cartoes.ts
++++ b/src/routes/cartoes.ts
+@@ -442,6 +442,27 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
+ 
+   const nparcelas    = Math.max(1, parseInt(numero_parcelas))
+   const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
++
++  // ── Limite disponível ──────────────────────────────────────────────────────
++  // O cartão aceitava qualquer valor: uma compra de R$ 999.999 num limite de
++  // R$ 15.000 entrava com 201 e sem aviso, e o "disponível" ficava travado em
++  // zero enquanto o percentual de uso ia a 6.687%. Um cartão de verdade recusa.
++  const usoAtual = await c.env.DB.prepare(
++    `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
++     WHERE card_id = ? AND status = 'pendente'`
++  ).bind(parseInt(cardId)).first() as any
++  const utilizado  = Math.round(Number(usoAtual?.total || 0) * 100) / 100
++  const disponivel = Math.round((Number(cartao.limite_total) - utilizado) * 100) / 100
++
++  if (parseFloat(valor_total) > disponivel) {
++    return c.json({
++      error: `Compra de R$ ${parseFloat(valor_total).toFixed(2)} excede o limite disponível do ${cartao.nome}.`,
++      limite_total:      Number(cartao.limite_total),
++      limite_utilizado:  utilizado,
++      limite_disponivel: Math.max(0, disponivel),
++      valor_solicitado:  parseFloat(valor_total),
++    }, 422)
++  }
+   const groupId      = uuid()
+   const chargeIds: number[] = []
+   const despesaIds:  number[] = []
+diff --git a/src/routes/chat.ts b/src/routes/chat.ts
+index 9ec11fc..4042109 100644
+--- a/src/routes/chat.ts
++++ b/src/routes/chat.ts
+@@ -1,4 +1,5 @@
+ import { Hono } from 'hono'
++import { competenciaData } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings = { DB: D1Database }
+@@ -81,7 +82,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+     case 'saldo_atual': {
+       const [rec, desp] = await Promise.all([
+         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
+-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND status='pago' AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>()
++        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND status='pago' AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>()
+       ])
+       const saldo = (rec?.t || 0) - (desp?.t || 0)
+       const emoji = saldo >= 0 ? '✅' : '⚠️'
+@@ -94,7 +95,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+     case 'resumo_mes': {
+       const [rec, desp, metas, invest] = await Promise.all([
+         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
+-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
++        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
+         db.prepare(`SELECT COUNT(*) as t FROM metas WHERE user_id=? AND status='ativa'`).bind(userId).first<any>(),
+         db.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(userId).first<any>()
+       ])
+@@ -108,7 +109,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+ 
+     case 'fatura_cartao': {
+       const fatura = await db.prepare(
+-        `SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND meio_pagamento IN ('cartao_credito','parcelado_cartao') AND status='pendente' AND strftime('%Y-%m',data)=?`
++        `SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND meio_pagamento IN ('cartao_credito','parcelado_cartao') AND status='pendente' AND strftime('%Y-%m',${competenciaData()})=?`
+       ).bind(userId, prefix).first<any>()
+       const total = fatura?.t || 0
+       const emoji = total > 0 ? '💳' : '✅'
+@@ -120,7 +121,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+ 
+     case 'gastos_categoria': {
+       const categorias = await db.prepare(
+-        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 5`
++        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 5`
+       ).bind(userId, prefix).all<any>()
+       const lista = (categorias.results || [])
+         .map((c: any, i: number) => `${i + 1}. ${c.categoria}: ${fmt(c.total)}`)
+@@ -152,7 +153,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+ 
+     case 'dicas_economia': {
+       const desp = await db.prepare(
+-        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 3`
++        `SELECT categoria, SUM(valor) as total FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0 GROUP BY categoria ORDER BY total DESC LIMIT 3`
+       ).bind(userId, prefix).all<any>()
+       const maiores = (desp.results || []).map((c: any) => c.categoria).join(', ')
+       return {
+@@ -223,7 +224,7 @@ async function processarIntent(intent: Intent, userId: number, db: D1Database, m
+     case 'status_saude': {
+       const [rec, desp, dividas, invest] = await Promise.all([
+         db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%Y-%m',data)=?`).bind(userId, prefix).first<any>(),
+-        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',data)=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
++        db.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND strftime('%Y-%m',${competenciaData()})=? AND COALESCE(eh_aporte_patrimonial,0)=0`).bind(userId, prefix).first<any>(),
+         db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as t FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(userId).first<any>(),
+         db.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(userId).first<any>()
+       ])
+diff --git a/src/routes/comparativo.ts b/src/routes/comparativo.ts
+index 6a36fb3..2fa1060 100644
+--- a/src/routes/comparativo.ts
++++ b/src/routes/comparativo.ts
+@@ -1,4 +1,5 @@
+ import { Hono } from 'hono'
++import { competenciaMes, competenciaAno, competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings  = { DB: D1Database }
+@@ -46,16 +47,14 @@ comparativo.get('/', requireAuth, async (c) => {
+ 
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor),0) as total FROM despesas
+-       WHERE user_id=? AND status!='cancelado'
+-         AND strftime('%m',COALESCE(vencimento,data))=?
+-         AND strftime('%Y',COALESCE(vencimento,data))=?`
++       WHERE user_id=?
++         ${filtroDespesaDoMes()}`
+     ).bind(user.id, mesStr, anoStr).first<{total:number}>(),
+ 
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor),0) as total FROM despesas
+-       WHERE user_id=? AND status!='cancelado'
+-         AND strftime('%m',COALESCE(vencimento,data))=?
+-         AND strftime('%Y',COALESCE(vencimento,data))=?`
++       WHERE user_id=?
++         ${filtroDespesaDoMes()}`
+     ).bind(user.id, mesAntStr, anoAntStr).first<{total:number}>(),
+   ])
+ 
+@@ -65,9 +64,8 @@ comparativo.get('/', requireAuth, async (c) => {
+             COALESCE(SUM(valor),0) as total,
+             COUNT(*) as qtd
+      FROM despesas
+-     WHERE user_id=? AND status!='cancelado'
+-       AND strftime('%m',COALESCE(vencimento,data))=?
+-       AND strftime('%Y',COALESCE(vencimento,data))=?
++     WHERE user_id=?
++       ${filtroDespesaDoMes()}
+      GROUP BY categoria
+      ORDER BY total DESC`
+   ).bind(user.id, mesStr, anoStr).all<{categoria:string;total:number;qtd:number}>()
+@@ -78,9 +76,8 @@ comparativo.get('/', requireAuth, async (c) => {
+             COALESCE(SUM(valor),0) as total,
+             COUNT(*) as qtd
+      FROM despesas
+-     WHERE user_id=? AND status!='cancelado'
+-       AND strftime('%m',COALESCE(vencimento,data))=?
+-       AND strftime('%Y',COALESCE(vencimento,data))=?
++     WHERE user_id=?
++       ${filtroDespesaDoMes()}
+      GROUP BY categoria`
+   ).bind(user.id, mesAntStr, anoAntStr).all<{categoria:string;total:number;qtd:number}>()
+ 
+@@ -235,15 +232,15 @@ comparativo.get('/historico', requireAuth, async (c) => {
+     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
+ 
+     c.env.DB.prepare(
+-      `SELECT strftime('%m',COALESCE(vencimento,data)) as mes,
+-              strftime('%Y',COALESCE(vencimento,data)) as ano,
++      `SELECT (${competenciaMes()}) as mes,
++              (${competenciaAno()}) as ano,
+               COALESCE(SUM(valor),0) as total
+        FROM despesas
+-       WHERE user_id=? AND status!='cancelado'
+-         AND COALESCE(vencimento,data) BETWEEN ? AND ?
+-       GROUP BY strftime('%Y-%m', COALESCE(vencimento,data)),
+-                strftime('%m', COALESCE(vencimento,data)),
+-                strftime('%Y', COALESCE(vencimento,data))`
++       WHERE user_id=?
++         AND ${filtroNaoCancelada()}
++         AND ${filtroSemAporte()}
++         AND (${competenciaData()}) BETWEEN ? AND ?
++       GROUP BY (${competenciaAno()}), (${competenciaMes()})`
+     ).bind(user.id, dataInicio, dataFim).all<{mes:string;ano:string;total:number}>(),
+   ])
+ 
+diff --git a/src/routes/dashboard.ts b/src/routes/dashboard.ts
+index d07407e..d7a0eb9 100644
+--- a/src/routes/dashboard.ts
++++ b/src/routes/dashboard.ts
+@@ -1,6 +1,7 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
+ import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
++import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroDespesaDoAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { classificarObrigacoesTemporais, calcularEconomiaAmortizacao } from '../utils/obrigacoes-temporais'
+ 
+ type Bindings = { DB: D1Database }
+@@ -53,27 +54,15 @@ dashboard.get('/', requireAuth, async (c) => {
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+        WHERE user_id = ?
+-         AND COALESCE(tipo,'normal') != 'aporte'
+-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+-         AND CASE WHEN status = 'pago'
+-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-             END`
+-    ).bind(user.id, mes, ano, mes, ano),
++         ${filtroDespesaDoMes()}`
++    ).bind(user.id, mes, ano),
+     // despesas por status
+     c.env.DB.prepare(
+       `SELECT status, COALESCE(SUM(valor), 0) as total FROM despesas 
+        WHERE user_id = ?
+-         AND COALESCE(tipo,'normal') != 'aporte'
+-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+-         AND CASE WHEN status = 'pago'
+-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-             END
++         ${filtroDespesaDoMes()}
+        GROUP BY status`
+-    ).bind(user.id, mes, ano, mes, ano),
++    ).bind(user.id, mes, ano),
+     // total investimentos
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor_atual), 0) as total, COALESCE(SUM(valor_investido), 0) as investido FROM investimentos WHERE user_id = ?`
+@@ -126,13 +115,9 @@ dashboard.get('/', requireAuth, async (c) => {
+     c.env.DB.prepare(
+       `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM despesas 
+        WHERE user_id = ?
+-         AND CASE WHEN status = 'pago'
+-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-             END
++         ${filtroDespesaDoMes()}
+        GROUP BY categoria ORDER BY total DESC LIMIT 8`
+-    ).bind(user.id, mes, ano, mes, ano),
++    ).bind(user.id, mes, ano),
+     // categorias receitas
+     c.env.DB.prepare(
+       `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM receitas 
+@@ -161,14 +146,8 @@ dashboard.get('/', requireAuth, async (c) => {
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+        WHERE user_id = ?
+-         AND COALESCE(tipo,'normal') != 'aporte'
+-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
+-         AND CASE WHEN status = 'pago'
+-                  THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+-                  ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+-                   AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-             END`
+-    ).bind(user.id, mesAnt, anoAnt, mesAnt, anoAnt),
++         ${filtroDespesaDoMes()}`
++    ).bind(user.id, mesAnt, anoAnt),
+   ])
+ 
+   const receitasMes        = receitasMesR.results?.[0]        ?? receitasMesR as any
+@@ -233,12 +212,8 @@ dashboard.get('/', requireAuth, async (c) => {
+       c.env.DB.prepare(
+         `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+          WHERE user_id = ?
+-           AND CASE WHEN status = 'pago'
+-                    THEN strftime('%m', data) = ? AND strftime('%Y', data) = ?
+-                    ELSE strftime('%m', COALESCE(vencimento, data)) = ?
+-                     AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-               END`
+-      ).bind(user.id, m, a, m, a),
++           ${filtroDespesaDoMes()}`
++      ).bind(user.id, m, a),
+     ])
+   ])
+ 
+@@ -334,17 +309,11 @@ dashboard.get('/', requireAuth, async (c) => {
+     JOIN tags t ON t.id = dt.tag_id
+     JOIN despesas d ON d.id = dt.despesa_id
+     WHERE d.user_id = ?
+-      AND COALESCE(d.tipo,'normal') != 'aporte'
+-      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
+-      AND CASE WHEN d.status = 'pago'
+-               THEN strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?
+-               ELSE strftime('%m', COALESCE(d.vencimento, d.data)) = ?
+-                AND strftime('%Y', COALESCE(d.vencimento, d.data)) = ?
+-           END
++      ${filtroDespesaDoMes('d')}
+     GROUP BY t.id, t.nome, t.cor
+     ORDER BY total DESC
+     LIMIT 5
+-  `).bind(user.id, mes, ano, mes, ano).all()
++  `).bind(user.id, mes, ano).all()
+   const topTags = topTagsResult.results || []
+ 
+   // Bloco 5: conquistas saude_ferro, score_50/70/80
+@@ -452,8 +421,7 @@ dashboard.get('/', requireAuth, async (c) => {
+       FROM orcamentos o
+       LEFT JOIN despesas d ON d.user_id = o.user_id
+         AND d.categoria = o.categoria
+-        AND strftime('%m', COALESCE(d.vencimento,d.data)) = ?
+-        AND strftime('%Y', COALESCE(d.vencimento,d.data)) = ?
++        ${filtroDespesaDoMes('d')}
+       WHERE o.user_id = ? AND o.mes = ? AND o.ano = ? AND o.limite > 0
+       GROUP BY o.categoria, o.limite
+       HAVING (COALESCE(SUM(d.valor),0) * 1.0 / o.limite) > 0.8
+@@ -719,9 +687,8 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
+     c.env.DB.prepare(
+       `SELECT categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as qtd
+        FROM despesas
+-       WHERE user_id = ? AND strftime('%Y', COALESCE(vencimento, data)) = ?
+-         AND COALESCE(tipo,'normal') != 'aporte'
+-         AND COALESCE(eh_aporte_patrimonial, 0) = 0
++       WHERE user_id = ?
++         ${filtroDespesaDoAno()}
+        GROUP BY categoria ORDER BY total DESC LIMIT 8`
+     ).bind(user.id, ano),
+     // receitas e despesas de cada mês (12 × 2 = 24 queries)
+@@ -732,9 +699,7 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
+       c.env.DB.prepare(
+         `SELECT COALESCE(SUM(valor), 0) as total FROM despesas 
+          WHERE user_id = ?
+-           AND status != 'cancelado'
+-           AND strftime('%m', COALESCE(vencimento, data)) = ?
+-           AND strftime('%Y', COALESCE(vencimento, data)) = ?
++           ${filtroDespesaDoMes()}
+            AND id NOT IN (
+              SELECT d2.id FROM despesas d2
+              JOIN antecipacoes a ON a.user_id = d2.user_id
+diff --git a/src/routes/despesas-compartilhadas.ts b/src/routes/despesas-compartilhadas.ts
+index da6d9a5..36c7306 100644
+--- a/src/routes/despesas-compartilhadas.ts
++++ b/src/routes/despesas-compartilhadas.ts
+@@ -30,8 +30,9 @@ despesasCompartilhadas.get('/', requireAuth, async (c) => {
+       d.valor as total_valor,
+       d.data,
+       d.categoria,
+-      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
+-      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
++      COALESCE(se.valor_total, d.valor) as total_conta,
++      ROUND(COALESCE(se.valor_total, d.valor) * se.user_percentage / 100, 2) as minha_parte,
++      ROUND(COALESCE(se.valor_total, d.valor) * se.partner_percentage / 100, 2) as parte_parceiro
+     FROM shared_expenses se
+     LEFT JOIN despesas d ON se.expense_id = d.id
+     WHERE se.user_id = ?
+@@ -96,16 +97,23 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
+ 
+   let despesaId = expense_id
+ 
++  // `valorTotalConta` é o valor CHEIO da conta — o que foi consumido pelas duas
++  // pessoas. É diferente do que vai para `despesas.valor` no modo
++  // criar+compartilhar, onde gravamos só a minha fatia (a despesa do parceiro
++  // não é minha). Confundir os dois era a origem da divisão dupla.
++  let valorTotalConta: number | null = null
++
+   // Modo criar+compartilhar
+   if (criar_despesa) {
+     if (!descricao || !valor || !data) {
+       return c.json({ error: 'Para criar despesa: descricao, valor e data são obrigatórios' }, 400)
+     }
+-    const minhaParte = parseFloat(valor) * userPct / 100
++    valorTotalConta = parseFloat(valor)
++    const minhaParte = Math.round(valorTotalConta * userPct / 100 * 100) / 100
+     const newDesp = await c.env.DB.prepare(`
+       INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, meio_pagamento)
+       VALUES (?, ?, ?, ?, ?, 'pendente', 'outros')
+-    `).bind(user.id, descricao, data, categoria, Math.round(minhaParte * 100) / 100).run()
++    `).bind(user.id, descricao, data, categoria, minhaParte).run()
+     despesaId = newDesp.meta.last_row_id
+   }
+ 
+@@ -119,29 +127,36 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
+   ).bind(despesaId, user.id).first() as any
+   if (!despesa) return c.json({ error: 'Despesa não encontrada ou sem permissão' }, 404)
+ 
++  // Dividindo uma despesa que já existia: ali `despesas.valor` É o valor cheio.
++  if (valorTotalConta === null) valorTotalConta = parseFloat(despesa.valor)
++
+   const result = await c.env.DB.prepare(`
+-    INSERT INTO shared_expenses (user_id, expense_id, partner_name, partner_email, user_percentage, partner_percentage, status)
+-    VALUES (?, ?, ?, ?, ?, ?, 'pending')
++    INSERT INTO shared_expenses (user_id, expense_id, partner_name, partner_email, user_percentage, partner_percentage, valor_total, status)
++    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+   `).bind(
+     user.id,
+     despesaId,
+     partner_name,
+     partner_email || null,
+     userPct,
+-    partnerPct
++    partnerPct,
++    valorTotalConta
+   ).run()
+ 
+   const novoId = result.meta.last_row_id
+-  const minhaParte = Math.round(parseFloat(despesa.valor) * userPct / 100 * 100) / 100
+-  const parteParceiro = Math.round(parseFloat(despesa.valor) * partnerPct / 100 * 100) / 100
++  const minhaParte = Math.round(valorTotalConta * userPct / 100 * 100) / 100
++  // A parte do parceiro sai por subtração para as duas SEMPRE fecharem o total
++  // — com 33%/67% o arredondamento separado deixaria um centavo sobrando.
++  const parteParceiro = Math.round((valorTotalConta - minhaParte) * 100) / 100
+ 
+   return c.json({
+     success: true,
+     id: novoId,
+     expense_id: despesaId,
++    total_conta: valorTotalConta,
+     minha_parte: minhaParte,
+     parte_parceiro: parteParceiro,
+-    message: `Despesa compartilhada com ${partner_name}! Você paga R$ ${minhaParte.toFixed(2)} (${userPct}%)`
++    message: `Conta de R$ ${valorTotalConta.toFixed(2)} dividida com ${partner_name}! Você paga R$ ${minhaParte.toFixed(2)} (${userPct}%)`
+   }, 201)
+ })
+ 
+@@ -154,8 +169,9 @@ despesasCompartilhadas.get('/:id', requireAuth, async (c) => {
+     SELECT 
+       se.*,
+       d.descricao, d.valor as total_valor, d.data, d.categoria,
+-      ROUND(d.valor * se.user_percentage / 100, 2) as minha_parte,
+-      ROUND(d.valor * se.partner_percentage / 100, 2) as parte_parceiro
++      COALESCE(se.valor_total, d.valor) as total_conta,
++      ROUND(COALESCE(se.valor_total, d.valor) * se.user_percentage / 100, 2) as minha_parte,
++      ROUND(COALESCE(se.valor_total, d.valor) * se.partner_percentage / 100, 2) as parte_parceiro
+     FROM shared_expenses se
+     LEFT JOIN despesas d ON se.expense_id = d.id
+     WHERE se.id = ? AND se.user_id = ?
+diff --git a/src/routes/despesas.ts b/src/routes/despesas.ts
+index 7faa739..ed121d7 100644
+--- a/src/routes/despesas.ts
++++ b/src/routes/despesas.ts
+@@ -1,6 +1,7 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
+ import { getLimites, MSG_UPGRADE } from './planos'
++import { filtroCompetencia, filtroCompetenciaAno, filtroSemAporte, mesDoisDigitos } from '../lib/competencia'
+ 
+ type Bindings = { DB: D1Database }
+ type Variables = { user: { id: number; nome: string; email: string; plano: string } }
+@@ -107,7 +108,7 @@ despesas.get('/', requireAuth, async (c) => {
+   const user = c.get('user')
+   const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag } = c.req.query()
+ 
+-  let query = 'SELECT * FROM despesas WHERE user_id = ?'
++  let query = 'SELECT * FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
+   const params: any[] = [user.id]
+ 
+   if (purchase_group_id) {
+@@ -119,10 +120,10 @@ despesas.get('/', requireAuth, async (c) => {
+   }
+ 
+   if (mes && ano) {
+-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
+-    params.push(mes.padStart(2, '0'), ano)
++    query += ' AND ' + filtroCompetencia()
++    params.push(mesDoisDigitos(mes), ano)
+   } else if (ano) {
+-    query += ' AND strftime("%Y", data) = ?'
++    query += ' AND ' + filtroCompetenciaAno()
+     params.push(ano)
+   }
+ 
+@@ -151,13 +152,13 @@ despesas.get('/', requireAuth, async (c) => {
+   const result = await c.env.DB.prepare(query).bind(...params).all()
+ 
+   // totais por status respeitando filtros (sem busca para não distorcer o total do mês)
+-  let baseFilter = 'FROM despesas WHERE user_id = ?'
++  let baseFilter = 'FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
+   const baseParams: any[] = [user.id]
+   if (mes && ano) {
+-    baseFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
+-    baseParams.push(mes.padStart(2, '0'), ano)
++    baseFilter += ' AND ' + filtroCompetencia()
++    baseParams.push(mesDoisDigitos(mes), ano)
+   } else if (ano) {
+-    baseFilter += ' AND strftime("%Y", data) = ?'
++    baseFilter += ' AND ' + filtroCompetenciaAno()
+     baseParams.push(ano)
+   }
+   if (categoria)   { baseFilter += filtroCategoriaDespaSQL(categoria) }
+@@ -180,8 +181,8 @@ despesas.get('/', requireAuth, async (c) => {
+     (() => {
+       let cbFilter = 'FROM despesas WHERE user_id = ? AND (tipo IS NULL OR tipo != \'aporte\')'
+       const cbParams: any[] = [user.id]
+-      if (mes && ano) { cbFilter += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'; cbParams.push(mes.padStart(2,'0'), ano) }
+-      else if (ano) { cbFilter += ' AND strftime("%Y", data) = ?'; cbParams.push(ano) }
++      if (mes && ano) { cbFilter += ' AND ' + filtroCompetencia(); cbParams.push(mesDoisDigitos(mes), ano) }
++      else if (ano) { cbFilter += ' AND ' + filtroCompetenciaAno(); cbParams.push(ano) }
+       if (status) { cbFilter += ' AND status = ?'; cbParams.push(status) }
+       if (busca) { cbFilter += ' AND descricao LIKE ?'; cbParams.push(`%${busca.replace(/'/g,"''")}%`) }
+       return c.env.DB.prepare(
+@@ -417,7 +418,7 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
+   }
+ 
+   const pendentes = await c.env.DB.prepare(
+-    `SELECT * FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ? AND status = 'pendente'`
++    `SELECT * FROM despesas WHERE user_id = ? AND ${filtroCompetencia()} AND status = 'pendente'`
+   ).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
+ 
+   const rows = (pendentes.results || []) as any[]
+@@ -518,8 +519,8 @@ despesas.get('/categorias', requireAuth, async (c) => {
+   const params: any[] = [user.id]
+   
+   if (mes && ano) {
+-    query += ' AND strftime("%m", data) = ? AND strftime("%Y", data) = ?'
+-    params.push(mes.padStart(2, '0'), ano)
++    query += ' AND ' + filtroCompetencia()
++    params.push(mesDoisDigitos(mes), ano)
+   }
+   
+   query += ` GROUP BY ${caseExpr} ORDER BY total DESC`
+diff --git a/src/routes/ia.ts b/src/routes/ia.ts
+index f1fc178..be60620 100644
+--- a/src/routes/ia.ts
++++ b/src/routes/ia.ts
+@@ -1,6 +1,7 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
+ import { getLimites, MSG_UPGRADE } from './planos'
++import { competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ 
+ type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
+ type Variables = { user: { id: number; nome: string; email: string; plano: string } }
+@@ -95,7 +96,7 @@ ia.get('/insights', requireAuth, async (c) => {
+ 
+     const [recR, despR, invR, reservaR] = await Promise.all([
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first(),
+-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? AND COALESCE(tipo,'normal')!='aporte' AND strftime('%m',COALESCE(vencimento,data))=? AND strftime('%Y',COALESCE(vencimento,data))=?`).bind(uid,mes,ano).first(),
++      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first(),
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(uid).first(),
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM reserva_emergencia WHERE user_id=?`).bind(uid).first(),
+     ]) as any[]
+@@ -153,23 +154,15 @@ ia.get('/insights', requireAuth, async (c) => {
+     // M2 – Despesas do mês (critério temporal consistente)
+     c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
+-       AND CASE WHEN status='pago'
+-                THEN strftime('%m',data)=? AND strftime('%Y',data)=?
+-                ELSE strftime('%m',COALESCE(vencimento,data))=?
+-                 AND strftime('%Y',COALESCE(vencimento,data))=?
+-           END`
+-    ).bind(uid, mes, ano, mes, ano).first() as any,
++       ${filtroDespesaDoMes()}`
++    ).bind(uid, mes, ano).first() as any,
+ 
+     // M2 – Categorias de despesas
+     c.env.DB.prepare(
+       `SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=?
+-       AND CASE WHEN status='pago'
+-                THEN strftime('%m',data)=? AND strftime('%Y',data)=?
+-                ELSE strftime('%m',COALESCE(vencimento,data))=?
+-                 AND strftime('%Y',COALESCE(vencimento,data))=?
+-           END
++       ${filtroDespesaDoMes()}
+        GROUP BY categoria ORDER BY total DESC LIMIT 8`
+-    ).bind(uid, mes, ano, mes, ano).all(),
++    ).bind(uid, mes, ano).all(),
+ 
+     // M1 – Receitas últimos 6 meses
+     c.env.DB.prepare(
+@@ -180,8 +173,10 @@ ia.get('/insights', requireAuth, async (c) => {
+ 
+     // M2 – Despesas últimos 6 meses
+     c.env.DB.prepare(
+-      `SELECT strftime('%Y-%m',COALESCE(vencimento,data)) as ym, COALESCE(SUM(valor),0) as total
+-       FROM despesas WHERE user_id=? AND COALESCE(vencimento,data) >= date('now','-6 months')
++      `SELECT strftime('%Y-%m',${competenciaData()}) as ym, COALESCE(SUM(valor),0) as total
++       FROM despesas WHERE user_id=?
++         AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
++         AND (${competenciaData()}) >= date('now','-6 months')
+        GROUP BY ym ORDER BY ym`
+     ).bind(uid).all(),
+ 
+@@ -211,7 +206,7 @@ ia.get('/insights', requireAuth, async (c) => {
+               COALESCE(SUM(d.valor),0) as gasto
+        FROM orcamentos o
+        LEFT JOIN despesas d ON d.user_id=o.user_id AND d.categoria=o.categoria
+-         AND strftime('%m',COALESCE(d.vencimento,d.data))=? AND strftime('%Y',COALESCE(d.vencimento,d.data))=?
++         ${filtroDespesaDoMes('d')}
+        WHERE o.user_id=? AND o.mes=? AND o.ano=?
+        GROUP BY o.categoria, o.limite`
+     ).bind(mes, ano, uid, parseInt(mes), parseInt(ano)).all(),
+@@ -910,7 +905,7 @@ ia.get('/score-saude', requireAuth, async (c) => {
+   try {
+     const [recRow, despRow, reservaRow, dividaRow] = await Promise.all([
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
+-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
++      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first() as any,
+       // Soma reserva_emergencia (legada) + specialized_reserves
+       c.env.DB.prepare(`
+         SELECT COALESCE(
+@@ -985,8 +980,8 @@ ia.post('/insights', requireAuth, async (c) => {
+     // Buscar dados financeiros completos
+     const [recRow, despRow, topCats, investRow, reservaRow, dividaRow, metasRow, recorRow, perfilRow] = await Promise.all([
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first() as any,
+-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado'`).bind(uid,mes,ano).first() as any,
+-      c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status!='cancelado' GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
++      c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first() as any,
++      c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
+       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total, COUNT(*) as cnt FROM investimentos WHERE user_id=?`).bind(uid).first() as any,
+       c.env.DB.prepare(`SELECT COALESCE(SUM(current_amount),0) as total FROM specialized_reserves WHERE user_id=? AND status!='cancelled'`).bind(uid).first() as any,
+       c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+diff --git a/src/routes/investimentos.ts b/src/routes/investimentos.ts
+index bafe542..5f9daf1 100644
+--- a/src/routes/investimentos.ts
++++ b/src/routes/investimentos.ts
+@@ -1,6 +1,6 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
+-import { getLimites, MSG_UPGRADE } from './planos'
++import { getLimites, MSG_UPGRADE, exigeFeature } from './planos'
+ import { ensureTag, tagInvestimento, COR_MODULO } from '../utils/tags-helper'
+ 
+ type Bindings = { DB: D1Database }
+@@ -951,7 +951,7 @@ investimentos.delete('/:id', requireAuth, async (c) => {
+ // ─────────────────────────────────────────────────────────────────────────────
+ // GET /api/investimentos/simulacao
+ // ─────────────────────────────────────────────────────────────────────────────
+-investimentos.get('/simulacao', async (c) => {
++investimentos.get('/simulacao', requireAuth, exigeFeature('simulacao'), async (c) => {
+   const { valor, tipo, prazo_meses = '12', taxa_personalizada, percentual_cdi, aporte_mensal = '0' } = c.req.query()
+   if (!valor || !tipo) return c.json({ error: 'Parâmetros: valor, tipo, prazo_meses' }, 400)
+ 
+diff --git a/src/routes/orcamentos.ts b/src/routes/orcamentos.ts
+index 3f3d4d7..60ac382 100644
+--- a/src/routes/orcamentos.ts
++++ b/src/routes/orcamentos.ts
+@@ -1,4 +1,5 @@
+ import { Hono } from 'hono'
++import { filtroDespesaDoMes } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings = { DB: D1Database }
+@@ -65,10 +66,9 @@ async function getGastoCategoria(db: D1Database, userId: number, catNorm: string
+     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas ` +
+     `WHERE user_id = ? ` +
+     `AND ${normExpr} = ? ` +
+-    `AND ((strftime('%m', data) = ? AND strftime('%Y', data) = ?) ` +
+-    `OR (vencimento IS NOT NULL AND strftime('%m', vencimento) = ? AND strftime('%Y', vencimento) = ?)) ` +
+-    `AND status IN ('pago', 'pendente')`
+-  ).bind(userId, catNorm, mesStr, anoStr, mesStr, anoStr).first() as any
++    filtroDespesaDoMes() +
++    ` AND status IN ('pago', 'pendente')`
++  ).bind(userId, catNorm, mesStr, anoStr).first() as any
+   return Number(raw?.total || 0)
+ }
+ 
+@@ -78,10 +78,9 @@ async function getGastoGlobal(db: D1Database, userId: number, mes: number, ano:
+   const raw = await db.prepare(
+     `SELECT COALESCE(SUM(valor), 0) as total FROM despesas ` +
+     `WHERE user_id = ? ` +
+-    `AND ((strftime('%m', data) = ? AND strftime('%Y', data) = ?) ` +
+-    `OR (vencimento IS NOT NULL AND strftime('%m', vencimento) = ? AND strftime('%Y', vencimento) = ?)) ` +
+-    `AND status IN ('pago', 'pendente')`
+-  ).bind(userId, mesStr, String(ano), mesStr, String(ano)).first() as any
++    filtroDespesaDoMes() +
++    ` AND status IN ('pago', 'pendente')`
++  ).bind(userId, mesStr, String(ano)).first() as any
+   return Number(raw?.total || 0)
+ }
+ 
+@@ -255,10 +254,9 @@ orcamentos.get('/resumo', requireAuth, async (c) => {
+     `FROM despesas d ` +
+     `INNER JOIN orcamentos o ON ${normD} = ${normO} AND o.user_id = d.user_id ` +
+     `WHERE d.user_id = ? AND o.mes = ? AND o.ano = ? ` +
+-    `AND ((strftime('%m', d.data) = ? AND strftime('%Y', d.data) = ?) ` +
+-    `OR (d.vencimento IS NOT NULL AND strftime('%m', d.vencimento) = ? AND strftime('%Y', d.vencimento) = ?)) ` +
+-    `AND d.status IN ('pago', 'pendente')`
+-  ).bind(user.id, mes, ano, mesStr, anoStr, mesStr, anoStr).first() as any
++    filtroDespesaDoMes('d') +
++    ` AND d.status IN ('pago', 'pendente')`
++  ).bind(user.id, mes, ano, mesStr, anoStr).first() as any
+ 
+   return c.json({
+     qtd_orcamentos: total?.qtd || 0,
+diff --git a/src/routes/planos.ts b/src/routes/planos.ts
+index e386ce6..1b1169a 100644
+--- a/src/routes/planos.ts
++++ b/src/routes/planos.ts
+@@ -3,7 +3,9 @@
+  *
+  * FREE     → grátis, para sempre, funcionalidades essenciais com limites
+  * PREMIUM  → R$19/mês, tudo do free sem limites + score + IA + relatórios
+- * PRO      → R$49/mês, tudo do premium + projeções avançadas + API
++ * PRO      → R$49/mês, tudo do premium + cartões ilimitados + regra 50/30/20
++ *            personalizável. (Acesso via API está no modelo mas NÃO existe:
++ *            por isso saiu da landing.)
+  */
+ 
+ export type Plano = 'free' | 'premium' | 'pro'
+@@ -28,8 +30,9 @@ export const LIMITES: Record<Plano, {
+   reserva_emergencia: boolean
+   conquistas: boolean
+   cartao_compras: boolean   // lançamentos em cartão
+-  amortizacao: boolean      // amortização extraordinária
+-  api_acesso: boolean       // acesso à API externa
++  amortizacao: boolean         // amortização extraordinária
++  regra_personalizada: boolean // editar os percentuais da regra 50/30/20
++  api_acesso: boolean          // reservado: não existe implementação ainda
+ }> = {
+   free: {
+     metas:              3,
+@@ -49,6 +52,7 @@ export const LIMITES: Record<Plano, {
+     conquistas:         true,
+     cartao_compras:     true,
+     amortizacao:        false,
++    regra_personalizada: false,
+     api_acesso:         false,
+   },
+   premium: {
+@@ -69,6 +73,7 @@ export const LIMITES: Record<Plano, {
+     conquistas:         true,
+     cartao_compras:     true,
+     amortizacao:        true,
++    regra_personalizada: false,
+     api_acesso:         false,
+   },
+   pro: {
+@@ -89,6 +94,7 @@ export const LIMITES: Record<Plano, {
+     conquistas:         true,
+     cartao_compras:     true,
+     amortizacao:        true,
++    regra_personalizada: true,
+     api_acesso:         true,
+   },
+ }
+@@ -106,6 +112,32 @@ export function podeUsar(plano: string, feature: keyof typeof LIMITES.free): boo
+   return (val as number) > 0
+ }
+ 
++/**
++ * Middleware de porteiro para features booleanas.
++ *
++ * Antes, cada rota decidia sozinha se checava o plano — e três esqueceram:
++ * amortização e a regra 50/30/20 personalizável respondiam 200 no plano free,
++ * e a simulação de investimentos não tinha nem `requireAuth`, respondendo a
++ * qualquer um na internet. Todas as três eram anunciadas como pagas.
++ *
++ * Com o porteiro, esquecer passa a ser visível: ou a rota tem
++ * `exigeFeature('x')`, ou não tem. Usar SEMPRE depois de `requireAuth`.
++ */
++export function exigeFeature(feature: keyof typeof LIMITES.free) {
++  return async (c: any, next: any) => {
++    const user = c.get('user')
++    if (!user) return c.json({ error: 'Não autorizado' }, 401)
++    if (!podeUsar(user.plano, feature)) {
++      return c.json({
++        error:   MSG_UPGRADE[feature] || 'Recurso disponível em um plano pago.',
++        upgrade: true,
++        feature,
++      }, 403)
++    }
++    await next()
++  }
++}
++
+ // ─── Mensagens de upgrade ────────────────────────────────────────────────────
+ export const MSG_UPGRADE: Record<string, string> = {
+   metas:              'O plano Free permite até 3 metas. Faça upgrade para o Premium e tenha metas ilimitadas.',
+@@ -122,5 +154,9 @@ export const MSG_UPGRADE: Record<string, string> = {
+   simulacao:          'A simulação de investimentos está disponível no plano Premium.',
+   exportar_pdf:       'Exportação em PDF está disponível no plano Premium.',
+   amortizacao:        'A amortização extraordinária está disponível no plano Premium.',
+-  api_acesso:         'Acesso à API está disponível no plano Pro.',
++  regra_personalizada: 'Personalizar os percentuais da regra 50/30/20 está disponível no plano Pro.',
++  // api_acesso continua no modelo, mas NÃO é anunciado em lugar nenhum: não
++  // existe endpoint de API externa nem emissão de chave. Vender isso seria
++  // cobrar por algo que não foi construído.
++  api_acesso:         'Acesso à API ainda não está disponível.',
+ }
+diff --git a/src/routes/projecao.ts b/src/routes/projecao.ts
+index 987d46d..b044b1d 100644
+--- a/src/routes/projecao.ts
++++ b/src/routes/projecao.ts
+@@ -1,4 +1,5 @@
+ import { Hono } from 'hono'
++import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
+ 
+ type Bindings = { DB: D1Database }
+@@ -43,8 +44,7 @@ projecao.get('/', requireAuth, async (c) => {
+     const desp = await c.env.DB.prepare(
+       `SELECT COALESCE(SUM(valor), 0) as total FROM despesas
+        WHERE user_id = ? AND status IN ('pago','pendente')
+-         AND strftime('%m', COALESCE(vencimento, data)) = ?
+-         AND strftime('%Y', COALESCE(vencimento, data)) = ?`
++         ${filtroDespesaDoMes()}`
+     ).bind(user.id, mesStr, String(a)).first() as any
+ 
+     const r = Number(rec?.total || 0)
+diff --git a/src/routes/regra-503020.ts b/src/routes/regra-503020.ts
+index 14ffce5..b6c6699 100644
+--- a/src/routes/regra-503020.ts
++++ b/src/routes/regra-503020.ts
+@@ -1,5 +1,7 @@
+ import { Hono } from 'hono'
++import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
++import { exigeFeature } from './planos'
+ 
+ type Bindings = { DB: D1Database }
+ type Variables = { user: { id: number; nome: string; email: string; plano: string } }
+@@ -47,7 +49,7 @@ regra503020.get('/config', requireAuth, async (c) => {
+ })
+ 
+ // ── POST /api/regra-503020/config — Melhoria 3.2 ─────────────────────────────
+-regra503020.post('/config', requireAuth, async (c) => {
++regra503020.post('/config', requireAuth, exigeFeature('regra_personalizada'), async (c) => {
+   const user = c.get('user')
+   const { pct_necessidades = 50, pct_desejos = 30, pct_poupanca = 20, nome_personalizado } = await c.req.json()
+ 
+@@ -126,8 +128,7 @@ regra503020.get('/', requireAuth, async (c) => {
+     SELECT categoria, COALESCE(SUM(valor), 0) as total
+     FROM despesas
+     WHERE user_id = ?
+-      AND strftime('%m', COALESCE(vencimento, data)) = ?
+-      AND strftime('%Y', COALESCE(vencimento, data)) = ?
++      ${filtroDespesaDoMes()}
+       AND status = 'pago'
+     GROUP BY categoria
+   `).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
+diff --git a/src/routes/relatorio.ts b/src/routes/relatorio.ts
+index 7df99f5..b21c2e5 100644
+--- a/src/routes/relatorio.ts
++++ b/src/routes/relatorio.ts
+@@ -1,6 +1,7 @@
+ import { Hono } from 'hono'
+ import { requireAuth } from './auth'
+ import { getLimites as getPlanLimits } from './planos'
++import { competenciaMes, filtroDespesaDoMes, filtroDespesaDoAno } from '../lib/competencia'
+ 
+ type Bindings  = { DB: D1Database }
+ type Variables = { user: { id: number; nome: string; plano: string } }
+@@ -53,9 +54,8 @@ relatorio.get('/dados', requireAuth, async (c) => {
+              JOIN tags t ON t.id=dt.tag_id WHERE dt.despesa_id=d.id) as tags
+      FROM despesas d
+      LEFT JOIN cartoes c ON c.id = d.cartao_id
+-     WHERE d.user_id=? AND d.status!='cancelado'
+-       AND strftime('%m',COALESCE(d.vencimento,d.data))=?
+-       AND strftime('%Y',COALESCE(d.vencimento,d.data))=?
++     WHERE d.user_id=?
++       ${filtroDespesaDoMes('d')}
+      ORDER BY d.data ASC`
+   ).bind(user.id, ms, as).all<any>()
+ 
+@@ -65,9 +65,8 @@ relatorio.get('/dados', requireAuth, async (c) => {
+             SUM(valor) as total,
+             COUNT(*) as qtd
+      FROM despesas
+-     WHERE user_id=? AND status!='cancelado'
+-       AND strftime('%m',COALESCE(vencimento,data))=?
+-       AND strftime('%Y',COALESCE(vencimento,data))=?
++     WHERE user_id=?
++       ${filtroDespesaDoMes()}
+      GROUP BY categoria
+      ORDER BY total DESC`
+   ).bind(user.id, ms, as).all<any>()
+@@ -118,12 +117,11 @@ relatorio.get('/dados', requireAuth, async (c) => {
+     JOIN despesa_tags dt ON dt.tag_id = t.id
+     JOIN despesas d ON d.id = dt.despesa_id
+     WHERE t.user_id = ?
+-      AND strftime('%Y-%m', d.data) = printf('%04d-%02d', ?, ?)
+-      AND COALESCE(d.eh_aporte_patrimonial, 0) = 0
++      ${filtroDespesaDoMes('d')}
+     GROUP BY t.id, t.nome, t.cor
+     ORDER BY total DESC
+     LIMIT 10
+-  `).bind(user.id, ano, mes).all<any>()
++  `).bind(user.id, ms, as).all<any>()
+ 
+   return c.json({
+     meta: {
+@@ -185,10 +183,11 @@ relatorio.get('/anual', requireAuth, async (c) => {
+     ).bind(user.id, as).all<{mes:string;total:number}>(),
+ 
+     c.env.DB.prepare(
+-      `SELECT strftime('%m', COALESCE(vencimento,data)) as mes, COALESCE(SUM(valor),0) as total
++      `SELECT (${competenciaMes()}) as mes, COALESCE(SUM(valor),0) as total
+        FROM despesas
+-       WHERE user_id=? AND status!='cancelado' AND strftime('%Y',COALESCE(vencimento,data))=?
+-       GROUP BY strftime('%m', COALESCE(vencimento,data))`
++       WHERE user_id=?
++         ${filtroDespesaDoAno()}
++       GROUP BY (${competenciaMes()})`
+     ).bind(user.id, as).all<{mes:string;total:number}>(),
+   ])
+ 
+diff --git a/src/routes/tags.ts b/src/routes/tags.ts
+index 5c8dc05..f29af26 100644
+--- a/src/routes/tags.ts
++++ b/src/routes/tags.ts
+@@ -1,5 +1,7 @@
+ import { Hono } from 'hono'
++import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+ import { requireAuth } from './auth'
++import { ehViolacaoUnicidade } from '../lib/erros-banco'
+ 
+ type Bindings  = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
+ type Variables = { user: { id: number; nome: string; plano: string } }
+@@ -130,7 +132,10 @@ tags.post('/', requireAuth, async (c) => {
+ 
+     return c.json(created, 201)
+   } catch (e: any) {
+-    if (e?.message?.includes('UNIQUE')) {
++    // Postgres não diz "UNIQUE" na mensagem — diz "duplicate key ... unique
++    // constraint", código 23505. Enquanto a checagem olhava só a palavra do
++    // SQLite, este catch não pegava nada e o usuário via 500.
++    if (ehViolacaoUnicidade(e)) {
+       return c.json({ error: 'Você já tem uma tag com esse nome' }, 409)
+     }
+     throw e
+@@ -156,9 +161,16 @@ tags.patch('/:id', requireAuth, async (c) => {
+   if (!updates.length) return c.json({ error: 'Nada a atualizar' }, 400)
+ 
+   vals.push(tagId, user.id)
+-  await c.env.DB.prepare(
+-    `UPDATE tags SET ${updates.join(',')} WHERE id=? AND user_id=?`
+-  ).bind(...vals).run()
++  try {
++    await c.env.DB.prepare(
++      `UPDATE tags SET ${updates.join(',')} WHERE id=? AND user_id=?`
++    ).bind(...vals).run()
++  } catch (e: any) {
++    if (ehViolacaoUnicidade(e)) {
++      return c.json({ error: 'Você já tem uma tag com esse nome' }, 409)
++    }
++    throw e
++  }
+ 
+   return c.json({ success: true })
+ })
+@@ -566,7 +578,7 @@ tags.get('/analise', requireAuth, async (c) => {
+ 
+   // Totais gerais do período para calcular percentuais
+   const totals = await c.env.DB.prepare(
+-    `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=? AND status != 'cancelado'`
++    `SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`
+   ).bind(user.id, mesStr, anoStr).first() as any
+   const totalGeral = parseFloat(totals?.total || 0)
+ 
+-- 
+2.43.0
+
