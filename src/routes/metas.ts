@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 
@@ -179,6 +180,21 @@ metas.post('/', requireAuth, async (c) => {
   if (!nome || !data_meta)
     return c.json({ error: 'Campos obrigatórios: nome, data_meta' }, 400)
 
+  const dataMetaISO = normalizarData(data_meta)
+  if (!dataMetaISO) return c.json({ error: ERRO_DATA }, 400)
+
+  // Prazo no passado: uma meta é um compromisso com o futuro. Aceitar
+  // 2020-01-01 gerava meta nascida vencida, com progresso e projeção sem
+  // sentido. A comparação é por string porque as duas datas são ISO.
+  const hojeISO = new Date().toISOString().split('T')[0]
+  if (dataMetaISO < hojeISO) {
+    return c.json({
+      error: 'O prazo da meta está no passado. Escolha uma data futura.',
+      data_informada: dataMetaISO,
+      hoje: hojeISO,
+    }, 400)
+  }
+
   // S-M5: validar prioridade
   if (![1, 2, 3].includes(Number(prioridade)))
     return c.json({ error: 'prioridade deve ser 1 (baixa), 2 (média) ou 3 (alta)' }, 400)
@@ -211,7 +227,7 @@ metas.post('/', requireAuth, async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     user.id, nome, descricao || null,
-    valorObj, valorAtual, data_meta, categoria, cor, icone,
+    valorObj, valorAtual, dataMetaISO, categoria, cor, icone,
     linked_debt_type, linked_debt_id ? parseInt(linked_debt_id) : null,
     originalDebt, Number(prioridade)
   ).run()

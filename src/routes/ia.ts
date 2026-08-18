@@ -939,6 +939,103 @@ ia.get('/score-saude', requireAuth, async (c) => {
   }
 })
 
+// ─── Check-in do Diagnóstico 360° ───────────────────────────────────────────
+// O botão "Check-in" existia na tela e chamava estas duas rotas desde sempre;
+// elas é que não existiam, e o clique devolvia um toast com
+// "Request failed with status code 404". Aqui está o outro lado.
+//
+// A ideia do recurso: marcar que você olhou suas finanças hoje, guardar o
+// score daquele momento e premiar a constância — o valor está em voltar todo
+// mês, não em abrir o app uma vez.
+
+/** Badge conquistado por N meses distintos com check-in. */
+function badgeDaSequencia(meses: number): string | null {
+  if (meses >= 12) return 'Mestre do Controle (12 meses)'
+  if (meses >= 6)  return 'Disciplinado (6 meses)'
+  if (meses >= 3)  return 'Constante (3 meses)'
+  if (meses >= 1)  return 'Primeiro Check-in'
+  return null
+}
+
+/** Meses consecutivos com check-in, contando de trás para frente a partir do mês atual. */
+function sequenciaDeMeses(mesesComCheckIn: string[], mesAtual: string): number {
+  const conjunto = new Set(mesesComCheckIn)
+  let [ano, mes] = mesAtual.split('-').map(Number)
+  let seq = 0
+  while (conjunto.has(`${ano}-${String(mes).padStart(2, '0')}`)) {
+    seq++
+    mes--
+    if (mes === 0) { mes = 12; ano-- }
+  }
+  return seq
+}
+
+async function estadoCheckIn(db: D1Database, uid: number) {
+  const hoje = new Date().toISOString().split('T')[0]
+  const mesAtual = hoje.slice(0, 7)
+
+  const [doDia, meses, score] = await Promise.all([
+    db.prepare(`SELECT id, score_no_dia FROM check_ins WHERE user_id = ? AND data = ?`)
+      .bind(uid, hoje).first() as any,
+    db.prepare(`SELECT DISTINCT mes FROM check_ins WHERE user_id = ? ORDER BY mes DESC LIMIT 36`)
+      .bind(uid).all(),
+    db.prepare(`SELECT score_geral FROM score_historico WHERE user_id = ? AND mes = ?`)
+      .bind(uid, mesAtual).first() as any,
+  ])
+
+  const listaMeses = (meses.results as any[] || []).map(r => r.mes)
+  const seq = sequenciaDeMeses(listaMeses, mesAtual)
+
+  return {
+    hoje,
+    mesAtual,
+    check_in_hoje: !!doDia,
+    score_atual: doDia?.score_no_dia ?? score?.score_geral ?? null,
+    sequencia_meses: seq,
+    total_meses: listaMeses.length,
+    badge: badgeDaSequencia(seq),
+  }
+}
+
+// GET /api/ia/check-in — estado atual (o frontend usa para mostrar o banner)
+ia.get('/check-in', requireAuth, async (c) => {
+  const user = c.get('user')
+  try {
+    return c.json(await estadoCheckIn(c.env.DB, user.id))
+  } catch (e: any) {
+    // Esta rota é decorativa: se algo falhar, a tela do diagnóstico não pode
+    // quebrar junto. Responde "sem check-in" em vez de 500.
+    return c.json({ check_in_hoje: false, score_atual: null, sequencia_meses: 0, badge: null })
+  }
+})
+
+// POST /api/ia/check-in — registra o check-in de hoje
+ia.post('/check-in', requireAuth, async (c) => {
+  const user = c.get('user')
+  const hoje = new Date().toISOString().split('T')[0]
+  const mes  = hoje.slice(0, 7)
+
+  const scoreMes = await c.env.DB.prepare(
+    `SELECT score_geral FROM score_historico WHERE user_id = ? AND mes = ?`
+  ).bind(user.id, mes).first() as any
+
+  // ON CONFLICT DO NOTHING: clicar duas vezes no mesmo dia não duplica nem
+  // estoura erro de constraint na cara do usuário.
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO check_ins (user_id, data, mes, score_no_dia) VALUES (?, ?, ?, ?)`
+  ).bind(user.id, hoje, mes, scoreMes?.score_geral ?? null).run()
+
+  const estado = await estadoCheckIn(c.env.DB, user.id)
+
+  return c.json({
+    ...estado,
+    success: true,
+    message: estado.sequencia_meses > 1
+      ? `✅ Check-in registrado! ${estado.sequencia_meses} meses seguidos acompanhando suas finanças.`
+      : '✅ Check-in registrado! Volte no mês que vem para manter a sequência.',
+  })
+})
+
 // ─── GET /api/ia/score-historico — histórico mensal do score ─────────────────
 ia.get('/score-historico', requireAuth, async (c) => {
   const user = c.get('user')
@@ -1136,19 +1233,12 @@ Retorne EXCLUSIVAMENTE um JSON válido:
 })
 
 // ─── GET /api/ia/insights — Retorna insights salvos no banco ─────────────────────
-ia.get('/insights', requireAuth, async (c) => {
-  const user = c.get('user')
-  try {
-    const rows = await c.env.DB.prepare(`
-      SELECT * FROM ia_insights WHERE user_id=? ORDER BY
-        CASE prioridade WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,
-        data_criacao DESC LIMIT 10
-    `).bind(user.id).all()
-    return c.json({ insights: rows.results || [] })
-  } catch (e: any) {
-    return c.json({ insights: [], error: e.message })
-  }
-})
+// NOTA: aqui existia um SEGUNDO `ia.get('/insights')`, lendo a tabela
+// ia_insights. Como o Hono atende pela PRIMEIRA rota registrada, ele nunca
+// respondeu nada desde que foi escrito — código morto com aparência de rota
+// no ar. Removido; a rota válida é a da linha 86. Se um dia o histórico
+// gravado em ia_insights precisar ser exposto, que seja com caminho próprio
+// (ex.: /insights/historico), não competindo pelo mesmo.
 
 // ─── POST /api/ia/tag-sugestao — matching rigoroso + IA como decisor final ───
 ia.post('/tag-sugestao', requireAuth, async (c) => {

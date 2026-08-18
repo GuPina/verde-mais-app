@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { ensureTag, tagReceita, COR_MODULO } from '../utils/tags-helper'
 
@@ -183,6 +184,10 @@ receitas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
 
+  // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
+  const dataISO = normalizarData(data)
+  if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
+
   const valorNum = parseFloat(valor)
   if (isNaN(valorNum) || valorNum < 0) {
     return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
@@ -193,7 +198,7 @@ receitas.post('/', requireAuth, async (c) => {
 
   const result = await c.env.DB.prepare(
     'INSERT INTO receitas (user_id, descricao, data, categoria, valor, recorrente, frequencia, observacoes, meio_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(user.id, descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || 'pix').run()
+  ).bind(user.id, descricao, dataISO, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || 'pix').run()
 
   const receitaId = result.meta.last_row_id as number
 
@@ -235,6 +240,10 @@ receitas.put('/:id', requireAuth, async (c) => {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
 
+  // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
+  const dataISO = normalizarData(data)
+  if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
+
   const valorNum = parseFloat(valor)
   if (isNaN(valorNum) || valorNum < 0) {
     return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
@@ -248,7 +257,7 @@ receitas.put('/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare(
     'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ?, meio_pagamento = ? WHERE id = ? AND user_id = ?'
-  ).bind(descricao, data, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || null, id, user.id).run()
+  ).bind(descricao, dataISO, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || null, id, user.id).run()
 
   return c.json({ success: true, message: 'Receita atualizada!' })
 })

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroSemAporte, mesDoisDigitos } from '../lib/competencia'
 
@@ -264,6 +265,10 @@ despesas.post('/', requireAuth, async (c) => {
   if (!descricao || !data || !categoria || valor === undefined || valor === null) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+
+  // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
+  const dataISO = normalizarData(data)
+  if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
   // M-D3: rejeitar valor negativo ou zero
   const valorNum = parseFloat(valor)
   if (isNaN(valorNum) || valorNum <= 0) {
@@ -289,9 +294,26 @@ despesas.post('/', requireAuth, async (c) => {
   }
 
   const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
+
+  // Teto de parcelas: o formulário já limita a 60 (max="60" no input), mas a
+  // API aceitava qualquer número. Um `999` digitado por engano criava 999
+  // linhas com datas até 2109 — e não havia como desfazer em bloco.
+  const TETO_PARCELAS = 60
+  if (totalParcelas < 1 || totalParcelas > TETO_PARCELAS) {
+    return c.json({ error: `Número de parcelas deve ficar entre 1 e ${TETO_PARCELAS}.` }, 400)
+  }
+
+  // Arredondamento: R$ 100 em 3x gravava 33.333333333333336 em cada parcela —
+  // a soma dava R$ 100,000…008 e a tela mostrava um dízimo. O módulo de
+  // cartões já fazia certo; este não. Agora as parcelas saem com 2 casas e a
+  // diferença de centavos vai para a ÚLTIMA, como faz qualquer banco:
+  // R$ 100 em 3x = 33,33 + 33,33 + 33,34.
   const valorParcela = valor_parcela_override
     ? parseFloat(valor_parcela_override)
-    : parseFloat(valor) / totalParcelas
+    : Math.round((parseFloat(valor) / totalParcelas) * 100) / 100
+  const sobraCentavos = valor_parcela_override
+    ? 0
+    : Math.round((parseFloat(valor) - valorParcela * totalParcelas) * 100) / 100
   const totalParcelasLabel = parcelas_total_original ? parseInt(parcelas_total_original) : totalParcelas
   const ids: number[] = []
 
@@ -312,10 +334,14 @@ despesas.post('/', requireAuth, async (c) => {
 
   const parcelaInicialLabel = totalParcelasLabel - totalParcelas + 1
   for (let i = 0; i < totalParcelas; i++) {
-    const dataBase = new Date(data + 'T12:00:00')
+    const dataBase = new Date(dataISO + 'T12:00:00')
     dataBase.setMonth(dataBase.getMonth() + i)
     const dataParcela = dataBase.toISOString().split('T')[0]
     const parcelaAtualLabel = parcelaInicialLabel + i
+    // A última parcela absorve a diferença do arredondamento.
+    const valorDestaParcela = (i === totalParcelas - 1)
+      ? Math.round((valorParcela + sobraCentavos) * 100) / 100
+      : valorParcela
 
     // Calcular billing_month/year se houver cartão
     let bMonth: number | null = null
@@ -360,7 +386,7 @@ despesas.post('/', requireAuth, async (c) => {
     ).bind(
       user.id,
       totalParcelas > 1 ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao,
-      dataParaGravar, categoria, subcategoria || null, valorParcela,
+      dataParaGravar, categoria, subcategoria || null, valorDestaParcela,
       parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
       fixa_ou_variavel, recorrente ? 1 : 0, dataVenc || null, observacoes || null,
       cartao_id ? parseInt(cartao_id) : null, meioPagamentoNorm,
@@ -548,6 +574,10 @@ despesas.put('/:id', requireAuth, async (c) => {
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+
+  // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
+  const dataISO = normalizarData(data)
+  if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
   const valorEditNum = parseFloat(valor)
   if (isNaN(valorEditNum) || valorEditNum <= 0) {
     return c.json({ error: 'Valor inválido — deve ser um número maior que zero' }, 400)
@@ -563,7 +593,7 @@ despesas.put('/:id', requireAuth, async (c) => {
 
   // Montar update dinâmico para campos opcionais
   const updateFields = ['descricao=?','data=?','categoria=?','subcategoria=?','valor=?']
-  const updateVals: any[] = [descricao, data, categoria, subcategoria || null, valorEditNum]
+  const updateVals: any[] = [descricao, dataISO, categoria, subcategoria || null, valorEditNum]
 
   if (status !== undefined)           { updateFields.push('status=?');          updateVals.push(status) }
   if (fixaOuVariavelFinal !== null)   { updateFields.push('fixa_ou_variavel=?'); updateVals.push(fixaOuVariavelFinal) }

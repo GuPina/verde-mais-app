@@ -211,6 +211,18 @@ const VM = {
         return Promise.resolve(cached.data)
       }
     }
+    // ── Corrida de navegação ────────────────────────────────────────────────
+    // Cada tela busca seus dados e só então escreve em #page-content. Se você
+    // trocasse de tela antes da primeira responder, a resposta atrasada
+    // chegava depois e pintava por cima: a URL dizia /app/amortizacao e o
+    // conteúdo era o da Regra 50/30/20, sem erro nenhum, e só saía com F5.
+    //
+    // A leitura obsoleta simplesmente não completa: a promise fica pendente
+    // para sempre, então o render dela nunca chega na linha que escreve no DOM.
+    // Vale só para GET — escrita (POST/PUT/PATCH/DELETE) sempre termina, senão
+    // um "salvar" que navega em seguida ficaria pendurado.
+    const navNoInicio = this._navSeq || 0
+    const ehLeitura = method === 'GET'
     return axios({
       method,
       url: `/api/${endpoint}`,
@@ -220,8 +232,10 @@ const VM = {
       if (method === 'GET' && CACHE_ENDPOINTS[endpoint]) {
         this[cacheKey] = { data: r.data, ts: Date.now() }
       }
+      if (ehLeitura && (this._navSeq || 0) !== navNoInicio) return new Promise(() => {})
       return r.data
     }).catch(e => {
+      if (ehLeitura && (this._navSeq || 0) !== navNoInicio) return new Promise(() => {})
       if (e.response?.status === 401) {
         this.logout()
         throw e
@@ -1812,6 +1826,9 @@ const VM = {
   },
 
   navigate(page) {
+    // Marca esta navegação. Toda leitura iniciada antes daqui vira obsoleta e
+    // é descartada em api() — ver a explicação lá.
+    this._navSeq = (this._navSeq || 0) + 1
     // ── Limpar overlay de conquista ao navegar ──────────────────────────────
     const conqOverlay = document.getElementById('conquista-overlay')
     if (conqOverlay) conqOverlay.remove()
@@ -15120,7 +15137,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       // CDI atual (para sugestão de local)
       let cdiAtual = 13.65
-      try { const cdiData = await this.api('GET', 'cdi'); cdiAtual = cdiData.taxa_selic || cdiData.cdi || 13.65 } catch(e){}
+      // Era api('GET','cdi') — rota inexistente, 404 silencioso — e lia
+      // `taxa_selic`/`cdi`, campos que a resposta nunca teve. Resultado: esta
+      // tela sempre mostrou o fallback fixo, nunca a taxa real.
+      try { const cdiData = await this.api('GET', 'cdi/atual'); cdiAtual = cdiData.cdi_anual || 13.65 } catch(e){}
 
       const barColor = cobertura >= 100 ? '#2FBF71' : cobertura >= 60 ? '#ffc400' : '#ff6b6b'
       const statusIcon = cobertura >= 100 ? '✅' : cobertura >= 60 ? '⚠️' : '🔴'
