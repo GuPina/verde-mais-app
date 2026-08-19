@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -181,7 +182,9 @@ antecipacao.get('/fatura-cartao', requireAuth, async (c) => {
 
   // Verificar propriedade do cartão
   const cartao = await c.env.DB.prepare(
-    `SELECT id, nome, bandeira, limite_total, limite_disponivel, dia_vencimento FROM cartoes WHERE id=? AND user_id=?`
+    `SELECT id, nome, bandeira, limite_total, dia_vencimento,
+            ${sqlLimiteDisponivel('cartoes')} AS limite_disponivel
+     FROM cartoes WHERE id=? AND user_id=?`
   ).bind(cartaoId, user.id).first() as any
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 

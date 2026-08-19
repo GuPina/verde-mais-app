@@ -1230,6 +1230,9 @@ const VM = {
               <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
                 <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Investimentos
               </a>
+              <a class="nav-item" id="nav-analise-cartoes" onclick="VM.navigate('analise-cartoes')">
+                <span class="nav-icon">📉</span> Análise de Cartões
+              </a>
               <a class="nav-item" id="nav-aportes" onclick="VM.navigate('aportes')">
                 <span class="nav-icon">💰</span> Aportes
               </a>
@@ -1912,6 +1915,7 @@ const VM = {
       tags: () => this.pageTags(),
       'organizador': () => this.pageOrganizador(),
       'aportes': () => this.pageAportes(),
+      'analise-cartoes': () => this.pageAnaliseCartoes(),
       'alertas-cartao': () => this.pageAlertasCartao(),
       'reservas-esp': () => this.pageReservasEsp(),
       'assinaturas-fantasma': () => this.pageAssinaturasFantasma(),
@@ -21555,6 +21559,262 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // soma de despesas (senão quem investe apareceria como gastador e o score
   // caía). Esta tela existe para o dinheiro não sumir de vista: mostra quanto
   // foi aportado e para onde foi.
+  // ── Análise de Cartões ─────────────────────────────────────────────────────
+  // A tela responde duas perguntas que a de Cartões não responde: "minha fatura
+  // está subindo?" e "quanto dos próximos meses eu já vendi?".
+  //
+  // Cores: os tons daqui são passos próprios de gráfico, validados contra o
+  // fundo escuro (#0f0f1f) — não são os tons da interface. O verde da UI
+  // (#2FBF71) é claro demais para a faixa de luminância de marca em fundo
+  // escuro, então as barras usam o passo #199e70.
+  async pageAnaliseCartoes() {
+    const content = document.getElementById('page-content')
+    this._acMeses = this._acMeses || 12
+    this._acCartao = this._acCartao || ''
+    content.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">📉 Análise de Cartões</div>
+          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Como sua fatura evoluiu e quanto já está comprometido</div>
+        </div>
+        <button onclick="VM.navigate('cartoes')" class="btn-secondary" style="width:auto;padding:10px 16px;">← Cartões</button>
+      </div>
+      <div id="ac-container"><div class="skeleton" style="height:220px;border-radius:16px;"></div></div>`
+    this._carregarAnaliseCartoes()
+  },
+
+  async _carregarAnaliseCartoes() {
+    const cont = document.getElementById('ac-container')
+    if (!cont) return
+    const fmt = v => this.formatMoney(v)
+    // Passos validados para fundo escuro (ver comentário em pageAnaliseCartoes)
+    const COR_FATURA = '#199e70'
+    const COR_FUTURO = '#9085e9'
+    const SERIES     = ['#3987e5', '#d95926', '#199e70']   // 3 slots: além disso, agrupa
+    const BOM = '#0ca30c', ATENCAO = '#fab219', CRITICO = '#d03b3b'
+    const SUP = '#0f0f1f'   // cor do fundo — é ela que faz o espaçamento entre barras
+
+    try {
+      const q = `cartoes/analise?meses=${this._acMeses}${this._acCartao ? '&cartao_id=' + this._acCartao : ''}`
+      const d = await this.api('GET', q)
+      const serie = d.serie || []
+      const res = d.resumo || {}
+      const fut = d.futuro || {}
+      const maxSerie = Math.max(1, ...serie.map(s => s.total))
+      const idxMax = serie.reduce((mx, s, i) => (s.total > (serie[mx]?.total ?? -1) ? i : mx), 0)
+      const ultimoIdx = serie.length - 1
+
+      // Referência de limite no MESMO eixo (mesma unidade, R$) — não é segundo eixo
+      const limite = d.limite_total_somado || 0
+      const escalaMax = Math.max(maxSerie, limite > 0 && limite < maxSerie * 2.5 ? limite : 0)
+
+      const varTexto = (s) => {
+        if (s.variacao_pct === null || s.variacao_pct === undefined) return '—'
+        const up = s.variacao_pct > 0
+        return `${up ? '▲' : s.variacao_pct < 0 ? '▼' : '■'} ${Math.abs(s.variacao_pct).toFixed(1)}%`
+      }
+      const varCor = (s) => {
+        if (s.variacao_pct === null || s.variacao_pct === undefined) return '#8b8b9e'
+        if (s.variacao_pct > 15) return CRITICO
+        if (s.variacao_pct > 0) return ATENCAO
+        return BOM
+      }
+
+      const barras = serie.map((s, i) => {
+        const h = Math.max(2, Math.round((s.total / escalaMax) * 190))
+        // rótulo direto só no maior e no mês corrente — número em toda barra vira ruído
+        const rotula = (i === idxMax || i === ultimoIdx) && s.total > 0
+        return `
+          <div class="ac-col" data-i="${i}" tabindex="0" role="button"
+               aria-label="${s.label}: ${fmt(s.total)}"
+               style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;cursor:pointer;outline:none;">
+            ${rotula ? `<div style="font-size:0.68rem;color:#e8e8ef;font-weight:700;white-space:nowrap;">${fmt(s.total)}</div>` : ''}
+            <div style="width:100%;max-width:24px;height:${h}px;background:${COR_FATURA};border-radius:4px 4px 0 0;transition:filter .15s;"></div>
+            <div style="font-size:0.62rem;color:#8b8b9e;white-space:nowrap;">${s.label}</div>
+          </div>`
+      }).join('')
+
+      const linhaLimite = limite > 0 && limite <= escalaMax ? `
+        <div style="position:absolute;left:0;right:0;bottom:${28 + Math.round((limite / escalaMax) * 190)}px;height:1px;background:#3a3a52;">
+          <span style="position:absolute;right:0;top:-16px;font-size:0.62rem;color:#8b8b9e;background:${SUP};padding:0 4px;">limite ${fmt(limite)}</span>
+        </div>` : ''
+
+      const futMax = Math.max(1, ...(fut.meses || []).map(f => f.total))
+      const barrasFuturo = (fut.meses || []).slice(0, 12).map(f => `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <div style="width:56px;font-size:0.72rem;color:#8b8b9e;flex-shrink:0;">${f.label}</div>
+          <div style="flex:1;background:#16162a;border-radius:4px;height:18px;overflow:hidden;">
+            <div style="width:${Math.max(2, (f.total / futMax) * 100)}%;height:100%;background:${COR_FUTURO};border-radius:0 4px 4px 0;"></div>
+          </div>
+          <div style="width:96px;text-align:right;font-size:0.75rem;font-weight:700;color:#e8e8ef;flex-shrink:0;">${fmt(f.total)}</div>
+        </div>`).join('')
+
+      const pctLimite = res.comprometimento_pct
+      const corMeter = pctLimite === null ? '#8b8b9e' : pctLimite > 60 ? CRITICO : pctLimite > 30 ? ATENCAO : BOM
+
+      cont.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;align-items:center;">
+          ${[6, 12, 24].map(m => `
+            <button onclick="VM._acMeses=${m};VM._carregarAnaliseCartoes()"
+              style="background:${this._acMeses === m ? '#199e70' : 'transparent'};color:${this._acMeses === m ? '#fff' : '#8b8b9e'};border:1px solid ${this._acMeses === m ? '#199e70' : '#2a2a3e'};border-radius:8px;padding:6px 14px;font-size:0.76rem;cursor:pointer;">${m} meses</button>`).join('')}
+          <select onchange="VM._acCartao=this.value;VM._carregarAnaliseCartoes()" class="form-select" style="width:auto;padding:6px 12px;font-size:0.76rem;">
+            <option value="">Todos os cartões</option>
+            ${(d.cartoes || []).map(c => `<option value="${c.id}" ${this._acCartao == c.id ? 'selected' : ''}>${c.nome}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:22px;">
+          <div class="stat-card">
+            <div style="color:#8b8b9e;font-size:0.78rem;">Fatura deste mês</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#e8e8ef;">${fmt(res.fatura_atual)}</div>
+            <div style="font-size:0.72rem;color:#8b8b9e;">média 6m: ${fmt(res.media_6m)}</div>
+          </div>
+          <div class="stat-card">
+            <div style="color:#8b8b9e;font-size:0.78rem;">Uso do limite</div>
+            <div style="font-size:1.7rem;font-weight:800;color:${corMeter};">${pctLimite === null ? '—' : pctLimite + '%'}</div>
+            <div style="background:#16162a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+              <div style="width:${Math.min(100, pctLimite || 0)}%;height:100%;background:${corMeter};"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div style="color:#8b8b9e;font-size:0.78rem;">Já comprometido à frente</div>
+            <div style="font-size:1.7rem;font-weight:800;color:${COR_FUTURO};">${fmt(fut.total_comprometido)}</div>
+            <div style="font-size:0.72rem;color:#8b8b9e;">${(fut.meses || []).length} mês(es) com parcela</div>
+          </div>
+          <div class="stat-card">
+            <div style="color:#8b8b9e;font-size:0.78rem;">Maior fatura do período</div>
+            <div style="font-size:1.7rem;font-weight:800;color:#e8e8ef;">${res.maior_fatura ? fmt(res.maior_fatura.total) : '—'}</div>
+            <div style="font-size:0.72rem;color:#8b8b9e;">${res.maior_fatura ? res.maior_fatura.label : ''}</div>
+          </div>
+        </div>
+
+        ${(d.leitura || []).length ? `
+        <div style="background:rgba(144,133,233,0.07);border:1px solid rgba(144,133,233,0.22);border-radius:12px;padding:14px 16px;margin-bottom:22px;">
+          ${(d.leitura || []).map(l => `<div style="font-size:0.85rem;color:#c9c4f0;margin-bottom:4px;">• ${l}</div>`).join('')}
+        </div>` : ''}
+
+        <div style="background:${SUP};border:1px solid #1f2937;border-radius:16px;padding:20px 20px 14px;margin-bottom:22px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+            <div style="font-weight:700;">Fatura mês a mês</div>
+            <button onclick="VM._acTabela=!VM._acTabela;VM._carregarAnaliseCartoes()"
+              style="background:none;border:1px solid #2a2a3e;color:#8b8b9e;border-radius:6px;padding:4px 10px;font-size:0.7rem;cursor:pointer;">
+              ${this._acTabela ? 'ver gráfico' : 'ver tabela'}
+            </button>
+          </div>
+          <div style="font-size:0.74rem;color:#8b8b9e;margin-bottom:16px;">Valores lançados em cada fatura · passe o mouse para o detalhe</div>
+          ${this._acTabela ? `
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="color:#8b8b9e;text-align:left;">
+                <th style="padding:6px 4px;font-weight:600;">Mês</th>
+                <th style="padding:6px 4px;font-weight:600;text-align:right;">Fatura</th>
+                <th style="padding:6px 4px;font-weight:600;text-align:right;">Variação</th>
+                <th style="padding:6px 4px;font-weight:600;text-align:right;">Lançamentos</th>
+              </tr></thead>
+              <tbody>${serie.map(s => `
+                <tr style="border-top:1px solid #1a1a2e;">
+                  <td style="padding:6px 4px;">${s.label}</td>
+                  <td style="padding:6px 4px;text-align:right;font-weight:600;">${fmt(s.total)}</td>
+                  <td style="padding:6px 4px;text-align:right;color:${varCor(s)};">${varTexto(s)}</td>
+                  <td style="padding:6px 4px;text-align:right;color:#8b8b9e;">${s.lancamentos}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>` : `
+            <div id="ac-plot" style="position:relative;">
+              ${linhaLimite}
+              <div style="display:flex;align-items:flex-end;gap:2px;height:230px;">${barras}</div>
+            </div>`}
+        </div>
+
+        ${(fut.meses || []).length ? `
+        <div style="background:${SUP};border:1px solid #1f2937;border-radius:16px;padding:20px;margin-bottom:22px;">
+          <div style="font-weight:700;margin-bottom:4px;">Parcelas já contratadas nos próximos meses</div>
+          <div style="font-size:0.74rem;color:#8b8b9e;margin-bottom:16px;">
+            O que já está vendido, mesmo que você não compre mais nada${fut.pior_mes ? ` · mês mais pesado: <strong style="color:#c9c4f0;">${fut.pior_mes.label}</strong>` : ''}
+          </div>
+          ${barrasFuturo}
+        </div>` : ''}
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">
+          <div style="background:${SUP};border:1px solid #1f2937;border-radius:16px;padding:20px;">
+            <div style="font-weight:700;margin-bottom:12px;">Categorias da fatura atual</div>
+            ${(d.categorias_do_mes || []).length ? (d.categorias_do_mes || []).map((c, i) => {
+              const tot = (d.categorias_do_mes || []).reduce((a, x) => a + x.total, 0) || 1
+              return `
+              <div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;">
+                  <span>${c.categoria} <span style="color:#8b8b9e;">(${c.qtd})</span></span>
+                  <strong>${fmt(c.total)}</strong>
+                </div>
+                <div style="background:#16162a;border-radius:4px;height:6px;overflow:hidden;">
+                  <div style="width:${(c.total / tot) * 100}%;height:100%;background:${SERIES[Math.min(i, 2)]};"></div>
+                </div>
+              </div>`
+            }).join('') : '<div style="color:#666;font-size:0.82rem;">Sem lançamentos neste mês.</div>'}
+          </div>
+          <div style="background:${SUP};border:1px solid #1f2937;border-radius:16px;padding:20px;">
+            <div style="font-weight:700;margin-bottom:4px;">Cobranças que se repetem</div>
+            <div style="font-size:0.72rem;color:#8b8b9e;margin-bottom:12px;">Mesmo valor em 3+ faturas — provável assinatura</div>
+            ${(d.recorrentes || []).length ? (d.recorrentes || []).map(r => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;">
+                <div style="min-width:0;">
+                  <div style="font-size:0.84rem;">${r.descricao}</div>
+                  <div style="font-size:0.7rem;color:#8b8b9e;">${r.meses} meses · ${fmt(r.custo_anual)}/ano</div>
+                </div>
+                <strong style="font-size:0.84rem;white-space:nowrap;">${fmt(r.valor)}</strong>
+              </div>`).join('') : '<div style="color:#666;font-size:0.82rem;">Nada se repetindo por enquanto.</div>'}
+          </div>
+        </div>`
+
+      this._acHover(serie, fmt, varTexto, varCor)
+    } catch (e) {
+      cont.innerHTML = `<div style="text-align:center;color:#ff4757;padding:30px;">Não foi possível carregar a análise. ${e?.message || ''}</div>`
+    }
+  },
+
+  // Tooltip por barra. A barra inteira é o alvo (não só os pixels pintados) e
+  // o mesmo detalhe aparece no foco por teclado.
+  _acHover(serie, fmt, varTexto, varCor) {
+    const plot = document.getElementById('ac-plot')
+    if (!plot) return
+    let tip = document.getElementById('ac-tip')
+    if (!tip) {
+      tip = document.createElement('div')
+      tip.id = 'ac-tip'
+      tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;background:#16162a;border:1px solid #2a2a3e;border-radius:8px;padding:8px 10px;box-shadow:0 6px 24px rgba(0,0,0,.5);'
+      document.body.appendChild(tip)
+    }
+    const mostrar = (el, ev) => {
+      const s = serie[Number(el.dataset.i)]
+      if (!s) return
+      tip.textContent = ''
+      const v = document.createElement('div')
+      v.style.cssText = 'font-size:1rem;font-weight:800;color:#fff;'
+      v.textContent = fmt(s.total)
+      const l = document.createElement('div')
+      l.style.cssText = 'font-size:0.72rem;color:#8b8b9e;margin-top:2px;'
+      l.textContent = `${s.label} · ${s.lancamentos} lançamento(s)`
+      const d = document.createElement('div')
+      d.style.cssText = `font-size:0.72rem;margin-top:4px;color:${varCor(s)};`
+      d.textContent = s.variacao_pct === null || s.variacao_pct === undefined
+        ? 'primeiro mês do período'
+        : `${varTexto(s)} vs. mês anterior (${s.variacao_valor >= 0 ? '+' : ''}${fmt(s.variacao_valor)})`
+      tip.append(v, l, d)
+      const r = el.getBoundingClientRect()
+      tip.style.display = 'block'
+      const largura = tip.offsetWidth
+      tip.style.left = Math.min(window.innerWidth - largura - 8, Math.max(8, r.left + r.width / 2 - largura / 2)) + 'px'
+      tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + 'px'
+      el.style.filter = 'brightness(1.25)'
+    }
+    const esconder = (el) => { tip.style.display = 'none'; el.style.filter = '' }
+    plot.querySelectorAll('.ac-col').forEach(el => {
+      el.addEventListener('pointerenter', (ev) => mostrar(el, ev))
+      el.addEventListener('focus', () => mostrar(el))
+      el.addEventListener('pointerleave', () => esconder(el))
+      el.addEventListener('blur', () => esconder(el))
+    })
+  },
+
   async pageAportes() {
     const content = document.getElementById('page-content')
     const hoje = new Date()

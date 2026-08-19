@@ -2,6 +2,7 @@
 // Assistente IA Conversacional VerdeMais — v3.0 — OpenAI gpt-5-mini + perfil investidor
 
 import { Hono } from 'hono'
+import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 
@@ -140,7 +141,7 @@ async function buscarContexto(db: D1Database, userId: number) {
     // Desafio 52 semanas
     db.prepare(`SELECT COUNT(*) as concluidas FROM weekly_challenges WHERE user_id=? AND status='completed' AND year=?`).bind(userId, anoStr).first() as Promise<any>,
     // Cartões
-    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite_total),0) as total_limite, COALESCE(SUM(limite_disponivel),0) as disponivel FROM cartoes WHERE user_id=?`).bind(userId).first() as Promise<any>,
+    db.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(limite_total),0) as total_limite, COALESCE(SUM(${sqlLimiteDisponivel('cartoes')}),0) as disponivel FROM cartoes WHERE user_id=?`).bind(userId).first() as Promise<any>,
     // Top 5 categorias de despesas do mês
     db.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(userId, mesStr, anoStr).all() as Promise<any>,
     // Top tags do mês

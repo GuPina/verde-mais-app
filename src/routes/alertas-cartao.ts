@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -87,7 +88,8 @@ async function gerarAlertas(db: D1Database, userId: number) {
 
   // Buscar cartões ativos do usuário
   const cartoes = await db.prepare(
-    `SELECT id, nome, limite_total, limite_disponivel, dia_fechamento, dia_vencimento
+    `SELECT id, nome, limite_total, dia_fechamento, dia_vencimento,
+            ${sqlLimiteDisponivel('cartoes')} AS limite_disponivel
      FROM cartoes WHERE user_id=? AND ativo=1`
   ).bind(userId).all<any>()
 

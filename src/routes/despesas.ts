@@ -416,9 +416,6 @@ despesas.post('/', requireAuth, async (c) => {
   // Reduzir limite do cartão pelo total de parcelas pendentes
   if (cartaoInfo && meioPagamentoCartao.includes(meioPagamentoNorm) && status !== 'pago') {
     const valorDesconto = valorParcela * totalParcelas
-    await c.env.DB.prepare(
-      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-    ).bind(valorDesconto, parseInt(cartao_id), user.id).run()
   }
 
   return c.json({ 
@@ -455,9 +452,6 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
     await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, d.id, user.id).run()
     if (d.cartao_id && status === 'pago') {
       await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE expense_id = ?').bind('pago', d.id).run()
-      await c.env.DB.prepare(
-        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-      ).bind(Number(d.valor), d.cartao_id, user.id).run()
     }
     atualizadas++
   }
@@ -490,9 +484,6 @@ despesas.patch('/bulk-pagar', requireAuth, async (c) => {
       // Sincronizar cartão de crédito vinculado
       if (desp.cartao_id) {
         await c.env.DB.prepare('UPDATE card_charges SET status=\'pago\' WHERE expense_id=?').bind(id).run()
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id=? AND user_id=?'
-        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
       }
     }
   }
@@ -524,9 +515,6 @@ despesas.patch('/bulk-pendente', requireAuth, async (c) => {
       // Reverter charge vinculado e limite do cartão
       if (desp.cartao_id && desp.status === 'pago') {
         await c.env.DB.prepare('UPDATE card_charges SET status=\'pendente\' WHERE expense_id=?').bind(id).run()
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?'
-        ).bind(Number(desp.valor), desp.cartao_id, user.id).run()
       }
     }
   }
@@ -615,9 +603,6 @@ despesas.put('/:id', requireAuth, async (c) => {
       await c.env.DB.prepare('UPDATE card_charges SET valor=? WHERE expense_id=?').bind(valorEditNum, id).run()
       // Se pendente, ajustar limite disponivel do cartao
       if (charge.status === 'pendente') {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?'
-        ).bind(diffValor, despesaAtual.cartao_id, user.id).run()
       }
     }
   }
@@ -655,15 +640,9 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
       ).run()
       // Restaurar limite ao pagar
       if (status === 'pago' && charge.status === 'pendente') {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
       }
       // Decrementar limite ao despagar
       if (status !== 'pago' && charge.status === 'pago') {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
       }
     }
   }
@@ -749,14 +728,8 @@ despesas.patch('/:id', requireAuth, async (c) => {
         status === 'pago' ? 'pago' : 'pendente', charge.id
       ).run()
       if (status === 'pago' && charge.status === 'pendente') {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
       }
       if (status !== 'pago' && charge.status === 'pago') {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
       }
     }
   }
@@ -784,9 +757,6 @@ despesas.delete('/bulk', requireAuth, async (c) => {
     if (existing.cartao_id && existing.status === 'pendente') {
       const meioPagCartao = ['cartao_credito', 'parcelado_cartao']
       if (meioPagCartao.includes(existing.meio_pagamento)) {
-        await c.env.DB.prepare(
-          'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-        ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
       }
     }
     // Remover card_charge vinculado
@@ -815,9 +785,6 @@ despesas.delete('/:id', requireAuth, async (c) => {
   if (existing.cartao_id && existing.status === 'pendente') {
     const meioPagCartao = ['cartao_credito', 'parcelado_cartao']
     if (meioPagCartao.includes(existing.meio_pagamento)) {
-      await c.env.DB.prepare(
-        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-      ).bind(Number(existing.valor), existing.cartao_id, user.id).run()
     }
   }
 

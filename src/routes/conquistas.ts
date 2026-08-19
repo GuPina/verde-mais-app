@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { sqlLimiteDisponivel, sqlLimiteUtilizado } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -701,7 +702,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     // limite_disponivel = limite não usado; usado = limite_total - limite_disponivel
     const cartoesUso = await c.env.DB.prepare(
       `SELECT SUM(limite_total) as lim_total,
-              SUM(limite_total - limite_disponivel) as usado_total
+              SUM(${sqlLimiteUtilizado('cartoes')}) as usado_total
        FROM cartoes WHERE user_id=? AND limite_total > 0 AND ativo = 1`
     ).bind(user.id).first() as any
     if (cartoesUso && (cartoesUso.lim_total || 0) > 0) {
@@ -714,7 +715,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
     // Zero dívidas em cartão (limite_disponivel == limite_total em todos os cartões)
     const cartaoSemDivida = await c.env.DB.prepare(
       `SELECT COUNT(*) as total FROM cartoes WHERE user_id=?
-       AND ativo=1 AND (limite_disponivel >= limite_total OR limite_total = 0)`
+       AND ativo=1 AND (${sqlLimiteDisponivel('cartoes')} >= cartoes.limite_total OR cartoes.limite_total = 0)`
     ).bind(user.id).first() as any
     if ((cartaoSemDivida?.total || 0) > 0 && (cartaoSemDivida.total === (cartoes?.total || 0))) {
       await ganhar('zero_dividas_cartao')
@@ -724,7 +725,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
 
     // zero_divida_cartao (categoria geral) — nenhum gasto no cartão
     const semDividaCartao = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(limite_total - limite_disponivel),0) as usado FROM cartoes
+      `SELECT COALESCE(SUM(${sqlLimiteUtilizado('cartoes')}),0) as usado FROM cartoes
        WHERE user_id=? AND ativo=1 AND limite_total > 0`
     ).bind(user.id).first() as any
     if ((semDividaCartao?.usado || 0) <= 0 && (cartoes?.total || 0) > 0) {
@@ -1175,7 +1176,7 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   try {
     const faturaZerada = await c.env.DB.prepare(
       `SELECT COUNT(*) as total FROM cartoes WHERE user_id=? AND ativo=1
-       AND limite_disponivel >= limite_total AND limite_total > 0`
+       AND ${sqlLimiteDisponivel('cartoes')} >= cartoes.limite_total AND cartoes.limite_total > 0`
     ).bind(user.id).first() as any
     if ((faturaZerada?.total || 0) >= 1 && (cartoes?.total || 0) >= 1) {
       await ganhar('fatura_em_dia')
@@ -1657,15 +1658,15 @@ export async function verificarConquistasParaUsuario(
     if ((cartoes?.total || 0) >= 5) await ganhar('cinco_cartoes')
     const limiteTotal = await db.prepare(`SELECT COALESCE(SUM(limite_total),0) as total FROM cartoes WHERE user_id=? AND ativo=1`).bind(user.id).first() as any
     if ((limiteTotal?.total || 0) >= 10000) await ganhar('limite_10k')
-    const limiteUsado = await db.prepare(`SELECT COALESCE(SUM(limite_total - limite_disponivel),0) as usado FROM cartoes WHERE user_id=? AND ativo=1 AND limite_total > 0`).bind(user.id).first() as any
+    const limiteUsado = await db.prepare(`SELECT COALESCE(SUM(${sqlLimiteUtilizado('cartoes')}),0) as usado FROM cartoes WHERE user_id=? AND ativo=1 AND limite_total > 0`).bind(user.id).first() as any
     const pctUso = limiteTotal?.total > 0 ? (limiteUsado?.usado || 0) / limiteTotal.total : 0
     if (pctUso <= 0.30 && (cartoes?.total || 0) > 0) await ganhar('uso_baixo_cartao')
     if (pctUso <= 0.30 && (cartoes?.total || 0) > 0) await ganhar('fatura_saudavel')
-    const faturaZerada = await db.prepare(`SELECT COUNT(*) as total FROM cartoes WHERE user_id=? AND ativo=1 AND limite_disponivel >= limite_total AND limite_total > 0`).bind(user.id).first() as any
+    const faturaZerada = await db.prepare(`SELECT COUNT(*) as total FROM cartoes WHERE user_id=? AND ativo=1 AND ${sqlLimiteDisponivel('cartoes')} >= cartoes.limite_total AND cartoes.limite_total > 0`).bind(user.id).first() as any
     if ((faturaZerada?.total || 0) >= 1 && (cartoes?.total || 0) >= 1) await ganhar('fatura_em_dia')
     const cartDiverso = await db.prepare(`SELECT COUNT(DISTINCT bandeira) as cnt FROM cartoes WHERE user_id=? AND ativo=1`).bind(user.id).first() as any
     if ((cartDiverso?.cnt || 0) >= 2) await ganhar('carteira_diversa')
-    const semDividaCartao = await db.prepare(`SELECT COALESCE(SUM(limite_total - limite_disponivel),0) as usado FROM cartoes WHERE user_id=? AND ativo=1 AND limite_total > 0`).bind(user.id).first() as any
+    const semDividaCartao = await db.prepare(`SELECT COALESCE(SUM(${sqlLimiteUtilizado('cartoes')}),0) as usado FROM cartoes WHERE user_id=? AND ativo=1 AND limite_total > 0`).bind(user.id).first() as any
     if ((semDividaCartao?.usado || 0) <= 0 && (cartoes?.total || 0) > 0) {
       await ganhar('zero_divida_cartao'); await ganhar('sem_cartao_devedor'); await ganhar('zero_dividas_cartao')
     }

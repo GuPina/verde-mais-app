@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { limiteDoCartao, limitesDosCartoes } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
 
@@ -74,24 +75,16 @@ cartoes.get('/', requireAuth, async (c) => {
     'SELECT * FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY nome ASC'
   ).bind(user.id).all()
 
-  const cartoesComUso = await Promise.all((result.results as any[]).map(async (cartao) => {
-    // Uso = soma das card_charges pendentes (fonte única de verdade)
-    const uso = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
-       WHERE card_id = ? AND status = 'pendente'`
-    ).bind(cartao.id).first() as any
-
-    const limite_utilizado  = Math.round(Number(uso?.total || 0) * 100) / 100
-    const limite_disponivel = Math.round(Math.max(0, cartao.limite_total - limite_utilizado) * 100) / 100
-
-    return {
-      ...cartao,
-      limite_utilizado,
-      limite_disponivel,
-      percentual_uso: cartao.limite_total > 0
-        ? Math.round((limite_utilizado / cartao.limite_total) * 100)
-        : 0
-    }
+  // Uma query só para todos os cartões, em vez de uma por cartão.
+  const limites = await limitesDosCartoes(c.env.DB, user.id)
+  const cartoesComUso = (result.results as any[]).map((cartao) => ({
+    ...cartao,
+    ...(limites.get(Number(cartao.id)) ?? {
+      limite_total: Number(cartao.limite_total || 0),
+      limite_utilizado: 0,
+      limite_disponivel: Number(cartao.limite_total || 0),
+      percentual_uso: 0,
+    }),
   }))
 
   return c.json({ cartoes: cartoesComUso })
@@ -357,6 +350,215 @@ cartoes.get('/resumo-faturas', requireAuth, async (c) => {
 // GET /api/cartoes/:id/fatura?mes=3&ano=2026
 // Interface bancária real: navega por mês/ano, mostra card_charges
 // ─────────────────────────────────────────────────────────────────────────────
+// ─── GET /api/cartoes/analise ────────────────────────────────────────────────
+// Análise histórica de uso dos cartões.
+//
+// Tudo aqui sai de `card_charges`, que já guarda a fatura (billing_month/year)
+// de cada lançamento — então dá para reconstruir o histórico sem pedir nada
+// novo ao usuário.
+//
+// A pergunta que a tela responde não é "quanto gastei" (isso Despesas já diz),
+// e sim: **minha fatura está subindo?** e **quanto dos próximos meses eu já
+// vendi?** — a segunda é a que ninguém calcula à mão e a que mais dói.
+cartoes.get('/analise', requireAuth, async (c) => {
+  const user = c.get('user')
+  const meses = Math.min(24, Math.max(3, parseInt(c.req.query('meses') || '12')))
+  const cartaoFiltro = c.req.query('cartao_id')
+
+  const hoje = new Date()
+  const mesAtual = hoje.getMonth() + 1
+  const anoAtual = hoje.getFullYear()
+
+  // Janela: `meses` para trás, contando o mês corrente.
+  const janela: Array<{ m: number; a: number; chave: string; label: string }> = []
+  const NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  for (let i = meses - 1; i >= 0; i--) {
+    let m = mesAtual - i, a = anoAtual
+    while (m <= 0) { m += 12; a -= 1 }
+    janela.push({ m, a, chave: `${a}-${String(m).padStart(2,'0')}`, label: `${NOMES[m-1]}/${String(a).slice(2)}` })
+  }
+  const maisAntigo = janela[0]
+
+  const filtroCartao = cartaoFiltro ? ' AND cc.card_id = ?' : ''
+  const paramsCartao = cartaoFiltro ? [parseInt(cartaoFiltro)] : []
+
+  const [porMes, porCartaoMes, futuras, categorias, recorrentes, cartoesLista] = await Promise.all([
+    // Fatura de cada mês da janela
+    c.env.DB.prepare(
+      `SELECT cc.billing_year as ano, cc.billing_month as mes,
+              COALESCE(SUM(cc.valor),0) as total, COUNT(*) as lancamentos
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       WHERE c2.user_id = ? AND cc.status != 'cancelado'
+         AND (cc.billing_year > ? OR (cc.billing_year = ? AND cc.billing_month >= ?))${filtroCartao}
+       GROUP BY cc.billing_year, cc.billing_month`
+    ).bind(user.id, maisAntigo.a, maisAntigo.a, maisAntigo.m, ...paramsCartao).all(),
+
+    // Quebra por cartão, para empilhar a barra
+    c.env.DB.prepare(
+      `SELECT cc.card_id, c2.nome as cartao, c2.cor,
+              cc.billing_year as ano, cc.billing_month as mes,
+              COALESCE(SUM(cc.valor),0) as total
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       WHERE c2.user_id = ? AND cc.status != 'cancelado'
+         AND (cc.billing_year > ? OR (cc.billing_year = ? AND cc.billing_month >= ?))${filtroCartao}
+       GROUP BY cc.card_id, c2.nome, c2.cor, cc.billing_year, cc.billing_month`
+    ).bind(user.id, maisAntigo.a, maisAntigo.a, maisAntigo.m, ...paramsCartao).all(),
+
+    // ── O número que ninguém calcula: parcelas já contratadas nos meses que
+    // ainda vão chegar. É o "mês do sufoco" aparecendo com antecedência.
+    c.env.DB.prepare(
+      `SELECT cc.billing_year as ano, cc.billing_month as mes,
+              COALESCE(SUM(cc.valor),0) as total, COUNT(*) as lancamentos
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       WHERE c2.user_id = ? AND cc.status = 'pendente'
+         AND (cc.billing_year > ? OR (cc.billing_year = ? AND cc.billing_month > ?))${filtroCartao}
+       GROUP BY cc.billing_year, cc.billing_month
+       ORDER BY cc.billing_year, cc.billing_month`
+    ).bind(user.id, anoAtual, anoAtual, mesAtual, ...paramsCartao).all(),
+
+    // Categorias — vem da despesa vinculada ao lançamento
+    c.env.DB.prepare(
+      `SELECT COALESCE(d.categoria,'Sem categoria') as categoria,
+              COALESCE(SUM(cc.valor),0) as total, COUNT(*) as qtd
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       LEFT JOIN despesas d ON d.id = cc.expense_id
+       WHERE c2.user_id = ? AND cc.status != 'cancelado'
+         AND cc.billing_year = ? AND cc.billing_month = ?${filtroCartao}
+       GROUP BY COALESCE(d.categoria,'Sem categoria')
+       ORDER BY total DESC LIMIT 6`
+    ).bind(user.id, anoAtual, mesAtual, ...paramsCartao).all(),
+
+    // Cobranças que se repetem com o MESMO valor em meses diferentes:
+    // assinatura disfarçada de compra avulsa.
+    c.env.DB.prepare(
+      `SELECT cc.descricao, cc.valor, COUNT(DISTINCT cc.billing_year * 12 + cc.billing_month) as meses
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       WHERE c2.user_id = ? AND cc.status != 'cancelado'
+         AND COALESCE(cc.total_parcelas, 1) <= 1
+         AND (cc.billing_year > ? OR (cc.billing_year = ? AND cc.billing_month >= ?))${filtroCartao}
+       GROUP BY cc.descricao, cc.valor
+       HAVING COUNT(DISTINCT cc.billing_year * 12 + cc.billing_month) >= 3
+       ORDER BY cc.valor DESC LIMIT 10`
+    ).bind(user.id, maisAntigo.a, maisAntigo.a, maisAntigo.m, ...paramsCartao).all(),
+
+    c.env.DB.prepare(
+      `SELECT id, nome, cor, limite_total FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY nome`
+    ).bind(user.id).all(),
+  ])
+
+  // ── Série mensal, já com a variação sobre o mês anterior ──────────────────
+  const mapaMes = new Map<string, { total: number; lancamentos: number }>()
+  for (const r of (porMes.results as any[] || [])) {
+    mapaMes.set(`${r.ano}-${String(r.mes).padStart(2,'0')}`, {
+      total: Number(r.total), lancamentos: Number(r.lancamentos),
+    })
+  }
+
+  const limiteTotalSomado = (cartoesLista.results as any[] || [])
+    .filter(c2 => !cartaoFiltro || Number(c2.id) === parseInt(cartaoFiltro))
+    .reduce((s, c2) => s + Number(c2.limite_total || 0), 0)
+
+  const serie = janela.map((j, i) => {
+    const atual = mapaMes.get(j.chave)?.total ?? 0
+    const anterior = i > 0 ? (mapaMes.get(janela[i-1].chave)?.total ?? 0) : null
+    // Variação só faz sentido quando havia base. De 0 para 500 não é "+∞%",
+    // é o primeiro mês — a tela mostra "—".
+    const variacao = anterior && anterior > 0
+      ? Math.round(((atual - anterior) / anterior) * 1000) / 10
+      : null
+    return {
+      chave: j.chave, label: j.label, mes: j.m, ano: j.a,
+      total: Math.round(atual * 100) / 100,
+      lancamentos: mapaMes.get(j.chave)?.lancamentos ?? 0,
+      variacao_pct: variacao,
+      variacao_valor: anterior !== null ? Math.round((atual - anterior) * 100) / 100 : null,
+      comprometimento_pct: limiteTotalSomado > 0
+        ? Math.round((atual / limiteTotalSomado) * 100) : null,
+    }
+  })
+
+  // Empilhamento por cartão
+  const porCartao = new Map<number, any>()
+  for (const r of (porCartaoMes.results as any[] || [])) {
+    const id = Number(r.card_id)
+    if (!porCartao.has(id)) porCartao.set(id, { card_id: id, nome: r.cartao, cor: r.cor, meses: {} })
+    porCartao.get(id).meses[`${r.ano}-${String(r.mes).padStart(2,'0')}`] = Math.round(Number(r.total) * 100) / 100
+  }
+
+  // ── Estatísticas ──────────────────────────────────────────────────────────
+  const comValor = serie.filter(s => s.total > 0)
+  const mediaGeral = comValor.length ? comValor.reduce((a, s) => a + s.total, 0) / comValor.length : 0
+  const ultimos6 = comValor.slice(-6)
+  const media6 = ultimos6.length ? ultimos6.reduce((a, s) => a + s.total, 0) / ultimos6.length : 0
+  const faturaAtual = serie[serie.length - 1]?.total ?? 0
+  const maior = comValor.reduce((mx, s) => (s.total > (mx?.total ?? -1) ? s : mx), null as any)
+  const menor = comValor.reduce((mn, s) => (s.total < (mn?.total ?? Infinity) ? s : mn), null as any)
+
+  const futurasLista = (futuras.results as any[] || []).map(r => ({
+    chave: `${r.ano}-${String(r.mes).padStart(2,'0')}`,
+    label: `${NOMES[Number(r.mes)-1]}/${String(r.ano).slice(2)}`,
+    total: Math.round(Number(r.total) * 100) / 100,
+    lancamentos: Number(r.lancamentos),
+  }))
+  const totalComprometido = futurasLista.reduce((a, f) => a + f.total, 0)
+  const piorMes = futurasLista.reduce((mx, f) => (f.total > (mx?.total ?? -1) ? f : mx), null as any)
+
+  // ── Leitura em português, para a tela não ser só números ──────────────────
+  const leitura: string[] = []
+  if (media6 > 0 && faturaAtual > 0) {
+    const dif = Math.round(((faturaAtual - media6) / media6) * 100)
+    if (dif > 15) leitura.push(`A fatura deste mês está ${dif}% acima da sua média dos últimos 6 meses.`)
+    else if (dif < -15) leitura.push(`A fatura deste mês está ${Math.abs(dif)}% abaixo da sua média — bom mês.`)
+    else leitura.push('A fatura deste mês está dentro da sua média dos últimos 6 meses.')
+  }
+  if (limiteTotalSomado > 0) {
+    const pct = Math.round((faturaAtual / limiteTotalSomado) * 100)
+    if (pct > 30) leitura.push(`Você está usando ${pct}% do limite. Acima de 30% costuma pesar na análise de crédito.`)
+  }
+  if (piorMes && totalComprometido > 0) {
+    leitura.push(`Os próximos meses já têm R$ ${totalComprometido.toFixed(2)} em parcelas contratadas — o mês mais pesado é ${piorMes.label}, com R$ ${piorMes.total.toFixed(2)}.`)
+  }
+  const recLista = (recorrentes.results as any[] || [])
+  if (recLista.length) {
+    const anual = recLista.reduce((a, r) => a + Number(r.valor) * 12, 0)
+    leitura.push(`${recLista.length} cobrança(s) se repetem todo mês no cartão — R$ ${anual.toFixed(2)} por ano se nada mudar.`)
+  }
+
+  return c.json({
+    periodo: { meses, de: janela[0].chave, ate: janela[janela.length-1].chave },
+    serie,
+    por_cartao: [...porCartao.values()],
+    cartoes: (cartoesLista.results as any[] || []),
+    limite_total_somado: Math.round(limiteTotalSomado * 100) / 100,
+    resumo: {
+      fatura_atual: Math.round(faturaAtual * 100) / 100,
+      media_6m: Math.round(media6 * 100) / 100,
+      media_periodo: Math.round(mediaGeral * 100) / 100,
+      maior_fatura: maior ? { label: maior.label, total: maior.total } : null,
+      menor_fatura: menor ? { label: menor.label, total: menor.total } : null,
+      comprometimento_pct: limiteTotalSomado > 0 ? Math.round((faturaAtual / limiteTotalSomado) * 100) : null,
+    },
+    futuro: {
+      meses: futurasLista,
+      total_comprometido: Math.round(totalComprometido * 100) / 100,
+      pior_mes: piorMes,
+    },
+    categorias_do_mes: (categorias.results as any[] || []).map(r => ({
+      categoria: r.categoria, total: Math.round(Number(r.total) * 100) / 100, qtd: Number(r.qtd),
+    })),
+    recorrentes: recLista.map(r => ({
+      descricao: r.descricao, valor: Math.round(Number(r.valor) * 100) / 100,
+      meses: Number(r.meses), custo_anual: Math.round(Number(r.valor) * 12 * 100) / 100,
+    })),
+    leitura,
+  })
+})
+
 cartoes.get('/:id/fatura', requireAuth, async (c) => {
   const user    = c.get('user')
   const cardId  = c.req.param('id')
@@ -512,11 +714,6 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
     chargeIds.push(cr.meta.last_row_id as number)
   }
 
-  // Atualizar limite_disponivel (campo legacy — mantemos sincronizado)
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-  ).bind(parseFloat(valor_total), parseInt(cardId), user.id).run()
-
   return c.json({
     success: true,
     purchase_group_id: groupId,
@@ -602,12 +799,7 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
     chargeIds.push(cr.meta.last_row_id as number)
   }
 
-  // Descontar do limite apenas as parcelas pendentes
   const valorPendente = valorParcela * parcelasRest
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-  ).bind(valorPendente, parseInt(cardId), user.id).run()
-
   return c.json({
     success: true,
     purchase_group_id: groupId,
@@ -649,11 +841,6 @@ cartoes.patch('/charges/:id/pagar', requireAuth, async (c) => {
     ).bind(charge.expense_id, user.id).run()
   }
 
-  // 3. Restaurar limite do cartão
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-  ).bind(Number(charge.valor), charge.card_id, user.id).run()
-
   await verificarConquista(c.env.DB, user.id, 'zero_divida_cartao')
   return c.json({ success: true, message: 'Parcela paga! Limite restaurado.' })
 })
@@ -690,11 +877,6 @@ cartoes.patch('/:id/pagar-fatura', requireAuth, async (c) => {
       await c.env.DB.prepare("UPDATE despesas SET status = 'pago' WHERE id = ?").bind(ch.expense_id).run()
     }
   }
-
-  // Restaurar limite
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-  ).bind(totalPago, cardId, user.id).run()
 
   await verificarConquista(c.env.DB, user.id, 'fatura_em_dia')
   return c.json({
@@ -748,11 +930,7 @@ cartoes.patch('/:id/pendente-fatura', requireAuth, async (c) => {
     }
   }
 
-  // Descontar limite restaurado anteriormente (pago → pendente reduz limite_disponivel)
   if (totalRevertido > 0) {
-    await c.env.DB.prepare(
-      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-    ).bind(totalRevertido, cardId, user.id).run()
   }
 
   return c.json({
@@ -838,11 +1016,7 @@ cartoes.delete('/compras/:groupId', requireAuth, async (c) => {
     'DELETE FROM despesas WHERE purchase_group_id = ? AND user_id = ?'
   ).bind(groupId, user.id).run()
 
-  // Restaurar limite
   if (Number(pendValue?.total) > 0) {
-    await c.env.DB.prepare(
-      'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-    ).bind(Number(pendValue.total), chk.card_id, user.id).run()
   }
 
   return c.json({ success: true, message: 'Compra e parcelas removidas!' })
@@ -950,25 +1124,24 @@ cartoes.patch('/:id/limite', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  const { limite_disponivel, motivo } = await c.req.json()
-  const novoLimite = parseFloat(limite_disponivel)
-
-  if (isNaN(novoLimite) || novoLimite < 0)
-    return c.json({ error: 'Limite disponível inválido — deve ser um número >= 0' }, 400)
-  if (novoLimite > cartao.limite_total)
-    return c.json({ error: `Limite disponível não pode exceder o limite total (${cartao.limite_total})` }, 400)
-
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = ? WHERE id = ? AND user_id = ?'
-  ).bind(novoLimite, id, user.id).run()
-
+  // ── Ajuste manual do limite DISPONÍVEL ────────────────────────────────────
+  // Este endpoint gravava um valor arbitrário em `cartoes.limite_disponivel`.
+  // Agora que o disponível é derivado das faturas em aberto, não existe mais
+  // "ajustar o disponível": ele é uma consequência, não um dado.
+  //
+  // Escrever ali de novo recriaria a divergência que acabamos de eliminar —
+  // por isso o endpoint recusa e explica o que fazer no lugar. A rota
+  // continua existindo (em vez de sumir com 404) para que a tela antiga
+  // receba uma mensagem clara em vez de um erro seco.
+  const atual = await limiteDoCartao(c.env.DB, cartao.id, cartao.limite_total)
   return c.json({
-    success: true,
-    message: 'Limite disponível atualizado!',
-    limite_disponivel: novoLimite,
-    limite_total: cartao.limite_total,
-    motivo: motivo || 'Ajuste manual'
-  })
+    error: 'O limite disponível é calculado a partir das faturas em aberto e não pode ser digitado.',
+    como_resolver: [
+      'Para mudar o limite do cartão, edite o limite total do cartão.',
+      'Para liberar limite, pague ou exclua os lançamentos em aberto.',
+    ],
+    ...atual,
+  }, 409)
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1049,10 +1222,6 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
     ids.push(dr.meta.last_row_id as number)
   }
 
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-  ).bind(parseFloat(valor_total), parseInt(cardId), user.id).run()
-
   return c.json({ success: true, ids, parcelas: nparcelas,
     message: nparcelas > 1 ? `${nparcelas} parcelas lançadas!` : 'Compra lançada!' }, 201)
 })
@@ -1110,10 +1279,6 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
   }
 
   const valorPendente = valorParcela * parcelasRest
-  await c.env.DB.prepare(
-    'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-  ).bind(valorPendente, parseInt(cardId), user.id).run()
-
   return c.json({
     success: true, ids, parcelas_restantes: parcelasRest,
     valor_total_restante: valorPendente,
@@ -1144,9 +1309,6 @@ cartoes.patch('/lancamentos/:id/status', requireAuth, async (c) => {
       await c.env.DB.prepare("UPDATE despesas SET status = ? WHERE id = ?").bind(status, charge.expense_id).run()
     }
     if (status === 'pago') {
-      await c.env.DB.prepare(
-        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-      ).bind(Number(charge.valor), charge.card_id, user.id).run()
       await verificarConquista(c.env.DB, user.id, 'zero_divida_cartao')
     }
     return c.json({ success: true })
@@ -1167,9 +1329,6 @@ cartoes.delete('/lancamentos/:id', requireAuth, async (c) => {
 
   if (charge) {
     if (charge.status === 'pendente') {
-      await c.env.DB.prepare(
-        'UPDATE cartoes SET limite_disponivel = MIN(limite_total, limite_disponivel + ?) WHERE id = ? AND user_id = ?'
-      ).bind(Number(charge.valor), charge.card_id, user.id).run()
     }
     await c.env.DB.prepare('DELETE FROM card_charges WHERE id = ?').bind(id).run()
     if (charge.expense_id) {
@@ -1281,8 +1440,10 @@ cartoes.get('/:id/info', requireAuth, async (c) => {
     billing_month: bMonth,
     billing_year: bYear,
     data_vencimento: dataVenc,
-    limite_disponivel: cartao.limite_disponivel,
-    limite_total: cartao.limite_total,
+    // Era `cartao.limite_disponivel` — a coluna congelada. Este endpoint
+    // alimenta o modal de nova despesa, e por isso aumentar o limite do cartão
+    // não aparecia na hora de lançar a compra. Ver src/lib/limite-cartao.ts.
+    ...(await limiteDoCartao(c.env.DB, cartao.id, cartao.limite_total)),
   })
 })
 
@@ -1431,10 +1592,6 @@ cartoes.post('/split-compra', requireAuth, async (c) => {
     }
 
     // Atualizar limite
-    await c.env.DB.prepare(
-      'UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id = ? AND user_id = ?'
-    ).bind(valor, cartao.id, user.id).run()
-
     return { cartao_id: cartao.id, cartao_nome: cartao.nome, valor, parcelas: numParcelas, group_id: groupId, charge_ids: chargeIds }
   }
 

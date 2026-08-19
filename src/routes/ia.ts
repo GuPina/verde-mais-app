@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { competenciaData, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -182,8 +183,8 @@ ia.get('/insights', requireAuth, async (c) => {
 
     // M3 – Cartões
     c.env.DB.prepare(
-      `SELECT id, nome, limite_total, limite_disponivel,
-              dia_fechamento, dia_vencimento
+      `SELECT id, nome, limite_total, dia_fechamento, dia_vencimento,
+              ${sqlLimiteDisponivel('cartoes')} AS limite_disponivel
        FROM cartoes WHERE user_id=? AND ativo=1`
     ).bind(uid).all(),
 

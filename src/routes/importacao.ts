@@ -857,11 +857,6 @@ importacao.post('/executar', requireAuth, async (c) => {
                 const dvp = calcDueFromBilling(bm_p, by_p, cartaoFinal)
                 if (dvp >= hoje) pendentesCount++
               }
-              if (pendentesCount > 0) {
-                await c.env.DB.prepare(
-                  `UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?`
-                ).bind(valorParcela * pendentesCount, cIdFinal, user.id).run().catch(() => {})
-              }
             }
 
             importados++
@@ -925,12 +920,6 @@ importacao.post('/executar', requireAuth, async (c) => {
               ).run().catch(() => {})
 
               // Só decrementa limite para despesas pendentes (futuras/hoje).
-              // Despesas passadas já foram cobradas e não consomem limite disponível.
-              if (statusBase !== 'pago') {
-                await c.env.DB.prepare(
-                  `UPDATE cartoes SET limite_disponivel = MAX(0, limite_disponivel - ?) WHERE id=? AND user_id=?`
-                ).bind(valor, cIdFinal, user.id).run().catch(() => {})
-              }
             }
 
             importados++

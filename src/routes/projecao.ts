@@ -28,7 +28,7 @@ projecao.get('/', requireAuth, async (c) => {
   const mesAtual = hoje.getMonth() + 1
 
   // ── Últimos 6 meses de receitas e despesas ──────────────────────────────────
-  const meses: Array<{ mes: number; ano: number; label: string; receitas: number; despesas: number; saldo: number }> = []
+  const meses: Array<{ mes: number; ano: number; label: string; receitas: number; despesas: number; saldo: number; despesas_deterministicas: number; despesas_variaveis: number }> = []
 
   for (let i = 5; i >= 0; i--) {
     let m = mesAtual - i
@@ -47,24 +47,47 @@ projecao.get('/', requireAuth, async (c) => {
          ${filtroDespesaDoMes()}`
     ).bind(user.id, mesStr, String(a)).first() as any
 
+    // Quanto DESTE total já é parcela ou recorrência. Sem isso, somar as
+    // parcelas futuras à média histórica conta o mesmo dinheiro duas vezes —
+    // ver o comentário grande na projeção, mais abaixo.
+    const detHist = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas
+       WHERE user_id = ? AND status IN ('pago','pendente')
+         AND (parcelado = 1 OR COALESCE(numero_parcelas,1) > 1 OR recorrencia_id IS NOT NULL)
+         ${filtroDespesaDoMes()}`
+    ).bind(user.id, mesStr, String(a)).first() as any
+
     const r = Number(rec?.total || 0)
     const d = Number(desp?.total || 0)
+    const det = Number(detHist?.total || 0)
     const mesesNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
-    meses.push({ mes: m, ano: a, label: `${mesesNames[m-1]}/${a}`, receitas: r, despesas: d, saldo: r - d })
+    meses.push({
+      mes: m, ano: a, label: `${mesesNames[m-1]}/${a}`,
+      receitas: r, despesas: d, saldo: r - d,
+      despesas_deterministicas: Math.round(det * 100) / 100,
+      despesas_variaveis: Math.round(Math.max(0, d - det) * 100) / 100,
+    })
   }
 
   // ── Melhoria 2.3: Dados determinísticos do futuro ─────────────────────────
   // 1. Despesas parceladas com status 'pendente' nos próximos meses
+  // Usa a data de competência, não só `vencimento`: parcela lançada sem cartão
+  // nasce com vencimento NULL, e a query antiga (que filtrava por `vencimento`)
+  // simplesmente não a enxergava. Enquanto a média histórica carregava tudo,
+  // isso passava despercebido; com a média agora limpa de determinístico, uma
+  // parcela invisível aqui sumiria da projeção inteira.
   const parcelasFuturas = await c.env.DB.prepare(`
-    SELECT 
-      strftime('%m', vencimento) as mes_venc,
-      strftime('%Y', vencimento) as ano_venc,
+    SELECT
+      strftime('%m', ${competenciaData()}) as mes_venc,
+      strftime('%Y', ${competenciaData()}) as ano_venc,
       COALESCE(SUM(valor), 0) as total
     FROM despesas
-    WHERE user_id = ? AND status = 'pendente' 
-      AND vencimento > date('now')
-      AND vencimento <= date('now', '+12 months')
+    WHERE user_id = ? AND status = 'pendente'
+      AND ${filtroSemAporte()}
+      AND (parcelado = 1 OR COALESCE(numero_parcelas,1) > 1)
+      AND (${competenciaData()}) > date('now')
+      AND (${competenciaData()}) <= date('now', '+12 months')
     GROUP BY mes_venc, ano_venc
   `).bind(user.id).all()
 
@@ -157,8 +180,23 @@ projecao.get('/', requireAuth, async (c) => {
   const avgReceitas = mesesComReceita.length > 0
     ? mesesComReceita.reduce((a, m) => a + m.receitas, 0) / mesesComReceita.length
     : 0
+  // ── Contagem dupla (corrigida) ──────────────────────────────────────────
+  // Antes: despesa projetada = média histórica TOTAL + recorrências + parcelas
+  // futuras. Só que a média histórica já continha as parcelas e recorrências
+  // lançadas naqueles meses — então tudo isso entrava duas vezes e a projeção
+  // saía sistematicamente pessimista para quem tem parcelamento ou conta fixa,
+  // que é quase todo mundo.
+  //
+  // Medido em produção antes da correção: média histórica R$ 10.682 e despesa
+  // projetada para o mês seguinte R$ 12.552, sendo R$ 1.750 de determinístico
+  // somado por cima de uma média que já o continha.
+  //
+  // Agora a média é só da parte VARIÁVEL (mercado, lazer, imprevisto) e o que
+  // é contratado — parcelas e recorrências — entra uma vez só, pelo valor real
+  // de cada mês futuro. Onde há certeza, usa-se o número exato; onde não há,
+  // a média.
   const avgDespesas = mesesComDespesa.length > 0
-    ? mesesComDespesa.reduce((a, m) => a + m.despesas, 0) / mesesComDespesa.length
+    ? mesesComDespesa.reduce((a, m) => a + m.despesas_variaveis, 0) / mesesComDespesa.length
     : 0
 
   let saldoAcum = saldoAtual
@@ -334,7 +372,15 @@ projecao.get('/', requireAuth, async (c) => {
     tendencia,
     media_mensal: Math.round((avgReceitas - avgDespesas) * 100) / 100,
     media_receitas: Math.round(avgReceitas * 100) / 100,
+    // `media_despesas` agora é a média da parte VARIÁVEL. O que é contratado
+    // aparece separado em `dados_certos`, para a tela poder mostrar as duas
+    // camadas — o que já está fechado e o que é estimativa.
     media_despesas: Math.round(avgDespesas * 100) / 100,
+    media_despesas_variaveis: Math.round(avgDespesas * 100) / 100,
+    media_despesas_total_historica: Math.round(
+      (mesesComDespesa.length > 0
+        ? mesesComDespesa.reduce((a, m) => a + m.despesas, 0) / mesesComDespesa.length
+        : 0) * 100) / 100,
     saldo_atual: Math.round(saldoAtual * 100) / 100,
     confianca,
     insights,
