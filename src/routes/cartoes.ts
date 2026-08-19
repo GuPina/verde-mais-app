@@ -1,5 +1,9 @@
 import { Hono } from 'hono'
 import { limiteDoCartao, limitesDosCartoes } from '../lib/limite-cartao'
+
+/** Dinheiro em mensagem para o usuário: pt-BR, não "R$ 900.00". */
+const emReais = (v: number) =>
+  `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE } from './planos'
 
@@ -509,6 +513,7 @@ cartoes.get('/analise', requireAuth, async (c) => {
   const piorMes = futurasLista.reduce((mx, f) => (f.total > (mx?.total ?? -1) ? f : mx), null as any)
 
   // ── Leitura em português, para a tela não ser só números ──────────────────
+  const reais = emReais
   const leitura: string[] = []
   if (media6 > 0 && faturaAtual > 0) {
     const dif = Math.round(((faturaAtual - media6) / media6) * 100)
@@ -521,12 +526,12 @@ cartoes.get('/analise', requireAuth, async (c) => {
     if (pct > 30) leitura.push(`Você está usando ${pct}% do limite. Acima de 30% costuma pesar na análise de crédito.`)
   }
   if (piorMes && totalComprometido > 0) {
-    leitura.push(`Os próximos meses já têm R$ ${totalComprometido.toFixed(2)} em parcelas contratadas — o mês mais pesado é ${piorMes.label}, com R$ ${piorMes.total.toFixed(2)}.`)
+    leitura.push(`Os próximos meses já têm ${reais(totalComprometido)} em parcelas contratadas — o mês mais pesado é ${piorMes.label}, com ${reais(piorMes.total)}.`)
   }
   const recLista = (recorrentes.results as any[] || [])
   if (recLista.length) {
     const anual = recLista.reduce((a, r) => a + Number(r.valor) * 12, 0)
-    leitura.push(`${recLista.length} cobrança(s) se repetem todo mês no cartão — R$ ${anual.toFixed(2)} por ano se nada mudar.`)
+    leitura.push(`${recLista.length} cobrança(s) se repetem todo mês no cartão — ${reais(anual)} por ano se nada mudar.`)
   }
 
   return c.json({
@@ -658,7 +663,7 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
 
   if (parseFloat(valor_total) > disponivel) {
     return c.json({
-      error: `Compra de R$ ${parseFloat(valor_total).toFixed(2)} excede o limite disponível do ${cartao.nome}.`,
+      error: `Compra de ${emReais(parseFloat(valor_total))} excede o limite disponível do ${cartao.nome}.`,
       limite_total:      Number(cartao.limite_total),
       limite_utilizado:  utilizado,
       limite_disponivel: Math.max(0, disponivel),
@@ -1680,7 +1685,7 @@ cartoes.post('/:id/limites-categoria', requireAuth, async (c) => {
      ON CONFLICT(card_id, categoria) DO UPDATE SET limite_mensal = excluded.limite_mensal`
   ).bind(cardId, user.id, categoria, lim).run()
 
-  return c.json({ success: true, message: `Limite de R$ ${lim.toFixed(2)}/mês definido para "${categoria}"` }, 201)
+  return c.json({ success: true, message: `Limite de ${emReais(lim)}/mês definido para "${categoria}"` }, 201)
 })
 
 // DELETE /api/cartoes/:id/limites-categoria/:categoria — Remover limite

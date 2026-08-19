@@ -21634,8 +21634,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           </div>`
       }).join('')
 
-      const linhaLimite = limite > 0 && limite <= escalaMax ? `
-        <div style="position:absolute;left:0;right:0;bottom:${28 + Math.round((limite / escalaMax) * 190)}px;height:1px;background:#3a3a52;">
+      // A linha do limite só entra quando fica legível: colada na base ela
+      // colide com os rótulos dos meses e vira sujeira. Isso acontece quando
+      // um mês destoa muito dos outros e domina a escala.
+      const alturaLimite = limite > 0 ? Math.round((limite / escalaMax) * 190) : 0
+      const linhaLimite = limite > 0 && limite <= escalaMax && alturaLimite >= 24 ? `
+        <div style="position:absolute;left:0;right:0;bottom:${28 + alturaLimite}px;height:1px;background:#3a3a52;">
           <span style="position:absolute;right:0;top:-16px;font-size:0.62rem;color:#8b8b9e;background:${SUP};padding:0 4px;">limite ${fmt(limite)}</span>
         </div>` : ''
 
