@@ -36,7 +36,7 @@ const pref = (alias: string) => (alias ? `${alias}.` : '')
 export function competenciaData(alias = ''): string {
   const c = pref(alias)
   return `CASE WHEN ${c}status = 'pago'
-               THEN ${c}data
+               THEN COALESCE(${c}data_pagamento, ${c}data)
                ELSE COALESCE(${c}vencimento, ${c}data) END`
 }
 
@@ -44,7 +44,7 @@ export function competenciaData(alias = ''): string {
 export function competenciaMes(alias = ''): string {
   const c = pref(alias)
   return `CASE WHEN ${c}status = 'pago'
-               THEN strftime('%m', ${c}data)
+               THEN strftime('%m', COALESCE(${c}data_pagamento, ${c}data))
                ELSE strftime('%m', COALESCE(${c}vencimento, ${c}data)) END`
 }
 
@@ -52,7 +52,7 @@ export function competenciaMes(alias = ''): string {
 export function competenciaAno(alias = ''): string {
   const c = pref(alias)
   return `CASE WHEN ${c}status = 'pago'
-               THEN strftime('%Y', ${c}data)
+               THEN strftime('%Y', COALESCE(${c}data_pagamento, ${c}data))
                ELSE strftime('%Y', COALESCE(${c}vencimento, ${c}data)) END`
 }
 

@@ -21,13 +21,12 @@ const VM = {
       const set = new Set(this._anosCache)
       set.add(sel)
       set.add(anoAtual)
-      set.add(anoAtual + 1)
-      set.add(anoAtual + 2)
+      for (let a = anoAtual - 5; a <= anoAtual + 5; a++) set.add(a)
       anos = Array.from(set).sort((a, b) => a - b)
     } else {
       // Fallback estático enquanto cache não carregou
       anos = []
-      for (let a = Math.min(anoAtual - 3, sel - 1); a <= Math.max(anoAtual + 2, sel + 1); a++) anos.push(a)
+      for (let a = Math.min(anoAtual - 5, sel - 1); a <= Math.max(anoAtual + 5, sel + 1); a++) anos.push(a)
     }
     return anos.map(a => `<option value="${a}" ${a === sel ? 'selected' : ''}>${a}</option>`).join('')
   },
@@ -2960,7 +2959,7 @@ const VM = {
   async pageReceitas() {
     const now = new Date()
     const savedRec = this._receitaFiltro || {}
-    const mes = savedRec.mes || String(now.getMonth() + 1)
+    const mes = savedRec.mes !== undefined ? savedRec.mes : String(now.getMonth() + 1)
     const ano = savedRec.ano || String(now.getFullYear())
     const catSalva = savedRec.cat || ''
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -2995,6 +2994,7 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
             <select id="filtro-mes" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
+              <option value="" ${mes === '' ? 'selected' : ''}>Todos</option>
               ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
           </div>
@@ -3069,9 +3069,11 @@ const VM = {
     const ano = document.getElementById('filtro-ano')?.value || ''
     const cat = document.getElementById('filtro-cat-rec')?.value || ''
     const busca = document.getElementById('filtro-busca-rec')?.value || ''
-    let qs = `mes=${mes}&ano=${ano}&limit=9999&offset=0`
-    if (cat) qs += `&categoria=${encodeURIComponent(cat)}`
-    if (busca) qs += `&busca=${encodeURIComponent(busca)}`
+    const params = new URLSearchParams({ ano, limit: '9999', offset: '0' })
+    if (mes) params.set('mes', mes)
+    if (cat) params.set('categoria', cat)
+    if (busca) params.set('busca', busca)
+    const qs = params.toString()
     this.api('GET', `receitas?${qs}`).then(data => {
       const rows = data.receitas || []
       if (!rows.length) { this.toast('Nenhum dado para exportar', 'warning'); return }
@@ -3084,25 +3086,28 @@ const VM = {
       const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a'); a.href = url
-      a.download = `receitas_${mes}-${ano}.csv`; a.click()
+      a.download = `receitas_${mes || 'todos'}-${ano}.csv`; a.click()
       URL.revokeObjectURL(url)
       this.toast('✅ CSV exportado!', 'success')
     }).catch(() => this.toast('Erro ao exportar', 'error'))
   },
 
   async carregarReceitas(pagina = 1) {
-    const mes = document.getElementById('filtro-mes')?.value || String(new Date().getMonth() + 1)
+    const mesEl = document.getElementById('filtro-mes')
+    const mes = mesEl ? mesEl.value : String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano')?.value || String(new Date().getFullYear())
     const cat = document.getElementById('filtro-cat-rec')?.value || ''
     const busca = document.getElementById('filtro-busca-rec')?.value || ''
     const limit = 20
     const offset = (pagina - 1) * limit
 
-    this._receitaFiltro = { mes, ano, cat }
+    this._receitaFiltro = { mes, ano, cat, busca }
 
-    let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
-    if (cat) qs += `&categoria=${encodeURIComponent(cat)}`
-    if (busca) qs += `&busca=${encodeURIComponent(busca)}`
+    const params = new URLSearchParams({ ano, limit: String(limit), offset: String(offset) })
+    if (mes) params.set('mes', mes)
+    if (cat) params.set('categoria', cat)
+    if (busca) params.set('busca', busca)
+    const qs = params.toString()
     
     try {
       const data = await this.api('GET', `receitas?${qs}`)
@@ -3243,13 +3248,13 @@ const VM = {
                 <tr id="rec-row-${r.id}">
                   <td><input type="checkbox" class="rec-chk" data-id="${r.id}" onchange="VM._onSelReceita()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td>
-                    <div style="font-weight:600;color:#f1f5f9;">${r.descricao}</div>
-                    ${r.observacoes ? `<div style="font-size:0.72rem;color:#555;margin-top:2px;">${r.observacoes}</div>` : ''}
+                    <div style="font-weight:600;color:#f1f5f9;">${this.escapeHtml(r.descricao || '')}</div>
+                    ${r.observacoes ? `<div style="font-size:0.72rem;color:#555;margin-top:2px;">${this.escapeHtml(r.observacoes)}</div>` : ''}
                     <div id="tags-rec-${r.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;" data-loaded="0"></div>
                   </td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:rgba(47,191,113,0.1);border:1px solid rgba(47,191,113,0.25);font-size:0.78rem;font-weight:600;color:#2FBF71;">
-                      ${catIcons[r.categoria] || '💰'} ${r.categoria}
+                      ${catIcons[r.categoria] || '💰'} ${this.escapeHtml(r.categoria || 'Outros')}
                     </span>
                   </td>
                   <td style="color:#888;font-size:0.85rem;">${this.formatDate(r.data)}</td>
@@ -3295,7 +3300,7 @@ const VM = {
   },
 
   modalReceita(receita = null) {
-    const isEdit = !!receita
+    const isEdit = !!(receita && receita.id)
     const today = new Date().toISOString().split('T')[0]
     const categoriasInfo = [
       { value: 'Salário',      icon: '💼', desc: 'Renda principal' },
@@ -3337,7 +3342,7 @@ const VM = {
             <!-- Descrição -->
             <div class="form-group">
               <label class="form-label">Descrição *</label>
-              <input type="text" id="r-desc" class="form-input" placeholder="Ex: Salário de abril, Freelance design..." value="${receita?.descricao || ''}" required autocomplete="off" autofocus>
+              <input type="text" id="r-desc" class="form-input" maxlength="500" placeholder="Ex: Salário de abril, Freelance design..." value="${this.escapeHtml(receita?.descricao || '')}" required autocomplete="off" autofocus>
             </div>
 
             <!-- Categoria: seletor visual em grid -->
@@ -3368,7 +3373,7 @@ const VM = {
               </div>
               <div class="form-group">
                 <label class="form-label">Valor (R$) *</label>
-                <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" value="${receita?.valor || ''}" required>
+                <input type="number" id="r-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" max="1000000000" value="${receita?.valor || ''}" required>
               </div>
             </div>
 
@@ -3396,7 +3401,7 @@ const VM = {
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.72rem;">Observações</label>
-                <input type="text" id="r-obs" class="form-input" placeholder="Opcional..." value="${receita?.observacoes || ''}" style="padding:8px 12px;font-size:0.82rem;">
+                <input type="text" id="r-obs" class="form-input" maxlength="500" placeholder="Opcional..." value="${this.escapeHtml(receita?.observacoes || '')}" style="padding:8px 12px;font-size:0.82rem;">
               </div>
             </div>
 
@@ -3445,7 +3450,7 @@ const VM = {
         const tagIdsStr = document.getElementById('r-tag-ids')?.value || ''
         const tagIds = tagIdsStr ? tagIdsStr.split(',').map(Number).filter(Boolean) : []
         const payload = {
-          descricao: document.getElementById('r-desc').value,
+          descricao: document.getElementById('r-desc').value.trim(),
           categoria: document.getElementById('r-cat').value,
           data: document.getElementById('r-data').value,
           valor: parseFloat(document.getElementById('r-valor').value),
@@ -3454,6 +3459,8 @@ const VM = {
           observacoes: document.getElementById('r-obs').value,
           tag_ids: tagIds
         }
+        if (!payload.descricao) throw new Error('Descrição obrigatória.')
+        if (!payload.valor || payload.valor <= 0 || payload.valor > 1000000000) throw new Error('Valor inválido.')
         if (isEdit) {
           await this.api('PUT', `receitas/${receita.id}`, payload)
           // Atualizar tags da receita em edição
@@ -3465,7 +3472,7 @@ const VM = {
         this.closeModal()
         this.carregarReceitas()
       } catch (err) {
-        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        this.toast(err.response?.data?.error || err.message || 'Erro ao salvar', 'error')
         btn.disabled = false
         btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
       }
@@ -3504,11 +3511,6 @@ const VM = {
     const hoje = new Date().toISOString().split('T')[0]
     const copia = { ...receita, id: undefined, data: hoje, descricao: `${receita.descricao} (cópia)` }
     this.modalReceita(copia)
-    // Depois do modal abrir, limpar o id para forçar POST
-    setTimeout(() => {
-      const form = document.getElementById('receita-form')
-      if (form) form.dataset.mode = 'new'
-    }, 100)
   },
 
   async _carregarUltimasReceitasPorCategoria(categoria) {
@@ -3696,7 +3698,7 @@ const VM = {
   async pageDespesas() {
     const now = new Date()
     const saved = this._despesaFiltro || {}
-    const mes      = saved.mes    || String(now.getMonth() + 1)
+    const mes      = saved.mes !== undefined ? saved.mes : String(now.getMonth() + 1)
     const ano      = saved.ano    || String(now.getFullYear())
     const stat     = saved.status || ''
     const catD     = saved.cat    || ''
@@ -3738,6 +3740,7 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
             <select id="filtro-mes-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
+              <option value="" ${mes === '' ? 'selected' : ''}>Todos</option>
               ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
           </div>
@@ -3750,9 +3753,10 @@ const VM = {
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</label>
             <select id="filtro-status-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
-              <option value="" ${stat===''?'selected':''}>Todos</option>
+              <option value="" ${stat===''?'selected':''}>Ativos</option>
               <option value="pendente" ${stat==='pendente'?'selected':''}>⏳ Pendente</option>
               <option value="pago" ${stat==='pago'?'selected':''}>✅ Pago</option>
+              <option value="cancelado" ${stat==='cancelado'?'selected':''}>🚫 Cancelado</option>
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
@@ -3907,10 +3911,12 @@ const VM = {
     const status = document.getElementById('filtro-status-d')?.value || ''
     const cat    = document.getElementById('filtro-cat-d')?.value    || ''
     const busca  = document.getElementById('filtro-busca-d')?.value  || ''
-    let qs = `mes=${mes}&ano=${ano}&limit=9999&offset=0`
-    if (status) qs += `&status=${status}`
-    if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
-    if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
+    const params = new URLSearchParams({ ano, limit: '9999', offset: '0' })
+    if (mes) params.set('mes', mes)
+    if (status) params.set('status', status)
+    if (cat) params.set('categoria', cat)
+    if (busca) params.set('busca', busca)
+    const qs = params.toString()
     this.api('GET', `despesas?${qs}`).then(data => {
       const rows = data.despesas || []
       if (!rows.length) { this.toast('Nenhum dado para exportar', 'warning'); return }
@@ -3931,14 +3937,15 @@ const VM = {
       const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a'); a.href = url
-      a.download = `despesas_${mes}-${ano}.csv`; a.click()
+      a.download = `despesas_${mes || 'todos'}-${ano}.csv`; a.click()
       URL.revokeObjectURL(url)
       this.toast('✅ CSV exportado!', 'success')
     }).catch(() => this.toast('Erro ao exportar', 'error'))
   },
 
   async carregarDespesas(pagina = 1) {
-    const mes    = document.getElementById('filtro-mes-d')?.value    || String(new Date().getMonth() + 1)
+    const mesEl  = document.getElementById('filtro-mes-d')
+    const mes    = mesEl ? mesEl.value : String(new Date().getMonth() + 1)
     const ano    = document.getElementById('filtro-ano-d')?.value    || String(new Date().getFullYear())
     const status = document.getElementById('filtro-status-d')?.value || ''
     const cat    = document.getElementById('filtro-cat-d')?.value    || ''
@@ -3950,24 +3957,26 @@ const VM = {
 
     this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro, tagFiltro }
 
-    let qs = `mes=${mes}&ano=${ano}&limit=${limit}&offset=${offset}`
-    if (status) qs += `&status=${status}`
-    if (cat)    qs += `&categoria=${encodeURIComponent(cat)}`
-    if (busca)  qs += `&busca=${encodeURIComponent(busca)}`
+    const params = new URLSearchParams({ ano, limit: String(limit), offset: String(offset) })
+    if (mes) params.set('mes', mes)
+    if (status) params.set('status', status)
+    if (cat) params.set('categoria', cat)
+    if (busca) params.set('busca', busca)
     // Filtro por cartão: __sem_cartao__ → sem cartão; __com_cartao__ → qualquer cartão; ID numérico → cartao_id
     if (cartaoFiltro && cartaoFiltro !== '__sem_cartao__' && cartaoFiltro !== '__com_cartao__') {
-      qs += `&cartao_id=${cartaoFiltro}`
+      params.set('cartao_id', cartaoFiltro)
     } else if (cartaoFiltro === '__sem_cartao__') {
-      qs += `&sem_cartao=1`
+      params.set('sem_cartao', '1')
     } else if (cartaoFiltro === '__com_cartao__') {
-      qs += `&com_cartao=1`
+      params.set('com_cartao', '1')
     }
     // Filtro por tag
     if (tagFiltro && tagFiltro !== '__sem_tag__') {
-      qs += `&tag_id=${tagFiltro}`
+      params.set('tag_id', tagFiltro)
     } else if (tagFiltro === '__sem_tag__') {
-      qs += `&sem_tag=1`
+      params.set('sem_tag', '1')
     }
+    const qs = params.toString()
 
     try {
       const data = await this.api('GET', `despesas?${qs}`)
@@ -4133,7 +4142,14 @@ const VM = {
             </thead>
             <tbody>
               ${data.despesas.map(d => {
-                const cor = d.status === 'pago' ? 'rgba(47,191,113,0.04)' : 'transparent'
+                const cor = d.status === 'pago'
+                  ? 'rgba(47,191,113,0.04)'
+                  : d.status === 'cancelado'
+                    ? 'rgba(100,116,139,0.05)'
+                    : 'transparent'
+                const descSafe = this.escapeHtml(d.descricao || '')
+                const obsSafe = this.escapeHtml(d.observacoes || '')
+                const catSafe = this.escapeHtml(d.categoria || 'Outros')
                 const parcelaBadge = d.parcelado && d.numero_parcelas > 1
                   ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo"
                        onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '').replace(/'/g, "\\'")}')"
@@ -4142,36 +4158,39 @@ const VM = {
                      </span>`
                   : ''
                 const catCor = catColors[d.categoria] || '#636e72'
-                const vencInfo = d.vencimento && d.status !== 'pago' ? (() => {
+                const vencInfo = d.vencimento && d.status !== 'pago' && d.status !== 'cancelado' ? (() => {
                   const diff = Math.ceil((new Date(d.vencimento) - new Date()) / 86400000)
                   const urgente = diff <= 2 && diff >= 0
                   const atrasado = diff < 0
                   return `<div style="font-size:0.68rem;margin-top:2px;color:${atrasado?'#f87171':urgente?'#fbbf24':'#555'};">${atrasado ? `⚠️ ${Math.abs(diff)}d atrasado` : urgente ? `🔔 vence em ${diff}d` : `📅 ${this.formatDate(d.vencimento)}`}</div>`
                 })() : ''
+                const statusClasse = d.status === 'pago' ? 'badge-green' : d.status === 'cancelado' ? 'badge-gray' : 'badge-yellow'
+                const statusLabel = d.status === 'pago' ? '✅ Pago' : d.status === 'cancelado' ? '🚫 Cancelado' : '⏳ Pendente'
                 return `
                 <tr id="desp-row-${d.id}" style="background:${cor};">
                   <td><input type="checkbox" class="desp-chk" data-id="${d.id}" onchange="VM._onSelDespesa()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td>
-                    <div style="font-weight:600;color:#f1f5f9;">${d.descricao}${parcelaBadge}</div>
-                    ${d.observacoes ? `<div style="font-size:0.7rem;color:#555;margin-top:1px;">${d.observacoes}</div>` : ''}
+                    <div style="font-weight:600;color:#f1f5f9;">${descSafe}${parcelaBadge}</div>
+                    ${obsSafe ? `<div style="font-size:0.7rem;color:#555;margin-top:1px;">${obsSafe}</div>` : ''}
                     <div id="desp-tags-${d.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;min-height:0;"></div>
                   </td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;background:${catCor}18;border:1px solid ${catCor}35;font-size:0.78rem;font-weight:600;color:${catCor};">
-                      ${catIcons[d.categoria] || '📦'} ${d.categoria}
+                      ${catIcons[d.categoria] || '📦'} ${catSafe}
                     </span>
                   </td>
                   <td style="color:#888;font-size:0.83rem;">
                     <div>${this.formatDate(d.data)}</div>
+                    ${d.status === 'pago' && d.data_pagamento ? `<div style="font-size:0.68rem;margin-top:2px;color:#2FBF71;">✅ pago em ${this.formatDate(d.data_pagamento)}</div>` : ''}
                     ${vencInfo}
                   </td>
                   <td style="text-align:center;">
                     <span class="badge ${d.fixa_ou_variavel === 'fixa' ? 'badge-blue' : 'badge-yellow'}" style="font-size:0.72rem;">${d.fixa_ou_variavel === 'fixa' ? '🔒 Fixa' : '🔀 Variável'}</span>
                   </td>
                   <td style="text-align:center;">
-                    <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}"
+                    <span class="badge ${statusClasse}"
                       onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;font-size:0.78rem;" title="Clique para alterar status">
-                      ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
+                      ${statusLabel}
                     </span>
                   </td>
                   <td style="text-align:right;font-weight:800;color:#ff6b6b;font-size:0.95rem;">${this.formatMoney(d.valor)}</td>
@@ -4217,23 +4236,67 @@ const VM = {
   },
 
   async toggleDespesaStatus(id, status) {
-    const novoStatus = status === 'pago' ? 'pendente' : 'pago'
+    if (status === 'pendente') {
+      this.modalPagarDespesa(id)
+      return
+    }
+    const novoStatus = 'pendente'
     try {
       await this.api('PATCH', `despesas/${id}/status`, { status: novoStatus })
-      if (novoStatus === 'pago') {
-        this.toast(`✅ Despesa paga! Limite do cartão restaurado automaticamente.`)
-      } else {
-        this.toast(`⏳ Despesa reaberta`)
-      }
+      this.toast(status === 'cancelado' ? '⏳ Despesa reativada como pendente' : '⏳ Despesa reaberta')
       this.carregarDespesas()
     } catch (e) {
       this.toast('Erro ao atualizar', 'error')
     }
   },
 
+  modalPagarDespesa(id) {
+    const hoje = new Date().toISOString().split('T')[0]
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:400px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;margin:0;">✅ Marcar como paga</h3>
+              <div style="font-size:0.74rem;color:#64748B;margin-top:2px;">Informe a data real do pagamento para manter a competência correta.</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+          </div>
+          <form id="pagar-despesa-form">
+            <div class="form-group">
+              <label class="form-label">Data de pagamento</label>
+              <input type="date" id="pagar-despesa-data" class="form-input" value="${hoje}" required>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;justify-content:center;background:linear-gradient(135deg,#2FBF71,#10a055);">Confirmar</button>
+            </div>
+          </form>
+        </div>
+      </div>`
+    document.getElementById('pagar-despesa-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      await this.confirmarPagamentoDespesa(id)
+    })
+  },
+
+  async confirmarPagamentoDespesa(id) {
+    const dataPagamento = document.getElementById('pagar-despesa-data')?.value
+    if (!dataPagamento) { this.toast('Informe a data de pagamento', 'error'); return }
+    try {
+      await this.api('PATCH', `despesas/${id}/status`, { status: 'pago', data_pagamento: dataPagamento })
+      this.toast('✅ Despesa paga! Limite do cartão restaurado automaticamente.')
+      this.closeModal()
+      this.carregarDespesas()
+    } catch(e) {
+      this.toast(e.response?.data?.error || 'Erro ao atualizar', 'error')
+    }
+  },
+
   // S2 – Marcar todas as despesas pendentes do período como pagas em lote
   async marcarTodasPagas(mes, ano) {
-    const ok = await this.vmConfirm(`Marcar <strong>TODAS</strong> as despesas pendentes de ${mes}/${ano} como pagas? Essa ação não pode ser desfeita.`, { titulo: 'Marcar Todas como Pagas', corBotao: '#2FBF71', textoBotao: 'Confirmar', icone: '✅' })
+    const periodo = mes ? `${mes}/${ano}` : `todo o ano ${ano}`
+    const ok = await this.vmConfirm(`Marcar <strong>TODAS</strong> as despesas pendentes de ${periodo} como pagas? Depois você pode filtrar por Pago e reverter itens selecionados para pendente.`, { titulo: 'Marcar Todas como Pagas', corBotao: '#2FBF71', textoBotao: 'Confirmar', icone: '✅' })
     if (!ok) return
     try {
       const r = await this.api('PATCH', 'despesas/batch-status', { mes, ano, status: 'pago' })
@@ -4284,19 +4347,22 @@ const VM = {
               <table class="data-table" style="font-size:0.85rem;">
                 <thead><tr><th>Parcela</th><th>Vencimento</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead>
                 <tbody>
-                  ${parcelas.map(d => `
+                  ${parcelas.map(d => {
+                    const statusClasse = d.status === 'pago' ? 'badge-green' : d.status === 'cancelado' ? 'badge-gray' : 'badge-yellow'
+                    const statusLabel = d.status === 'pago' ? '✅ Pago' : d.status === 'cancelado' ? '🚫 Cancelado' : '⏳ Pendente'
+                    return `
                     <tr>
                       <td style="font-weight:600;">${d.parcela_atual}/${d.numero_parcelas}</td>
                       <td>${this.formatDate(d.data)}</td>
                       <td>
-                        <span class="badge ${d.status === 'pago' ? 'badge-green' : 'badge-yellow'}" 
-                          onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}');VM.closeModal();" style="cursor:pointer;">
-                          ${d.status === 'pago' ? '✅ Pago' : '⏳ Pendente'}
+                        <span class="badge ${statusClasse}"
+                          onclick="VM.toggleDespesaStatus(${d.id}, '${d.status}')" style="cursor:pointer;">
+                          ${statusLabel}
                         </span>
                       </td>
                       <td style="text-align:right;font-weight:700;">${this.formatMoney(d.valor)}</td>
                     </tr>
-                  `).join('')}
+                  `}).join('')}
                 </tbody>
               </table>
             </div>
@@ -4312,7 +4378,7 @@ const VM = {
   },
 
   async modalDespesa(despesa = null) {
-    const isEdit = !!despesa
+    const isEdit = !!(despesa && despesa.id)
     const today  = new Date().toISOString().split('T')[0]
 
     const categoriasInfo = [
@@ -4379,7 +4445,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:14px;">
               <div class="form-group" style="margin:0;">
                 <label class="form-label">Descrição *</label>
-                <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado, Conta de luz..." value="${despesa?.descricao || ''}" required autocomplete="off" autofocus>
+                <input type="text" id="d-desc" class="form-input" placeholder="Ex: Supermercado, Conta de luz..." value="${this.escapeHtml(despesa?.descricao || '')}" maxlength="500" required autocomplete="off" autofocus>
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label">Data *</label>
@@ -4408,7 +4474,7 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label" id="d-valor-label">Valor Total (R$) *</label>
-                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0" value="${despesa?.valor || ''}" oninput="document.getElementById('d-ultimo-editado').value='total';VM.atualizarPreviewParcela();VM.verificarOrcamentoModal()" required>
+                <input type="number" id="d-valor" class="form-input" placeholder="0,00" step="0.01" min="0.01" max="1000000000" value="${despesa?.valor || ''}" oninput="document.getElementById('d-ultimo-editado').value='total';VM.atualizarPreviewParcela();VM.verificarOrcamentoModal()" required>
               </div>
               <div class="form-group">
                 <label class="form-label">Tipo</label>
@@ -4500,6 +4566,10 @@ const VM = {
                     style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${despesa?.status==='pago'?'#2FBF71':'rgba(255,255,255,0.1)'};background:${despesa?.status==='pago'?'rgba(47,191,113,0.1)':'transparent'};font-size:0.75rem;color:${despesa?.status==='pago'?'#2FBF71':'#888'};font-weight:${despesa?.status==='pago'?'700':'400'};transition:all 0.15s;">
                     ✅ Pago
                   </div>
+                  <div onclick="VM._selecionarStatusDespesa('cancelado')" id="dstatus-cancelado"
+                    style="flex:1;cursor:pointer;padding:8px 4px;text-align:center;border-radius:9px;border:1.5px solid ${despesa?.status==='cancelado'?'#94a3b8':'rgba(255,255,255,0.1)'};background:${despesa?.status==='cancelado'?'rgba(100,116,139,0.12)':'transparent'};font-size:0.75rem;color:${despesa?.status==='cancelado'?'#94a3b8':'#888'};font-weight:${despesa?.status==='cancelado'?'700':'400'};transition:all 0.15s;">
+                    🚫 Cancelado
+                  </div>
                 </div>
                 <input type="hidden" id="d-status" value="${despesa?.status || 'pendente'}">
               </div>
@@ -4507,6 +4577,12 @@ const VM = {
                 <label class="form-label">Vencimento</label>
                 <input type="date" id="d-venc" class="form-input" value="${despesa?.vencimento || ''}">
               </div>
+            </div>
+
+            <div class="form-group" id="d-data-pagamento-wrapper" style="display:${despesa?.status === 'pago' ? 'block' : 'none'};margin-top:-4px;">
+              <label class="form-label">Data de pagamento</label>
+              <input type="date" id="d-data-pagamento" class="form-input" value="${despesa?.data_pagamento || today}">
+              <div style="font-size:0.68rem;color:#64748B;margin-top:4px;">Usada para calcular o mês de competência quando a despesa está paga.</div>
             </div>
 
             <!-- Aporte -->
@@ -4618,13 +4694,14 @@ const VM = {
           : (numParcelasRestantes > 0 ? valorTotal / numParcelasRestantes : valorTotal)
 
         const payload = {
-          descricao: document.getElementById('d-desc').value,
+          descricao: document.getElementById('d-desc').value.trim(),
           categoria: document.getElementById('d-cat').value,
           data: document.getElementById('d-data').value,
           valor: isRetroativa ? valorParcelaFinal * numParcelasRestantes : valorTotal,
           valor_parcela_override: isRetroativa ? valorParcelaFinal : null,
           fixa_ou_variavel: document.getElementById('d-tipo').value,
           status: document.getElementById('d-status').value,
+          data_pagamento: document.getElementById('d-data-pagamento')?.value || null,
           vencimento: document.getElementById('d-venc').value || null,
           meio_pagamento: parcelado ? 'parcelado_cartao' : meio,
           cartao_id: (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? (cartaoId || null) : null,
@@ -4634,6 +4711,11 @@ const VM = {
           // BUG 1.2 FIX: se marcado como aporte, tipo='aporte' → não entra nas despesas do mês
           tipo: document.getElementById('d-eh-aporte')?.checked ? 'aporte' : 'normal'
         }
+
+        if (!payload.descricao) throw new Error('Descrição obrigatória.')
+        if (payload.descricao.length > 500) throw new Error('Descrição deve ter até 500 caracteres.')
+        if (!Number.isFinite(payload.valor) || payload.valor <= 0 || payload.valor > 1000000000) throw new Error('Valor inválido — informe um número maior que zero e menor que R$ 1 bilhão.')
+        if (payload.status === 'pago' && !payload.data_pagamento) throw new Error('Informe a data de pagamento.')
 
         // Validação: cartão obrigatório se meio for cartão de crédito
         if ((meio === 'cartao_credito' || meio === 'parcelado_cartao') && !cartaoId) {
@@ -4668,7 +4750,7 @@ const VM = {
         this.closeModal()
         this.carregarDespesas()
       } catch (err) {
-        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
+        this.toast(err.response?.data?.error || err.message || 'Erro ao salvar', 'error')
         btn.disabled = false
         btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
       }
@@ -4784,6 +4866,7 @@ const VM = {
     if (inp) inp.value = valor
     const elP = document.getElementById('dstatus-pendente')
     const elG = document.getElementById('dstatus-pago')
+    const elC = document.getElementById('dstatus-cancelado')
     if (elP) {
       const sel = valor === 'pendente'
       elP.style.borderColor = sel ? '#ffc400' : 'rgba(255,255,255,0.1)'
@@ -4795,6 +4878,18 @@ const VM = {
       elG.style.borderColor = sel ? '#2FBF71' : 'rgba(255,255,255,0.1)'
       elG.style.background  = sel ? 'rgba(47,191,113,0.1)' : 'transparent'
       elG.style.color = sel ? '#2FBF71' : '#888'; elG.style.fontWeight = sel ? '700' : '400'
+    }
+    if (elC) {
+      const sel = valor === 'cancelado'
+      elC.style.borderColor = sel ? '#94a3b8' : 'rgba(255,255,255,0.1)'
+      elC.style.background  = sel ? 'rgba(100,116,139,0.12)' : 'transparent'
+      elC.style.color = sel ? '#94a3b8' : '#888'; elC.style.fontWeight = sel ? '700' : '400'
+    }
+    const dataPagamentoWrapper = document.getElementById('d-data-pagamento-wrapper')
+    const dataPagamento = document.getElementById('d-data-pagamento')
+    if (dataPagamentoWrapper) dataPagamentoWrapper.style.display = valor === 'pago' ? 'block' : 'none'
+    if (valor === 'pago' && dataPagamento && !dataPagamento.value) {
+      dataPagamento.value = new Date().toISOString().split('T')[0]
     }
   },
 
@@ -4873,14 +4968,45 @@ const VM = {
   async _pagarSelecionadasDespesas() {
     const ids = [...document.querySelectorAll('.desp-chk:checked')].map(c => Number(c.dataset.id))
     if (!ids.length) return
-    const ok = await this.vmConfirm(`Marcar ${ids.length} despesa${ids.length !== 1 ? 's' : ''} como pagas?`, { titulo: 'Pagar Despesas', corBotao: '#10B981', textoBotao: `Pagar ${ids.length}`, icone: 'check' })
-    if (!ok) return
+    const hoje = new Date().toISOString().split('T')[0]
+    document.getElementById('modal-container').innerHTML = `
+      <div class="modal-overlay" onclick="VM.closeModal(event)">
+        <div class="modal" style="max-width:420px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <div>
+              <h3 style="font-size:1.05rem;font-weight:700;margin:0;">✅ Pagar selecionadas</h3>
+              <div style="font-size:0.74rem;color:#64748B;margin-top:2px;">${ids.length} despesa${ids.length !== 1 ? 's' : ''} receber${ids.length !== 1 ? 'ão' : 'á'} a mesma data de pagamento.</div>
+            </div>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+          </div>
+          <form id="bulk-pagar-despesa-form">
+            <div class="form-group">
+              <label class="form-label">Data de pagamento</label>
+              <input type="date" id="bulk-pagar-despesa-data" class="form-input" value="${hoje}" required>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px;">
+              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
+              <button type="submit" class="btn-primary" style="flex:1;justify-content:center;background:linear-gradient(135deg,#2FBF71,#10a055);">Pagar ${ids.length}</button>
+            </div>
+          </form>
+        </div>
+      </div>`
+    document.getElementById('bulk-pagar-despesa-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const dataPagamento = document.getElementById('bulk-pagar-despesa-data')?.value
+      if (!dataPagamento) { this.toast('Informe a data de pagamento', 'error'); return }
+      await this._confirmarPagarSelecionadasDespesas(ids, dataPagamento)
+    })
+  },
+
+  async _confirmarPagarSelecionadasDespesas(ids, dataPagamento) {
     try {
-      const res = await this.api('PATCH', 'despesas/bulk-pagar', { ids })
+      const res = await this.api('PATCH', 'despesas/bulk-pagar', { ids, data_pagamento: dataPagamento })
       this.toast(`${res.atualizadas || ids.length} despesa${ids.length !== 1 ? 's' : ''} marcada${ids.length !== 1 ? 's' : ''} como paga${ids.length !== 1 ? 's' : ''}!`, 'success')
+      this.closeModal()
       this.carregarDespesas()
     } catch (e) {
-      this.toast('Erro ao pagar despesas', 'error')
+      this.toast(e.response?.data?.error || 'Erro ao pagar despesas', 'error')
     }
   },
 

@@ -8,6 +8,61 @@ type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: strin
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const receitas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+const MAX_DESCRICAO = 500
+const MAX_VALOR = 1_000_000_000
+const MAX_LIMIT = 10_000
+
+function arredondarCentavos(valor: any): number {
+  return Math.round((Number(valor) || 0) * 100) / 100
+}
+
+function parseValorPositivo(valor: unknown): number | null {
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+
+function parseInteiroPositivo(valor: unknown): number | null {
+  if (typeof valor !== 'string' && typeof valor !== 'number') return null
+  const texto = String(valor)
+  if (!/^\d+$/.test(texto)) return null
+  const n = parseInt(texto, 10)
+  return n > 0 ? n : null
+}
+
+function parsePaginacao(limit: string, offset: string): { limitNum: number; offsetNum: number } | { error: string } {
+  if (!/^\d+$/.test(limit) || !/^\d+$/.test(offset)) return { error: 'Paginação inválida.' }
+  const limitNum = parseInt(limit, 10)
+  const offsetNum = parseInt(offset, 10)
+  if (limitNum < 1 || limitNum > MAX_LIMIT || offsetNum < 0) return { error: `limit deve ficar entre 1 e ${MAX_LIMIT}, e offset deve ser 0 ou maior.` }
+  return { limitNum, offsetNum }
+}
+
+function validarMesAno(mes?: string, ano?: string): { mesParam?: string; anoParam?: string; error?: string } {
+  if (mes) {
+    if (!/^\d{1,2}$/.test(mes)) return { error: 'Mês inválido. Use 1 a 12.' }
+    const mesNum = parseInt(mes, 10)
+    if (mesNum < 1 || mesNum > 12) return { error: 'Mês inválido. Use 1 a 12.' }
+    if (!ano) return { error: 'Ano é obrigatório ao filtrar por mês.' }
+    return { mesParam: String(mesNum).padStart(2, '0'), anoParam: ano }
+  }
+  return { anoParam: ano }
+}
+
+function validarAno(ano?: string): string | null {
+  if (!ano) return null
+  if (!/^\d{4}$/.test(ano)) return null
+  const n = parseInt(ano, 10)
+  return n >= 1900 && n <= 2100 ? ano : null
+}
+
+function idsValidos(ids: unknown): number[] | null {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200) return null
+  const parsed = ids.map(parseInteiroPositivo)
+  if (parsed.some(id => !id)) return null
+  return [...new Set(parsed as number[])]
+}
 
 // Mapa de normalização de categorias legadas (lowercase sem acento → Title Case padrão do frontend)
 // IMPORTANTE: SQLite LOWER() não normaliza acentos, então usamos aliases explícitos para o filtro
@@ -43,6 +98,25 @@ const CATEGORIA_ALIASES: Record<string, string[]> = {
   'Reembolso':    ['Reembolso', 'reembolso', 'REEMBOLSO'],
   'Presente':     ['Presente', 'presente', 'PRESENTE'],
   'Outros':       ['Outros', 'outros', 'OUTROS'],
+}
+
+const TODAS_CATEGORIAS_RECEITA = Object.values(CATEGORIA_ALIASES).flat()
+
+async function sincronizarTagCategoriaReceita(db: D1Database, userId: number, receitaId: number, categoria: string) {
+  const tagCatId = await ensureTag(db, userId, categoria.trim().slice(0, 30), COR_MODULO.receita)
+  if (tagCatId > 0) await tagReceita(db, receitaId, tagCatId)
+
+  const placeholders = TODAS_CATEGORIAS_RECEITA.map(() => '?').join(',')
+  await db.prepare(
+    `DELETE FROM receita_tags
+     WHERE receita_id = ?
+       AND tag_id IN (
+         SELECT id FROM tags
+         WHERE user_id = ?
+           AND nome IN (${placeholders})
+           AND LOWER(nome) != LOWER(?)
+       )`
+  ).bind(receitaId, userId, ...TODAS_CATEGORIAS_RECEITA, categoria).run().catch(() => {})
 }
 
 function normalizarCategoria(cat: string): string {
@@ -94,10 +168,16 @@ receitas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, categoria, busca, tipo, recorrente: recorrenteParam, limit = '50', offset = '0' } = c.req.query()
 
+  const paginacao = parsePaginacao(limit, offset)
+  if ('error' in paginacao) return c.json({ error: paginacao.error }, 400)
+  const periodo = validarMesAno(mes, ano)
+  if (periodo.error) return c.json({ error: periodo.error }, 400)
+  if (ano && !validarAno(ano)) return c.json({ error: 'Ano inválido. Use um ano entre 1900 e 2100.' }, 400)
+
   // Filtros dinâmicos
-  const filtrosMes = (mes && ano)
-    ? ` AND strftime('%m', data) = '${mes.padStart(2, '0')}' AND strftime('%Y', data) = '${ano}'`
-    : ano ? ` AND strftime('%Y', data) = '${ano}'` : ''
+  const filtrosMes = (periodo.mesParam && periodo.anoParam)
+    ? ` AND strftime('%m', data) = '${periodo.mesParam}' AND strftime('%Y', data) = '${periodo.anoParam}'`
+    : periodo.anoParam ? ` AND strftime('%Y', data) = '${periodo.anoParam}'` : ''
 
   // Fix: filtro de categoria com aliases (compatível com dados legados sem acento/lowercase)
   const filtroCategoria = categoria ? filtroCategoriaSQL(categoria) : ''
@@ -117,7 +197,7 @@ receitas.get('/', requireAuth, async (c) => {
       `SELECT id, user_id, descricao, data, ${caseCategoria} as categoria, valor, recorrente, frequencia, observacoes,
               COALESCE(meio_pagamento, 'pix') as meio_pagamento, data_criacao, recorrencia_id, tipo
        FROM receitas WHERE user_id = ?${filtros} ORDER BY data DESC LIMIT ? OFFSET ?`
-    ).bind(user.id, parseInt(limit), parseInt(offset)),
+    ).bind(user.id, paginacao.limitNum, paginacao.offsetNum),
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(valor), 0) as total,
               COUNT(*) as total_count,
@@ -143,7 +223,7 @@ receitas.get('/', requireAuth, async (c) => {
 
   return c.json({ 
     receitas: resultR.results || [], 
-    total: metrics?.total || 0,
+    total: arredondarCentavos(metrics?.total),
     count: (resultR.results || []).length,
     total_count: metrics?.total_count || 0,
     metrics: {
@@ -162,35 +242,33 @@ receitas.get('/', requireAuth, async (c) => {
 // POST /api/receitas
 receitas.post('/', requireAuth, async (c) => {
   const user = c.get('user')
-
-  // ── Limite de plano ──
-  const lim = getLimites(user.plano)
-  if (lim.receitas_mes !== Infinity) {
-    const now = new Date()
-    const mes = String(now.getMonth() + 1).padStart(2, '0')
-    const ano = String(now.getFullYear())
-    const count = await c.env.DB.prepare(
-      `SELECT COUNT(*) as n FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, mes, ano).first() as any
-    if ((count?.n || 0) >= lim.receitas_mes)
-      return c.json({ error: MSG_UPGRADE.receitas_mes, upgrade: true, limite: lim.receitas_mes, feature: 'receitas_mes' }, 403)
-  }
-
   const body = await c.req.json()
-  const { descricao, data, valor, recorrente = false, frequencia, observacoes, meio_pagamento } = body
+  const { data, valor, recorrente = false, frequencia, observacoes, meio_pagamento } = body
+  const descricao = String(body.descricao || '').trim()
   let { categoria } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+  if (descricao.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
 
   // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
   const dataISO = normalizarData(data)
   if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
 
-  const valorNum = parseFloat(valor)
-  if (isNaN(valorNum) || valorNum < 0) {
-    return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
+  const valorNum = parseValorPositivo(valor)
+  if (valorNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
+
+  // ── Limite de plano: conta o mês do lançamento, não o mês atual ──
+  const lim = getLimites(user.plano)
+  if (lim.receitas_mes !== Infinity) {
+    const mesLanc = dataISO.slice(5, 7)
+    const anoLanc = dataISO.slice(0, 4)
+    const count = await c.env.DB.prepare(
+      `SELECT COUNT(*) as n FROM receitas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+    ).bind(user.id, mesLanc, anoLanc).first() as any
+    if ((count?.n || 0) >= lim.receitas_mes)
+      return c.json({ error: MSG_UPGRADE.receitas_mes, upgrade: true, limite: lim.receitas_mes, feature: 'receitas_mes' }, 403)
   }
 
   // Normalizar categoria ao salvar (garante consistência)
@@ -211,14 +289,12 @@ receitas.post('/', requireAuth, async (c) => {
   const tagIdsEnviados: number[] = Array.isArray(body.tag_ids) ? body.tag_ids : []
 
   try {
-    // Tag automática da categoria (ex: "Salário", "Freelance", "Aluguel")
-    const tagCatId = await ensureTag(c.env.DB, user.id, categoria.trim().slice(0, 30), COR_MODULO.receita)
-
     // Tag automática do tipo "Receita" (sempre criada)
     const tagRecId = await ensureTag(c.env.DB, user.id, 'Receita', COR_MODULO.receita)
+    await sincronizarTagCategoriaReceita(c.env.DB, user.id, receitaId, categoria)
 
     // Tags manuais enviadas pelo frontend
-    const todosIds = new Set<number>([tagCatId, tagRecId, ...tagIdsEnviados])
+    const todosIds = new Set<number>([tagRecId, ...tagIdsEnviados])
 
     for (const tid of todosIds) {
       if (tid > 0) await tagReceita(c.env.DB, receitaId, tid)
@@ -232,22 +308,23 @@ receitas.post('/', requireAuth, async (c) => {
 receitas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
   const body = await c.req.json()
-  const { descricao, data, valor, recorrente, frequencia, observacoes, meio_pagamento } = body
+  const { data, valor, recorrente, frequencia, observacoes, meio_pagamento } = body
+  const descricao = String(body.descricao || '').trim()
   let { categoria } = body
 
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+  if (descricao.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
 
   // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
   const dataISO = normalizarData(data)
   if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
 
-  const valorNum = parseFloat(valor)
-  if (isNaN(valorNum) || valorNum < 0) {
-    return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
-  }
+  const valorNum = parseValorPositivo(valor)
+  if (valorNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
 
   const existing = await c.env.DB.prepare('SELECT id FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)
@@ -258,6 +335,8 @@ receitas.put('/:id', requireAuth, async (c) => {
   await c.env.DB.prepare(
     'UPDATE receitas SET descricao = ?, data = ?, categoria = ?, valor = ?, recorrente = ?, frequencia = ?, observacoes = ?, meio_pagamento = ? WHERE id = ? AND user_id = ?'
   ).bind(descricao, dataISO, categoria, valorNum, recorrente ? 1 : 0, frequencia || null, observacoes || null, meio_pagamento || null, id, user.id).run()
+
+  try { await sincronizarTagCategoriaReceita(c.env.DB, user.id, parseInt(id, 10), categoria) } catch {}
 
   return c.json({ success: true, message: 'Receita atualizada!' })
 })
@@ -284,10 +363,16 @@ receitas.patch('/:id', requireAuth, async (c) => {
 
   // Validar valor apenas se foi enviado
   if (valor !== undefined) {
-    const valorNum = parseFloat(valor)
-    if (isNaN(valorNum) || valorNum < 0)
-      return c.json({ error: 'Valor inválido — deve ser um número positivo' }, 400)
+    const valorNum = parseValorPositivo(valor)
+    if (valorNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
   }
+  if (descricao !== undefined) {
+    const descTrim = String(descricao).trim()
+    if (!descTrim) return c.json({ error: 'Descrição obrigatória.' }, 400)
+    if (descTrim.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
+  }
+  const dataISO = data !== undefined ? normalizarData(data) : undefined
+  if (data !== undefined && !dataISO) return c.json({ error: ERRO_DATA }, 400)
 
   // Normalizar categoria se enviada
   const categoriaNorm = categoriaBody ? normalizarCategoria(categoriaBody) : undefined
@@ -296,10 +381,10 @@ receitas.patch('/:id', requireAuth, async (c) => {
   const sets: string[] = []
   const vals: any[]    = []
 
-  if (descricao    !== undefined) { sets.push('descricao = ?');     vals.push(descricao) }
-  if (data         !== undefined) { sets.push('data = ?');          vals.push(data) }
+  if (descricao    !== undefined) { sets.push('descricao = ?');     vals.push(String(descricao).trim()) }
+  if (data         !== undefined) { sets.push('data = ?');          vals.push(dataISO) }
   if (categoriaNorm !== undefined){ sets.push('categoria = ?');     vals.push(categoriaNorm) }
-  if (valor        !== undefined) { sets.push('valor = ?');         vals.push(parseFloat(valor)) }
+  if (valor        !== undefined) { sets.push('valor = ?');         vals.push(parseValorPositivo(valor)) }
   if (recorrente   !== undefined) { sets.push('recorrente = ?');    vals.push(recorrente ? 1 : 0) }
   if (frequencia   !== undefined) { sets.push('frequencia = ?');    vals.push(frequencia || null) }
   if (observacoes  !== undefined) { sets.push('observacoes = ?');   vals.push(observacoes || null) }
@@ -314,6 +399,10 @@ receitas.patch('/:id', requireAuth, async (c) => {
     `UPDATE receitas SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
   ).bind(...vals).run()
 
+  if (categoriaNorm) {
+    try { await sincronizarTagCategoriaReceita(c.env.DB, user.id, parseInt(id, 10), categoriaNorm) } catch {}
+  }
+
   return c.json({ success: true, message: 'Receita atualizada!' })
 })
 
@@ -321,9 +410,8 @@ receitas.patch('/:id', requireAuth, async (c) => {
 receitas.delete('/bulk', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
-  const ids: number[] = body?.ids || []
-  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
-  if (ids.length > 200) return c.json({ error: 'Máximo 200 itens por vez.' }, 400)
+  const ids = idsValidos(body?.ids)
+  if (!ids) return c.json({ error: 'Informe de 1 a 200 IDs numéricos válidos.' }, 400)
 
   let excluidas = 0
   for (const id of ids) {
@@ -342,6 +430,7 @@ receitas.delete('/bulk', requireAuth, async (c) => {
 receitas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
 
   const existing = await c.env.DB.prepare('SELECT id FROM receitas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Receita não encontrada' }, 404)

@@ -2,12 +2,80 @@ import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
-import { filtroCompetencia, filtroCompetenciaAno, filtroSemAporte, mesDoisDigitos } from '../lib/competencia'
+import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const despesas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+const MAX_DESCRICAO = 500
+const MAX_VALOR = 1_000_000_000
+const MAX_LIMIT = 10_000
+const STATUS_VALIDOS = ['pago', 'pendente', 'cancelado']
+const MEIOS_VALIDOS = ['dinheiro', 'pix', 'cartao_debito', 'cartao_credito', 'boleto', 'transferencia', 'parcelado_cartao']
+const TIPOS_DESPESA_VALIDOS = ['fixa', 'variavel']
+const TIPOS_LANCAMENTO_VALIDOS = ['normal', 'aporte']
+
+function arredondarCentavos(valor: any): number {
+  return Math.round((Number(valor) || 0) * 100) / 100
+}
+
+function parseValorPositivo(valor: unknown): number | null {
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+
+function parseInteiroPositivo(valor: unknown): number | null {
+  if (typeof valor !== 'string' && typeof valor !== 'number') return null
+  const texto = String(valor)
+  if (!/^\d+$/.test(texto)) return null
+  const n = parseInt(texto, 10)
+  return n > 0 ? n : null
+}
+
+function parseInteiroNaoNegativo(valor: unknown): number | null {
+  if (typeof valor !== 'string' && typeof valor !== 'number') return null
+  const texto = String(valor)
+  if (!/^\d+$/.test(texto)) return null
+  const n = parseInt(texto, 10)
+  return n >= 0 ? n : null
+}
+
+function parsePaginacao(limit: string, offset: string): { limitNum: number; offsetNum: number } | { error: string } {
+  const limitNum = parseInteiroPositivo(limit)
+  const offsetNum = parseInteiroNaoNegativo(offset)
+  if (!limitNum || offsetNum === null || limitNum > MAX_LIMIT) return { error: `limit deve ficar entre 1 e ${MAX_LIMIT}, e offset deve ser 0 ou maior.` }
+  return { limitNum, offsetNum }
+}
+
+function validarAno(ano?: string): boolean {
+  if (!ano) return true
+  if (!/^\d{4}$/.test(ano)) return false
+  const n = parseInt(ano, 10)
+  return n >= 1900 && n <= 2100
+}
+
+function validarMesAno(mes?: string, ano?: string): { mesParam?: string; anoParam?: string; error?: string } {
+  if (mes) {
+    if (!/^\d{1,2}$/.test(mes)) return { error: 'Mês inválido. Use 1 a 12.' }
+    const mesNum = parseInt(mes, 10)
+    if (mesNum < 1 || mesNum > 12) return { error: 'Mês inválido. Use 1 a 12.' }
+    if (!ano) return { error: 'Ano é obrigatório ao filtrar por mês.' }
+    if (!validarAno(ano)) return { error: 'Ano inválido. Use um ano entre 1900 e 2100.' }
+    return { mesParam: String(mesNum).padStart(2, '0'), anoParam: ano }
+  }
+  if (!validarAno(ano)) return { error: 'Ano inválido. Use um ano entre 1900 e 2100.' }
+  return { anoParam: ano }
+}
+
+function idsValidos(ids: unknown): number[] | null {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200) return null
+  const parsed = ids.map(parseInteiroPositivo)
+  if (parsed.some(id => !id)) return null
+  return [...new Set(parsed as number[])]
+}
 
 // ── Utilitários de categoria ─────────────────────────────────────────────────
 
@@ -109,6 +177,17 @@ despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag } = c.req.query()
 
+  const paginacao = parsePaginacao(limit, offset)
+  if ('error' in paginacao) return c.json({ error: paginacao.error }, 400)
+  const periodo = validarMesAno(mes, ano)
+  if (periodo.error) return c.json({ error: periodo.error }, 400)
+  if (status && !STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+  if (meio_pagamento && !MEIOS_VALIDOS.includes(meio_pagamento)) return c.json({ error: `Meio de pagamento inválido. Use: ${MEIOS_VALIDOS.join(', ')}` }, 400)
+  const cartaoIdNum = cartao_id ? parseInteiroPositivo(cartao_id) : null
+  if (cartao_id && !cartaoIdNum) return c.json({ error: 'cartao_id inválido.' }, 400)
+  const tagIdNum = tag_id ? parseInteiroPositivo(tag_id) : null
+  if (tag_id && !tagIdNum) return c.json({ error: 'tag_id inválido.' }, 400)
+
   let query = 'SELECT * FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
   const params: any[] = [user.id]
 
@@ -120,19 +199,20 @@ despesas.get('/', requireAuth, async (c) => {
     return c.json({ despesas: result.results || [], total: (result.results || []).length })
   }
 
-  if (mes && ano) {
+  if (periodo.mesParam && periodo.anoParam) {
     query += ' AND ' + filtroCompetencia()
-    params.push(mesDoisDigitos(mes), ano)
-  } else if (ano) {
+    params.push(periodo.mesParam, periodo.anoParam)
+  } else if (periodo.anoParam) {
     query += ' AND ' + filtroCompetenciaAno()
-    params.push(ano)
+    params.push(periodo.anoParam)
   }
 
   // Filtro de categoria: case-insensitive cobrindo aliases legados
   if (categoria) { query += filtroCategoriaDespaSQL(categoria) }
   if (status)    { query += ' AND status = ?';    params.push(status) }
+  else            { query += ' AND ' + filtroNaoCancelada() }
   if (meio_pagamento) { query += ' AND meio_pagamento = ?'; params.push(meio_pagamento) }
-  if (cartao_id)          { query += ' AND cartao_id = ?';                    params.push(parseInt(cartao_id)) }
+  if (cartaoIdNum)        { query += ' AND cartao_id = ?';                    params.push(cartaoIdNum) }
   if (sem_cartao === '1') { query += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
   if (com_cartao === '1') { query += ' AND cartao_id IS NOT NULL AND cartao_id != 0' }
   if (busca) {
@@ -141,35 +221,36 @@ despesas.get('/', requireAuth, async (c) => {
   }
   if (tag_id) {
     query += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'
-    params.push(parseInt(tag_id))
+    params.push(tagIdNum)
   }
   if (sem_tag === '1') {
     query += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)'
   }
 
   query += ' ORDER BY data DESC, id DESC LIMIT ? OFFSET ?'
-  params.push(parseInt(limit), parseInt(offset))
+  params.push(paginacao.limitNum, paginacao.offsetNum)
 
   const result = await c.env.DB.prepare(query).bind(...params).all()
 
   // totais por status respeitando filtros (sem busca para não distorcer o total do mês)
   let baseFilter = 'FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
   const baseParams: any[] = [user.id]
-  if (mes && ano) {
+  if (periodo.mesParam && periodo.anoParam) {
     baseFilter += ' AND ' + filtroCompetencia()
-    baseParams.push(mesDoisDigitos(mes), ano)
-  } else if (ano) {
+    baseParams.push(periodo.mesParam, periodo.anoParam)
+  } else if (periodo.anoParam) {
     baseFilter += ' AND ' + filtroCompetenciaAno()
-    baseParams.push(ano)
+    baseParams.push(periodo.anoParam)
   }
   if (categoria)   { baseFilter += filtroCategoriaDespaSQL(categoria) }
   if (status)      { baseFilter += ' AND status = ?';          baseParams.push(status) }
+  else             { baseFilter += ' AND ' + filtroNaoCancelada() }
   if (meio_pagamento) { baseFilter += ' AND meio_pagamento = ?'; baseParams.push(meio_pagamento) }
-  if (cartao_id)          { baseFilter += ' AND cartao_id = ?';                    baseParams.push(parseInt(cartao_id)) }
+  if (cartaoIdNum)        { baseFilter += ' AND cartao_id = ?';                    baseParams.push(cartaoIdNum) }
   if (sem_cartao === '1') { baseFilter += ' AND (cartao_id IS NULL OR cartao_id = 0)' }
   if (com_cartao === '1') { baseFilter += ' AND cartao_id IS NOT NULL AND cartao_id != 0' }
   if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
-  if (tag_id)      { baseFilter += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'; baseParams.push(parseInt(tag_id)) }
+  if (tagIdNum)    { baseFilter += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'; baseParams.push(tagIdNum) }
   if (sem_tag === '1') { baseFilter += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)' }
 
   const caseExpr = gerarCaseCategoriaDesp()
@@ -180,11 +261,12 @@ despesas.get('/', requireAuth, async (c) => {
     c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as v, COUNT(*) as n ${baseFilter}`).bind(...baseParams),
     // breakdown por categoria normalizada (sem filtro de categoria pura para mostrar todas do período)
     (() => {
-      let cbFilter = 'FROM despesas WHERE user_id = ? AND (tipo IS NULL OR tipo != \'aporte\')'
+      let cbFilter = 'FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
       const cbParams: any[] = [user.id]
-      if (mes && ano) { cbFilter += ' AND ' + filtroCompetencia(); cbParams.push(mesDoisDigitos(mes), ano) }
-      else if (ano) { cbFilter += ' AND ' + filtroCompetenciaAno(); cbParams.push(ano) }
+      if (periodo.mesParam && periodo.anoParam) { cbFilter += ' AND ' + filtroCompetencia(); cbParams.push(periodo.mesParam, periodo.anoParam) }
+      else if (periodo.anoParam) { cbFilter += ' AND ' + filtroCompetenciaAno(); cbParams.push(periodo.anoParam) }
       if (status) { cbFilter += ' AND status = ?'; cbParams.push(status) }
+      else { cbFilter += ' AND ' + filtroNaoCancelada() }
       if (busca) { cbFilter += ' AND descricao LIKE ?'; cbParams.push(`%${busca.replace(/'/g,"''")}%`) }
       return c.env.DB.prepare(
         `SELECT ${caseExpr} as categoria, COALESCE(SUM(valor),0) as total, COUNT(*) as qtd ${cbFilter} GROUP BY ${caseExpr} ORDER BY total DESC LIMIT 10`
@@ -224,12 +306,12 @@ despesas.get('/', requireAuth, async (c) => {
 
   return c.json({ 
     despesas:       despesasNorm, 
-    total:          rGeral.v,
+    total:          arredondarCentavos(rGeral.v),
     count:          despesasNorm.length,
     total_count:    rGeral.n,
-    total_pago:     rPago.v,
+    total_pago:     arredondarCentavos(rPago.v),
     count_pago:     rPago.n,
-    total_pendente: rPendente.v,
+    total_pendente: arredondarCentavos(rPendente.v),
     count_pendente: rPendente.n,
     categorias_breakdown: catBreakdownR.results || [],
   })
@@ -238,42 +320,35 @@ despesas.get('/', requireAuth, async (c) => {
 // POST /api/despesas
 despesas.post('/', requireAuth, async (c) => {
   const user = c.get('user')
-
-  // ── Limite de plano ──
-  const lim = getLimites(user.plano)
-  if (lim.despesas_mes !== Infinity) {
-    const now = new Date()
-    const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
-    const anoAtual = String(now.getFullYear())
-    const count = await c.env.DB.prepare(
-      `SELECT COUNT(*) as n FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, mesAtual, anoAtual).first() as any
-    if ((count?.n || 0) >= lim.despesas_mes)
-      return c.json({ error: MSG_UPGRADE.despesas_mes, upgrade: true, limite: lim.despesas_mes, feature: 'despesas_mes' }, 403)
-  }
-
   const body = await c.req.json()
-  const { 
-    descricao, data, categoria, subcategoria, valor, 
-    parcelado = false, numero_parcelas = 1, status = 'pendente',
+  const {
+    data, subcategoria, valor,
+    parcelado = false, status = 'pendente',
     fixa_ou_variavel = 'variavel', recorrente = false, vencimento, observacoes,
     cartao_id = null, meio_pagamento = 'dinheiro',
     valor_parcela_override = null,
-    parcelas_total_original = null
+    parcelas_total_original = null,
+    tipo = 'normal',
+    eh_aporte_patrimonial = false
   } = body
+  const descricao = String(body.descricao || '').trim()
+  let categoria = body.categoria
 
   if (!descricao || !data || !categoria || valor === undefined || valor === null) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+  if (descricao.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
+  categoria = normalizarCategoriaDesp(String(categoria).trim())
+  if (!categoria) return c.json({ error: 'Categoria obrigatória.' }, 400)
+  if (!STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+  if (!TIPOS_DESPESA_VALIDOS.includes(fixa_ou_variavel)) return c.json({ error: `Tipo inválido. Use: ${TIPOS_DESPESA_VALIDOS.join(', ')}` }, 400)
 
   // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
   const dataISO = normalizarData(data)
   if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
   // M-D3: rejeitar valor negativo ou zero
-  const valorNum = parseFloat(valor)
-  if (isNaN(valorNum) || valorNum <= 0) {
-    return c.json({ error: 'Valor inválido — deve ser um número maior que zero' }, 400)
-  }
+  const valorNum = parseValorPositivo(valor)
+  if (valorNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
 
   // ── Normalizar meio_pagamento: mapear aliases do frontend para valores canônicos ──
   // 'debito' é alias de 'cartao_debito'
@@ -286,14 +361,22 @@ despesas.post('/', requireAuth, async (c) => {
     return mapa[mp] ?? mp
   }
   const meioPagamentoNorm = normalizarMeioPagamento(meio_pagamento)
+  if (!MEIOS_VALIDOS.includes(meioPagamentoNorm)) return c.json({ error: `Meio de pagamento inválido. Use: ${MEIOS_VALIDOS.join(', ')}` }, 400)
+
+  if (tipo !== undefined && !TIPOS_LANCAMENTO_VALIDOS.includes(tipo)) return c.json({ error: `Tipo de lançamento inválido. Use: ${TIPOS_LANCAMENTO_VALIDOS.join(', ')}` }, 400)
+  const tipoLancamento = (tipo === 'aporte' || eh_aporte_patrimonial === true || eh_aporte_patrimonial === 1) ? 'aporte' : 'normal'
 
   // Validar: se meio de pagamento é cartão, cartao_id é obrigatório
   const meioPagamentoCartaoCheck = ['cartao_credito', 'parcelado_cartao']
   if (meioPagamentoCartaoCheck.includes(meioPagamentoNorm) && !cartao_id) {
     return c.json({ error: 'Selecione um cartão para pagamentos com cartão de crédito.' }, 400)
   }
+  const cartaoIdNum = cartao_id ? parseInteiroPositivo(cartao_id) : null
+  if (cartao_id && !cartaoIdNum) return c.json({ error: 'cartao_id inválido.' }, 400)
 
-  const totalParcelas = parcelado ? parseInt(numero_parcelas) : 1
+  if (parcelado && !body.numero_parcelas) return c.json({ error: 'Informe o número de parcelas.' }, 400)
+  const totalParcelas = parcelado ? parseInteiroPositivo(body.numero_parcelas) : 1
+  if (!totalParcelas) return c.json({ error: 'Número de parcelas inválido.' }, 400)
 
   // Teto de parcelas: o formulário já limita a 60 (max="60" no input), mas a
   // API aceitava qualquer número. Um `999` digitado por engano criava 999
@@ -302,6 +385,29 @@ despesas.post('/', requireAuth, async (c) => {
   if (totalParcelas < 1 || totalParcelas > TETO_PARCELAS) {
     return c.json({ error: `Número de parcelas deve ficar entre 1 e ${TETO_PARCELAS}.` }, 400)
   }
+  if (parcelado && totalParcelas < 2) return c.json({ error: 'Parcelamento precisa ter pelo menos 2 parcelas.' }, 400)
+  const totalParcelasLabel = parcelas_total_original ? parseInteiroPositivo(parcelas_total_original) : totalParcelas
+  if (!totalParcelasLabel || totalParcelasLabel < totalParcelas || totalParcelasLabel > TETO_PARCELAS) {
+    return c.json({ error: `Total original de parcelas deve ficar entre ${totalParcelas} e ${TETO_PARCELAS}.` }, 400)
+  }
+  const valorParcelaOverrideNum = valor_parcela_override !== null && valor_parcela_override !== undefined
+    ? parseValorPositivo(valor_parcela_override)
+    : null
+  if (valor_parcela_override !== null && valor_parcela_override !== undefined && valorParcelaOverrideNum === null) {
+    return c.json({ error: 'Valor da parcela inválido.' }, 400)
+  }
+
+  // ── Limite de plano: conta o mês do lançamento, não o mês atual ──
+  const lim = getLimites(user.plano)
+  if (lim.despesas_mes !== Infinity) {
+    const mesLanc = dataISO.slice(5, 7)
+    const anoLanc = dataISO.slice(0, 4)
+    const count = await c.env.DB.prepare(
+      `SELECT COUNT(*) as n FROM despesas WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
+    ).bind(user.id, mesLanc, anoLanc).first() as any
+    if ((count?.n || 0) >= lim.despesas_mes)
+      return c.json({ error: MSG_UPGRADE.despesas_mes, upgrade: true, limite: lim.despesas_mes, feature: 'despesas_mes' }, 403)
+  }
 
   // Arredondamento: R$ 100 em 3x gravava 33.333333333333336 em cada parcela —
   // a soma dava R$ 100,000…008 e a tela mostrava um dízimo. O módulo de
@@ -309,21 +415,21 @@ despesas.post('/', requireAuth, async (c) => {
   // diferença de centavos vai para a ÚLTIMA, como faz qualquer banco:
   // R$ 100 em 3x = 33,33 + 33,33 + 33,34.
   const valorParcela = valor_parcela_override
-    ? parseFloat(valor_parcela_override)
-    : Math.round((parseFloat(valor) / totalParcelas) * 100) / 100
+    ? valorParcelaOverrideNum as number
+    : Math.round((valorNum / totalParcelas) * 100) / 100
   const sobraCentavos = valor_parcela_override
     ? 0
-    : Math.round((parseFloat(valor) - valorParcela * totalParcelas) * 100) / 100
-  const totalParcelasLabel = parcelas_total_original ? parseInt(parcelas_total_original) : totalParcelas
+    : Math.round((valorNum - valorParcela * totalParcelas) * 100) / 100
   const ids: number[] = []
 
   // Buscar dados do cartão para calcular billing correto
   let cartaoInfo: any = null
   const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao']
-  if (cartao_id && meioPagamentoCartao.includes(meioPagamentoNorm)) {
+  if (cartaoIdNum && meioPagamentoCartao.includes(meioPagamentoNorm)) {
     cartaoInfo = await c.env.DB.prepare(
       'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
-    ).bind(parseInt(cartao_id), user.id).first() as any
+    ).bind(cartaoIdNum, user.id).first() as any
+    if (!cartaoInfo) return c.json({ error: 'Cartão não encontrado.' }, 404)
   }
 
   // Gerar UUID simples para agrupar parcelas (S3: gerado para qualquer parcelamento >= 2)
@@ -381,16 +487,18 @@ despesas.post('/', requireAuth, async (c) => {
     const result = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor,
        parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente,
-       vencimento, observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       vencimento, observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id,
+       tipo, eh_aporte_patrimonial, data_pagamento)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       user.id,
       totalParcelas > 1 ? `${descricao} (${parcelaAtualLabel}/${totalParcelasLabel})` : descricao,
       dataParaGravar, categoria, subcategoria || null, valorDestaParcela,
       parcelado ? 1 : 0, totalParcelasLabel, parcelaAtualLabel, status,
       fixa_ou_variavel, recorrente ? 1 : 0, dataVenc || null, observacoes || null,
-      cartao_id ? parseInt(cartao_id) : null, meioPagamentoNorm,
-      bMonth, bYear, groupId
+      cartaoIdNum, meioPagamentoNorm,
+      bMonth, bYear, groupId, tipoLancamento, tipoLancamento === 'aporte' ? 1 : 0,
+      status === 'pago' ? dataISO : null
     ).run()
     ids.push(result.meta.last_row_id as number)
 
@@ -404,7 +512,7 @@ despesas.post('/', requireAuth, async (c) => {
          purchase_group_id, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
-        parseInt(cartao_id), result.meta.last_row_id, descParcela, valorParcela,
+        cartaoIdNum, result.meta.last_row_id, descParcela, valorParcela,
         dataParcela, dataVenc, bMonth, bYear,
         totalParcelas > 1 ? parcelaAtualLabel : null,
         totalParcelas > 1 ? totalParcelasLabel : null,
@@ -432,24 +540,26 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, status } = await c.req.json()
 
-  const statusValidos = ['pago', 'pendente', 'cancelado']
-  if (!status || !statusValidos.includes(status)) {
-    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
-  }
-  if (!mes || !ano) {
-    return c.json({ error: 'Parâmetros mes e ano são obrigatórios' }, 400)
-  }
+  if (!status || !STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+  const periodo = validarMesAno(String(mes || ''), String(ano || ''))
+  if (periodo.error || !periodo.anoParam) return c.json({ error: periodo.error || 'Ano é obrigatório' }, 400)
+
+  const filtroPeriodo = periodo.mesParam && periodo.anoParam ? filtroCompetencia() : filtroCompetenciaAno()
+  const paramsPeriodo = periodo.mesParam && periodo.anoParam
+    ? [user.id, periodo.mesParam, periodo.anoParam]
+    : [user.id, periodo.anoParam]
 
   const pendentes = await c.env.DB.prepare(
-    `SELECT * FROM despesas WHERE user_id = ? AND ${filtroCompetencia()} AND status = 'pendente'`
-  ).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
+    `SELECT * FROM despesas WHERE user_id = ? AND ${filtroSemAporte()} AND ${filtroPeriodo} AND status = 'pendente'`
+  ).bind(...paramsPeriodo).all()
 
   const rows = (pendentes.results || []) as any[]
   if (rows.length === 0) return c.json({ success: true, atualizadas: 0, message: 'Nenhuma despesa pendente encontrada.' })
 
   let atualizadas = 0
+  const dataPagamento = new Date().toISOString().split('T')[0]
   for (const d of rows) {
-    await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, d.id, user.id).run()
+    await c.env.DB.prepare('UPDATE despesas SET status = ?, data_pagamento = ? WHERE id = ? AND user_id = ?').bind(status, status === 'pago' ? dataPagamento : null, d.id, user.id).run()
     if (d.cartao_id && status === 'pago') {
       await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE expense_id = ?').bind('pago', d.id).run()
     }
@@ -463,11 +573,13 @@ despesas.patch('/batch-status', requireAuth, async (c) => {
 despesas.patch('/bulk-pagar', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
-  const ids: number[] = body?.ids || []
-  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
-  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
+  const ids = idsValidos(body?.ids)
+  if (!ids) return c.json({ error: 'Informe de 1 a 200 IDs numéricos válidos.' }, 400)
 
-  const hoje = new Date().toISOString().split('T')[0]
+  const dataPagamento = body?.data_pagamento !== undefined
+    ? normalizarData(body.data_pagamento)
+    : new Date().toISOString().split('T')[0]
+  if (!dataPagamento) return c.json({ error: ERRO_DATA }, 400)
   let atualizadas = 0
   for (const id of ids) {
     // Buscar dados antes de atualizar para sincronizar cartão
@@ -478,7 +590,7 @@ despesas.patch('/bulk-pagar', requireAuth, async (c) => {
 
     const res = await c.env.DB.prepare(
       `UPDATE despesas SET status='pago', data_pagamento=? WHERE id=? AND user_id=? AND status='pendente'`
-    ).bind(hoje, id, user.id).run()
+    ).bind(dataPagamento, id, user.id).run()
     if (res.meta.changes > 0) {
       atualizadas++
       // Sincronizar cartão de crédito vinculado
@@ -496,9 +608,8 @@ despesas.patch('/bulk-pagar', requireAuth, async (c) => {
 despesas.patch('/bulk-pendente', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
-  const ids: number[] = body?.ids || []
-  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
-  if (ids.length > 200) return c.json({ error: 'Maximo 200 itens por vez.' }, 400)
+  const ids = idsValidos(body?.ids)
+  if (!ids) return c.json({ error: 'Informe de 1 a 200 IDs numéricos válidos.' }, 400)
 
   let atualizadas = 0
   for (const id of ids) {
@@ -527,14 +638,19 @@ despesas.patch('/bulk-pendente', requireAuth, async (c) => {
 despesas.get('/categorias', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano } = c.req.query()
+  const periodo = validarMesAno(mes, ano)
+  if (periodo.error) return c.json({ error: periodo.error }, 400)
   
   const caseExpr = gerarCaseCategoriaDesp()
-  let query = `SELECT ${caseExpr} as categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM despesas WHERE user_id = ?`
+  let query = `SELECT ${caseExpr} as categoria, COALESCE(SUM(valor), 0) as total, COUNT(*) as count FROM despesas WHERE user_id = ? AND ${filtroSemAporte()} AND ${filtroNaoCancelada()}`
   const params: any[] = [user.id]
   
-  if (mes && ano) {
+  if (periodo.mesParam && periodo.anoParam) {
     query += ' AND ' + filtroCompetencia()
-    params.push(mesDoisDigitos(mes), ano)
+    params.push(periodo.mesParam, periodo.anoParam)
+  } else if (periodo.anoParam) {
+    query += ' AND ' + filtroCompetenciaAno()
+    params.push(periodo.anoParam)
   }
   
   query += ` GROUP BY ${caseExpr} ORDER BY total DESC`
@@ -546,35 +662,42 @@ despesas.get('/categorias', requireAuth, async (c) => {
 despesas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
   const body = await c.req.json()
 
   const existing = await c.env.DB.prepare('SELECT id FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
-  const { descricao, data, categoria, subcategoria, valor, status,
-    fixa_ou_variavel, tipo: tipoEdit, meio_pagamento: meioPagEdit,
-    vencimento, observacoes } = body
-
-  // aceitar 'tipo' como alias de 'fixa_ou_variavel'
-  const fixaOuVariavelFinal = fixa_ou_variavel ?? tipoEdit ?? null
+  const { data, subcategoria, valor, status, data_pagamento,
+    fixa_ou_variavel, tipo: tipoLancamentoEdit, meio_pagamento: meioPagEdit,
+    vencimento, observacoes, eh_aporte_patrimonial } = body
+  const descricao = String(body.descricao || '').trim()
+  let categoria = body.categoria
+  const fixaOuVariavelFinal = fixa_ou_variavel ?? null
 
   // B7: validar campos obrigatórios e valor
   if (!descricao || !data || !categoria || valor === undefined) {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
+  if (descricao.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
+  categoria = normalizarCategoriaDesp(String(categoria).trim())
+  if (!categoria) return c.json({ error: 'Categoria obrigatória.' }, 400)
 
   // Data fora do ISO virava registro invisível — ver src/lib/validacao.ts.
   const dataISO = normalizarData(data)
   if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
-  const valorEditNum = parseFloat(valor)
-  if (isNaN(valorEditNum) || valorEditNum <= 0) {
-    return c.json({ error: 'Valor inválido — deve ser um número maior que zero' }, 400)
-  }
+  const dataPagamentoISO = data_pagamento !== undefined && data_pagamento !== null && data_pagamento !== ''
+    ? normalizarData(data_pagamento)
+    : new Date().toISOString().split('T')[0]
+  if (status === 'pago' && !dataPagamentoISO) return c.json({ error: ERRO_DATA }, 400)
+  const valorEditNum = parseValorPositivo(valor)
+  if (valorEditNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
   // B8/M-D2: validar enum de status
-  const statusValidos = ['pago', 'pendente', 'cancelado']
-  if (status && !statusValidos.includes(status)) {
-    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
-  }
+  if (status && !STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+  if (fixaOuVariavelFinal !== null && !TIPOS_DESPESA_VALIDOS.includes(fixaOuVariavelFinal)) return c.json({ error: `Tipo inválido. Use: ${TIPOS_DESPESA_VALIDOS.join(', ')}` }, 400)
+  if (meioPagEdit !== undefined && !MEIOS_VALIDOS.includes(meioPagEdit)) return c.json({ error: `Meio de pagamento inválido. Use: ${MEIOS_VALIDOS.join(', ')}` }, 400)
+  const tipoLancamento = (tipoLancamentoEdit === 'aporte' || eh_aporte_patrimonial === true || eh_aporte_patrimonial === 1) ? 'aporte' : (tipoLancamentoEdit === 'normal' || tipoLancamentoEdit === undefined ? 'normal' : null)
+  if (!tipoLancamento) return c.json({ error: `Tipo de lançamento inválido. Use: ${TIPOS_LANCAMENTO_VALIDOS.join(', ')}` }, 400)
 
   // Buscar dados atuais da despesa (para comparar valor e cartao)
   const despesaAtual = await c.env.DB.prepare('SELECT * FROM despesas WHERE id=? AND user_id=?').bind(id, user.id).first() as any
@@ -588,6 +711,14 @@ despesas.put('/:id', requireAuth, async (c) => {
   if (meioPagEdit !== undefined)      { updateFields.push('meio_pagamento=?');  updateVals.push(meioPagEdit) }
   if (vencimento !== undefined)       { updateFields.push('vencimento=?');       updateVals.push(vencimento || null) }
   if (observacoes !== undefined)      { updateFields.push('observacoes=?');      updateVals.push(observacoes || null) }
+  if (tipoLancamentoEdit !== undefined || eh_aporte_patrimonial !== undefined) {
+    updateFields.push('tipo=?', 'eh_aporte_patrimonial=?')
+    updateVals.push(tipoLancamento, tipoLancamento === 'aporte' ? 1 : 0)
+  }
+  if (status !== undefined) {
+    updateFields.push('data_pagamento=?')
+    updateVals.push(status === 'pago' ? dataPagamentoISO : null)
+  }
 
   updateVals.push(id, user.id)
 
@@ -614,20 +745,22 @@ despesas.put('/:id', requireAuth, async (c) => {
 despesas.patch('/:id/status', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const { status } = await c.req.json()
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
+  const { status, data_pagamento } = await c.req.json()
 
   // B8/M-D2: validar enum de status antes de qualquer query
-  const statusValidos = ['pago', 'pendente', 'cancelado']
-  if (!status || !statusValidos.includes(status)) {
-    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
-  }
+  if (!status || !STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+  const dataPagamentoISO = data_pagamento !== undefined ? normalizarData(data_pagamento) : new Date().toISOString().split('T')[0]
+  if (status === 'pago' && !dataPagamentoISO) return c.json({ error: ERRO_DATA }, 400)
 
   const existing = await c.env.DB.prepare(
     'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
-  await c.env.DB.prepare('UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?').bind(status, id, user.id).run()
+  await c.env.DB.prepare(
+    'UPDATE despesas SET status = ?, data_pagamento = ? WHERE id = ? AND user_id = ?'
+  ).bind(status, status === 'pago' ? dataPagamentoISO : null, id, user.id).run()
 
   // Sincronizar card_charge vinculado (baixa bidirecional)
   if (existing.cartao_id) {
@@ -686,44 +819,89 @@ despesas.patch('/:id/status', requireAuth, async (c) => {
   return c.json({ success: true, message: `Status atualizado para ${status}!` })
 })
 
-// PATCH /api/despesas/:id — atualizar status (e opcionalmente data) de uma despesa
-// Chamado pelo dashboard no botão "pagar" dos próximos vencimentos
+// PATCH /api/despesas/:id — edição parcial ou baixa simples de status
 despesas.patch('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  // Rejeitar IDs que não são numéricos (evitar capturar rotas como /bulk-pagar)
   if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
 
   const body = await c.req.json()
-  const { status, data: dataBody } = body
-
-  const statusValidos = ['pago', 'pendente', 'cancelado']
-  if (!status || !statusValidos.includes(status)) {
-    return c.json({ error: `Status inválido. Use: ${statusValidos.join(', ')}` }, 400)
-  }
+  const { status, data: dataBody, data_pagamento, descricao, categoria,
+    subcategoria, valor, fixa_ou_variavel, tipo, meio_pagamento, vencimento, observacoes } = body
 
   const existing = await c.env.DB.prepare(
     'SELECT * FROM despesas WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Despesa não encontrada' }, 404)
 
-  // Atualizar status e, se fornecida, a data de pagamento
-  if (dataBody) {
-    await c.env.DB.prepare(
-      'UPDATE despesas SET status = ?, data = ?, data_pagamento = ? WHERE id = ? AND user_id = ?'
-    ).bind(status, dataBody, status === 'pago' ? dataBody : null, id, user.id).run()
-  } else {
-    await c.env.DB.prepare(
-      'UPDATE despesas SET status = ? WHERE id = ? AND user_id = ?'
-    ).bind(status, id, user.id).run()
+  const camposDeEdicao = [descricao, categoria, subcategoria, valor, fixa_ou_variavel, tipo, meio_pagamento, vencimento, observacoes]
+    .some(v => v !== undefined)
+  if (status !== undefined && !STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
+
+  const sets: string[] = []
+  const vals: any[] = []
+
+  if (descricao !== undefined) {
+    const descTrim = String(descricao).trim()
+    if (!descTrim) return c.json({ error: 'Descrição obrigatória.' }, 400)
+    if (descTrim.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
+    sets.push('descricao=?'); vals.push(descTrim)
   }
+  if (categoria !== undefined) {
+    const categoriaNorm = normalizarCategoriaDesp(String(categoria).trim())
+    if (!categoriaNorm) return c.json({ error: 'Categoria obrigatória.' }, 400)
+    sets.push('categoria=?'); vals.push(categoriaNorm)
+  }
+  if (subcategoria !== undefined) { sets.push('subcategoria=?'); vals.push(subcategoria || null) }
+  if (valor !== undefined) {
+    const valorNum = parseValorPositivo(valor)
+    if (valorNum === null) return c.json({ error: `Valor inválido — informe um número maior que zero e menor que R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
+    sets.push('valor=?'); vals.push(valorNum)
+  }
+  if (fixa_ou_variavel !== undefined) {
+    if (!TIPOS_DESPESA_VALIDOS.includes(fixa_ou_variavel)) return c.json({ error: `Tipo inválido. Use: ${TIPOS_DESPESA_VALIDOS.join(', ')}` }, 400)
+    sets.push('fixa_ou_variavel=?'); vals.push(fixa_ou_variavel)
+  }
+  if (tipo !== undefined) {
+    if (!TIPOS_LANCAMENTO_VALIDOS.includes(tipo)) return c.json({ error: `Tipo de lançamento inválido. Use: ${TIPOS_LANCAMENTO_VALIDOS.join(', ')}` }, 400)
+    sets.push('tipo=?', 'eh_aporte_patrimonial=?'); vals.push(tipo, tipo === 'aporte' ? 1 : 0)
+  }
+  if (meio_pagamento !== undefined) {
+    if (!MEIOS_VALIDOS.includes(meio_pagamento)) return c.json({ error: `Meio de pagamento inválido. Use: ${MEIOS_VALIDOS.join(', ')}` }, 400)
+    sets.push('meio_pagamento=?'); vals.push(meio_pagamento)
+  }
+  if (vencimento !== undefined) {
+    const vencISO = vencimento ? normalizarData(vencimento) : null
+    if (vencimento && !vencISO) return c.json({ error: ERRO_DATA }, 400)
+    sets.push('vencimento=?'); vals.push(vencISO)
+  }
+  if (observacoes !== undefined) { sets.push('observacoes=?'); vals.push(observacoes || null) }
+  if (camposDeEdicao && dataBody !== undefined) {
+    const dataISO = normalizarData(dataBody)
+    if (!dataISO) return c.json({ error: ERRO_DATA }, 400)
+    sets.push('data=?'); vals.push(dataISO)
+  }
+  if (status !== undefined) {
+    sets.push('status=?'); vals.push(status)
+    const dataBaixaRaw = data_pagamento ?? (!camposDeEdicao ? dataBody : undefined)
+    const dataBaixaISO = dataBaixaRaw !== undefined ? normalizarData(dataBaixaRaw) : new Date().toISOString().split('T')[0]
+    if (status === 'pago' && !dataBaixaISO) return c.json({ error: ERRO_DATA }, 400)
+    sets.push('data_pagamento=?'); vals.push(status === 'pago' ? dataBaixaISO : null)
+  }
+
+  if (sets.length === 0) return c.json({ error: 'Nenhum campo para atualizar' }, 400)
+
+  vals.push(id, user.id)
+  await c.env.DB.prepare(
+    `UPDATE despesas SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
+  ).bind(...vals).run()
 
   // Sincronizar card_charge vinculado
   if (existing.cartao_id) {
     const charge = await c.env.DB.prepare(
       'SELECT * FROM card_charges WHERE expense_id = ?'
     ).bind(id).first() as any
-    if (charge && charge.status !== status) {
+    if (charge && status !== undefined && charge.status !== status) {
       await c.env.DB.prepare('UPDATE card_charges SET status = ? WHERE id = ?').bind(
         status === 'pago' ? 'pago' : 'pendente', charge.id
       ).run()
@@ -734,7 +912,7 @@ despesas.patch('/:id', requireAuth, async (c) => {
     }
   }
 
-  return c.json({ success: true, message: `Status atualizado para ${status}!` })
+  return c.json({ success: true, message: status !== undefined ? `Status atualizado para ${status}!` : 'Despesa atualizada!' })
 })
 
 // DELETE /api/despesas/bulk — excluir múltiplas despesas de uma vez
@@ -742,9 +920,8 @@ despesas.patch('/:id', requireAuth, async (c) => {
 despesas.delete('/bulk', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
-  const ids: number[] = body?.ids || []
-  if (!ids.length) return c.json({ error: 'Nenhum id informado.' }, 400)
-  if (ids.length > 200) return c.json({ error: 'Máximo 200 itens por vez.' }, 400)
+  const ids = idsValidos(body?.ids)
+  if (!ids) return c.json({ error: 'Informe de 1 a 200 IDs numéricos válidos.' }, 400)
 
   let excluidas = 0
   for (const id of ids) {
@@ -774,6 +951,7 @@ despesas.delete('/bulk', requireAuth, async (c) => {
 despesas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
 
   const existing = await c.env.DB.prepare(
     'SELECT * FROM despesas WHERE id = ? AND user_id = ?'

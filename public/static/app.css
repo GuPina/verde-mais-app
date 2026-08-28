@@ -310,6 +310,7 @@ body {
 .badge-green { background: rgba(47,191,113,0.12); color: #2FBF71; border: 1px solid rgba(47,191,113,0.25); }
 .badge-red { background: rgba(255,80,80,0.1); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.2); }
 .badge-yellow { background: rgba(255,196,0,0.1); color: #ffc400; border: 1px solid rgba(255,196,0,0.2); }
+.badge-gray { background: rgba(100,116,139,0.12); color: #94a3b8; border: 1px solid rgba(100,116,139,0.25); }
 .badge-blue { background: rgba(100,180,255,0.1); color: #64b4ff; border: 1px solid rgba(100,180,255,0.2); }
 
 /* PROGRESS BAR */
