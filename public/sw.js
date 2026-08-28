@@ -1,5 +1,5 @@
 // VerdeMais Service Worker — Notificações Push + Locais
-const CACHE_NAME = 'verdemais-v7'
+const CACHE_NAME = 'verdemais-v8'
 const STATIC_ASSETS = [
   '/static/app.js',
   '/static/app.css',
