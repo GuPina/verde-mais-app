@@ -230,18 +230,30 @@ financiamentos.post('/', requireAuth, async (c) => {
   const body = await c.req.json()
   const {
     descricao, tipo_imovel = 'residencial', tipo_bem = 'imovel', valor_imovel, valor_financiado, valor_entrada = 0,
-    taxa_juros_anual, numero_parcelas, parcelas_pagas = 0, valor_parcela,
+    taxa_juros_anual, numero_parcelas, parcelas_pagas = 0, valor_parcela, saldo_devedor: saldoInformado,
     data_inicio, banco, contrato, sistema_amortizacao: _sa = 'price', indexador = 'prefixado',
     seguro_mip = 0, seguro_dfi = 0, observacoes
   } = body
   const sistema_amortizacao = (_sa as string).toLowerCase()
 
-  if (!descricao || !valor_imovel || !valor_financiado || !taxa_juros_anual || !numero_parcelas || !valor_parcela || !data_inicio)
-    return c.json({ error: 'Preencha todos os campos obrigatórios' }, 400)
+  const obrigatorios = { descricao, valor_imovel, valor_financiado, taxa_juros_anual, numero_parcelas, valor_parcela, data_inicio }
+  const faltando = Object.entries(obrigatorios).filter(([, valor]) => valor === undefined || valor === null || valor === '').map(([campo]) => campo)
+  if (faltando.length) return c.json({ error: `Preencha os campos obrigatórios: ${faltando.join(', ')}`, campos: faltando }, 400)
+
+  const totalParcelas = parseInt(numero_parcelas)
+  const parcelasPagasN = parseInt(parcelas_pagas)
+  if ([valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela].some(valor => !Number.isFinite(Number(valor)) || Number(valor) < 0) || totalParcelas < 1 || parcelasPagasN > totalParcelas) {
+    return c.json({ error: 'Revise os valores: parcelas e valores devem ser positivos, e parcelas pagas não pode superar o total.' }, 400)
+  }
+  if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
+    return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
+  }
 
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
-  const parcelasRestantes = parseInt(numero_parcelas) - parseInt(parcelas_pagas)
-  const saldoDevedor = calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, parseInt(numero_parcelas), parseInt(parcelas_pagas))
+  const saldoFoiInformado = saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== ''
+  const saldoDevedor = saldoFoiInformado && Number(saldoInformado) >= 0
+    ? Number(saldoInformado)
+    : calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, totalParcelas, parcelasPagasN)
 
   // Data prevista de fim
   const dataInicio = new Date(data_inicio)
@@ -256,8 +268,7 @@ financiamentos.post('/', requireAuth, async (c) => {
   const finId = result.meta.last_row_id as number
 
   // === Criar despesas automáticas das parcelas futuras (batch para performance) ===
-  const parcelasPagasN = parseInt(parcelas_pagas)
-  const totalParcelasN = parseInt(numero_parcelas)
+  const totalParcelasN = totalParcelas
   const valorParcelaN = parseFloat(valor_parcela)
 
   // Inserir em lotes de 100 para evitar timeout
@@ -314,7 +325,7 @@ financiamentos.post('/', requireAuth, async (c) => {
     }
   } catch (_) { /* tag automática é best-effort */ }
 
-  return c.json({ success: true, id: finId, message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
+  return c.json({ success: true, id: finId, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformado ? 'informado' : 'calculado', message: 'Financiamento cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
 // PUT /api/financiamentos/:id
@@ -347,8 +358,21 @@ financiamentos.put('/:id', requireAuth, async (c) => {
   const seguro_mip       = body.seguro_mip       ?? fin.seguro_mip
   const seguro_dfi       = body.seguro_dfi       ?? fin.seguro_dfi
 
+  const camposInvalidos = { descricao, valor_imovel, valor_financiado, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio }
+  const faltandoPut = Object.entries(camposInvalidos).filter(([, valor]) => valor === undefined || valor === null || valor === '').map(([campo]) => campo)
+  if (faltandoPut.length) return c.json({ error: `Preencha os campos obrigatórios: ${faltandoPut.join(', ')}`, campos: faltandoPut }, 400)
+  if ([valor_imovel, valor_financiado, valor_entrada, taxa_juros_anual, numero_parcelas, parcelas_pagas, valor_parcela].some(valor => !Number.isFinite(Number(valor)) || Number(valor) < 0) || Number(numero_parcelas) < 1 || Number(parcelas_pagas) > Number(numero_parcelas)) {
+    return c.json({ error: 'Revise os valores: parcelas e valores devem ser positivos, e parcelas pagas não pode superar o total.' }, 400)
+  }
+  if (body.saldo_devedor !== undefined && body.saldo_devedor !== null && body.saldo_devedor !== '' && (!Number.isFinite(Number(body.saldo_devedor)) || Number(body.saldo_devedor) < 0)) {
+    return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
+  }
+
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
-  const saldoDevedor = calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, parseInt(numero_parcelas), parseInt(parcelas_pagas))
+  const saldoFoiInformado = body.saldo_devedor !== undefined && body.saldo_devedor !== null && body.saldo_devedor !== ''
+  const saldoDevedor = saldoFoiInformado && Number(body.saldo_devedor) >= 0
+    ? Number(body.saldo_devedor)
+    : calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, parseInt(numero_parcelas), parseInt(parcelas_pagas))
 
   // Recalcular data_previsao_fim
   const dataInicioPut = new Date(data_inicio)
@@ -374,7 +398,7 @@ financiamentos.put('/:id', requireAuth, async (c) => {
     ).bind(user.id, user.id).first() as any
     if ((aindaTemDividas?.total || 0) === 0) await verificarConquista(c.env.DB, user.id, 'sem_dividas_total')
   }
-  return c.json({ success: true, message: 'Financiamento atualizado!' })
+  return c.json({ success: true, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformado ? 'informado' : 'calculado', message: 'Financiamento atualizado!' })
 })
 
 // PATCH /api/financiamentos/:id/parcela — registrar pagamento de parcela

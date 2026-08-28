@@ -1,4 +1,8 @@
 (function () {
+  const esc = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
+
   const logo = (dark) => `
     <a class="terminal-logo" href="/" aria-label="VerdeMais — início">
       <img src="/static/verdemais-terminal-mark-${dark ? 'dark' : 'green'}.svg" alt="">
@@ -263,6 +267,99 @@
           error.focus?.()
         }
       })
+    },
+
+    renderOTP(vm) {
+      const email = localStorage.getItem('vm_pending_email') || ''
+      if (!email) { window.location.href = '/cadastro'; return }
+
+      document.getElementById('app').innerHTML = authShell({
+        eyebrow: 'Confirme sua identidade',
+        title: 'Só falta',
+        titleEmphasis: 'uma semente.',
+        story: 'Use o código enviado por e-mail para proteger sua conta e seguir para a personalização do VerdeMais.',
+        form: `
+          <div class="terminal-auth__eyebrow">Verificação por código</div>
+          <h2>Confira seu e-mail.</h2>
+          <p class="terminal-auth__sub">Enviamos 6 dígitos para <strong class="terminal-auth__email">${esc(email)}</strong>.</p>
+          <div id="otp-alert" class="terminal-alert" role="alert" aria-live="polite"></div>
+          <div class="terminal-otp" id="otp-inputs" aria-label="Código de verificação">
+            ${[0, 1, 2, 3, 4, 5].map(index => `<input type="text" inputmode="numeric" maxlength="1" id="otp-${index}" autocomplete="${index === 0 ? 'one-time-code' : 'off'}" aria-label="Dígito ${index + 1}">`).join('')}
+          </div>
+          <button class="terminal-btn terminal-btn--primary terminal-btn--large terminal-auth__submit" id="otp-btn" onclick="VM.submitOTP()" style="opacity:.55" type="button">
+            <span id="otp-btn-text">Verificar código</span> <i class="fas fa-arrow-right" aria-hidden="true"></i>
+          </button>
+          <div class="terminal-otp__resend">
+            <span>Não recebeu?</span>
+            <button id="resend-btn" onclick="VM.resendOTP()" disabled>Reenviar em <span id="resend-countdown">60</span>s</button>
+          </div>
+          <div class="terminal-otp__expiry"><i class="far fa-clock"></i> Código válido por <span id="otp-expiry">10:00</span></div>
+          <div class="terminal-auth__switch"><a href="/cadastro"><i class="fas fa-arrow-left"></i> Usar outro e-mail</a></div>`
+      })
+
+      const inputs = Array.from({ length: 6 }, (_, index) => document.getElementById(`otp-${index}`))
+      const update = () => {
+        const complete = inputs.every(input => input.value.length === 1)
+        const button = document.getElementById('otp-btn')
+        if (button) button.style.opacity = complete ? '1' : '.55'
+      }
+
+      inputs[0].addEventListener('paste', (event) => {
+        event.preventDefault()
+        const value = (event.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6)
+        value.split('').forEach((digit, index) => { if (inputs[index]) inputs[index].value = digit })
+        inputs[Math.min(value.length, 6) - 1]?.focus()
+        update()
+      })
+
+      inputs.forEach((input, index) => {
+        input.addEventListener('input', () => {
+          input.value = input.value.replace(/\D/g, '').slice(-1)
+          if (input.value && index < 5) inputs[index + 1].focus()
+          update()
+        })
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Backspace' && !input.value && index > 0) {
+            inputs[index - 1].value = ''
+            inputs[index - 1].focus()
+            update()
+          }
+          if (event.key === 'ArrowLeft' && index > 0) inputs[index - 1].focus()
+          if (event.key === 'ArrowRight' && index < 5) inputs[index + 1].focus()
+          if (event.key === 'Enter') vm.submitOTP()
+        })
+      })
+      inputs[0].focus()
+
+      clearInterval(vm._otpResendTimer)
+      clearInterval(vm._otpExpiryTimer)
+      let resendSeconds = 60
+      vm._otpResendTimer = setInterval(() => {
+        resendSeconds -= 1
+        const countdown = document.getElementById('resend-countdown')
+        const button = document.getElementById('resend-btn')
+        if (countdown) countdown.textContent = String(Math.max(0, resendSeconds))
+        if (resendSeconds <= 0) {
+          clearInterval(vm._otpResendTimer)
+          if (button) { button.disabled = false; button.textContent = 'Reenviar código' }
+        }
+      }, 1000)
+
+      let expirySeconds = 600
+      vm._otpExpiryTimer = setInterval(() => {
+        expirySeconds -= 1
+        const expiry = document.getElementById('otp-expiry')
+        if (expiry) {
+          const minutes = String(Math.floor(Math.max(0, expirySeconds) / 60)).padStart(2, '0')
+          const seconds = String(Math.max(0, expirySeconds) % 60).padStart(2, '0')
+          expiry.textContent = `${minutes}:${seconds}`
+          if (expirySeconds <= 60) expiry.style.color = '#FF6B6B'
+        }
+        if (expirySeconds <= 0) {
+          clearInterval(vm._otpExpiryTimer)
+          vm._showOTPAlert('Código expirado. Solicite um novo.', 'error')
+        }
+      }, 1000)
     }
   }
 })()

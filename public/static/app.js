@@ -892,6 +892,7 @@ const VM = {
 
   // ======= OTP VERIFICATION =======
   renderOTP() {
+    if (window.VMTerminalAuth?.renderOTP) return window.VMTerminalAuth.renderOTP(this)
     const email = localStorage.getItem('vm_pending_email') || ''
     if (!email) { window.location.href = '/cadastro'; return }
 
@@ -1176,8 +1177,8 @@ const VM = {
         <!-- SIDEBAR -->
         <aside class="sidebar" id="sidebar">
           <div class="sidebar-logo">
-            <div class="sidebar-logo-icon">💚</div>
-            <span style="font-size:1.2rem;font-weight:800;" class="gradient-text">VerdeMais</span>
+            <img class="sidebar-logo-icon" src="/static/verdemais-terminal-mark-green.svg" alt="">
+            <span style="font-size:1.2rem;font-weight:800;">verde<span style="opacity:.55;">mais</span></span>
           </div>
           
           <nav style="overflow-y:auto;flex:1;padding-bottom:8px;" id="sidebar-nav">
@@ -1843,6 +1844,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
+    document.body.classList.toggle('terminal-dashboard-active', page === 'dashboard')
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -1982,6 +1984,7 @@ const VM = {
   _dashAno: null,
 
   async pageDashboard(mesFiltro = null, anoFiltro = null) {
+    if (window.VMTerminalDashboard?.render) return window.VMTerminalDashboard.render(this, mesFiltro, anoFiltro)
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:200px;margin-bottom:20px;border-radius:16px;"></div></div>`
 
@@ -2780,7 +2783,7 @@ const VM = {
       if (!VM._pagarVencimento) {
         VM._pagarVencimento = async (id, descricao, evt) => {
           evt.stopPropagation()
-          const ok = await VM.vmConfirm({ titulo: 'Confirmar Pagamento', texto: `Marcar "${descricao}" como pago?`, textoBotao: 'Confirmar', corBotao: '#2FBF71', icone: '✅' })
+          const ok = await VM.vmConfirm(`Marcar "${descricao}" como pago?`, { titulo: 'Confirmar pagamento', textoBotao: 'Confirmar', corBotao: '#3DDC84', icone: '✓' })
           if (!ok) return
           try {
             await VM.api('PATCH', `despesas/${id}`, { status: 'pago', data: new Date().toISOString().split('T')[0] })
@@ -10550,6 +10553,7 @@ const VM = {
 
   // ======= ONBOARDING WIZARD =======
   renderOnboarding() {
+    if (window.VMTerminalOnboarding?.render) return window.VMTerminalOnboarding.render(this)
     this.onboardingStep = 1
     this.onboardingData = {}
 
@@ -10602,6 +10606,7 @@ const VM = {
   },
 
   renderOnboardingStep(step) {
+    if (window.VMTerminalOnboarding?.renderStep) return window.VMTerminalOnboarding.renderStep(this, step)
     this.onboardingStep = step
     const card = document.getElementById('ob-card')
     const indicator = document.getElementById('ob-step-indicator')
@@ -11057,6 +11062,7 @@ const VM = {
   },
 
   renderOnboardingFinal() {
+    if (window.VMTerminalOnboarding?.renderFinal) return window.VMTerminalOnboarding.renderFinal(this)
     const nome = this.user?.nome?.split(' ')[0] || 'você'
     const proximo = this.onboardingData?.emprego === 'desempregado'
       ? 'Registre suas despesas mensais para entender para onde vai seu dinheiro'
@@ -16497,9 +16503,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       document.head.appendChild(style)
     }
 
+    let stack = document.getElementById('conq-toast-stack')
+    if (!stack) {
+      stack = document.createElement('div')
+      stack.id = 'conq-toast-stack'
+      stack.style.cssText = 'position:fixed;top:80px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:none;max-height:calc(100vh - 100px);overflow:hidden;'
+      document.body.appendChild(stack)
+    }
+
     const el = document.createElement('div')
     el.style.cssText = `
-      position:fixed;top:80px;right:20px;z-index:99999;
+      position:relative;pointer-events:auto;
       background:linear-gradient(135deg,rgba(15,23,42,0.97) 0%,rgba(30,41,59,0.97) 100%);
       border:1px solid ${cor};
       border-radius:18px;padding:18px 20px;min-width:300px;max-width:360px;
@@ -16532,12 +16546,15 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <button onclick="this.parentElement.style.animation='conqOut 0.3s ease forwards';setTimeout(()=>this.parentElement.remove(),300)"
         style="background:none;border:none;color:#334155;cursor:pointer;font-size:1rem;padding:0;line-height:1;flex-shrink:0;align-self:flex-start;">✕</button>
     `
-    document.body.appendChild(el)
+    stack.appendChild(el)
 
     setTimeout(() => {
       if (el.parentNode) {
         el.style.animation = 'conqOut 0.4s ease forwards'
-        setTimeout(() => { if (el.parentNode) el.remove() }, 400)
+        setTimeout(() => {
+          if (el.parentNode) el.remove()
+          if (stack && !stack.children.length) stack.remove()
+        }, 400)
       }
     }, 5000)
   },

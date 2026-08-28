@@ -176,8 +176,20 @@ emprestimos.post('/', requireAuth, async (c) => {
     dia_vencimento, credor, observacoes
   } = body
 
-  if (!descricao || !valor_original || !taxa_juros_mensal || !numero_parcelas || !valor_parcela || !data_inicio)
-    return c.json({ error: 'Campos obrigatórios faltando' }, 400)
+  const obrigatorios = { descricao, valor_original, taxa_juros_mensal, numero_parcelas, valor_parcela, data_inicio }
+  const faltando = Object.entries(obrigatorios).filter(([, valor]) => valor === undefined || valor === null || valor === '').map(([campo]) => campo)
+  if (faltando.length) return c.json({ error: `Preencha os campos obrigatórios: ${faltando.join(', ')}`, campos: faltando }, 400)
+
+  const totalParcelas = parseInt(numero_parcelas)
+  const parcelasPagasN = parseInt(parcelas_pagas)
+  const valoresInvalidos = [valor_original, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela]
+    .some(valor => !Number.isFinite(Number(valor)) || Number(valor) < 0)
+  if (valoresInvalidos || totalParcelas < 1 || parcelasPagasN > totalParcelas) {
+    return c.json({ error: 'Revise os valores: parcelas e valores devem ser positivos, e parcelas pagas não pode superar o total.' }, 400)
+  }
+  if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
+    return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
+  }
 
   // Normalizar tipo — garantir que só valores válidos do CHECK constraint sejam inseridos
   const TIPOS_VALIDOS = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
@@ -185,11 +197,10 @@ emprestimos.post('/', requireAuth, async (c) => {
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
-  const parcelasPagasN = parseInt(parcelas_pagas)
-
   // REGRA: se o usuário informou saldo_devedor_atual, usa ele. Senão, calcula automaticamente.
   let saldoDevedor: number
-  if (saldoInformado && parseFloat(saldoInformado) > 0) {
+  const saldoFoiInformado = saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== ''
+  if (saldoFoiInformado && Number(saldoInformado) >= 0) {
     saldoDevedor = parseFloat(saldoInformado)
   } else {
     saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
@@ -209,7 +220,6 @@ emprestimos.post('/', requireAuth, async (c) => {
   // Conquistas por tipo
   await verificarConquista(c.env.DB, user.id, 'primeiro_emprestimo')
   if (tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'primeiro_carro')
-  const totalParcelas = parseInt(numero_parcelas)
   const valorParc = parseFloat(valor_parcela)
   const diaVenc = parseInt(dia_vencimento) || dataInicio.getDate()
 
@@ -277,7 +287,7 @@ emprestimos.post('/', requireAuth, async (c) => {
     }
   } catch (_) { /* tag automática é best-effort */ }
 
-  return c.json({ success: true, id: empId, message: 'Empréstimo cadastrado e despesas criadas automaticamente!' }, 201)
+  return c.json({ success: true, id: empId, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformado ? 'informado' : 'calculado', message: 'Empréstimo cadastrado e despesas criadas automaticamente!' }, 201)
 })
 
 // PUT /api/emprestimos/:id
@@ -290,6 +300,16 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   const body = await c.req.json()
   const { descricao, tipo: tipoPut, valor_original, saldo_devedor: saldoInformado, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio, dia_vencimento, credor, status, observacoes } = body
 
+  const obrigatoriosPut = { descricao, valor_original, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela, data_inicio }
+  const faltandoPut = Object.entries(obrigatoriosPut).filter(([, valor]) => valor === undefined || valor === null || valor === '').map(([campo]) => campo)
+  if (faltandoPut.length) return c.json({ error: `Preencha os campos obrigatórios: ${faltandoPut.join(', ')}`, campos: faltandoPut }, 400)
+  if ([valor_original, taxa_juros_mensal, numero_parcelas, parcelas_pagas, valor_parcela].some(valor => !Number.isFinite(Number(valor)) || Number(valor) < 0) || Number(numero_parcelas) < 1 || Number(parcelas_pagas) > Number(numero_parcelas)) {
+    return c.json({ error: 'Revise os valores: parcelas e valores devem ser positivos, e parcelas pagas não pode superar o total.' }, 400)
+  }
+  if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
+    return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
+  }
+
   // Normalizar tipo no PUT também
   const TIPOS_VALIDOS_PUT = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
   const tipoNormalizadoPut = TIPOS_VALIDOS_PUT.includes(tipoPut) ? tipoPut : 'outros'
@@ -300,7 +320,8 @@ emprestimos.put('/:id', requireAuth, async (c) => {
 
   // Mesma regra: se informou saldo atual, usa; senão, calcula
   let saldoDevedor: number
-  if (saldoInformado && parseFloat(saldoInformado) > 0) {
+  const saldoFoiInformadoPut = saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== ''
+  if (saldoFoiInformadoPut && Number(saldoInformado) >= 0) {
     saldoDevedor = parseFloat(saldoInformado)
   } else {
     saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
@@ -326,7 +347,7 @@ emprestimos.put('/:id', requireAuth, async (c) => {
      WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pendente' AND observacoes LIKE ?`
   ).bind(parseFloat(valor_parcela), parseInt(numero_parcelas), user.id, `%Empréstimo automático #${id}%`).run()
 
-  return c.json({ success: true, message: 'Empréstimo atualizado!' })
+  return c.json({ success: true, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformadoPut ? 'informado' : 'calculado', message: 'Empréstimo atualizado!' })
 })
 
 // PATCH /api/emprestimos/:id/parcela

@@ -18,6 +18,9 @@ dashboard.get('/', requireAuth, async (c) => {
   const qAno = c.req.query('ano')
   const mes = qMes ? String(qMes).padStart(2, '0') : String(now.getMonth() + 1).padStart(2, '0')
   const ano = qAno ? String(qAno) : String(now.getFullYear())
+  if (!/^(0[1-9]|1[0-2])$/.test(mes) || !/^\d{4}$/.test(ano)) {
+    return c.json({ error: 'Período inválido. Informe mês entre 1 e 12 e ano com 4 dígitos.' }, 400)
+  }
   // Mês anterior para comparativo
   const refDate = new Date(parseInt(ano), parseInt(mes) - 1, 1)
   refDate.setMonth(refDate.getMonth() - 1)
@@ -124,13 +127,19 @@ dashboard.get('/', requireAuth, async (c) => {
        WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
        GROUP BY categoria ORDER BY total DESC LIMIT 6`
     ).bind(user.id, mes, ano),
-    // últimas transações
+    // últimas transações do período selecionado, sem antecipar parcelas futuras
     c.env.DB.prepare(
-      `SELECT 'receita' as tipo, id, descricao, data, categoria, valor, 'pago' as status FROM receitas WHERE user_id = ?
+      `SELECT 'receita' as tipo, id, descricao, data, categoria, valor, 'pago' as status
+       FROM receitas
+       WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ? AND date(data) <= date('now')
        UNION ALL
-       SELECT 'despesa' as tipo, id, descricao, data, categoria, valor, status FROM despesas WHERE user_id = ?
+       SELECT 'despesa' as tipo, id, descricao, (${competenciaData()}) as data, categoria, valor, status
+       FROM despesas
+       WHERE user_id = ?
+         ${filtroDespesaDoMes()}
+         AND date(${competenciaData()}) <= date('now')
        ORDER BY data DESC, id DESC LIMIT 10`
-    ).bind(user.id, user.id),
+    ).bind(user.id, mes, ano, user.id, mes, ano),
     // próximos vencimentos
     c.env.DB.prepare(
       `SELECT id, descricao, categoria, valor, vencimento, status, meio_pagamento FROM despesas WHERE user_id = ? AND status = 'pendente' 
@@ -482,8 +491,9 @@ dashboard.get('/', requireAuth, async (c) => {
       total_investimentos: totalInvest,
       total_investido: totalInvestido,
       percentual_investido: totalReceitas > 0 ? Math.round((totalInvest / totalReceitas) * 100) : 0,
-      taxa_poupanca: totalReceitas > 0 ? Math.round(((saldoLiquido / totalReceitas) * 100) * 10) / 10 : 0,
+      taxa_poupanca: totalReceitas > 0 ? Math.round(((saldoLiquido / totalReceitas) * 100) * 10) / 10 : null,
       total_devedor: totalDevedor,
+      total_dividas: totalDevedor,
       total_saldo_emprestimos: totalSaldoEmprestimos,
       total_saldo_financiamentos: totalSaldoFinanciamentos,
       total_parcela_mensal_dividas: totalParcelaMensal,
@@ -641,6 +651,10 @@ dashboard.get('/relatorio', requireAuth, async (c) => {
   const user = c.get('user')
   const { ano = String(new Date().getFullYear()) } = c.req.query()
 
+  if (!/^\d{4}$/.test(ano) || Number(ano) < 2020 || Number(ano) > 2100) {
+    return c.json({ error: 'Ano inválido. Informe um ano entre 2020 e 2100.' }, 400)
+  }
+
   // Verifica plano para relatório anual
   const lim = getLimites(user.plano)
   if (!lim.relatorio_anual) {
@@ -762,27 +776,33 @@ dashboard.get('/anos', requireAuth, async (c) => {
 
   const [despAnos, recAnos] = await Promise.all([
     c.env.DB.prepare(`
-      SELECT DISTINCT CAST(strftime('%Y', vencimento) AS INTEGER) AS ano
+      SELECT DISTINCT substr(COALESCE(vencimento, data), 1, 4) AS ano_texto
       FROM despesas
       WHERE user_id = ? AND status != 'cancelado'
-      ORDER BY ano
+      ORDER BY ano_texto
     `).bind(user.id).all(),
     c.env.DB.prepare(`
-      SELECT DISTINCT CAST(strftime('%Y', data) AS INTEGER) AS ano
+      SELECT DISTINCT substr(data, 1, 4) AS ano_texto
       FROM receitas
       WHERE user_id = ?
-      ORDER BY ano
+      ORDER BY ano_texto
     `).bind(user.id).all(),
   ])
 
   const anosSet = new Set<number>()
 
   // Adiciona anos das despesas e receitas
-  for (const row of (despAnos.results || []) as { ano: number }[]) {
-    if (row.ano && row.ano >= 2020) anosSet.add(row.ano)
+  for (const row of (despAnos.results || []) as { ano_texto: string }[]) {
+    if (/^\d{4}$/.test(row.ano_texto)) {
+      const ano = Number(row.ano_texto)
+      if (ano >= 2020 && ano <= 2100) anosSet.add(ano)
+    }
   }
-  for (const row of (recAnos.results || []) as { ano: number }[]) {
-    if (row.ano && row.ano >= 2020) anosSet.add(row.ano)
+  for (const row of (recAnos.results || []) as { ano_texto: string }[]) {
+    if (/^\d{4}$/.test(row.ano_texto)) {
+      const ano = Number(row.ano_texto)
+      if (ano >= 2020 && ano <= 2100) anosSet.add(ano)
+    }
   }
 
   // Garante que o ano atual e os 2 próximos sempre aparecem
