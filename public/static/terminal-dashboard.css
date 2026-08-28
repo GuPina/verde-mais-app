@@ -10,15 +10,17 @@ body.terminal-dashboard-active .nav-item:hover { color: var(--terminal-ink); bac
 body.terminal-dashboard-active .nav-item.active { color: var(--terminal-primary); background: var(--terminal-primary-soft); border-color: #285d3f; }
 body.terminal-dashboard-active .nav-icon { width: 18px; color: inherit; }
 body.terminal-dashboard-active .sidebar-user { border-top: 1px solid var(--terminal-line); background: var(--terminal-surface); }
-body.terminal-dashboard-active .main-content { margin-left: 240px; background: var(--terminal-bg); }
+body.terminal-dashboard-active .main-content { min-width: 0; max-width: calc(100vw - 240px); margin-left: 240px; background: var(--terminal-bg); overflow-x: hidden; }
 body.terminal-dashboard-active .topbar { min-height: 73px; padding: 14px 28px; background: rgba(10,15,12,.96); border-bottom: 1px solid var(--terminal-line); box-shadow: none; }
 body.terminal-dashboard-active #page-title { font-size: 13px !important; color: var(--terminal-ink); }
 body.terminal-dashboard-active #page-sub, body.terminal-dashboard-active #topbar-date { color: var(--terminal-ink-soft) !important; }
 body.terminal-dashboard-active .page-content { padding: 0; background: var(--terminal-bg); }
 body.terminal-dashboard-active #fab-lancamento-rapido { display: none !important; }
+body.terminal-dashboard-active #chat-fab { right: 20px !important; bottom: 20px !important; }
 
 .td-dashboard, .td-dashboard * { box-sizing: border-box; }
-.td-dashboard { padding: 30px clamp(20px, 3vw, 42px) 54px; color: var(--terminal-ink); font-family: var(--terminal-font); }
+.td-dashboard { width: 100%; min-width: 0; max-width: 100%; padding: 30px clamp(20px, 3vw, 42px) 54px; overflow: hidden; color: var(--terminal-ink); font-family: var(--terminal-font); }
+.td-hero-grid > *, .td-insights-grid > *, .td-content-grid > *, .td-kpis > * { min-width: 0; }
 .td-dashboard button, .td-dashboard select { font: inherit; }
 .td-dashboard button, .td-dashboard a { -webkit-tap-highlight-color: transparent; }
 .td-dashboard button:focus-visible, .td-dashboard a:focus-visible, .td-dashboard select:focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 3px; }
@@ -142,12 +144,15 @@ body.terminal-dashboard-active #fab-lancamento-rapido { display: none !important
   .td-kpi { min-height: 105px; }
 }
 @media (max-width: 900px) {
-  body.terminal-dashboard-active .main-content { margin-left: 0; }
+  body.terminal-dashboard-active .main-content { width: 100%; min-width: 0; max-width: 100vw; margin-left: 0; }
+  body.terminal-dashboard-active #chat-fab, body.terminal-dashboard-active #chat-widget { display: none !important; }
   .td-dashboard { padding-bottom: 90px; }
   .td-content-grid, .td-content-grid--bottom, .td-onboarding { grid-template-columns: 1fr; }
   .td-onboarding { gap: 30px; }
 }
 @media (max-width: 720px) {
+  body.terminal-dashboard-active .topbar > div:last-child { gap: 7px !important; }
+  body.terminal-dashboard-active #topbar-date { display: none !important; }
   .td-dashboard { padding: 20px 14px 92px; }
   .td-dashboard__header { display: block; }
   .td-dashboard__header-actions { margin-top: 18px; }
