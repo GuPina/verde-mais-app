@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">VerdeMais</title>
+  <path d="M24 42V20" stroke="#0A0F0C" stroke-width="2" stroke-linecap="square" fill="none"/>
+  <path d="M24 26 L10 12 L10 22 C10 26 14 30 18 30 L24 30 Z" fill="#0A0F0C"/>
+  <path d="M24 22 L38 8 L38 18 C38 22 34 26 30 26 L24 26 Z" fill="#0A0F0C" opacity=".65"/>
+  <rect x="20" y="41" width="8" height="2" fill="#0A0F0C"/>
+</svg>

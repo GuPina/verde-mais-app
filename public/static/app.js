@@ -468,6 +468,7 @@ const VM = {
 
   // ======= AUTH PAGES =======
   renderLogin() {
+    if (window.VMTerminalAuth) return window.VMTerminalAuth.renderLogin(this)
     document.getElementById('app').innerHTML = `
       <div style="min-height:100vh;background:linear-gradient(135deg,#0a0f0a 0%,#0d1f12 40%,#0a2a14 100%);display:flex;align-items:center;justify-content:center;padding:20px;position:relative;overflow:hidden;">
         
@@ -566,6 +567,7 @@ const VM = {
   },
 
   renderCadastro() {
+    if (window.VMTerminalAuth) return window.VMTerminalAuth.renderCadastro(this)
     document.getElementById('app').innerHTML = `
       <div style="min-height:100vh;background:#0F172A;display:flex;">
 
