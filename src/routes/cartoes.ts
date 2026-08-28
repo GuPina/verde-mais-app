@@ -12,6 +12,74 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const cartoes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+const BANDEIRAS_VALIDAS = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
+const MAX_VALOR_CARTAO = 1_000_000_000
+const MAX_PARCELAS_CARTAO = 60
+const MAX_TEXTO_CARTAO = 500
+
+function textoObrigatorio(valor: unknown, campo: string, max = MAX_TEXTO_CARTAO) {
+  const texto = String(valor ?? '').trim()
+  if (!texto) return { error: `${campo} é obrigatório` }
+  if (texto.length > max) return { error: `${campo} deve ter no máximo ${max} caracteres` }
+  return { value: texto }
+}
+
+function textoOpcional(valor: unknown, max = MAX_TEXTO_CARTAO) {
+  if (valor === undefined || valor === null) return null
+  const texto = String(valor).trim()
+  if (!texto) return null
+  return texto.length > max ? texto.slice(0, max) : texto
+}
+
+function numeroPositivo(valor: unknown, campo: string, max = MAX_VALOR_CARTAO) {
+  const n = Number(valor)
+  if (!Number.isFinite(n) || n <= 0) return { error: `${campo} deve ser um número maior que zero` }
+  if (n > max) return { error: `${campo} excede o limite máximo permitido` }
+  return { value: Math.round(n * 100) / 100 }
+}
+
+function inteiroEntre(valor: unknown, campo: string, min: number, max: number) {
+  const n = Number(valor)
+  if (!Number.isInteger(n) || n < min || n > max) return { error: `${campo} deve ser um número inteiro entre ${min} e ${max}` }
+  return { value: n }
+}
+
+function dataIso(valor: unknown, campo = 'data_compra') {
+  const data = String(valor ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return { error: `${campo} deve estar no formato AAAA-MM-DD` }
+  const d = new Date(data + 'T12:00:00')
+  if (Number.isNaN(d.getTime())) return { error: `${campo} inválida` }
+  return { value: data }
+}
+
+function mesAnoValidos(mesValor: unknown, anoValor: unknown) {
+  const mes = inteiroEntre(mesValor, 'mes', 1, 12)
+  if ('error' in mes) return { error: mes.error }
+  const ano = inteiroEntre(anoValor, 'ano', 2000, 2100)
+  if ('error' in ano) return { error: ano.error }
+  return { mes: mes.value, ano: ano.value }
+}
+
+function corCartao(valor: unknown) {
+  const cor = String(valor || '#2FBF71').trim()
+  return /^#[0-9A-Fa-f]{6}$/.test(cor) ? cor : '#2FBF71'
+}
+
+function ultimosDigitos(valor: unknown) {
+  const digitos = String(valor ?? '').replace(/\D/g, '').slice(-4)
+  return digitos || null
+}
+
+async function limiteDisponivelParaCompra(db: D1Database, cardId: number, limiteTotal: number) {
+  const usoAtual = await db.prepare(
+    `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
+     WHERE card_id = ? AND status = 'pendente'`
+  ).bind(cardId).first() as any
+  const utilizado  = Math.round(Number(usoAtual?.total || 0) * 100) / 100
+  const disponivel = Math.round((Number(limiteTotal || 0) - utilizado) * 100) / 100
+  return { utilizado, disponivel }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS DE CÁLCULO BANCÁRIO
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +92,11 @@ function calcBillingPeriod(purchaseDateStr: string, closingDay: number) {
   const d    = new Date(purchaseDateStr + 'T12:00:00')
   let month  = d.getMonth() + 1   // 1-12
   let year   = d.getFullYear()
-  if (d.getDate() >= closingDay) { // >= inclui o próprio dia de fechamento
+  const effectiveClosingDay = Math.min(
+    Math.max(1, Number(closingDay) || 1),
+    new Date(year, month, 0).getDate()
+  )
+  if (d.getDate() >= effectiveClosingDay) { // >= inclui o próprio dia de fechamento
     month++
     if (month > 12) { month = 1; year++ }
   }
@@ -109,27 +181,37 @@ cartoes.post('/', requireAuth, async (c) => {
   }
 
   const { nome, bandeira: bandeiraBruta, banco, apelido, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
-  if (!nome || !bandeiraBruta || !banco || !limite_total || !dia_vencimento || !dia_fechamento)
+  if (nome === undefined || bandeiraBruta === undefined || banco === undefined || limite_total === undefined || dia_vencimento === undefined || dia_fechamento === undefined)
     return c.json({ error: 'Campos obrigatórios: nome, bandeira, banco, limite_total, dia_vencimento, dia_fechamento' }, 400)
 
-  // C2: normalizar bandeira para lowercase e validar enum
-  const bandeira = String(bandeiraBruta).toLowerCase()
-  const bandeirasValidas = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
-  if (!bandeirasValidas.includes(bandeira))
-    return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidas.join(', ')}` }, 400)
+  const nomeValidado = textoObrigatorio(nome, 'nome', 120)
+  if ('error' in nomeValidado) return c.json({ error: nomeValidado.error }, 400)
 
-  const limiteNum = parseFloat(limite_total)
-  if (isNaN(limiteNum) || limiteNum <= 0)
-    return c.json({ error: 'Limite inválido — deve ser um número maior que zero' }, 400)
+  const bancoValidado = textoObrigatorio(banco, 'banco', 120)
+  if ('error' in bancoValidado) return c.json({ error: bancoValidado.error }, 400)
+
+  // C2: normalizar bandeira para lowercase e validar enum
+  const bandeira = String(bandeiraBruta).trim().toLowerCase()
+  if (!BANDEIRAS_VALIDAS.includes(bandeira))
+    return c.json({ error: `Bandeira inválida. Use: ${BANDEIRAS_VALIDAS.join(', ')}` }, 400)
+
+  const limiteValidado = numeroPositivo(limite_total, 'limite_total')
+  if ('error' in limiteValidado) return c.json({ error: limiteValidado.error }, 400)
+
+  const vencimentoValidado = inteiroEntre(dia_vencimento, 'dia_vencimento', 1, 31)
+  if ('error' in vencimentoValidado) return c.json({ error: vencimentoValidado.error }, 400)
+
+  const fechamentoValidado = inteiroEntre(dia_fechamento, 'dia_fechamento', 1, 31)
+  if ('error' in fechamentoValidado) return c.json({ error: fechamentoValidado.error }, 400)
 
   const r = await c.env.DB.prepare(
     `INSERT INTO cartoes (user_id, nome, bandeira, banco, apelido, limite_total, limite_disponivel,
      dia_vencimento, dia_fechamento, cor, ultimos_digitos)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, nome, bandeira, banco, apelido || null,
-    limiteNum, limiteNum,
-    parseInt(dia_vencimento), parseInt(dia_fechamento),
-    cor || '#2FBF71', ultimos_digitos || null
+  ).bind(user.id, nomeValidado.value, bandeira, bancoValidado.value, textoOpcional(apelido, 80),
+    limiteValidado.value, limiteValidado.value,
+    vencimentoValidado.value, fechamentoValidado.value,
+    corCartao(cor), ultimosDigitos(ultimos_digitos)
   ).run()
 
   await verificarConquista(c.env.DB, user.id, 'carteirinha')
@@ -152,33 +234,43 @@ cartoes.put('/:id', requireAuth, async (c) => {
   const { nome, bandeira: bandeiraBrutaEdit, banco, apelido: apelidoEdit, limite_total, dia_vencimento, dia_fechamento, cor, ultimos_digitos } = await c.req.json()
 
   // C2: normalizar bandeira PUT também
-  const bandeiraEdit = bandeiraBrutaEdit ? String(bandeiraBrutaEdit).toLowerCase() : undefined
-  const bandeirasValidasEdit = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
-  if (bandeiraEdit && !bandeirasValidasEdit.includes(bandeiraEdit))
-    return c.json({ error: `Bandeira inválida. Use: ${bandeirasValidasEdit.join(', ')}` }, 400)
+  const bandeiraEdit = bandeiraBrutaEdit !== undefined ? String(bandeiraBrutaEdit).trim().toLowerCase() : undefined
+  if (bandeiraEdit && !BANDEIRAS_VALIDAS.includes(bandeiraEdit))
+    return c.json({ error: `Bandeira inválida. Use: ${BANDEIRAS_VALIDAS.join(', ')}` }, 400)
 
   // montar update dinâmico para não causar NaN com campos ausentes
   const updFields: string[] = []
   const updVals: any[] = []
 
-  if (nome !== undefined)           { updFields.push('nome=?');           updVals.push(nome) }
+  if (nome !== undefined) {
+    const nomeEdit = textoObrigatorio(nome, 'nome', 120)
+    if ('error' in nomeEdit) return c.json({ error: nomeEdit.error }, 400)
+    updFields.push('nome=?'); updVals.push(nomeEdit.value)
+  }
   if (bandeiraEdit !== undefined)   { updFields.push('bandeira=?');       updVals.push(bandeiraEdit) }
-  if (banco !== undefined)          { updFields.push('banco=?');          updVals.push(banco) }
-  if (apelidoEdit !== undefined)    { updFields.push('apelido=?');        updVals.push(apelidoEdit || null) }
+  if (banco !== undefined) {
+    const bancoEdit = textoObrigatorio(banco, 'banco', 120)
+    if ('error' in bancoEdit) return c.json({ error: bancoEdit.error }, 400)
+    updFields.push('banco=?'); updVals.push(bancoEdit.value)
+  }
+  if (apelidoEdit !== undefined)    { updFields.push('apelido=?');        updVals.push(textoOpcional(apelidoEdit, 80)) }
   if (limite_total !== undefined) {
-    const limNum = parseFloat(limite_total)
-    if (!isNaN(limNum)) { updFields.push('limite_total=?'); updVals.push(limNum) }
+    const limNum = numeroPositivo(limite_total, 'limite_total')
+    if ('error' in limNum) return c.json({ error: limNum.error }, 400)
+    updFields.push('limite_total=?'); updVals.push(limNum.value)
   }
   if (dia_vencimento !== undefined) {
-    const dv = parseInt(dia_vencimento)
-    if (!isNaN(dv)) { updFields.push('dia_vencimento=?'); updVals.push(dv) }
+    const dv = inteiroEntre(dia_vencimento, 'dia_vencimento', 1, 31)
+    if ('error' in dv) return c.json({ error: dv.error }, 400)
+    updFields.push('dia_vencimento=?'); updVals.push(dv.value)
   }
   if (dia_fechamento !== undefined) {
-    const df = parseInt(dia_fechamento)
-    if (!isNaN(df)) { updFields.push('dia_fechamento=?'); updVals.push(df) }
+    const df = inteiroEntre(dia_fechamento, 'dia_fechamento', 1, 31)
+    if ('error' in df) return c.json({ error: df.error }, 400)
+    updFields.push('dia_fechamento=?'); updVals.push(df.value)
   }
-  if (cor !== undefined)            { updFields.push('cor=?');            updVals.push(cor || null) }
-  if (ultimos_digitos !== undefined){ updFields.push('ultimos_digitos=?');updVals.push(ultimos_digitos || null) }
+  if (cor !== undefined)            { updFields.push('cor=?');            updVals.push(corCartao(cor)) }
+  if (ultimos_digitos !== undefined){ updFields.push('ultimos_digitos=?');updVals.push(ultimosDigitos(ultimos_digitos)) }
 
   if (updFields.length === 0) return c.json({ success: true, message: 'Nada a atualizar.' })
 
@@ -200,19 +292,20 @@ cartoes.delete('/:id', requireAuth, async (c) => {
   if (!ex) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   try {
-    // 1. Despesas vinculadas (passadas e futuras) — sem CASCADE automático
-    await c.env.DB.prepare('DELETE FROM despesas WHERE cartao_id = ? AND user_id = ?').bind(id, user.id).run()
-    // 2. card_charges (CASCADE declarado mas D1 não aplica sem PRAGMA)
+    // 1. Preserva histórico: despesas seguem existindo, apenas deixam de apontar
+    // para um cartão arquivado. Excluir histórico financeiro real é perigoso.
+    await c.env.DB.prepare('UPDATE despesas SET cartao_id = NULL WHERE cartao_id = ? AND user_id = ?').bind(id, user.id).run()
+    // 2. card_charges são artefatos da fatura do cartão arquivado.
     await c.env.DB.prepare('DELETE FROM card_charges WHERE card_id = ?').bind(id).run()
     // 3. alertas_cartao
     await c.env.DB.prepare('DELETE FROM alertas_cartao WHERE cartao_id = ?').bind(id).run()
-    // 4. Por fim, deletar o cartão
-    await c.env.DB.prepare('DELETE FROM cartoes WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+    // 4. Arquivar em vez de apagar o cartão
+    await c.env.DB.prepare('UPDATE cartoes SET ativo = 0 WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   } catch (e: any) {
     return c.json({ error: 'Erro ao excluir cartão: ' + (e?.message || String(e)) }, 500)
   }
 
-  return c.json({ success: true, message: 'Cartão e todos os lançamentos removidos!' })
+  return c.json({ success: true, message: 'Cartão arquivado. As despesas históricas foram preservadas.' })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -644,30 +737,37 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
   const { descricao, categoria, valor_total, numero_parcelas = 1,
           data_compra, observacoes, meio_pagamento = 'cartao_credito' } = await c.req.json()
 
-  if (!descricao || !categoria || !valor_total || !data_compra)
+  if (descricao === undefined || categoria === undefined || valor_total === undefined || data_compra === undefined)
     return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, data_compra' }, 400)
 
-  const nparcelas    = Math.max(1, parseInt(numero_parcelas))
-  const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
+  const descricaoValidada = textoObrigatorio(descricao, 'descricao')
+  if ('error' in descricaoValidada) return c.json({ error: descricaoValidada.error }, 400)
+  const categoriaValidada = textoObrigatorio(categoria, 'categoria', 120)
+  if ('error' in categoriaValidada) return c.json({ error: categoriaValidada.error }, 400)
+  const valorValidado = numeroPositivo(valor_total, 'valor_total')
+  if ('error' in valorValidado) return c.json({ error: valorValidado.error }, 400)
+  const parcelasValidadas = inteiroEntre(numero_parcelas, 'numero_parcelas', 1, MAX_PARCELAS_CARTAO)
+  if ('error' in parcelasValidadas) return c.json({ error: parcelasValidadas.error }, 400)
+  const dataValidada = dataIso(data_compra)
+  if ('error' in dataValidada) return c.json({ error: dataValidada.error }, 400)
+
+  const nparcelas    = parcelasValidadas.value
+  const valorTotal    = valorValidado.value
+  const valorParcela = Math.round((valorTotal / nparcelas) * 100) / 100
 
   // ── Limite disponível ──────────────────────────────────────────────────────
   // O cartão aceitava qualquer valor: uma compra de R$ 999.999 num limite de
   // R$ 15.000 entrava com 201 e sem aviso, e o "disponível" ficava travado em
   // zero enquanto o percentual de uso ia a 6.687%. Um cartão de verdade recusa.
-  const usoAtual = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(valor),0) as total FROM card_charges
-     WHERE card_id = ? AND status = 'pendente'`
-  ).bind(parseInt(cardId)).first() as any
-  const utilizado  = Math.round(Number(usoAtual?.total || 0) * 100) / 100
-  const disponivel = Math.round((Number(cartao.limite_total) - utilizado) * 100) / 100
+  const { utilizado, disponivel } = await limiteDisponivelParaCompra(c.env.DB, parseInt(cardId), Number(cartao.limite_total))
 
-  if (parseFloat(valor_total) > disponivel) {
+  if (valorTotal > disponivel) {
     return c.json({
-      error: `Compra de ${emReais(parseFloat(valor_total))} excede o limite disponível do ${cartao.nome}.`,
+      error: `Compra de ${emReais(valorTotal)} excede o limite disponível do ${cartao.nome}.`,
       limite_total:      Number(cartao.limite_total),
       limite_utilizado:  utilizado,
       limite_disponivel: Math.max(0, disponivel),
-      valor_solicitado:  parseFloat(valor_total),
+      valor_solicitado:  valorTotal,
     }, 422)
   }
   const groupId      = uuid()
@@ -676,14 +776,14 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
 
   for (let i = 1; i <= nparcelas; i++) {
     // Data da compra desta parcela: mês i-1 após a data original
-    const parcelaDate = new Date(data_compra + 'T12:00:00')
+    const parcelaDate = new Date(dataValidada.value + 'T12:00:00')
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
 
     // Período de faturamento calculado pelo fechamento do cartão
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
     const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
-    const descParcela = nparcelas > 1 ? `${descricao} (${i}/${nparcelas})` : descricao
+    const descParcela = nparcelas > 1 ? `${descricaoValidada.value} (${i}/${nparcelas})` : descricaoValidada.value
 
     // CORREÇÃO: campo 'data' deve ser dataVenc (data de vencimento da fatura),
     // não parcelaDateStr (data da compra). Isso garante que a despesa aparece
@@ -698,9 +798,9 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 'variavel', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      user.id, descParcela, despesaData, categoria,
+      user.id, descParcela, despesaData, categoriaValidada.value,
       valorParcela, nparcelas > 1 ? 1 : 0, nparcelas, i,
-      dataVenc, observacoes || null, parseInt(cardId), meio_pagamento,
+      dataVenc, textoOpcional(observacoes), parseInt(cardId), meio_pagamento,
       bMonth, bYear, groupId
     ).run()
     despesaIds.push(dr.meta.last_row_id as number)
@@ -745,17 +845,42 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
   const { descricao, categoria, valor_total, numero_parcelas,
           parcelas_pagas = 0, data_compra, observacoes } = await c.req.json()
 
-  if (!descricao || !categoria || !valor_total || !numero_parcelas || !data_compra)
+  if (descricao === undefined || categoria === undefined || valor_total === undefined || numero_parcelas === undefined || data_compra === undefined)
     return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, numero_parcelas, data_compra' }, 400)
 
-  const nparcelas      = parseInt(numero_parcelas)
-  const jaPagas        = parseInt(parcelas_pagas)
+  const descricaoValidada = textoObrigatorio(descricao, 'descricao')
+  if ('error' in descricaoValidada) return c.json({ error: descricaoValidada.error }, 400)
+  const categoriaValidada = textoObrigatorio(categoria, 'categoria', 120)
+  if ('error' in categoriaValidada) return c.json({ error: categoriaValidada.error }, 400)
+  const valorValidado = numeroPositivo(valor_total, 'valor_total')
+  if ('error' in valorValidado) return c.json({ error: valorValidado.error }, 400)
+  const parcelasValidadas = inteiroEntre(numero_parcelas, 'numero_parcelas', 2, MAX_PARCELAS_CARTAO)
+  if ('error' in parcelasValidadas) return c.json({ error: parcelasValidadas.error }, 400)
+  const pagasValidadas = inteiroEntre(parcelas_pagas, 'parcelas_pagas', 0, parcelasValidadas.value - 1)
+  if ('error' in pagasValidadas) return c.json({ error: pagasValidadas.error }, 400)
+  const dataValidada = dataIso(data_compra)
+  if ('error' in dataValidada) return c.json({ error: dataValidada.error }, 400)
+
+  const nparcelas      = parcelasValidadas.value
+  const jaPagas        = pagasValidadas.value
   const parcelasRest   = nparcelas - jaPagas
 
   if (parcelasRest <= 0)
     return c.json({ error: 'Todas as parcelas já foram pagas' }, 400)
 
-  const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
+  const valorTotal = valorValidado.value
+  const valorParcela = Math.round((valorTotal / nparcelas) * 100) / 100
+  const valorPendenteProjetado = Math.round(valorParcela * parcelasRest * 100) / 100
+  const { utilizado, disponivel } = await limiteDisponivelParaCompra(c.env.DB, parseInt(cardId), Number(cartao.limite_total))
+  if (valorPendenteProjetado > disponivel) {
+    return c.json({
+      error: `Parcelas pendentes de ${emReais(valorPendenteProjetado)} excedem o limite disponível do ${cartao.nome}.`,
+      limite_total: Number(cartao.limite_total),
+      limite_utilizado: utilizado,
+      limite_disponivel: Math.max(0, disponivel),
+      valor_solicitado: valorPendenteProjetado,
+    }, 422)
+  }
   const groupId      = uuid()
   const chargeIds: number[] = []
   const despesaIds:  number[] = []
@@ -764,7 +889,7 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
   // - Parcelas passadas (já pagas): status='pago', sem afetar limite
   // - Parcelas restantes: status='pendente', afetam limite
   for (let i = 1; i <= nparcelas; i++) {
-    const parcelaDate = new Date(data_compra + 'T12:00:00')
+    const parcelaDate = new Date(dataValidada.value + 'T12:00:00')
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
 
@@ -772,7 +897,7 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
     const dataVenc    = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const isPaid      = i <= jaPagas
     const statusParcela = isPaid ? 'pago' : 'pendente'
-    const descParcela = `${descricao} (${i}/${nparcelas})`
+    const descParcela = `${descricaoValidada.value} (${i}/${nparcelas})`
 
     // CORREÇÃO: campo 'data' deve ser dataVenc (vencimento da fatura),
     // para que a despesa apareça no mês correto na tela de Despesas.
@@ -784,10 +909,10 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'variavel', ?, ?, ?, 'cartao_credito', ?, ?, ?)`
     ).bind(
-      user.id, descParcela, despesaDataRetro, categoria,
+      user.id, descParcela, despesaDataRetro, categoriaValidada.value,
       valorParcela, nparcelas, i, statusParcela,
       dataVenc,
-      observacoes ? `[Retroativo] ${observacoes}` : '[Retroativo]',
+      textoOpcional(observacoes) ? `[Retroativo] ${textoOpcional(observacoes)}` : '[Retroativo]',
       parseInt(cardId), bMonth, bYear, groupId
     ).run()
     despesaIds.push(dr.meta.last_row_id as number)
@@ -1158,14 +1283,16 @@ cartoes.get('/:id/lancamentos', requireAuth, async (c) => {
   const user   = c.get('user')
   const id     = c.req.param('id')
   const now    = new Date()
-  const mes    = parseInt(c.req.query('mes')  || String(now.getMonth() + 1))
-  const ano    = parseInt(c.req.query('ano')  || String(now.getFullYear()))
+  const periodo = mesAnoValidos(c.req.query('mes') || String(now.getMonth() + 1), c.req.query('ano') || String(now.getFullYear()))
+  if ('error' in periodo) return c.json({ error: periodo.error }, 400)
+  const mes    = periodo.mes
+  const ano    = periodo.ano
 
   // Verificar posse do cartão antes de retornar dados (segurança)
   const cartao = await c.env.DB.prepare(
     'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
   ).bind(id, user.id).first()
-  if (!cartao) return c.json({ lancamentos: [], total_fatura: 0 })
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   const charges = await c.env.DB.prepare(
     `SELECT cc.*, d.categoria, d.observacoes as obs_despesa
@@ -1190,28 +1317,50 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   const { descricao, categoria, valor_total, numero_parcelas = 1, data_compra, observacoes } = await c.req.json()
-  if (!descricao || !categoria || !valor_total || !data_compra)
+  if (descricao === undefined || categoria === undefined || valor_total === undefined || data_compra === undefined)
     return c.json({ error: 'Campos obrigatórios faltando' }, 400)
 
-  const nparcelas    = parseInt(numero_parcelas)
-  const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
+  const descricaoValidada = textoObrigatorio(descricao, 'descricao')
+  if ('error' in descricaoValidada) return c.json({ error: descricaoValidada.error }, 400)
+  const categoriaValidada = textoObrigatorio(categoria, 'categoria', 120)
+  if ('error' in categoriaValidada) return c.json({ error: categoriaValidada.error }, 400)
+  const valorValidado = numeroPositivo(valor_total, 'valor_total')
+  if ('error' in valorValidado) return c.json({ error: valorValidado.error }, 400)
+  const parcelasValidadas = inteiroEntre(numero_parcelas, 'numero_parcelas', 1, MAX_PARCELAS_CARTAO)
+  if ('error' in parcelasValidadas) return c.json({ error: parcelasValidadas.error }, 400)
+  const dataValidada = dataIso(data_compra)
+  if ('error' in dataValidada) return c.json({ error: dataValidada.error }, 400)
+
+  const nparcelas    = parcelasValidadas.value
+  const valorTotal    = valorValidado.value
+  const valorParcela = Math.round((valorTotal / nparcelas) * 100) / 100
+  const { utilizado, disponivel } = await limiteDisponivelParaCompra(c.env.DB, parseInt(cardId), Number(cartao.limite_total))
+  if (valorTotal > disponivel) {
+    return c.json({
+      error: `Compra de ${emReais(valorTotal)} excede o limite disponível do ${cartao.nome}.`,
+      limite_total: Number(cartao.limite_total),
+      limite_utilizado: utilizado,
+      limite_disponivel: Math.max(0, disponivel),
+      valor_solicitado: valorTotal,
+    }, 422)
+  }
   const groupId      = uuid()
   const ids: number[] = []
 
   for (let i = 1; i <= nparcelas; i++) {
-    const parcelaDate = new Date(data_compra + 'T12:00:00')
+    const parcelaDate = new Date(dataValidada.value + 'T12:00:00')
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
     const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
-    const desc     = nparcelas > 1 ? `${descricao} (${i}/${nparcelas})` : descricao
+    const desc     = nparcelas > 1 ? `${descricaoValidada.value} (${i}/${nparcelas})` : descricaoValidada.value
 
     const dr = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado,
        numero_parcelas, parcela_atual, status, fixa_ou_variavel, vencimento,
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 'variavel', ?, ?, ?, 'cartao_credito', ?, ?, ?)`
-    ).bind(user.id, desc, parcelaDateStr, categoria, valorParcela,
+    ).bind(user.id, desc, dataVenc, categoriaValidada.value, valorParcela,
       nparcelas > 1 ? 1 : 0, nparcelas, i, dataVenc, observacoes || null,
       parseInt(cardId), bMonth, bYear, groupId).run()
 
@@ -1243,32 +1392,59 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
   const cartao = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?').bind(cardId, user.id).first() as any
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  const nparcelas    = parseInt(numero_parcelas)
-  const jaPagas      = parseInt(parcelas_pagas)
+  if (descricao === undefined || categoria === undefined || valor_total === undefined || numero_parcelas === undefined || data_compra === undefined)
+    return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, numero_parcelas, data_compra' }, 400)
+
+  const descricaoValidada = textoObrigatorio(descricao, 'descricao')
+  if ('error' in descricaoValidada) return c.json({ error: descricaoValidada.error }, 400)
+  const categoriaValidada = textoObrigatorio(categoria, 'categoria', 120)
+  if ('error' in categoriaValidada) return c.json({ error: categoriaValidada.error }, 400)
+  const valorValidado = numeroPositivo(valor_total, 'valor_total')
+  if ('error' in valorValidado) return c.json({ error: valorValidado.error }, 400)
+  const parcelasValidadas = inteiroEntre(numero_parcelas, 'numero_parcelas', 2, MAX_PARCELAS_CARTAO)
+  if ('error' in parcelasValidadas) return c.json({ error: parcelasValidadas.error }, 400)
+  const pagasValidadas = inteiroEntre(parcelas_pagas, 'parcelas_pagas', 0, parcelasValidadas.value - 1)
+  if ('error' in pagasValidadas) return c.json({ error: pagasValidadas.error }, 400)
+  const dataValidada = dataIso(data_compra)
+  if ('error' in dataValidada) return c.json({ error: dataValidada.error }, 400)
+
+  const nparcelas    = parcelasValidadas.value
+  const jaPagas      = pagasValidadas.value
   const parcelasRest = nparcelas - jaPagas
   if (parcelasRest <= 0) return c.json({ error: 'Todas as parcelas já foram pagas' }, 400)
 
-  const valorParcela = Math.round((parseFloat(valor_total) / nparcelas) * 100) / 100
+  const valorParcela = Math.round((valorValidado.value / nparcelas) * 100) / 100
+  const valorPendenteProjetado = Math.round(valorParcela * parcelasRest * 100) / 100
+  const { utilizado, disponivel } = await limiteDisponivelParaCompra(c.env.DB, parseInt(cardId), Number(cartao.limite_total))
+  if (valorPendenteProjetado > disponivel) {
+    return c.json({
+      error: `Parcelas pendentes de ${emReais(valorPendenteProjetado)} excedem o limite disponível do ${cartao.nome}.`,
+      limite_total: Number(cartao.limite_total),
+      limite_utilizado: utilizado,
+      limite_disponivel: Math.max(0, disponivel),
+      valor_solicitado: valorPendenteProjetado,
+    }, 422)
+  }
   const groupId      = uuid()
   const ids: number[] = []
 
   for (let i = 1; i <= nparcelas; i++) {
-    const parcelaDate = new Date(data_compra + 'T12:00:00')
+    const parcelaDate = new Date(dataValidada.value + 'T12:00:00')
     parcelaDate.setMonth(parcelaDate.getMonth() + (i - 1))
     const parcelaDateStr = parcelaDate.toISOString().split('T')[0]
     const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
     const dataVenc   = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
     const isPaid     = i <= jaPagas
-    const desc       = `${descricao} (${i}/${nparcelas})`
+    const desc       = `${descricaoValidada.value} (${i}/${nparcelas})`
 
     const dr = await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado,
        numero_parcelas, parcela_atual, status, fixa_ou_variavel, vencimento,
        observacoes, cartao_id, meio_pagamento, billing_month, billing_year, purchase_group_id)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'variavel', ?, ?, ?, 'cartao_credito', ?, ?, ?)`
-    ).bind(user.id, desc, parcelaDateStr, categoria, valorParcela, nparcelas, i,
+    ).bind(user.id, desc, dataVenc, categoriaValidada.value, valorParcela, nparcelas, i,
       isPaid ? 'pago' : 'pendente', dataVenc,
-      observacoes ? `[Retroativo] ${observacoes}` : '[Retroativo]',
+      textoOpcional(observacoes) ? `[Retroativo] ${textoOpcional(observacoes)}` : '[Retroativo]',
       parseInt(cardId), bMonth, bYear, groupId).run()
 
     await c.env.DB.prepare(
@@ -1675,17 +1851,20 @@ cartoes.post('/:id/limites-categoria', requireAuth, async (c) => {
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   const { categoria, limite_mensal } = await c.req.json()
-  if (!categoria || !limite_mensal) return c.json({ error: 'categoria e limite_mensal são obrigatórios' }, 400)
-  const lim = parseFloat(limite_mensal)
-  if (isNaN(lim) || lim <= 0) return c.json({ error: 'Limite inválido' }, 400)
+  if (categoria === undefined || limite_mensal === undefined) return c.json({ error: 'categoria e limite_mensal são obrigatórios' }, 400)
+  const categoriaValidada = textoObrigatorio(categoria, 'categoria', 120)
+  if ('error' in categoriaValidada) return c.json({ error: categoriaValidada.error }, 400)
+  const limValidado = numeroPositivo(limite_mensal, 'limite_mensal')
+  if ('error' in limValidado) return c.json({ error: limValidado.error }, 400)
+  const lim = limValidado.value
 
   await c.env.DB.prepare(
     `INSERT INTO card_category_limits (card_id, user_id, categoria, limite_mensal)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(card_id, categoria) DO UPDATE SET limite_mensal = excluded.limite_mensal`
-  ).bind(cardId, user.id, categoria, lim).run()
+  ).bind(cardId, user.id, categoriaValidada.value, lim).run()
 
-  return c.json({ success: true, message: `Limite de ${emReais(lim)}/mês definido para "${categoria}"` }, 201)
+  return c.json({ success: true, message: `Limite de ${emReais(lim)}/mês definido para "${categoriaValidada.value}"` }, 201)
 })
 
 // DELETE /api/cartoes/:id/limites-categoria/:categoria — Remover limite
@@ -1693,6 +1872,16 @@ cartoes.delete('/:id/limites-categoria/:categoria', requireAuth, async (c) => {
   const user      = c.get('user')
   const cardId    = c.req.param('id')
   const categoria = decodeURIComponent(c.req.param('categoria'))
+
+  const cartao = await c.env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND user_id = ? AND ativo = 1'
+  ).bind(cardId, user.id).first()
+  if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
+
+  const existente = await c.env.DB.prepare(
+    'SELECT id FROM card_category_limits WHERE card_id = ? AND user_id = ? AND categoria = ?'
+  ).bind(cardId, user.id, categoria).first()
+  if (!existente) return c.json({ error: 'Limite de categoria não encontrado' }, 404)
 
   await c.env.DB.prepare(
     'DELETE FROM card_category_limits WHERE card_id = ? AND user_id = ? AND categoria = ?'

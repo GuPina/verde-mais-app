@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', page === 'dashboard')
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -2965,10 +2965,11 @@ const VM = {
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
+      <div class="tf-screen tf-screen--receitas">
       <div class="section-header">
         <div>
-          <div class="section-title">💰 Receitas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas entradas de dinheiro</div>
+          <div class="section-title" data-kicker="Entradas">Receitas <em style="color:var(--terminal-primary);font-style:italic;">plantadas</em></div>
+          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:520px;line-height:1.5;">Acompanhe renda fixa, entradas avulsas e recorrências em uma visão de terminal financeiro.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM._exportarReceitasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
@@ -2981,7 +2982,7 @@ const VM = {
       </div>
 
       <!-- Cards de métricas -->
-      <div id="receitas-metricas" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+      <div id="receitas-metricas" class="tf-kpi-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
@@ -2989,7 +2990,7 @@ const VM = {
       </div>
 
       <!-- Barra de filtros -->
-      <div class="card" style="margin-bottom:20px;padding:14px 18px;">
+      <div class="card tf-command-card" style="margin-bottom:20px;padding:14px 18px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
@@ -3025,7 +3026,7 @@ const VM = {
       </div>
 
       <!-- Gráficos: pizza + barras por categoria -->
-      <div id="receitas-graficos" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
+      <div id="receitas-graficos" class="tf-chart-grid" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
         <div class="card" style="padding:16px;display:flex;flex-direction:column;align-items:center;">
           <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Distribuição</div>
           <div style="position:relative;width:160px;height:160px;">
@@ -3046,8 +3047,25 @@ const VM = {
       <div id="receitas-cat-breakdown" style="margin-bottom:20px;display:none;"></div>
 
       <!-- Tabela -->
-      <div class="card" id="receitas-table-wrapper">
-        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
+      <div class="tf-ledger-shell">
+        <div class="card" id="receitas-table-wrapper">
+          <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
+        </div>
+        <aside class="tf-side-panel">
+          <span class="td-eyebrow">Próxima colheita</span>
+          <h3>Entradas previsíveis primeiro</h3>
+          <p>Use recorrentes para renda fixa e avulsas para entradas pontuais. Assim o Dashboard separa base mensal de extras.</p>
+          <div class="tf-insight-list">
+            <span><i class="fas fa-repeat"></i> Cadastre salário e aluguéis como recorrentes para leitura mensal mais estável.</span>
+            <span><i class="fas fa-seedling"></i> Use categorias como fonte de renda enquanto o agrupamento por pagador entra no backlog.</span>
+            <span><i class="fas fa-bell"></i> Backlog: alerta automático de queda de renda vs. mês anterior.</span>
+          </div>
+          <div class="tf-side-panel__actions" style="margin-top:14px;">
+            <button onclick="VM.modalReceita()" class="btn-primary"><i class="fas fa-plus"></i> Nova entrada</button>
+            <button onclick="VM.navigate('recorrencias')" class="btn-secondary"><i class="fas fa-sync"></i> Ver recorrências</button>
+          </div>
+        </aside>
+      </div>
       </div>
     `
 
@@ -3707,11 +3725,12 @@ const VM = {
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
     document.getElementById('page-content').innerHTML = `
+      <div class="tf-screen tf-screen--despesas">
       <!-- Header -->
       <div class="section-header">
         <div>
-          <div class="section-title">💸 Despesas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle e análise dos seus gastos</div>
+          <div class="section-title" data-kicker="Saídas">Despesas <em style="color:var(--terminal-negative);font-style:italic;">sob controle</em></div>
+          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Veja pendências, pagamentos, categorias e cartão em uma mesa de controle mais densa e auditável.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM._exportarDespesasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
@@ -3727,7 +3746,7 @@ const VM = {
       </div>
 
       <!-- Cards de métricas (skeleton inicial) -->
-      <div id="despesas-metricas" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+      <div id="despesas-metricas" class="tf-kpi-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
@@ -3735,7 +3754,7 @@ const VM = {
       </div>
 
       <!-- Barra de filtros -->
-      <div class="card" style="margin-bottom:20px;padding:14px 18px;">
+      <div class="card tf-command-card" style="margin-bottom:20px;padding:14px 18px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div style="display:flex;flex-direction:column;gap:4px;">
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
@@ -3798,7 +3817,7 @@ const VM = {
       </div>
 
       <!-- Gráficos: pizza + barras por categoria -->
-      <div id="despesas-graficos" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
+      <div id="despesas-graficos" class="tf-chart-grid" style="display:none;margin-bottom:20px;grid-template-columns:280px 1fr;gap:16px;">
         <div class="card" style="padding:16px;display:flex;flex-direction:column;align-items:center;">
           <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;">Distribuição</div>
           <div style="position:relative;width:160px;height:160px;">
@@ -3817,8 +3836,25 @@ const VM = {
 
       <!-- Tabela -->
       <div id="despesas-stats" style="display:none;"></div>
-      <div class="card" id="despesas-table-wrapper">
-        <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
+      <div class="tf-ledger-shell">
+        <div class="card" id="despesas-table-wrapper">
+          <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:12px;"></div></div>
+        </div>
+        <aside class="tf-side-panel">
+          <span class="td-eyebrow">Baixa responsável</span>
+          <h3>Pagar sem bagunçar competência</h3>
+          <p>Ao marcar como pago, informe a data real do pagamento. Essa data define o mês correto nos totais.</p>
+          <div class="tf-insight-list">
+            <span><i class="fas fa-calendar-check"></i> Pagamentos individuais e em lote pedem data antes de baixar.</span>
+            <span><i class="fas fa-ban"></i> Canceladas ficam fora da visão Ativos, mas podem ser filtradas.</span>
+            <span><i class="fas fa-undo"></i> Se pagar em lote por engano, filtre por Pago e reverta selecionadas.</span>
+          </div>
+          <div class="tf-side-panel__actions" style="margin-top:14px;">
+            <button onclick="VM.modalDespesa()" class="btn-primary"><i class="fas fa-plus"></i> Nova saída</button>
+            <button onclick="VM.modalHigienizarOutros()" class="btn-secondary"><i class="fas fa-robot"></i> Reclassificar Outros</button>
+          </div>
+        </aside>
+      </div>
       </div>
     `
 
@@ -11254,10 +11290,11 @@ const VM = {
   async pageCartoes() {
     this._faturaAutoAberta = false  // reset para auto-abrir fatura ao entrar na página
     document.getElementById('page-content').innerHTML = `
+      <div class="tf-screen tf-screen--cartoes">
       <div class="section-header">
         <div>
-          <div class="section-title">💳 Cartões de Crédito</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Faturas, compras e controle de limite</div>
+          <div class="section-title" data-kicker="Crédito">Cartões <em style="color:#6EA8FE;font-style:italic;">em radar</em></div>
+          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Controle limite, faturas, compras parceladas e vencimentos em uma visão de comando única.</div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button onclick="VM.modalGerenciarCompras()" title="Excluir compras parceladas e todas as suas parcelas" style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);color:#ff6b6b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
@@ -11273,6 +11310,7 @@ const VM = {
       </div>
       <div id="cartoes-container">
         <div class="empty-state"><div class="skeleton" style="height:200px;border-radius:16px;"></div></div>
+      </div>
       </div>
     `
     this.carregarCartoes()
@@ -11547,11 +11585,11 @@ const VM = {
       // S-C2: banner de totais
       const totais = resumoData.totais || {}
       const bannerFaturas = (totais.qtd_cartoes > 0) ? `
-        <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(139,92,246,0.07));border:1px solid rgba(99,102,241,0.2);">
-          <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
-            <div><div style="color:#888;font-size:0.75rem;">Total em Faturas</div><div style="font-size:1.3rem;font-weight:800;color:#6366f1;">${this.formatMoney(totais.total_faturas||0)}</div></div>
-            <div><div style="color:#888;font-size:0.75rem;">Pendente</div><div style="font-size:1.3rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(totais.total_pendente||0)}</div></div>
-            <div><div style="color:#888;font-size:0.75rem;">Cartões Ativos</div><div style="font-size:1.3rem;font-weight:800;">${totais.qtd_cartoes}</div></div>
+        <div class="card" style="margin-bottom:14px;padding:18px 20px;border-color:rgba(110,168,254,.28)!important;">
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:center;">
+            <div><div class="stat-label">Total em faturas</div><div class="stat-value" style="color:#6EA8FE;">${this.formatMoney(totais.total_faturas||0)}</div></div>
+            <div><div class="stat-label">Pendente</div><div class="stat-value negative">${this.formatMoney(totais.total_pendente||0)}</div></div>
+            <div><div class="stat-label">Cartões ativos</div><div class="stat-value">${totais.qtd_cartoes}</div></div>
           </div>
         </div>` : ''
 
@@ -11578,19 +11616,17 @@ const VM = {
             const nomeSeguro = c.nome.replace(/'/g, "\\'")
             const corCartao = c.cor || '#2FBF71'
             return `
-              <div class="card" style="border-color:${corCartao}40;position:relative;overflow:hidden;cursor:pointer;"
+              <div class="tf-credit-card" style="--card-color:${corCartao};"
                    onclick="VM.abrirFaturaCartao(${c.id}, '${nomeSeguro}', '${corCartao}', ${c.dia_fechamento || 0})">
-                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${corCartao};"></div>
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+                <div class="tf-credit-card__head">
                   <div>
-                    <div style="font-size:1rem;font-weight:700;">${c.nome}</div>
-                    ${c.apelido ? '<div style="font-size:0.72rem;color:#6366f1;margin-top:1px;">"' + c.apelido + '"</div>' : ''}
-                    <div style="font-size:0.78rem;color:#666;margin-top:2px;">${bandeiras[c.bandeira] || c.bandeira} • ${c.banco}${c.tipo_cartao === 'PJ' ? ' <span style=\"background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);border-radius:4px;padding:0 4px;font-size:0.65rem;font-weight:700;\">PJ</span>' : ''}</div>
-                    ${c.ultimos_digitos ? '<div style="font-size:0.75rem;color:#444;margin-top:2px;">•••• ' + c.ultimos_digitos + '</div>' : ''}
+                    <span class="tf-credit-card__name">${this.escapeHtml(c.nome || 'Cartão')}</span>
+                    ${c.apelido ? '<span class="td-chip" style="margin-top:7px;color:#6EA8FE;background:rgba(110,168,254,.1);border-color:rgba(110,168,254,.25);">"' + this.escapeHtml(c.apelido) + '"</span>' : ''}
+                    <div class="tf-credit-card__sub" style="margin-top:8px;">${bandeiras[c.bandeira] || c.bandeira || '💳 Cartão'} • ${this.escapeHtml(c.banco || 'Banco')}${c.tipo_cartao === 'PJ' ? ' <span class=\"td-chip\" style=\"color:#a78bfa;background:rgba(139,92,246,.11);border-color:rgba(139,92,246,.28);\">PJ</span>' : ''}</div>
+                    ${c.ultimos_digitos ? '<div class="tf-credit-card__number">•••• ' + this.escapeHtml(c.ultimos_digitos) + '</div>' : ''}
                   </div>
-                  <div style="display:flex;gap:4px;flex-direction:column;align-items:flex-end;" onclick="event.stopPropagation()">
-                    <div style="display:flex;gap:4px;">
-                      <button onclick="VM.modalAjustarLimite(${c.id},'${nomeSeguro}',${c.limite_total},${r.limite_disponivel??c.limite_disponivel??0})" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Ajustar limite disponível"><i class="fas fa-sliders-h"></i></button>
+                  <div style="display:flex;gap:6px;flex-direction:column;align-items:flex-end;" onclick="event.stopPropagation()">
+                    <div class="tf-inline-actions">
                       <button onclick="VM.modalLimitesCategoria(${c.id},'${nomeSeguro}')" class="btn-secondary" style="padding:5px 8px;font-size:0.75rem;" title="Limites por categoria"><i class="fas fa-tags"></i></button>
                       <button onclick="VM.modalCartao(${JSON.stringify({...c, apelido: c.apelido||''}).replace(/&quot;/g,'"').replace(/"/g,'&quot;')})" class="btn-success"><i class="fas fa-edit"></i></button>
                       <button onclick="VM.deleteCartao(${c.id})" class="btn-danger"><i class="fas fa-trash"></i></button>
@@ -11599,34 +11635,34 @@ const VM = {
                   </div>
                 </div>
                 ${vencBadge ? '<div style="margin-bottom:10px;">' + vencBadge + '</div>' : ''}
-                <div style="margin-bottom:12px;">
+                <div class="tf-credit-card__usage">
                   <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                    <span style="font-size:0.78rem;color:#888;">Limite usado</span>
-                    <span style="font-size:0.78rem;font-weight:700;color:${pctColor};">${pct}%</span>
+                    <span class="stat-label">Limite usado</span>
+                    <span style="font:750 10px/1 var(--terminal-mono);color:${pctColor};">${pct}%</span>
                   </div>
-                  <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,0.2);">
-                    <div class="limite-bar-fill" data-pct="${Math.min(pct,100)}" style="background:linear-gradient(90deg,${pctColor}cc,${pctColor});width:0%;height:100%;border-radius:50px;transition:width 1.2s cubic-bezier(0.25,0.46,0.45,0.94);box-shadow:0 0 6px ${pctColor}66;"></div>
-                  </div>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-                  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Limite Total</div>
-                    <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(c.limite_total)}</div>
-                  </div>
-                  <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Usado</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(usado)}</div>
-                  </div>
-                  <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Disponível</div>
-                    <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(r.limite_disponivel ?? c.limite_disponivel ?? 0)}</div>
+                  <div class="tf-credit-card__bar">
+                    <span class="limite-bar-fill" data-pct="${Math.min(pct,100)}" style="background:${pctColor};width:0%;transition:width 1.2s cubic-bezier(0.25,0.46,0.45,0.94);"></span>
                   </div>
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
-                  <span style="font-size:0.75rem;color:#666;">Fecha: dia ${c.dia_fechamento} &nbsp;•&nbsp; Vence: dia ${c.dia_vencimento}</span>
+                <div class="tf-credit-card__meta">
+                  <div>
+                    <small>Total</small>
+                    <b>${this.formatMoney(c.limite_total)}</b>
+                  </div>
+                  <div>
+                    <small>Usado</small>
+                    <b style="color:var(--terminal-negative);">${this.formatMoney(usado)}</b>
+                  </div>
+                  <div>
+                    <small>Livre</small>
+                    <b style="color:var(--terminal-primary);">${this.formatMoney(r.limite_disponivel ?? c.limite_disponivel ?? 0)}</b>
+                  </div>
+                </div>
+                <div class="tf-credit-card__foot">
+                  <span>Fecha dia ${c.dia_fechamento} • vence dia ${c.dia_vencimento}</span>
                   <div style="display:flex;gap:8px;align-items:center;">
                     <button onclick="event.stopPropagation();VM.modalSplitCompra(${c.id})" style="background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.25);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.72rem;" title="Dividir compra entre cartões"><i class="fas fa-code-branch"></i> Split</button>
-                    <span style="font-size:0.72rem;color:#2FBF71;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
+                    <span style="font-size:0.72rem;color:#6EA8FE;"><i class="fas fa-file-invoice"></i> Ver fatura</span>
                   </div>
                 </div>
               </div>
@@ -11634,7 +11670,7 @@ const VM = {
           }).join('')
 
       container.innerHTML = bannerFaturas + `
-        <div class="grid-3" style="margin-bottom:24px;">
+        <div class="tf-card-grid" style="margin-bottom:24px;">
           ${cartoesHtml}
         </div>
       `
@@ -11671,20 +11707,13 @@ const VM = {
     // Regra bancária: compra no fechamento ou APÓS → próxima fatura
     let mesFatura = now.getMonth() + 1
     let anoFatura = now.getFullYear()
-    if (diaFechamento && now.getDate() >= diaFechamento) {
+    const fechamentoEfetivo = diaFechamento
+      ? Math.min(Math.max(1, Number(diaFechamento) || 1), new Date(anoFatura, mesFatura, 0).getDate())
+      : 0
+    if (fechamentoEfetivo && now.getDate() >= fechamentoEfetivo) {
       mesFatura++
       if (mesFatura > 12) { mesFatura = 1; anoFatura++ }
     }
-    // Se o mês calculado não tiver lançamentos, avança até o primeiro mês com dados (máx 3 meses)
-    try {
-      for (let tentativa = 0; tentativa < 3; tentativa++) {
-        const chk = await this.api('GET', `cartoes/${cartaoId}/fatura?mes=${mesFatura}&ano=${anoFatura}`)
-        if (chk && chk.fatura && chk.fatura.qtd_lancamentos > 0) break
-        // Mês vazio: avançar para o próximo
-        mesFatura++
-        if (mesFatura > 12) { mesFatura = 1; anoFatura++ }
-      }
-    } catch(e) { /* usa o mês calculado mesmo assim */ }
     // Estado global da fatura atual
     this._faturaState = {
       cartaoId,

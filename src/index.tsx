@@ -623,7 +623,7 @@ function appShell() {
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
   <link rel="stylesheet" href="/static/app.css?v=20260317-1">
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-2">
-  <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260828-2">
+  <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260828-3">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
 </head>
 <body>
@@ -638,7 +638,7 @@ function appShell() {
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
   <script src="/static/terminal-dashboard.js?v=20260828-1"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
-  <script src="/static/app.js?v=20260828-1"></script>
+  <script src="/static/app.js?v=20260828-2"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

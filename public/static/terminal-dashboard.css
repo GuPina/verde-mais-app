@@ -175,3 +175,401 @@ body.terminal-dashboard-active #chat-fab { right: 20px !important; bottom: 20px 
   .td-onboarding__actions .td-button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .td-loading span { animation: none; } }
+
+/* Terminal Finance Screens: Receitas, Despesas e Cartões */
+.tf-screen, .tf-screen * { box-sizing: border-box; }
+.tf-screen {
+  --tf-accent: var(--terminal-primary);
+  --tf-accent-soft: rgba(61,220,132,.11);
+  --tf-danger: var(--terminal-negative);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 30px clamp(20px, 3vw, 42px) 54px;
+  overflow: hidden;
+  color: var(--terminal-ink);
+  font-family: var(--terminal-font);
+}
+.tf-screen--despesas { --tf-accent: var(--terminal-negative); --tf-accent-soft: rgba(255,107,107,.09); }
+.tf-screen--cartoes { --tf-accent: #6EA8FE; --tf-accent-soft: rgba(110,168,254,.1); }
+.tf-screen button, .tf-screen select, .tf-screen input { font: inherit; }
+.tf-screen button:focus-visible, .tf-screen a:focus-visible, .tf-screen select:focus-visible, .tf-screen input:focus-visible {
+  outline: 2px solid var(--terminal-accent);
+  outline-offset: 3px;
+}
+.tf-screen .section-header {
+  min-height: 118px;
+  margin: 0 0 14px;
+  padding: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid color-mix(in oklab, var(--tf-accent) 34%, var(--terminal-line));
+  border-radius: var(--terminal-radius-lg);
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--tf-accent) 19%, transparent), transparent 36%),
+    linear-gradient(135deg, color-mix(in oklab, var(--tf-accent) 9%, var(--terminal-surface)), rgba(17,24,20,.95));
+  box-shadow: var(--terminal-shadow);
+}
+.tf-screen .section-title {
+  margin: 0;
+  color: var(--terminal-ink);
+  font-size: clamp(30px, 3vw, 43px);
+  line-height: 1.02;
+  font-weight: 560;
+  letter-spacing: -.045em;
+}
+.tf-screen .section-title::before {
+  content: attr(data-kicker);
+  display: block;
+  margin: 0 0 9px;
+  color: var(--terminal-ink-soft);
+  font: 750 10px/1.2 var(--terminal-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.tf-screen .section-header p,
+.tf-screen .section-header [style*="color:#666"],
+.tf-screen .section-header [style*="color:#555"] {
+  color: var(--terminal-ink-soft) !important;
+}
+.tf-screen .section-header > div:last-child {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.tf-screen .btn-primary,
+.tf-screen .btn-secondary,
+.tf-screen .btn-success,
+.tf-screen .btn-danger,
+.tf-action {
+  min-height: 40px;
+  padding: 10px 14px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--terminal-radius-sm) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+}
+.tf-screen .btn-primary {
+  color: var(--terminal-bg) !important;
+  background: var(--tf-accent) !important;
+  border: 1px solid var(--tf-accent) !important;
+}
+.tf-screen .btn-secondary {
+  color: var(--terminal-ink) !important;
+  background: var(--terminal-surface) !important;
+  border: 1px solid var(--terminal-line) !important;
+}
+.tf-screen .btn-success {
+  color: var(--terminal-primary) !important;
+  background: var(--terminal-primary-soft) !important;
+  border: 1px solid #285d3f !important;
+}
+.tf-screen .btn-danger {
+  color: var(--terminal-negative) !important;
+  background: rgba(255,107,107,.08) !important;
+  border: 1px solid rgba(255,107,107,.28) !important;
+}
+.tf-screen .card,
+.tf-screen .stat-card {
+  border: 1px solid var(--terminal-line) !important;
+  border-radius: var(--terminal-radius) !important;
+  background: var(--terminal-surface) !important;
+  box-shadow: none !important;
+}
+.tf-screen .stat-card {
+  min-height: 116px;
+  padding: 17px !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.tf-screen .stat-label,
+.tf-screen .form-label,
+.tf-screen th {
+  color: var(--terminal-ink-soft) !important;
+  font: 750 9px/1.2 var(--terminal-mono) !important;
+  letter-spacing: .1em !important;
+  text-transform: uppercase !important;
+}
+.tf-screen .stat-value {
+  margin-top: 8px;
+  color: var(--terminal-ink);
+  font-size: clamp(22px, 2.2vw, 31px) !important;
+  line-height: 1;
+  font-weight: 560 !important;
+  letter-spacing: -.04em;
+}
+.tf-screen .positive { color: var(--terminal-primary) !important; }
+.tf-screen .negative { color: var(--terminal-negative) !important; }
+.tf-screen .form-input,
+.tf-screen .form-select {
+  min-height: 36px;
+  color: var(--terminal-ink) !important;
+  background: var(--terminal-bg) !important;
+  border: 1px solid var(--terminal-line) !important;
+  border-radius: var(--terminal-radius-sm) !important;
+  font-size: 11px !important;
+}
+.tf-screen .form-input::placeholder { color: #53665b !important; }
+.tf-screen .form-input:focus,
+.tf-screen .form-select:focus {
+  border-color: var(--tf-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--tf-accent) 12%, transparent) !important;
+}
+.tf-screen .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--terminal-ink);
+}
+.tf-screen .data-table thead {
+  background: transparent !important;
+}
+.tf-screen .data-table th {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--terminal-line) !important;
+}
+.tf-screen .data-table td {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--terminal-line) !important;
+  color: var(--terminal-ink) !important;
+  font-size: 11px;
+}
+.tf-screen .data-table tr:hover td {
+  background: rgba(61,220,132,.035) !important;
+}
+.tf-screen .badge {
+  border-radius: 999px;
+  font: 750 9px/1 var(--terminal-mono);
+  letter-spacing: .04em;
+}
+.tf-screen .empty-state {
+  border: 1px dashed var(--terminal-line);
+  border-radius: var(--terminal-radius);
+  background: rgba(17,24,20,.72);
+}
+.tf-chart-grid {
+  display: grid !important;
+  grid-template-columns: minmax(260px, .42fr) minmax(0, 1fr) !important;
+  gap: 14px !important;
+}
+.tf-kpi-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  margin-bottom: 14px !important;
+}
+.tf-command-card {
+  margin-bottom: 14px !important;
+  padding: 11px 13px !important;
+}
+.tf-command-card > div {
+  align-items: end !important;
+}
+.tf-command-card label {
+  margin-bottom: 5px !important;
+}
+.tf-command-card select,
+.tf-command-card input {
+  width: 100% !important;
+}
+.tf-command-card [style*="min-width:180px"] {
+  min-width: min(280px, 100%) !important;
+}
+.tf-ledger-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .34fr);
+  gap: 14px;
+  align-items: start;
+}
+.tf-side-panel {
+  position: sticky;
+  top: 92px;
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius);
+  background: var(--terminal-surface);
+  padding: 18px;
+}
+.tf-side-panel h3 {
+  margin: 5px 0 8px;
+  color: var(--terminal-ink);
+  font-size: 18px;
+  font-weight: 560;
+  letter-spacing: -.025em;
+}
+.tf-side-panel p {
+  margin: 0 0 14px;
+  color: var(--terminal-ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.tf-side-panel__actions {
+  display: grid;
+  gap: 8px;
+}
+.tf-side-panel__actions button {
+  width: 100%;
+}
+.tf-insight-list {
+  display: grid;
+  gap: 9px;
+}
+.tf-insight-list span {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm);
+  color: var(--terminal-ink-soft);
+  background: rgba(10,15,12,.45);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.tf-insight-list i {
+  color: var(--tf-accent);
+  margin-top: 2px;
+}
+.tf-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.tf-credit-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 244px;
+  padding: 22px;
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-lg);
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--card-color, #6EA8FE) 18%, transparent), transparent 40%),
+    var(--terminal-surface);
+  cursor: pointer;
+}
+.tf-credit-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--card-color, #6EA8FE);
+}
+.tf-credit-card:hover {
+  border-color: color-mix(in oklab, var(--card-color, #6EA8FE) 50%, var(--terminal-line));
+}
+.tf-credit-card__head,
+.tf-credit-card__meta,
+.tf-credit-card__foot {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tf-credit-card__name {
+  display: block;
+  color: var(--terminal-ink);
+  font-size: 18px;
+  font-weight: 560;
+  letter-spacing: -.03em;
+}
+.tf-credit-card__sub,
+.tf-credit-card__foot {
+  color: var(--terminal-ink-soft);
+  font-size: 10px;
+}
+.tf-credit-card__number {
+  margin-top: 4px;
+  color: #53665b;
+  font: 700 10px/1 var(--terminal-mono);
+}
+.tf-credit-card__usage {
+  margin: 18px 0 14px;
+}
+.tf-credit-card__bar {
+  height: 7px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--terminal-line);
+}
+.tf-credit-card__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--card-color, #6EA8FE);
+}
+.tf-credit-card__meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.tf-credit-card__meta div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm);
+  background: rgba(10,15,12,.52);
+}
+.tf-credit-card__meta small {
+  display: block;
+  color: var(--terminal-ink-soft);
+  font: 700 8px/1 var(--terminal-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.tf-credit-card__meta b {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--terminal-ink);
+  font: 700 10px/1 var(--terminal-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tf-credit-card__foot {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--terminal-line);
+  align-items: center;
+}
+.tf-inline-actions {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.tf-inline-actions button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 6px 8px !important;
+}
+
+@media (max-width: 1120px) {
+  .tf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tf-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tf-ledger-shell { grid-template-columns: 1fr; }
+  .tf-side-panel { position: static; }
+}
+@media (max-width: 900px) {
+  .tf-screen { padding-bottom: 92px; }
+  .tf-screen .section-header { display: block; }
+  .tf-screen .section-header > div:last-child { margin-top: 18px; justify-content: flex-start; }
+  .tf-screen .section-header > div:last-child > button { flex: 1 1 150px; }
+  .tf-chart-grid { grid-template-columns: 1fr !important; }
+  .tf-card-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .tf-screen { padding: 20px 14px 92px; }
+  .tf-screen .section-header { padding: 20px; }
+  .tf-kpi-grid { grid-template-columns: 1fr !important; }
+  .tf-screen .card[style*="display:flex"] > div,
+  .tf-screen .card[style*="display: flex"] > div { min-width: 0; }
+  .tf-screen .data-table { min-width: 760px; }
+}
