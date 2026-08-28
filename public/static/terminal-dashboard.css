@@ -157,10 +157,12 @@ body.terminal-dashboard-active #chat-fab { right: 20px !important; bottom: 20px 
   .td-dashboard__header { display: block; }
   .td-dashboard__header-actions { margin-top: 18px; }
   .td-dashboard__header-actions .td-button { flex: 1; }
-  .td-period { flex-wrap: wrap; }
-  .td-period label { flex: 1; }
-  .td-period select { width: 100%; }
-  .td-period__status { width: 100%; margin: 4px 0 0; }
+  .td-period { display: grid; grid-template-columns: 40px minmax(96px, 1fr) minmax(82px, .7fr) 40px; gap: 8px; }
+  .td-period label { min-width: 0; display: grid; align-items: stretch; gap: 4px; }
+  .td-period label span { display: none; }
+  .td-period select { width: 100%; min-width: 0; padding-left: 8px; }
+  .td-period .td-period__today { width: 100%; grid-column: 1 / 3; }
+  .td-period__status { width: 100%; margin: 0; grid-column: 3 / 5; justify-content: flex-end; }
   .td-kpis { grid-template-columns: 1fr 1fr; }
   .td-patrimony { min-height: 280px; padding: 21px; }
   .td-patrimony__breakdown { grid-template-columns: 1fr; }
