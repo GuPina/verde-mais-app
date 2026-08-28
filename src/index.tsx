@@ -636,9 +636,9 @@ function appShell() {
     </div>
   </div>
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
-  <script src="/static/terminal-dashboard.js?v=20260827-1"></script>
+  <script src="/static/terminal-dashboard.js?v=20260828-1"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
-  <script src="/static/app.js?v=20260827-2"></script>
+  <script src="/static/app.js?v=20260828-1"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

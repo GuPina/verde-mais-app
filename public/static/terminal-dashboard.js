@@ -107,6 +107,7 @@
 
   window.VMTerminalDashboard = {
     async render(vm, mesFiltro, anoFiltro) {
+      this._vm = vm
       const content = document.getElementById('page-content')
       if (!content) return
       document.body.classList.add('terminal-dashboard-active')
@@ -247,32 +248,32 @@
     changePeriod() {
       const month = document.getElementById('td-month')?.value
       const year = document.getElementById('td-year')?.value
-      if (month && year) window.VM.pageDashboard(month, year)
+      if (month && year) this._vm?.pageDashboard(month, year)
     },
 
     shiftPeriod(delta) {
-      const date = new Date(Number(window.VM._dashAno), Number(window.VM._dashMes) - 1 + delta, 1)
-      window.VM.pageDashboard(String(date.getMonth() + 1).padStart(2, '0'), String(date.getFullYear()))
+      const date = new Date(Number(this._vm?._dashAno), Number(this._vm?._dashMes) - 1 + delta, 1)
+      this._vm?.pageDashboard(String(date.getMonth() + 1).padStart(2, '0'), String(date.getFullYear()))
     },
 
     today() {
       const now = new Date()
-      window.VM.pageDashboard(String(now.getMonth() + 1).padStart(2, '0'), String(now.getFullYear()))
+      this._vm?.pageDashboard(String(now.getMonth() + 1).padStart(2, '0'), String(now.getFullYear()))
     },
 
     async pay(id, event) {
       event?.stopPropagation()
       const description = this._dueDescriptions?.[Number(id)] || 'esta despesa'
-      const ok = await window.VM.vmConfirm(`Marcar “${description}” como pago?`, {
+      const ok = await this._vm.vmConfirm(`Marcar “${description}” como pago?`, {
         titulo: 'Confirmar pagamento', textoBotao: 'Confirmar', corBotao: '#3DDC84', icone: '✓'
       })
       if (!ok) return
       try {
-        await window.VM.api('PATCH', `despesas/${id}`, { status: 'pago', data: new Date().toISOString().split('T')[0] })
-        window.VM.toast('Pagamento registrado.', 'success')
-        window.VM.pageDashboard(window.VM._dashMes, window.VM._dashAno)
+        await this._vm.api('PATCH', `despesas/${id}`, { status: 'pago', data: new Date().toISOString().split('T')[0] })
+        this._vm.toast('Pagamento registrado.', 'success')
+        this._vm.pageDashboard(this._vm._dashMes, this._vm._dashAno)
       } catch (error) {
-        window.VM.toast(error.response?.data?.error || 'Erro ao registrar pagamento.', 'error')
+        this._vm.toast(error.response?.data?.error || 'Erro ao registrar pagamento.', 'error')
       }
     }
   }
