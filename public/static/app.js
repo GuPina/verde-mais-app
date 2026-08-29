@@ -20258,6 +20258,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.0 — DESAFIO 52 SEMANAS
   // ═══════════════════════════════════════════════════════════════
   async pageDesafio52() {
+    if (window.VMTerminalDesafio?.render) return window.VMTerminalDesafio.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:280px;border-radius:16px;"></div></div>`
     
