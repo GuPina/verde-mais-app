@@ -12836,6 +12836,7 @@ const VM = {
 
   // ============== LEMBRETES ==============
   async pageLembretes() {
+    if (window.VMTerminalLembretes?.render) return window.VMTerminalLembretes.render(this)
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>

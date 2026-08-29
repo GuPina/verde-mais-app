@@ -189,6 +189,11 @@
 .tr-card__actions { display: flex; gap: 6px; margin-top: auto; flex-wrap: wrap; }
 .tr-card__actions .td-button { min-height: 34px; padding: 7px 10px; }
 
+/* ---- Lembretes: badges de status ---- */
+.tl-badge--late { color: var(--terminal-negative); border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.08); }
+.tl-badge--today { color: var(--terminal-accent); border-color: #5d5020; background: rgba(242,201,76,.1); }
+.tl-badge--soon { color: var(--terminal-accent); border-color: #5d5020; background: rgba(242,201,76,.06); }
+
 /* ---- Responsivo ---- */
 @media (max-width: 1080px) { .tm-kpis, .to-kpis { grid-template-columns: repeat(2, 1fr); } .tr-flow__grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) { .tm-kpis, .to-kpis { grid-template-columns: 1fr; } .tm-grid, .to-grid, .tr-grid { grid-template-columns: 1fr; } }
