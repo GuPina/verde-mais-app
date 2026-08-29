@@ -355,3 +355,29 @@
 .mr-card__ritmo{color:var(--terminal-ink-soft);font-size:11.5px;margin-top:8px;font-family:var(--terminal-mono)}
 .mr-card__actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .mr-card__actions .td-button{flex:1;justify-content:center}
+
+/* ---- Financiamentos (fe-*) ---- */
+.fe-hero{display:flex;gap:24px;flex-wrap:wrap;align-items:center;justify-content:space-between;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:22px 24px}
+.fe-hero__big{font:700 34px/1.05 var(--terminal-font);color:var(--terminal-ink);margin:6px 0 4px}
+.fe-hero__main p{color:var(--terminal-ink-soft);font-size:13px;margin:0}
+.fe-hero__gauge{flex:1;min-width:220px;max-width:360px}
+.fe-hero__nums{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.fe-hero__nums small{color:var(--terminal-ink-soft);font-size:12px}
+.fe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.fe-card{background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:18px}
+.fe-card--done{border-color:color-mix(in srgb,var(--terminal-primary) 45%,var(--terminal-line))}
+.fe-card__top{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
+.fe-card__id{min-width:0}
+.fe-card__id strong{display:block;color:var(--terminal-ink);font-size:15px;font-weight:640;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fe-card__id small{color:var(--terminal-ink-soft);font-size:11.5px}
+.fe-badge{flex:none;font:700 10px/1 var(--terminal-mono);letter-spacing:.08em;color:var(--terminal-primary);border:1px solid color-mix(in srgb,var(--terminal-primary) 40%,var(--terminal-line));border-radius:999px;padding:5px 9px}
+.fe-card__saldo{display:flex;justify-content:space-between;gap:16px;margin:14px 0 10px}
+.fe-lbl{display:block;font:700 9.5px/1 var(--terminal-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--terminal-ink-soft);margin-bottom:5px}
+.fe-val{color:var(--terminal-ink);font-size:15px;font-weight:600}
+.fe-val em{color:var(--terminal-ink-soft);font-size:11px;font-style:normal}
+.fe-val--big{font-size:21px;font-weight:700}
+.fe-card__saldo>div:last-child{text-align:right}
+.fe-card__meta{display:flex;align-items:center;gap:10px;margin-top:8px}
+.fe-card__meta small{color:var(--terminal-ink-soft);font-size:12px}
+.fe-card__actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.fe-card__actions .td-button--primary,.fe-card__actions .td-button:nth-child(2){flex:1;justify-content:center}

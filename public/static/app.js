@@ -13248,6 +13248,7 @@ const VM = {
 
 
   async pageFinanciamentos() {
+    if (window.VMTerminalFinanciamentos?.render) return window.VMTerminalFinanciamentos.render(this)
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>

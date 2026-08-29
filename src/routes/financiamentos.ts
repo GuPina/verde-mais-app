@@ -8,6 +8,27 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const financiamentos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ─── Helpers de validação (FIN9/FIN11/FIN12/FIN18) ───────────────────────────
+const MAX_PARCELAS = 600
+const SISTEMAS_VALIDOS = ['price', 'sac', 'sacre']
+// id de rota: só inteiro positivo, senão null → 400 (nunca 500) — FIN12
+function parseId(v: any): number | null {
+  const t = String(v ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+// data YYYY-MM-DD válida — FIN11
+function dataValida(s: any): boolean {
+  if (!s) return false
+  const str = String(s)
+  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) return false
+  const d = new Date(str.slice(0, 10) + 'T12:00:00')
+  return !Number.isNaN(d.getTime())
+}
+// Date ancorada ao meio-dia (evita salto de fuso na geração das parcelas) — FIN20
+function dataMeioDia(s: any): Date {
+  return new Date(String(s).slice(0, 10) + 'T12:00:00')
+}
+
 // ─── S-F1: GET /api/financiamentos/resumo ────────────────────────────────────
 financiamentos.get('/resumo', requireAuth, async (c) => {
   const user = c.get('user')
@@ -55,7 +76,8 @@ financiamentos.get('/resumo', requireAuth, async (c) => {
 // Compara sistema PRICE vs SAC para o financiamento existente
 financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare(
     'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
@@ -132,7 +154,8 @@ financiamentos.get('/:id/comparativo', requireAuth, async (c) => {
 // Exporta tabela completa de amortização (até 480 parcelas)
 financiamentos.get('/:id/tabela-amortizacao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare(
     'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
@@ -195,7 +218,8 @@ financiamentos.get('/', requireAuth, async (c) => {
 // GET /api/financiamentos/:id — detalhe individual
 financiamentos.get('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const fin = await c.env.DB.prepare(
     'SELECT * FROM financiamentos WHERE id = ? AND user_id = ?'
@@ -248,6 +272,20 @@ financiamentos.post('/', requireAuth, async (c) => {
   if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
     return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
   }
+  // FIN18: teto de parcelas
+  if (totalParcelas > MAX_PARCELAS) return c.json({ error: `Número de parcelas muito alto (máximo ${MAX_PARCELAS}).` }, 400)
+  // FIN11: sistema de amortização precisa ser válido (senão o CHECK do banco dá 500)
+  if (!SISTEMAS_VALIDOS.includes(sistema_amortizacao)) return c.json({ error: `Sistema de amortização inválido. Use: ${SISTEMAS_VALIDOS.join(', ')}.` }, 400)
+  // FIN11: data de início precisa ser uma data válida (senão .toISOString() dá 500)
+  if (!dataValida(data_inicio)) return c.json({ error: 'Data de início inválida (use AAAA-MM-DD).' }, 400)
+  // FIN9: o financiado não pode superar o valor do bem
+  if (Number(valor_financiado) > Number(valor_imovel)) return c.json({ error: 'O valor financiado não pode ser maior que o valor do bem.' }, 400)
+  // FIN14/FIN24: numa PRICE, a parcela precisa cobrir os juros do 1º mês (senão a dívida nunca fecha)
+  if (sistema_amortizacao === 'price') {
+    const jurosInicial = parseFloat(valor_financiado) * (parseFloat(taxa_juros_anual) / 12 / 100)
+    if (parseFloat(valor_parcela) <= jurosInicial + 0.005)
+      return c.json({ error: `A parcela (R$ ${parseFloat(valor_parcela).toFixed(2)}) não cobre os juros do 1º mês (R$ ${jurosInicial.toFixed(2)}). Com PRICE a dívida nunca fecharia — revise valor, taxa ou prazo.` }, 400)
+  }
 
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
   const saldoFoiInformado = saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== ''
@@ -255,8 +293,8 @@ financiamentos.post('/', requireAuth, async (c) => {
     ? Number(saldoInformado)
     : calcularSaldoDevedor(parseFloat(valor_financiado), taxaMensal, totalParcelas, parcelasPagasN)
 
-  // Data prevista de fim
-  const dataInicio = new Date(data_inicio)
+  // Data prevista de fim (ancorada ao meio-dia — FIN20)
+  const dataInicio = dataMeioDia(data_inicio)
   const dataFim = new Date(dataInicio)
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
@@ -313,7 +351,7 @@ financiamentos.post('/', requireAuth, async (c) => {
   try {
     const despGeradas = await c.env.DB.prepare(
       `SELECT id FROM despesas WHERE user_id=? AND observacoes LIKE ? ORDER BY id ASC`
-    ).bind(user.id, `Financiamento automático #${finId}%`).all<{id:number}>()
+    ).bind(user.id, `Financiamento automático #${finId} %`).all<{id:number}>()
     const despIds = (despGeradas.results || []).map(r => r.id)
     if (despIds.length > 0) {
       const tagFinId  = await ensureTag(c.env.DB, user.id, 'Financiamento', COR_MODULO.financiamento)
@@ -331,7 +369,8 @@ financiamentos.post('/', requireAuth, async (c) => {
 // PUT /api/financiamentos/:id
 financiamentos.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
@@ -367,6 +406,12 @@ financiamentos.put('/:id', requireAuth, async (c) => {
   if (body.saldo_devedor !== undefined && body.saldo_devedor !== null && body.saldo_devedor !== '' && (!Number.isFinite(Number(body.saldo_devedor)) || Number(body.saldo_devedor) < 0)) {
     return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
   }
+  // FIN11: sistema/status/data válidos (senão o CHECK do banco dá 500)
+  if (!SISTEMAS_VALIDOS.includes(sistema_amortizacao)) return c.json({ error: `Sistema de amortização inválido. Use: ${SISTEMAS_VALIDOS.join(', ')}.` }, 400)
+  if (!['ativo', 'quitado', 'em_atraso'].includes(status)) return c.json({ error: 'Status inválido. Use: ativo, quitado, em_atraso.' }, 400)
+  if (!dataValida(data_inicio)) return c.json({ error: 'Data de início inválida (use AAAA-MM-DD).' }, 400)
+  if (Number(numero_parcelas) > MAX_PARCELAS) return c.json({ error: `Número de parcelas muito alto (máximo ${MAX_PARCELAS}).` }, 400)
+  if (Number(valor_financiado) > Number(valor_imovel)) return c.json({ error: 'O valor financiado não pode ser maior que o valor do bem.' }, 400)
 
   const taxaMensal = parseFloat(taxa_juros_anual) / 12 / 100
   const saldoFoiInformado = body.saldo_devedor !== undefined && body.saldo_devedor !== null && body.saldo_devedor !== ''
@@ -404,9 +449,14 @@ financiamentos.put('/:id', requireAuth, async (c) => {
 // PATCH /api/financiamentos/:id/parcela — registrar pagamento de parcela
 financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
+
+  // FIN5: não pagar parcela de financiamento já quitado
+  if (fin.parcelas_pagas >= fin.numero_parcelas || fin.saldo_devedor <= 0)
+    return c.json({ error: 'Financiamento já quitado — não há parcelas a pagar.' }, 400)
 
   const novasParcelas = fin.parcelas_pagas + 1
   const taxaMensal = fin.taxa_juros_mensal / 100
@@ -426,6 +476,10 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
     // PRICE: parcela fixa, amortização = parcela - juros
     amortizacao = Math.round((fin.valor_parcela - jurosMes) * 100) / 100
   }
+
+  // FIN3: parcela que não cobre os juros AUMENTARIA o saldo — bloquear em vez de "comemorar"
+  if (amortizacao <= 0)
+    return c.json({ error: `A parcela (R$ ${Number(fin.valor_parcela).toFixed(2)}) não cobre nem os juros deste mês (R$ ${jurosMes.toFixed(2)}). Pagá-la aumentaria a dívida — revise o valor da parcela, a taxa ou o prazo do financiamento.` }, 422)
 
   const novoSaldo = Math.max(0, Math.round((fin.saldo_devedor - amortizacao) * 100) / 100)
   const status = novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
@@ -448,7 +502,7 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
   // Marcar despesa correspondente como paga (se existir)
   await c.env.DB.prepare(
     `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Financiamento' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
-  ).bind(user.id, novasParcelas, `%Financiamento automático #${id}%`).run()
+  ).bind(user.id, novasParcelas, `%Financiamento automático #${id} %`).run()
 
   if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
 
@@ -478,22 +532,25 @@ financiamentos.patch('/:id/parcela', requireAuth, async (c) => {
 // PATCH /api/financiamentos/:id/amortizacao — amortização extraordinária
 financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
   const body = await c.req.json()
   // Aceita 'valor' ou 'valor_amortizado' para compatibilidade
-  const valor_amortizado = body.valor_amortizado ?? body.valor
+  const valorAmort = Number(body.valor_amortizado ?? body.valor)
   const parcelas_antecipadas = body.parcelas_antecipadas ?? 0
   const observacoes = body.observacoes ?? body.descricao
-  // Se novo_saldo não for informado, calcula automaticamente
-  const novo_saldo = body.novo_saldo !== undefined ? body.novo_saldo : (fin.saldo_devedor - parseFloat(valor_amortizado))
-  if (!valor_amortizado) return c.json({ error: 'valor_amortizado (ou valor) é obrigatório' }, 400)
+  // FIN4/FIN25: valor precisa ser positivo; o novo saldo é SEMPRE calculado no
+  // servidor (novo_saldo do corpo é ignorado — o cliente não escolhe a dívida)
+  if (!Number.isFinite(valorAmort) || valorAmort <= 0)
+    return c.json({ error: 'Valor da amortização deve ser um número maior que zero.' }, 400)
+  const valor_amortizado = valorAmort
 
-  const novasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas))
+  const novasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas) || 0)
   const novasParcelas = Math.min(fin.numero_parcelas, fin.parcelas_pagas + novasPorAntecipacao)
-  const novoSaldoVal = Math.max(0, parseFloat(novo_saldo))
+  const novoSaldoVal = Math.max(0, Math.round((fin.saldo_devedor - valorAmort) * 100) / 100)
   const status = novoSaldoVal <= 0 || novasParcelas >= fin.numero_parcelas ? 'quitado' : 'ativo'
 
   // Recalcular data_previsao_fim após amortização extraordinária
@@ -518,14 +575,14 @@ financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, fixa_ou_variavel, observacoes, meio_pagamento)
      VALUES (?, ?, ?, ?, ?, 'pago', 'variavel', ?, 'transferencia')`
-  ).bind(user.id, `Amortização Extraordinária — ${fin.descricao}`, hoje, 'Financiamento', parseFloat(valor_amortizado), observacoes || `Amortização de R$${valor_amortizado} no financiamento #${id}`).run()
+  ).bind(user.id, `Amortização Extraordinária — ${fin.descricao}`, hoje, 'Financiamento', valor_amortizado, `Financiamento automático #${id} — Amortização extraordinária${observacoes ? ': ' + observacoes : ''}`).run()
 
   // Marcar parcelas antecipadas como pagas
   if (novasPorAntecipacao > 0) {
     for (let p = fin.parcelas_pagas + 1; p <= novasParcelas; p++) {
       await c.env.DB.prepare(
         `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Financiamento' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
-      ).bind(user.id, p, `%Financiamento automático #${id}%`).run()
+      ).bind(user.id, p, `%Financiamento automático #${id} %`).run()
     }
   }
 
@@ -552,7 +609,8 @@ financiamentos.patch('/:id/amortizacao', requireAuth, async (c) => {
 // DELETE /api/financiamentos/:id — cascade: apaga parcelas de entrada e despesas vinculadas
 financiamentos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const existing = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Financiamento não encontrado' }, 404)
@@ -560,7 +618,7 @@ financiamentos.delete('/:id', requireAuth, async (c) => {
   // Remove despesas automáticas vinculadas (todas, pagas ou pendentes)
   await c.env.DB.prepare(
     `DELETE FROM despesas WHERE user_id = ? AND categoria = 'Financiamento' AND observacoes LIKE ?`
-  ).bind(user.id, `%Financiamento automático #${id}%`).run()
+  ).bind(user.id, `%Financiamento automático #${id} %`).run()
 
   // Remove parcelas de entrada vinculadas
   await c.env.DB.prepare(
@@ -576,7 +634,8 @@ financiamentos.delete('/:id', requireAuth, async (c) => {
 // GET /api/financiamentos/:id/simulacao-amortizacao
 financiamentos.get('/:id/simulacao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Não encontrado' }, 404)
 
@@ -613,7 +672,8 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 // GET /api/financiamentos/:id/entrada
 financiamentos.get('/:id/entrada', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
@@ -633,7 +693,8 @@ financiamentos.get('/:id/entrada', requireAuth, async (c) => {
 // POST /api/financiamentos/:id/entrada — adicionar parcela de entrada
 financiamentos.post('/:id/entrada', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
@@ -651,7 +712,8 @@ financiamentos.post('/:id/entrada', requireAuth, async (c) => {
 // PATCH /api/financiamentos/entrada/:id/status — marcar parcela de entrada como paga
 financiamentos.patch('/entrada/:parcelaId/status', requireAuth, async (c) => {
   const user = c.get('user')
-  const parcelaId = c.req.param('parcelaId')
+  const parcelaId = parseId(c.req.param('parcelaId'))
+  if (parcelaId === null) return c.json({ error: 'ID inválido.' }, 400)
   const { status, data_pagamento } = await c.req.json()
 
   const parcela = await c.env.DB.prepare('SELECT * FROM financiamento_entrada_parcelas WHERE id = ? AND user_id = ?').bind(parcelaId, user.id).first() as any
@@ -667,7 +729,8 @@ financiamentos.patch('/entrada/:parcelaId/status', requireAuth, async (c) => {
 // DELETE /api/financiamentos/entrada/:id — remover parcela de entrada
 financiamentos.delete('/entrada/:parcelaId', requireAuth, async (c) => {
   const user = c.get('user')
-  const parcelaId = c.req.param('parcelaId')
+  const parcelaId = parseId(c.req.param('parcelaId'))
+  if (parcelaId === null) return c.json({ error: 'ID inválido.' }, 400)
   await c.env.DB.prepare('DELETE FROM financiamento_entrada_parcelas WHERE id = ? AND user_id = ?').bind(parcelaId, user.id).run()
   return c.json({ success: true, message: 'Parcela removida!' })
 })
@@ -675,7 +738,8 @@ financiamentos.delete('/entrada/:parcelaId', requireAuth, async (c) => {
 // PATCH /api/financiamentos/:id/evolucao — atualizar % de evolução de obra
 financiamentos.patch('/:id/evolucao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const { evolucao_obra_pct } = await c.req.json()
 
   const fin = await c.env.DB.prepare('SELECT id FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
@@ -693,7 +757,8 @@ export default financiamentos
 // Retorna projeção completa do saldo devedor mês a mês até quitação (para gráfico)
 financiamentos.get('/:id/evolucao-saldo', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
@@ -766,7 +831,8 @@ financiamentos.get('/:id/evolucao-saldo', requireAuth, async (c) => {
 // Simula economia usando FGTS para amortizar
 financiamentos.get('/:id/simulacao-fgts', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const fin = await c.env.DB.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
