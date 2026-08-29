@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -5873,6 +5873,7 @@ const VM = {
 
   // ============== INVESTIMENTOS ==============
   async pageInvestimentos() {
+    if (window.VMTerminalInvestimentos?.render) return window.VMTerminalInvestimentos.render(this)
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>

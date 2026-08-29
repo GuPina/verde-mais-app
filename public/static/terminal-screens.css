@@ -189,10 +189,41 @@
 .tr-card__actions { display: flex; gap: 6px; margin-top: auto; flex-wrap: wrap; }
 .tr-card__actions .td-button { min-height: 34px; padding: 7px 10px; }
 
-/* ---- Lembretes: badges de status ---- */
-.tl-badge--late { color: var(--terminal-negative); border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.08); }
-.tl-badge--today { color: var(--terminal-accent); border-color: #5d5020; background: rgba(242,201,76,.1); }
-.tl-badge--soon { color: var(--terminal-accent); border-color: #5d5020; background: rgba(242,201,76,.06); }
+/* ============================================================================
+   Investimentos (.ti-*)
+   ========================================================================== */
+.ti-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 14px; margin-bottom: 16px; }
+@media (max-width: 900px) { .ti-top { grid-template-columns: 1fr; } }
+.ti-patrimony { padding: 26px; border: 1px solid #285d3f; border-radius: var(--terminal-radius-lg); background: linear-gradient(135deg, rgba(61,220,132,.12), rgba(17,24,20,.92)); display: flex; flex-direction: column; }
+.ti-patrimony > strong { margin-top: 14px; font: 560 clamp(34px, 4vw, 48px)/1 var(--terminal-mono); letter-spacing: -.04em; }
+.ti-patrimony__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.ti-patrimony__row .is-pos { color: var(--terminal-primary); font: 700 14px/1 var(--terminal-mono); }
+.ti-patrimony__row .is-neg { color: var(--terminal-negative); font: 700 14px/1 var(--terminal-mono); }
+.ti-patrimony__row small { color: var(--terminal-ink-soft); font-weight: 500; }
+.ti-cdi { color: var(--terminal-ink-soft); font: 700 11px/1 var(--terminal-mono); text-transform: uppercase; letter-spacing: .06em; }
+.ti-invested { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(61,220,132,.2); color: var(--terminal-ink-soft); font-size: 12px; display: flex; justify-content: space-between; }
+.ti-invested b { color: var(--terminal-ink); font-family: var(--terminal-mono); }
+.ti-aloc__bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; margin: 4px 0 14px; background: var(--terminal-bg); }
+.ti-aloc__bar > span { min-width: 2px; }
+.ti-aloc__list { display: flex; flex-direction: column; gap: 8px; }
+.ti-aloc__list > div { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ti-aloc__list i { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.ti-aloc__list span { flex: 1; }
+.ti-aloc__list em { color: var(--terminal-ink-soft); font-style: normal; font-family: var(--terminal-mono); font-size: 12px; }
+.ti-aloc__list b { font-family: var(--terminal-mono); min-width: 92px; text-align: right; }
+.ti-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ti-card { display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-lg); background: var(--terminal-surface); }
+.ti-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ti-card__head small { color: var(--terminal-ink-soft); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ti-tag { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--terminal-line); font: 700 9px/1 var(--terminal-mono); text-transform: uppercase; letter-spacing: .05em; }
+.ti-card__name { font-size: 14px; font-weight: 640; letter-spacing: -.01em; }
+.ti-card__name em { color: var(--terminal-ink-soft); font-style: normal; font-family: var(--terminal-mono); font-size: 11px; }
+.ti-card__val { font: 600 22px/1 var(--terminal-mono); letter-spacing: -.02em; }
+.ti-card__rent { font: 700 13px/1 var(--terminal-mono); }
+.ti-card__rent.is-pos { color: var(--terminal-primary); }
+.ti-card__rent.is-neg { color: var(--terminal-negative); }
+.ti-card__actions { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; }
+.ti-card__actions .td-button { min-height: 32px; padding: 6px 9px; }
 
 /* ============================================================================
    Desafio 52 (.ds-*)

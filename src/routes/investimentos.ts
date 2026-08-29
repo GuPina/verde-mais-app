@@ -2,11 +2,35 @@ import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { getLimites, MSG_UPGRADE, exigeFeature } from './planos'
 import { ensureTag, tagInvestimento, COR_MODULO } from '../utils/tags-helper'
+import { normalizarData, ERRO_DATA } from '../lib/validacao'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
 
 const investimentos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+
+// ── Validação de entrada (Postgres estrito: NaN passa no CHECK) ───────────────
+const MAX_VALOR = 1_000_000_000
+const RISCOS_VALIDOS = ['baixo', 'medio', 'médio', 'alto']
+function parseValorPositivo(v: unknown): number | null {
+  if (typeof v === 'string' && !/^\d+(\.\d+)?$/.test(v.trim())) return null
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+function parseFloatFinito(v: unknown): number | null {
+  const n = parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+function parseIdInv(v: unknown): number | null {
+  const t = String(v ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+function parseInteiroEntre(v: unknown, min: number, max: number, def: number): number | null {
+  if (v === undefined || v === null || v === '') return def
+  const n = parseInt(String(v), 10)
+  return Number.isInteger(n) && n >= min && n <= max ? n : null
+}
 
 // CDI padrão de fallback (% ao ano)
 const CDI_PADRAO_AA = 13.65
@@ -322,7 +346,7 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
 //   - Se cache tem > 20 min, dispara atualização em background (waitUntil)
 //   - Se cache expirado/vazio, busca ao vivo e retorna
 // ─────────────────────────────────────────────────────────────────────────────
-investimentos.get('/cotacoes', async (c) => {
+investimentos.get('/cotacoes', requireAuth, async (c) => {   // INV18: era a única rota sem auth — expunha dados e disparava chamadas externas
   const db = c.env.DB
   const now = Date.now()
 
@@ -634,23 +658,43 @@ investimentos.post('/', requireAuth, async (c) => {
   // usar tipoNorm daqui em diante
   const tipoFinal = tipoNorm
 
+  // INV1/INV11: valor_investido finito e positivo (era parseFloat cru — 'abc' virava
+  // NaN e zerava o patrimônio na tela; negativo passava).
+  const valorInvNum = parseValorPositivo(valor_investido)
+  if (valorInvNum === null) return c.json({ error: 'valor_investido deve ser um número maior que zero.' }, 400)
+  const rentabNum = parseFloatFinito(rentabilidade_percentual ?? 0)   // pode ser negativa (prejuízo), mas número
+  if (rentabNum === null) return c.json({ error: 'rentabilidade_percentual deve ser um número.' }, 400)
+  // INV14: risco validado (era 500 do CHECK do banco)
+  if (!RISCOS_VALIDOS.includes(String(risco).toLowerCase()))
+    return c.json({ error: 'risco inválido. Use: baixo, medio ou alto.' }, 400)
+  // INV12: data_inicio validada; INV13: vencimento não anterior ao início
+  const dataInicioISO = normalizarData(data_inicio)
+  if (!dataInicioISO) return c.json({ error: `data_inicio: ${ERRO_DATA}` }, 400)
+  let dataVencISO: string | null = null
+  if (data_vencimento) {
+    dataVencISO = normalizarData(data_vencimento)
+    if (!dataVencISO) return c.json({ error: `data_vencimento: ${ERRO_DATA}` }, 400)
+    if (dataVencISO < dataInicioISO) return c.json({ error: 'data_vencimento não pode ser anterior à data_inicio.' }, 400)
+  }
+
   // Buscar CDI atualizado se necessário
   const cdiAnual = tipoFinal === 'caixinha' ? await getCdiAnual(c.env.DB) : CDI_PADRAO_AA
   const cdiEfetivo = cdiBody ? parseFloat(cdiBody) : cdiAnual
 
-  let valor_atual = parseFloat(valor_investido)
-  let rentab = parseFloat(rentabilidade_percentual)
+  let valor_atual = valorInvNum
+  let rentab = rentabNum
 
   if (tipoFinal === 'caixinha' && percentual_cdi) {
-    const dataInicio = new Date(data_inicio + 'T00:00:00')
+    const dataInicio = new Date(dataInicioISO + 'T00:00:00')
     const diasDecorridos = Math.max(0, contarDiasUteis(dataInicio, new Date()))
     if (diasDecorridos > 0) {
-      valor_atual = calcularCaixinha(parseFloat(valor_investido), parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
-      rentab = ((valor_atual - parseFloat(valor_investido)) / parseFloat(valor_investido)) * 100
+      valor_atual = calcularCaixinha(valorInvNum, parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
+      rentab = ((valor_atual - valorInvNum) / valorInvNum) * 100
     }
   } else if (tipoFinal !== 'caixinha') {
-    valor_atual = parseFloat(valor_investido) * (1 + parseFloat(rentabilidade_percentual) / 100)
+    valor_atual = valorInvNum * (1 + rentabNum / 100)
   }
+  valor_atual = Math.max(0, valor_atual)   // INV11: −200% não vira patrimônio negativo
 
   const registraSaidaFinal = registra_saida_saldo !== undefined ? !!registra_saida_saldo : !!registrar_aporte
   const tagsStr = Array.isArray(tags) ? JSON.stringify(tags) : (tags || null)
@@ -662,9 +706,9 @@ investimentos.post('/', requireAuth, async (c) => {
         data_ultimo_calculo, registra_saida_saldo, meta_valor, tags, symbol)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    user.id, nome, tipoFinal, parseFloat(valor_investido), Math.round(rentab * 100) / 100,
-    Math.round(valor_atual * 100) / 100, risco, data_inicio,
-    data_vencimento || null, instituicao || null, observacoes || null,
+    user.id, nome, tipoFinal, valorInvNum, Math.round(rentab * 100) / 100,
+    Math.round(valor_atual * 100) / 100, risco, dataInicioISO,
+    dataVencISO, instituicao || null, observacoes || null,
     percentual_cdi ? parseFloat(percentual_cdi) : null,
     tipoFinal === 'caixinha' ? cdiEfetivo : null,
     tipoFinal === 'caixinha' ? new Date().toISOString().split('T')[0] : null,
@@ -674,11 +718,11 @@ investimentos.post('/', requireAuth, async (c) => {
     symbol ? symbol.toUpperCase() : null
   ).run()
 
-  if (registraSaidaFinal && parseFloat(valor_investido) > 0) {
+  if (registraSaidaFinal && valorInvNum > 0) {
     await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, eh_aporte_patrimonial, observacoes)
        VALUES (?, ?, ?, 'Aporte Patrimonial', 'Investimento', ?, 'pago', 'transferencia', 'aporte', 1, ?)`
-    ).bind(user.id, `Aporte: ${nome}`, data_inicio, parseFloat(valor_investido), `Aporte em ${tipoFinal.toUpperCase()} — ${nome}`).run()
+    ).bind(user.id, `Aporte: ${nome}`, dataInicioISO, valorInvNum, `Aporte em ${tipoFinal.toUpperCase()} — ${nome}`).run()
   }
 
   // Conquistas
@@ -716,7 +760,8 @@ investimentos.post('/', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseIdInv(c.req.param('id'))   // INV16
+  if (!id) return c.json({ error: 'Investimento não encontrado' }, 404)
 
   const existing = await c.env.DB.prepare('SELECT * FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Investimento não encontrado' }, 404)
@@ -727,20 +772,47 @@ investimentos.put('/:id', requireAuth, async (c) => {
     percentual_cdi = null, cdi_atual: cdiBody = null,
     meta_valor, tags, symbol } = body
 
-  const cdiAnual = tipo === 'caixinha' ? await getCdiAnual(c.env.DB) : CDI_PADRAO_AA
+  // INV15: validar tipo na edição (com aliases), como no POST
+  let tipoFinal = existing.tipo
+  if (tipo !== undefined) {
+    const aliases: Record<string, string> = { renda_fixa: 'cdb', renda_variavel: 'acoes', fundo: 'outros', acao: 'acoes', bitcoin: 'cripto', etf: 'outros' }
+    const tn = aliases[String(tipo).toLowerCase()] || String(tipo).toLowerCase()
+    const validos = ['tesouro_direto', 'cdb', 'lci', 'lca', 'acoes', 'fii', 'cripto', 'poupanca', 'caixinha', 'outros']
+    if (!validos.includes(tn)) return c.json({ error: `Tipo inválido. Use: ${validos.join(', ')}` }, 400)
+    tipoFinal = tn
+  }
+  // INV11: valores validados
+  let valorInvNum = Number(existing.valor_investido)
+  if (valor_investido !== undefined) { const v = parseValorPositivo(valor_investido); if (v === null) return c.json({ error: 'valor_investido deve ser um número maior que zero.' }, 400); valorInvNum = v }
+  if (risco !== undefined && !RISCOS_VALIDOS.includes(String(risco).toLowerCase())) return c.json({ error: 'risco inválido. Use: baixo, medio ou alto.' }, 400)
+  // INV12/INV13: datas
+  let dataInicioISO = existing.data_inicio
+  if (data_inicio !== undefined) { const d = normalizarData(data_inicio); if (!d) return c.json({ error: `data_inicio: ${ERRO_DATA}` }, 400); dataInicioISO = d }
+  let dataVencFinal = existing.data_vencimento
+  if (data_vencimento !== undefined) {
+    if (!data_vencimento) dataVencFinal = null
+    else { const d = normalizarData(data_vencimento); if (!d) return c.json({ error: `data_vencimento: ${ERRO_DATA}` }, 400); if (dataInicioISO && d < dataInicioISO) return c.json({ error: 'data_vencimento não pode ser anterior à data_inicio.' }, 400); dataVencFinal = d }
+  }
+
+  const cdiAnual = tipoFinal === 'caixinha' ? await getCdiAnual(c.env.DB) : CDI_PADRAO_AA
   const cdiEfetivo = cdiBody ? parseFloat(cdiBody) : cdiAnual
 
-  let valor_atual = vAtualBody ? parseFloat(vAtualBody) : parseFloat(valor_investido || existing.valor_investido)
-  let rentab = parseFloat(rentabilidade_percentual ?? existing.rentabilidade_percentual ?? 0)
+  // INV2: se "valor atual" não vier no corpo, MANTÉM o existente. Antes caía para o
+  // valor investido, apagando o lucro (a própria dica do app manda deixar vazio).
+  let valor_atual = (vAtualBody !== undefined && vAtualBody !== '' && vAtualBody !== null)
+    ? parseFloat(vAtualBody) : Number(existing.valor_atual)
+  if (!Number.isFinite(valor_atual)) return c.json({ error: 'valor_atual deve ser um número.' }, 400)
+  let rentab = parseFloatFinito(rentabilidade_percentual ?? existing.rentabilidade_percentual ?? 0) ?? 0
 
-  if (tipo === 'caixinha' && percentual_cdi) {
-    const dataInicio = new Date((data_inicio || existing.data_inicio) + 'T00:00:00')
+  if (tipoFinal === 'caixinha' && percentual_cdi) {
+    const dataInicio = new Date((dataInicioISO) + 'T00:00:00')
     const diasDecorridos = Math.max(0, contarDiasUteis(dataInicio, new Date()))
     if (diasDecorridos > 0) {
-      valor_atual = calcularCaixinha(parseFloat(valor_investido || existing.valor_investido), parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
-      rentab = ((valor_atual - parseFloat(valor_investido || existing.valor_investido)) / parseFloat(valor_investido || existing.valor_investido)) * 100
+      valor_atual = calcularCaixinha(valorInvNum, parseFloat(percentual_cdi), cdiEfetivo, diasDecorridos)
+      rentab = ((valor_atual - valorInvNum) / valorInvNum) * 100
     }
   }
+  valor_atual = Math.max(0, valor_atual)   // INV11
 
   const tagsStr = tags !== undefined
     ? (Array.isArray(tags) ? JSON.stringify(tags) : (tags || null))
@@ -752,16 +824,16 @@ investimentos.put('/:id', requireAuth, async (c) => {
      percentual_cdi=?, cdi_atual=?, data_ultimo_calculo=?, meta_valor=?, tags=?, symbol=?
      WHERE id = ? AND user_id = ?`
   ).bind(
-    nome ?? existing.nome, tipo ?? existing.tipo,
-    parseFloat(valor_investido ?? existing.valor_investido),
+    nome ?? existing.nome, tipoFinal,
+    valorInvNum,
     Math.round(rentab * 100) / 100, Math.round(valor_atual * 100) / 100,
-    risco ?? existing.risco, data_inicio ?? existing.data_inicio,
-    data_vencimento !== undefined ? (data_vencimento || null) : existing.data_vencimento,
+    risco ?? existing.risco, dataInicioISO,
+    dataVencFinal,
     instituicao !== undefined ? (instituicao || null) : existing.instituicao,
     observacoes !== undefined ? (observacoes || null) : existing.observacoes,
     percentual_cdi ? parseFloat(percentual_cdi) : existing.percentual_cdi,
-    (tipo || existing.tipo) === 'caixinha' ? cdiEfetivo : existing.cdi_atual,
-    (tipo || existing.tipo) === 'caixinha' ? new Date().toISOString().split('T')[0] : existing.data_ultimo_calculo,
+    tipoFinal === 'caixinha' ? cdiEfetivo : existing.cdi_atual,
+    tipoFinal === 'caixinha' ? new Date().toISOString().split('T')[0] : existing.data_ultimo_calculo,
     meta_valor !== undefined ? (meta_valor ? parseFloat(meta_valor) : null) : existing.meta_valor,
     tagsStr,
     symbol !== undefined ? (symbol ? symbol.toUpperCase() : null) : existing.symbol,
@@ -784,17 +856,18 @@ investimentos.put('/:id', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.patch('/:id/rebalancear', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseIdInv(c.req.param('id'))   // INV16
+  if (!id) return c.json({ error: 'Investimento não encontrado' }, 404)
 
   const inv = await c.env.DB.prepare('SELECT * FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
 
   const { valor, descricao = 'Rebalanceamento', registrar_despesa = true } = await c.req.json()
-  if (!valor || parseFloat(valor) <= 0)
-    return c.json({ error: 'Informe um valor de aporte maior que zero' }, 400)
+  const valorAporte = parseValorPositivo(valor)   // INV1/INV11: finito e positivo
+  if (valorAporte === null) return c.json({ error: 'Informe um valor de aporte maior que zero.' }, 400)
 
-  const novoValorInvestido = Number(inv.valor_investido) + parseFloat(valor)
-  const novoValorAtual     = Number(inv.valor_atual) + parseFloat(valor)
+  const novoValorInvestido = Number(inv.valor_investido) + valorAporte
+  const novoValorAtual     = Number(inv.valor_atual) + valorAporte
 
   await c.env.DB.prepare(
     `UPDATE investimentos SET valor_investido=?, valor_atual=? WHERE id=? AND user_id=?`
@@ -804,7 +877,7 @@ investimentos.patch('/:id/rebalancear', requireAuth, async (c) => {
     await c.env.DB.prepare(
       `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, status, meio_pagamento, tipo, eh_aporte_patrimonial)
        VALUES (?, ?, ?, 'Aporte Patrimonial', 'Investimento', ?, 'pago', 'transferencia', 'aporte', 1)`
-    ).bind(user.id, descricao || `Aporte: ${inv.nome}`, new Date().toISOString().split('T')[0], parseFloat(valor)).run()
+    ).bind(user.id, descricao || `Aporte: ${inv.nome}`, new Date().toISOString().split('T')[0], valorAporte).run()
   }
 
   // Verificar conquistas
@@ -826,29 +899,30 @@ investimentos.patch('/:id/rebalancear', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.get('/:id/historico', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
-  const limit  = Math.min(parseInt(c.req.query('limit')  || '50'), 200)
-  const offset = parseInt(c.req.query('offset') || '0')
+  const id   = parseIdInv(c.req.param('id'))   // INV16
+  if (!id) return c.json({ error: 'Investimento não encontrado' }, 404)
+  const limit  = Math.min(Math.max(1, parseInt(c.req.query('limit')  || '50', 10) || 50), 200)
+  const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10) || 0)
 
   const inv = await c.env.DB.prepare(
     'SELECT id, nome, valor_investido, valor_atual, tipo FROM investimentos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
   if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
 
-  // Aportes registrados como despesas do tipo aporte
+  // INV3: filtrar SÓ pelos aportes deste investimento (pelo nome). Antes o
+  // `OR descricao LIKE 'Aporte%'` casava TODO aporte de qualquer ativo, então o
+  // histórico saía idêntico para todos os investimentos.
   const hist = await c.env.DB.prepare(
     `SELECT id, descricao, data, valor, status, meio_pagamento
      FROM despesas
-     WHERE user_id = ? AND eh_aporte_patrimonial = 1
-       AND (descricao LIKE ? OR descricao LIKE ?)
+     WHERE user_id = ? AND eh_aporte_patrimonial = 1 AND descricao LIKE ?
      ORDER BY data DESC LIMIT ? OFFSET ?`
-  ).bind(user.id, `%${inv.nome}%`, `Aporte%`, limit, offset).all()
+  ).bind(user.id, `%${inv.nome}%`, limit, offset).all()
 
   const total = await c.env.DB.prepare(
     `SELECT COUNT(*) as n FROM despesas
-     WHERE user_id = ? AND eh_aporte_patrimonial = 1
-       AND (descricao LIKE ? OR descricao LIKE ?)`
-  ).bind(user.id, `%${inv.nome}%`, `Aporte%`).first() as any
+     WHERE user_id = ? AND eh_aporte_patrimonial = 1 AND descricao LIKE ?`
+  ).bind(user.id, `%${inv.nome}%`).first() as any
 
   const somaAportes = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(valor),0) as total FROM despesas
@@ -870,15 +944,16 @@ investimentos.get('/:id/historico', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.patch('/:id/resgate', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseIdInv(c.req.param('id'))   // INV16
+  if (!id) return c.json({ error: 'Investimento não encontrado' }, 404)
 
   const inv = await c.env.DB.prepare('SELECT * FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!inv) return c.json({ error: 'Investimento não encontrado' }, 404)
 
   const { valor, descricao = 'Resgate parcial', registrar_receita = false } = await c.req.json()
-  const valorNum = parseFloat(valor)
-  if (!valorNum || valorNum <= 0)
-    return c.json({ error: 'Informe um valor de resgate maior que zero' }, 400)
+  const valorNum = parseValorPositivo(valor)
+  if (valorNum === null)
+    return c.json({ error: 'Informe um valor de resgate maior que zero.' }, 400)
 
   const valorAtualCalc = Number(inv.valor_atual) || Number(inv.valor_investido)
   if (valorNum > valorAtualCalc)
@@ -916,7 +991,8 @@ investimentos.patch('/:id/resgate', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.get('/vencimentos', requireAuth, async (c) => {
   const user = c.get('user')
-  const dias = parseInt(c.req.query('dias') || '30')
+  const dias = parseInteiroEntre(c.req.query('dias'), 1, 3650, 30)   // INV17: 'abc'/-5 → 400
+  if (dias === null) return c.json({ error: 'dias deve ser um inteiro entre 1 e 3650.' }, 400)
 
   const res = await c.env.DB.prepare(
     `SELECT id, nome, tipo, valor_investido, valor_atual, data_vencimento, instituicao
@@ -941,7 +1017,8 @@ investimentos.get('/vencimentos', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 investimentos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseIdInv(c.req.param('id'))   // INV16
+  if (!id) return c.json({ error: 'Investimento não encontrado' }, 404)
   const existing = await c.env.DB.prepare('SELECT id FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Investimento não encontrado' }, 404)
   await c.env.DB.prepare('DELETE FROM investimentos WHERE id = ? AND user_id = ?').bind(id, user.id).run()
@@ -954,6 +1031,14 @@ investimentos.delete('/:id', requireAuth, async (c) => {
 investimentos.get('/simulacao', requireAuth, exigeFeature('simulacao'), async (c) => {
   const { valor, tipo, prazo_meses = '12', taxa_personalizada, percentual_cdi, aporte_mensal = '0' } = c.req.query()
   if (!valor || !tipo) return c.json({ error: 'Parâmetros: valor, tipo, prazo_meses' }, 400)
+  // INV22: valida ANTES de qualquer cálculo — valor=0/abc davam null, prazo=abc
+  // simulava zero meses, valor negativo virava "rentabilidade" absurda.
+  const valorInicialV = parseValorPositivo(valor)
+  if (valorInicialV === null) return c.json({ error: 'valor deve ser um número maior que zero.' }, 400)
+  const mesesV = parseInteiroEntre(prazo_meses, 1, 600, 12)
+  if (mesesV === null) return c.json({ error: 'prazo_meses deve ser um inteiro entre 1 e 600.' }, 400)
+  const aporteV = (aporte_mensal === '' || aporte_mensal === undefined) ? 0 : parseFloat(aporte_mensal)
+  if (!Number.isFinite(aporteV) || aporteV < 0) return c.json({ error: 'aporte_mensal deve ser um número maior ou igual a zero.' }, 400)
 
   // Buscar CDI real
   let CDI_EFETIVO = CDI_PADRAO_AA
@@ -979,9 +1064,9 @@ investimentos.get('/simulacao', requireAuth, exigeFeature('simulacao'), async (c
     taxaMensal = taxa_personalizada ? parseFloat(taxa_personalizada) / 100 : (taxas[tipo] || 0.008)
   }
 
-  const valorInicial = parseFloat(valor)
-  const aporteMensal = parseFloat(aporte_mensal) || 0
-  const meses = parseInt(prazo_meses)
+  const valorInicial = valorInicialV
+  const aporteMensal = aporteV
+  const meses = mesesV
   const projecao = []
   let valorAtual = valorInicial
   let totalAportado = 0
