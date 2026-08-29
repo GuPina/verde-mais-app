@@ -18121,9 +18121,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.0 — MÚLTIPLAS RESERVAS ESPECIALIZADAS
   // ═══════════════════════════════════════════════════════════════
   async pageReservasEsp() {
+    if (window.VMTerminalReservasEsp?.render) return window.VMTerminalReservasEsp.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:200px;margin-bottom:16px;border-radius:16px;"></div><div class="skeleton" style="height:300px;border-radius:16px;"></div></div>`
-    
+
     try {
       const data = await this.api('GET', 'reservas-esp')
       const { reserves = [], summary = {} } = data
