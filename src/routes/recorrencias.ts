@@ -1,11 +1,30 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { ensureTag, COR_MODULO } from '../utils/tags-helper'
+import { normalizarData, ERRO_DATA } from '../lib/validacao'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
 const recorrencias = new Hono<{ Bindings: Bindings; Variables: Variables }>()
+
+// ── Validação (Postgres é estrito: NaN passa no CHECK, id/dia não numérico 500).
+const MAX_VALOR = 1_000_000_000
+const MSG_FREE_REC = { error: 'Recorrências automáticas são exclusivas do plano Premium.', upgrade: true, feature: 'recorrencias' }
+function parseValorPositivo(valor: unknown): number | null {
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+function parseId(valor: unknown): number | null {
+  const t = String(valor ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+function parseDia(valor: unknown): number | null {
+  const n = Number(valor)
+  return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null
+}
 
 // ─── GET /api/recorrencias ────────────────────────────────────────────────────
 recorrencias.get('/', requireAuth, async (c) => {
@@ -94,8 +113,9 @@ recorrencias.get('/resumo', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 recorrencias.get('/:id/projecao', requireAuth, async (c) => {
   const user  = c.get('user')
-  const id    = c.req.param('id')
-  const meses = Math.min(parseInt(c.req.query('meses') || '6'), 24)
+  const id    = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const meses = Math.min(Math.max(1, parseInt(c.req.query('meses') || '6', 10) || 6), 24)
 
   const rec = await c.env.DB.prepare(
     `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -121,7 +141,7 @@ recorrencias.get('/:id/projecao', requireAuth, async (c) => {
     const jaLancada = rec.ultimo_gerado && rec.ultimo_gerado >= `${ano}-${mesStr}-01`
 
     const valorMes = rec.valor_variavel ? null : Number(rec.valor)
-    totalProjetado += valorMes || 0
+    if (!expirou) totalProjetado += valorMes || 0   // RC15: não somar meses já expirados
 
     projecao.push({
       mes, ano,
@@ -150,8 +170,9 @@ recorrencias.get('/:id/projecao', requireAuth, async (c) => {
 // ─── GET /api/recorrencias/:id/historico ─────────────────────────────────────
 recorrencias.get('/:id/historico', requireAuth, async (c) => {
   const user  = c.get('user')
-  const id    = c.req.param('id')
-  const limit = parseInt(c.req.query('limit') || '6')
+  const id    = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '6', 10) || 6), 200)   // RC8
 
   const rec = await c.env.DB.prepare(
     `SELECT id, descricao, tipo, valor_variavel FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -195,22 +216,41 @@ recorrencias.post('/', requireAuth, async (c) => {
     tags = null            // S-R5
   } = body
 
-  if (!tipo || !descricao || !categoria || !dia_vencimento) {
+  const descricaoLimpa = String(descricao ?? '').trim()   // RC18: só-espaços não passa
+  if (!tipo || !descricaoLimpa || !categoria || dia_vencimento === undefined || dia_vencimento === null) {
     return c.json({ error: 'Campos obrigatórios: tipo, descricao, categoria, dia_vencimento' }, 400)
   }
   if (!['despesa', 'receita'].includes(tipo)) {
     return c.json({ error: 'tipo deve ser: despesa ou receita' }, 400)
   }
-  if (!valor_variavel && (!valor || Number(valor) <= 0)) {
-    return c.json({ error: 'Informe um valor maior que zero para recorrências fixas' }, 400)
-  }
-  // S-R3: validar data_inicio se fornecida
-  if (data_inicio && isNaN(Date.parse(data_inicio))) {
-    return c.json({ error: 'data_inicio inválida. Use formato YYYY-MM-DD' }, 400)
+  const diaNum = parseDia(dia_vencimento)   // RC9: 99/-5/'abc' → 400 (era 500)
+  if (diaNum === null) return c.json({ error: 'dia_vencimento deve ser um inteiro entre 1 e 31.' }, 400)
+
+  // RC1: valor fixo validado (recusa NaN, ∞, negativo). Variável pode ficar sem valor.
+  let valorSalvo = 0
+  if (!valor_variavel) {
+    const v = parseValorPositivo(valor)
+    if (v === null) return c.json({ error: 'Informe um valor maior que zero para recorrências fixas.' }, 400)
+    valorSalvo = v
+  } else if (valor !== undefined && valor !== null && valor !== '') {
+    valorSalvo = parseValorPositivo(valor) ?? 0
   }
 
-  const valorSalvo  = valor_variavel ? (Number(valor) || 0) : Number(valor)
-  const tagsStr     = Array.isArray(tags) ? JSON.stringify(tags) : (tags || null)
+  // RC17: valida data_inicio E data_fim (antes só data_inicio), e a ordem entre elas.
+  let dataInicioISO: string | null = null
+  if (data_inicio) {
+    dataInicioISO = normalizarData(data_inicio)
+    if (!dataInicioISO) return c.json({ error: `data_inicio: ${ERRO_DATA}` }, 400)
+  }
+  let dataFimISO: string | null = null
+  if (data_fim) {
+    dataFimISO = normalizarData(data_fim)
+    if (!dataFimISO) return c.json({ error: `data_fim: ${ERRO_DATA}` }, 400)
+  }
+  if (dataInicioISO && dataFimISO && dataFimISO < dataInicioISO)
+    return c.json({ error: 'data_fim não pode ser anterior à data_inicio.' }, 400)
+
+  const tagsStr = Array.isArray(tags) ? JSON.stringify(tags) : (tags || null)
 
   const res = await c.env.DB.prepare(
     `INSERT INTO recorrencias
@@ -218,9 +258,9 @@ recorrencias.post('/', requireAuth, async (c) => {
         data_fim, valor_variavel, data_inicio, notas, tags)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    user.id, tipo, descricao, valorSalvo, categoria, dia_vencimento,
-    meio_pagamento, data_fim, valor_variavel ? 1 : 0,
-    data_inicio, notas || null, tagsStr
+    user.id, tipo, descricaoLimpa, valorSalvo, categoria, diaNum,
+    meio_pagamento, dataFimISO, valor_variavel ? 1 : 0,
+    dataInicioISO, notas || null, tagsStr
   ).run()
 
   await verificarConquista(c.env.DB, user.id, 'primeira_recorrencia')
@@ -234,7 +274,7 @@ recorrencias.post('/', requireAuth, async (c) => {
   const recId = res.meta.last_row_id as number
   try {
     await ensureTag(c.env.DB, user.id, 'Recorrência', COR_MODULO.recorrencia)
-    await ensureTag(c.env.DB, user.id, descricao.trim().slice(0, 30), COR_MODULO.recorrencia)
+    await ensureTag(c.env.DB, user.id, descricaoLimpa.slice(0, 30), COR_MODULO.recorrencia)
     if (categoria) {
       await ensureTag(c.env.DB, user.id, categoria.trim().slice(0, 30), COR_MODULO.recorrencia)
     }
@@ -246,7 +286,9 @@ recorrencias.post('/', requireAuth, async (c) => {
 // ─── PUT /api/recorrencias/:id — S-R5: suporte a notas e tags ────────────────
 recorrencias.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
+  const id   = parseId(c.req.param('id'))                        // RC8
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   const recAtual = await c.env.DB.prepare(
     `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -256,17 +298,38 @@ recorrencias.put('/:id', requireAuth, async (c) => {
   const body = await c.req.json()
   const { valor, meio_pagamento, data_fim, valor_variavel, data_inicio, notas, tags } = body
 
-  const descricao      = body.descricao      ?? recAtual.descricao
-  const categoria      = body.categoria      ?? recAtual.categoria
-  const dia_vencimento = body.dia_vencimento !== undefined ? body.dia_vencimento : recAtual.dia_vencimento
+  // RC18: descrição só-espaços não zera o nome
+  const descricao = body.descricao !== undefined ? String(body.descricao).trim() : recAtual.descricao
+  if (!descricao) return c.json({ error: 'A descrição não pode ficar vazia.' }, 400)
+  const categoria = body.categoria ?? recAtual.categoria
 
-  const vv         = valor_variavel !== undefined ? valor_variavel : (recAtual.valor_variavel === 1)
-  const valorFinal = valor !== undefined ? Number(valor) : recAtual.valor
-  const valorSalvo = vv ? (valorFinal || 0) : valorFinal
-  const mpFinal    = meio_pagamento  ?? recAtual.meio_pagamento ?? 'outros'
-  const dfFinal    = data_fim        !== undefined ? data_fim : recAtual.data_fim
-  const diFinal    = data_inicio     !== undefined ? data_inicio : recAtual.data_inicio
-  const notasFinal = notas           !== undefined ? (notas || null) : recAtual.notas
+  // RC9: dia validado também na edição
+  let dia_vencimento = recAtual.dia_vencimento
+  if (body.dia_vencimento !== undefined) {
+    const d = parseDia(body.dia_vencimento)
+    if (d === null) return c.json({ error: 'dia_vencimento deve ser um inteiro entre 1 e 31.' }, 400)
+    dia_vencimento = d
+  }
+
+  const vv = valor_variavel !== undefined ? valor_variavel : (recAtual.valor_variavel === 1)
+  // RC1/RC7: o PUT não validava nada — valor:-999/'abc'/0 passavam com 200.
+  let valorSalvo = Number(recAtual.valor)
+  if (valor !== undefined) {
+    if (vv) valorSalvo = (valor === '' || valor === null) ? 0 : (parseValorPositivo(valor) ?? 0)
+    else {
+      const v = parseValorPositivo(valor)
+      if (v === null) return c.json({ error: 'Informe um valor maior que zero para recorrências fixas.' }, 400)
+      valorSalvo = v
+    }
+  }
+  const mpFinal = meio_pagamento ?? recAtual.meio_pagamento ?? 'outros'
+  // RC17: valida datas na edição, e a ordem
+  let dfFinal = recAtual.data_fim
+  if (data_fim !== undefined) { dfFinal = data_fim ? normalizarData(data_fim) : null; if (data_fim && !dfFinal) return c.json({ error: `data_fim: ${ERRO_DATA}` }, 400) }
+  let diFinal = recAtual.data_inicio
+  if (data_inicio !== undefined) { diFinal = data_inicio ? normalizarData(data_inicio) : null; if (data_inicio && !diFinal) return c.json({ error: `data_inicio: ${ERRO_DATA}` }, 400) }
+  if (diFinal && dfFinal && dfFinal < diFinal) return c.json({ error: 'data_fim não pode ser anterior à data_inicio.' }, 400)
+  const notasFinal = notas !== undefined ? (notas || null) : recAtual.notas
   const tagsFinal  = tags !== undefined
     ? (Array.isArray(tags) ? JSON.stringify(tags) : (tags || null))
     : recAtual.tags
@@ -316,7 +379,9 @@ recorrencias.put('/:id', requireAuth, async (c) => {
 // ─── PATCH /api/recorrencias/:id/toggle ──────────────────────────────────────
 recorrencias.patch('/:id/toggle', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
+  const id   = parseId(c.req.param('id'))                        // RC8
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   const rec = await c.env.DB.prepare(
     `SELECT id, ativa FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -337,7 +402,9 @@ recorrencias.patch('/:id/toggle', requireAuth, async (c) => {
 //       despesas têm 'status', remove apenas as 'pendente' (não as já pagas).
 recorrencias.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
+  const id   = parseId(c.req.param('id'))                        // RC8
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   const rec = await c.env.DB.prepare(
     `SELECT id, tipo, descricao FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -346,26 +413,27 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
 
   const recTipo  = rec.tipo || 'despesa'
   const descLike  = (rec.descricao || '').replace(/ \(Auto\)$/, '').trim()
+  const hojeDel   = new Date().toISOString().split('T')[0]
 
+  // RC3: o modal promete remover só "lançamentos futuros pendentes". Antes a
+  // exclusão de receita apagava receitas já recebidas do passado (jun/jul/dez).
+  // Agora só toca o que ainda está por vir (data/vencimento >= hoje).
   if (recTipo === 'receita') {
-    // Receitas não têm coluna 'status'.
-    // Cobre lançamentos novos (recorrencia_id vinculado) E antigos (recorrencia_id NULL, por descrição + recorrente=1)
     await c.env.DB.prepare(
       `DELETE FROM receitas
-       WHERE user_id = ?
+       WHERE user_id = ? AND date(data) >= date(?)
          AND (recorrencia_id = ?
               OR (recorrencia_id IS NULL AND recorrente = 1
                   AND (descricao = ? OR descricao = ?)))`
-    ).bind(user.id, id, descLike, descLike + ' (Auto)').run()
+    ).bind(user.id, hojeDel, id, descLike, descLike + ' (Auto)').run()
   } else {
-    // Despesas: remove pendentes com recorrencia_id vinculado OU antigas por descrição + recorrente=1
     await c.env.DB.prepare(
       `DELETE FROM despesas
-       WHERE user_id = ? AND status = 'pendente'
+       WHERE user_id = ? AND status = 'pendente' AND date(COALESCE(vencimento, data)) >= date(?)
          AND (recorrencia_id = ?
               OR (recorrencia_id IS NULL AND recorrente = 1
                   AND (descricao = ? OR descricao = ?)))`
-    ).bind(user.id, id, descLike, descLike + ' (Auto)').run()
+    ).bind(user.id, hojeDel, id, descLike, descLike + ' (Auto)').run()
   }
 
   await c.env.DB.prepare(
@@ -378,7 +446,9 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
 // ─── POST /api/recorrencias/:id/lancar ───────────────────────────────────────
 recorrencias.post('/:id/lancar', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
+  const id   = parseId(c.req.param('id'))                        // RC8
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
 
   const rec = await c.env.DB.prepare(
     `SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`
@@ -419,9 +489,11 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
   const dataVenc = `${ano}-${mesStr}-${String(dia).padStart(2,'0')}`
 
   if (rec.tipo === 'despesa') {
+    // RC5/RC6: dedupe por recorrencia_id (não LIKE 'descricao%', que barrava a
+    // recorrência por causa de uma despesa manual com prefixo igual).
     const existe = await c.env.DB.prepare(
-      `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-    ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+      `SELECT id FROM despesas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',COALESCE(data,vencimento))=? LIMIT 1`
+    ).bind(user.id, rec.id, `${ano}-${mesStr}`).first()
     if (existe) return c.json({ error: `Já existe um lançamento de "${rec.descricao}" em ${mes}/${ano}` }, 409)
 
     await c.env.DB.prepare(
@@ -433,8 +505,8 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
            dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
   } else {
     const existe = await c.env.DB.prepare(
-      `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-    ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+      `SELECT id FROM receitas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',data)=? LIMIT 1`
+    ).bind(user.id, rec.id, `${ano}-${mesStr}`).first()
     if (existe) return c.json({ error: `Já existe um lançamento de "${rec.descricao}" em ${mes}/${ano}` }, 409)
 
     await c.env.DB.prepare(
@@ -449,12 +521,15 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(rec.id, user.id, mes, ano, valorLancar, observacao).run()
 
-  const dataHoje = hoje.toISOString().split('T')[0]
+  // RC2: gravar o mês GERADO (não o dia do clique). Antes, gerar um mês passado
+  // marcava ultimo_gerado=hoje e travava o mês atual para sempre.
+  const mesGeradoRef = `${ano}-${mesStr}-01`
   await c.env.DB.prepare(
     `UPDATE recorrencias
-     SET ultimo_gerado = ?, ultimo_valor = ?, total_gerado = total_gerado + 1
+     SET ultimo_gerado = CASE WHEN ultimo_gerado IS NULL OR ultimo_gerado < ? THEN ? ELSE ultimo_gerado END,
+         ultimo_valor = ?, total_gerado = total_gerado + 1
      WHERE id = ?`
-  ).bind(dataHoje, valorLancar, rec.id).run()
+  ).bind(mesGeradoRef, mesGeradoRef, valorLancar, rec.id).run()
 
   return c.json({ success: true, tipo: rec.tipo, valor: valorLancar, mes, ano, data: dataVenc })
 })
@@ -462,6 +537,7 @@ recorrencias.post('/:id/lancar', requireAuth, async (c) => {
 // ─── POST /api/recorrencias/processar ── S-R4: gera transações automaticamente
 recorrencias.post('/processar', requireAuth, async (c) => {
   const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
   const body = await c.req.json().catch(() => ({})) as any
 
   const hoje    = new Date()
@@ -488,31 +564,36 @@ recorrencias.post('/processar', requireAuth, async (c) => {
     const dia      = Math.min(rec.dia_vencimento || 1, lastDay)
     const dataVenc = `${ano}-${mesStr}-${String(dia).padStart(2,'0')}`
 
+    // RC16: data_fim comparada com o vencimento real, não com o dia 1º do mês
+    // (recorrência encerrada em 05/05 gerava conta em 25/05).
+    if (rec.data_fim && dataVenc > rec.data_fim) continue
+
     if (rec.tipo === 'despesa') {
       const existe = await c.env.DB.prepare(
-        `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-      ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+        `SELECT id FROM despesas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',COALESCE(data,vencimento))=? LIMIT 1`
+      ).bind(user.id, rec.id, `${ano}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
         `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente, recorrencia_id)
          VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1, ?)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
+      ).bind(user.id, rec.descricao, rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()   // RC13: sem "(Auto)"
       geradasItems.push({ tipo: 'despesa', descricao: rec.descricao, valor: rec.valor })
     } else {
       const existe = await c.env.DB.prepare(
-        `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-      ).bind(user.id, rec.descricao + '%', `${ano}-${mesStr}`).first()
+        `SELECT id FROM receitas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.id, `${ano}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
         `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id)
          VALUES (?, ?, ?, ?, ?, 1, ?)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, rec.id).run()
+      ).bind(user.id, rec.descricao, rec.valor, rec.categoria, dataVenc, rec.id).run()   // RC13
       geradasItems.push({ tipo: 'receita', descricao: rec.descricao, valor: rec.valor })
     }
 
+    // RC2: grava o mês gerado (mesRef), não o dia do clique (dataHoje).
     await c.env.DB.prepare(
-      `UPDATE recorrencias SET ultimo_gerado = ?, total_gerado = total_gerado + 1 WHERE id = ?`
-    ).bind(dataHoje, rec.id).run()
+      `UPDATE recorrencias SET ultimo_gerado = ?, ultimo_valor = ?, total_gerado = total_gerado + 1 WHERE id = ?`
+    ).bind(mesRef, rec.valor, rec.id).run()
     geradas++
   }
 
@@ -534,6 +615,7 @@ recorrencias.post('/processar', requireAuth, async (c) => {
 // ─── POST /api/recorrencias/processar-mes ────────────────────────────────────
 recorrencias.post('/processar-mes', requireAuth, async (c) => {
   const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)   // RC22
   const { mes, ano } = await c.req.json()
   if (!mes || !ano) return c.json({ error: 'mes e ano são obrigatórios' }, 400)
 
@@ -550,31 +632,41 @@ recorrencias.post('/processar-mes', requireAuth, async (c) => {
        AND (data_inicio IS NULL OR date(data_inicio) <= ?)`
   ).bind(user.id, mesRef, mesRef).all()
 
+  const dataHojeMes = new Date().toISOString().split('T')[0]
   let geradas = 0
   for (const rec of (pendentes.results as any[])) {
     const lastDay  = new Date(anoInt, mesInt, 0).getDate()
     const dia      = Math.min(rec.dia_vencimento || 1, lastDay)
     const dataVenc = `${anoInt}-${mesStr}-${String(dia).padStart(2,'0')}`
 
+    if (rec.data_fim && dataVenc > rec.data_fim) continue   // RC16
+
     if (rec.tipo === 'despesa') {
       const existe = await c.env.DB.prepare(
-        `SELECT id FROM despesas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-      ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
+        `SELECT id FROM despesas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',COALESCE(data,vencimento))=? LIMIT 1`
+      ).bind(user.id, rec.id, `${anoInt}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
         `INSERT INTO despesas (user_id, descricao, valor, categoria, vencimento, data, status, meio_pagamento, parcelado, numero_parcelas, parcela_atual, recorrente, recorrencia_id)
          VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, 0, 1, 1, 1, ?)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()
+      ).bind(user.id, rec.descricao, rec.valor, rec.categoria, dataVenc, dataVenc, rec.meio_pagamento || 'outros', rec.id).run()   // RC13
     } else {
       const existe = await c.env.DB.prepare(
-        `SELECT id FROM receitas WHERE user_id=? AND descricao LIKE ? AND strftime('%Y-%m',data)=? LIMIT 1`
-      ).bind(user.id, rec.descricao + '%', `${anoInt}-${mesStr}`).first()
+        `SELECT id FROM receitas WHERE user_id=? AND recorrencia_id=? AND strftime('%Y-%m',data)=? LIMIT 1`
+      ).bind(user.id, rec.id, `${anoInt}-${mesStr}`).first()
       if (existe) continue
       await c.env.DB.prepare(
         `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id)
          VALUES (?, ?, ?, ?, ?, 1, ?)`
-      ).bind(user.id, rec.descricao + ' (Auto)', rec.valor, rec.categoria, dataVenc, rec.id).run()
+      ).bind(user.id, rec.descricao, rec.valor, rec.categoria, dataVenc, rec.id).run()   // RC13
     }
+
+    // RC14: manter ultimo_gerado/total_gerado em dia (o botão não fazia isso, e o
+    // contador divergia do /processar).
+    await c.env.DB.prepare(
+      `UPDATE recorrencias SET ultimo_gerado = CASE WHEN ultimo_gerado IS NULL OR ultimo_gerado < ? THEN ? ELSE ultimo_gerado END,
+              ultimo_valor = ?, total_gerado = total_gerado + 1 WHERE id = ?`
+    ).bind(mesRef, mesRef, rec.valor, rec.id).run()
     geradas++
   }
 
