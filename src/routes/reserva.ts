@@ -6,6 +6,13 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const reserva = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ── Validação ────────────────────────────────────────────────────────────────
+const MAX_VALOR = 1_000_000_000
+function parseId(v: unknown): number | null { const t = String(v ?? ''); return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null }
+function parseValorNaoNeg(v: unknown): number | null { if (v === '' || v === null || v === undefined) return 0; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null }
+function parseValorPos(v: unknown): number | null { const n = Number(v); return Number.isFinite(n) && n > 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null }
+function parseMeses(v: unknown): number | null { const n = parseInt(String(v), 10); return Number.isInteger(n) && n >= 1 && n <= 36 ? n : null }
+
 // ─── Helper: média de gastos mensais (excluindo não-recorrentes eventuais) ────
 async function getMediaGastos(db: D1Database, userId: number): Promise<number> {
   // Exclui categorias claramente eventuais: viagem, presente, lazer esporádico
@@ -13,11 +20,11 @@ async function getMediaGastos(db: D1Database, userId: number): Promise<number> {
     SELECT COALESCE(AVG(total_mes), 0) as media FROM (
       SELECT SUM(valor) as total_mes FROM despesas
       WHERE user_id = ? AND status IN ('pago','pendente')
-      AND data >= date('now', '-3 months')
-      AND categoria NOT IN ('viagem','presente','doacao','lazer_especial','outros_eventuais')
-      AND (fixa_ou_variavel = 'fixa' OR recorrente = 1 OR categoria IN (
-        'alimentacao','moradia','transporte','saude','educacao','utilidades',
-        'seguros','assinaturas','emprestimo','financiamento','cartao','investimento'
+      AND data >= date('now', '-3 months') AND data <= date('now')
+      AND LOWER(categoria) NOT IN ('viagem','presente','presentes','doacao','doação','lazer_especial','outros_eventuais')
+      AND (fixa_ou_variavel = 'fixa' OR recorrente = 1 OR LOWER(categoria) IN (
+        'alimentacao','alimentação','moradia','transporte','saude','saúde','educacao','educação','utilidades',
+        'seguros','assinaturas','emprestimo','empréstimo','financiamento','cartao','cartão','investimento','supermercado','fixo'
       ))
       GROUP BY strftime('%Y-%m', data)
     )
@@ -28,7 +35,7 @@ async function getMediaGastos(db: D1Database, userId: number): Promise<number> {
       SELECT COALESCE(AVG(total_mes), 0) as media FROM (
         SELECT SUM(valor) as total_mes FROM despesas
         WHERE user_id = ? AND status IN ('pago','pendente')
-        AND data >= date('now', '-3 months')
+        AND data >= date('now', '-3 months') AND data <= date('now')
         GROUP BY strftime('%Y-%m', data)
       )
     `).bind(userId).first() as any
@@ -65,13 +72,18 @@ reserva.get('/', requireAuth, async (c) => {
   ).bind(user.id).first() as any
 
   if (reservaEsp) {
-    const met = calcMetricas(reservaEsp.current_amount, mediaGastos, 6)
+    const met = calcMetricas(Number(reservaEsp.current_amount), mediaGastos, 6)
     return c.json({
       reserva: {
         id: reservaEsp.id, nome: reservaEsp.name,
-        objetivo_meses: 6, valor_atual: reservaEsp.current_amount,
+        objetivo_meses: 6, valor_atual: Number(reservaEsp.current_amount),
         meta: reservaEsp.target_amount, origem: 'reservas_esp',
         reserve_id: reservaEsp.id,
+        // RE2: esta reserva vive em specialized_reserves; as rotas de mutação daqui
+        // só conhecem a tabela legada. Em vez de botões que dão 404, o front
+        // redireciona a gestão para a tela de Minhas Reservas.
+        somente_leitura: true,
+        gerenciar_em: 'reservas-esp',
       },
       media_gastos_mensais: Math.round(mediaGastos * 100) / 100,
       valor_ideal: met.valorIdeal,
@@ -116,8 +128,11 @@ reserva.get('/progresso', requireAuth, async (c) => {
   ).bind(r.id).all()
 
   const depositos = (hist.results as any[]).filter(h => h.tipo === 'deposito')
-  const aporteMedioMensal = depositos.length > 0
-    ? depositos.reduce((s, h) => s + Number(h.valor), 0) / Math.max(1, depositos.length)
+  // RE13: média MENSAL de verdade — divide pela quantidade de meses distintos, não
+  // pelo número de depósitos (3 depósitos em janeiro não são "média mensal").
+  const mesesDistintos = new Set(depositos.map(h => String(h.data).slice(0, 7))).size
+  const aporteMedioMensal = mesesDistintos > 0
+    ? depositos.reduce((s, h) => s + Number(h.valor), 0) / mesesDistintos
     : 0
 
   // Projeção de quando atingirá a meta
@@ -194,18 +209,24 @@ reserva.post('/', requireAuth, async (c) => {
 
   const { nome = 'Reserva de Emergência', objetivo_meses = 6, valor_atual = 0, observacoes, banco = null } = await c.req.json()
 
+  // RE6/RE8: objetivo_meses 1–36 e valor_atual finito >= 0 (antes 'abc'→NaN, negativo passava)
+  const objMeses = objetivo_meses === undefined ? 6 : parseMeses(objetivo_meses)
+  if (objMeses === null) return c.json({ error: 'objetivo_meses deve ser um inteiro entre 1 e 36.' }, 400)
+  const valorInicial = parseValorNaoNeg(valor_atual)
+  if (valorInicial === null) return c.json({ error: 'valor_atual deve ser um número maior ou igual a zero.' }, 400)
+
   const result = await c.env.DB.prepare(
     `INSERT INTO reserva_emergencia (user_id, nome, objetivo_meses, valor_atual, data_atualizacao, observacoes, banco)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(user.id, nome, parseInt(objetivo_meses), parseFloat(valor_atual),
+  ).bind(user.id, nome, objMeses, valorInicial,
     new Date().toISOString().split('T')[0], observacoes || null, banco || null).run()
 
   // Registrar no histórico se valor_atual > 0
-  if (parseFloat(valor_atual) > 0) {
+  if (valorInicial > 0) {
     await c.env.DB.prepare(
       `INSERT INTO reserva_historico (reserva_id, user_id, tipo, valor, descricao, saldo_antes, saldo_depois, data)
        VALUES (?, ?, 'deposito', ?, 'Valor inicial', 0, ?, date('now'))`
-    ).bind(result.meta.last_row_id, user.id, parseFloat(valor_atual), parseFloat(valor_atual)).run()
+    ).bind(result.meta.last_row_id, user.id, valorInicial, valorInicial).run()
   }
 
   await verificarConquista(c.env.DB, user.id, 'reserva_iniciada')
@@ -218,15 +239,19 @@ reserva.post('/', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 reserva.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))   // RE9
+  if (!id) return c.json({ error: 'Reserva não encontrada' }, 404)
 
   const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
 
   const body = await c.req.json()
-  const nome           = body.nome           ?? existing.nome
-  const objetivo_meses = body.objetivo_meses !== undefined ? parseInt(body.objetivo_meses) : existing.objetivo_meses
-  const valor_atual    = body.valor_atual    !== undefined ? parseFloat(body.valor_atual)  : existing.valor_atual
+  const nome = body.nome ?? existing.nome
+  // RE6: o PUT aceitava objetivo_meses:999; RE7/RE8: valor_atual negativo/NaN
+  let objetivo_meses = existing.objetivo_meses
+  if (body.objetivo_meses !== undefined) { const m = parseMeses(body.objetivo_meses); if (m === null) return c.json({ error: 'objetivo_meses deve ser um inteiro entre 1 e 36.' }, 400); objetivo_meses = m }
+  let valor_atual = existing.valor_atual
+  if (body.valor_atual !== undefined) { const v = parseValorNaoNeg(body.valor_atual); if (v === null) return c.json({ error: 'valor_atual deve ser um número maior ou igual a zero.' }, 400); valor_atual = v }
   const observacoes    = body.observacoes    !== undefined ? (body.observacoes || null)     : existing.observacoes
   const banco          = body.banco          !== undefined ? (body.banco || null)           : existing.banco
 
@@ -262,7 +287,8 @@ reserva.put('/:id', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 reserva.patch('/:id/meta-meses', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))   // RE9
+  if (!id) return c.json({ error: 'Reserva não encontrada' }, 404)
   const body = await c.req.json()
 
   const meses = parseInt(body.objetivo_meses || body.meses)
@@ -294,17 +320,18 @@ reserva.patch('/:id/meta-meses', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 reserva.patch('/:id/depositar', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))   // RE9
+  if (!id) return c.json({ error: 'Reserva não encontrada' }, 404)
   const { valor, descricao = 'Depósito', origem = null } = await c.req.json()
 
-  if (!valor || parseFloat(valor) <= 0)
-    return c.json({ error: 'Informe um valor positivo' }, 400)
+  const valorNum = parseValorPos(valor)
+  if (valorNum === null) return c.json({ error: 'Informe um valor positivo.' }, 400)
 
   const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
 
   const saldoAntes = parseFloat(existing.valor_atual)
-  const novoValor  = Math.round((saldoAntes + parseFloat(valor)) * 100) / 100
+  const novoValor  = Math.round((saldoAntes + valorNum) * 100) / 100
 
   await c.env.DB.prepare(
     'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
@@ -315,7 +342,7 @@ reserva.patch('/:id/depositar', requireAuth, async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO reserva_historico (reserva_id, user_id, tipo, valor, descricao, saldo_antes, saldo_depois, data)
      VALUES (?, ?, 'deposito', ?, ?, ?, ?, date('now'))`
-  ).bind(id, user.id, parseFloat(valor), descComOrigem, saldoAntes, novoValor).run()
+  ).bind(id, user.id, valorNum, descComOrigem, saldoAntes, novoValor).run()
 
   // Verificar conquistas
   const mediaGastos = await getMediaGastos(c.env.DB, user.id)
@@ -336,7 +363,7 @@ reserva.patch('/:id/depositar', requireAuth, async (c) => {
     cobertura_pct: met.cobertura,
     meses_cobertos: met.mesesCobertos,
     faltando: met.faltando,
-    message: `R$ ${parseFloat(valor).toFixed(2)} depositado!`
+    message: `R$ ${valorNum.toFixed(2)} depositado!`
   })
 })
 
@@ -345,33 +372,37 @@ reserva.patch('/:id/depositar', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 reserva.patch('/:id/sacar', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))   // RE9
+  if (!id) return c.json({ error: 'Reserva não encontrada' }, 404)
   const { valor, descricao = 'Saque', motivo = null } = await c.req.json()
 
-  if (!valor || parseFloat(valor) <= 0)
-    return c.json({ error: 'Informe um valor positivo' }, 400)
+  const valorNum = parseValorPos(valor)
+  if (valorNum === null) return c.json({ error: 'Informe um valor positivo.' }, 400)
 
   const existing = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!existing) return c.json({ error: 'Reserva não encontrada' }, 404)
 
   const saldoAntes = parseFloat(existing.valor_atual)
-  const novoValor  = Math.max(0, Math.round((saldoAntes - parseFloat(valor)) * 100) / 100)
+  // RE4: antes o saldo era clampado em 0 mas o histórico gravava o valor cheio,
+  // e o extrato deixava de fechar. Agora recusa sacar mais do que há.
+  if (valorNum > saldoAntes)
+    return c.json({ error: `Saldo insuficiente. Disponível: R$ ${saldoAntes.toFixed(2)}` }, 400)
+  const novoValor  = Math.round((saldoAntes - valorNum) * 100) / 100
 
   await c.env.DB.prepare(
     'UPDATE reserva_emergencia SET valor_atual=?, data_atualizacao=? WHERE id=? AND user_id=?'
   ).bind(novoValor, new Date().toISOString().split('T')[0], id, user.id).run()
 
-  // S-RE1: Registrar no histórico (inclui motivo do saque)
   const descComMotivo = motivo ? `${descricao} — Motivo: ${motivo}` : descricao
   await c.env.DB.prepare(
     `INSERT INTO reserva_historico (reserva_id, user_id, tipo, valor, descricao, saldo_antes, saldo_depois, data)
      VALUES (?, ?, 'saque', ?, ?, ?, ?, date('now'))`
-  ).bind(id, user.id, parseFloat(valor), descComMotivo, saldoAntes, novoValor).run()
+  ).bind(id, user.id, valorNum, descComMotivo, saldoAntes, novoValor).run()
 
   return c.json({
     success: true,
     novo_valor: novoValor,
-    message: `R$ ${parseFloat(valor).toFixed(2)} sacado!`
+    message: `R$ ${valorNum.toFixed(2)} sacado!`
   })
 })
 
@@ -380,7 +411,8 @@ reserva.patch('/:id/sacar', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 reserva.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))   // RE9
+  if (!id) return c.json({ error: 'Reserva não encontrada' }, 404)
   const r = await c.env.DB.prepare('SELECT id FROM reserva_emergencia WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!r) return c.json({ error: 'Reserva não encontrada' }, 404)
   await c.env.DB.prepare('DELETE FROM reserva_historico WHERE reserva_id = ? AND user_id = ?').bind(id, user.id).run()

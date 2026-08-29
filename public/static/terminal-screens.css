@@ -300,6 +300,22 @@
 .ap-row__main small { display: block; margin-top: 2px; color: var(--terminal-ink-soft); font-size: 11px; }
 .ap-row__val { font: 600 15px/1 var(--terminal-mono); color: var(--terminal-accent); }
 
+/* ============================================================================
+   Reserva de Emergência (.re-*)
+   ========================================================================== */
+.re-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 20px; align-items: center; padding: 28px; border: 1px solid #5d5020; border-radius: var(--terminal-radius-lg); background: linear-gradient(135deg, rgba(242,201,76,.1), rgba(17,24,20,.92)); }
+.re-hero--ok { border-color: #285d3f; background: linear-gradient(135deg, rgba(61,220,132,.12), rgba(17,24,20,.92)); }
+@media (max-width: 780px) { .re-hero { grid-template-columns: 1fr; } }
+.re-hero__months { font: 560 clamp(38px, 5vw, 56px)/1 var(--terminal-font); letter-spacing: -.04em; margin: 8px 0 6px; }
+.re-hero__months em { font-size: 20px; color: var(--terminal-ink-soft); font-style: normal; }
+.re-hero__main p { margin: 0; color: var(--terminal-ink-soft); font-size: 13px; }
+.re-hero__gauge { display: flex; flex-direction: column; gap: 8px; }
+.re-hero__nums { display: flex; justify-content: space-between; font: 700 13px/1 var(--terminal-mono); }
+.re-hero__nums span:last-child { color: var(--terminal-ink-soft); }
+.re-hero__pill { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.re-hero__pill small { color: var(--terminal-ink-soft); font-size: 12px; }
+.re-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
 /* ---- Lembretes: badges de status ---- */
 .tl-badge--late { color: var(--terminal-negative); border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.08); }
 .tl-badge--today { color: var(--terminal-accent); border-color: #5d5020; background: rgba(242,201,76,.1); }
