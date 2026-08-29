@@ -459,8 +459,12 @@ cartoes.get('/resumo-faturas', requireAuth, async (c) => {
 // vendi?** — a segunda é a que ninguém calcula à mão e a que mais dói.
 cartoes.get('/analise', requireAuth, async (c) => {
   const user = c.get('user')
-  const meses = Math.min(24, Math.max(3, parseInt(c.req.query('meses') || '12')))
-  const cartaoFiltro = c.req.query('cartao_id')
+  // AC3: parseInt('abc')=NaN → Math.max(3,NaN)=NaN → janela vazia → janela[0] estourava 500.
+  const mesesRaw = parseInt(c.req.query('meses') || '12', 10)
+  const meses = Math.min(24, Math.max(3, Number.isInteger(mesesRaw) ? mesesRaw : 12))
+  const cartaoFiltroRaw = c.req.query('cartao_id')
+  if (cartaoFiltroRaw && !/^\d+$/.test(cartaoFiltroRaw)) return c.json({ error: 'cartao_id inválido.' }, 400)
+  const cartaoFiltro: number | null = cartaoFiltroRaw ? parseInt(cartaoFiltroRaw, 10) : null
 
   const hoje = new Date()
   const mesAtual = hoje.getMonth() + 1
@@ -477,7 +481,7 @@ cartoes.get('/analise', requireAuth, async (c) => {
   const maisAntigo = janela[0]
 
   const filtroCartao = cartaoFiltro ? ' AND cc.card_id = ?' : ''
-  const paramsCartao = cartaoFiltro ? [parseInt(cartaoFiltro)] : []
+  const paramsCartao = cartaoFiltro ? [cartaoFiltro] : []
 
   const [porMes, porCartaoMes, futuras, categorias, recorrentes, cartoesLista] = await Promise.all([
     // Fatura de cada mês da janela
@@ -557,7 +561,7 @@ cartoes.get('/analise', requireAuth, async (c) => {
   }
 
   const limiteTotalSomado = (cartoesLista.results as any[] || [])
-    .filter(c2 => !cartaoFiltro || Number(c2.id) === parseInt(cartaoFiltro))
+    .filter(c2 => !cartaoFiltro || Number(c2.id) === cartaoFiltro)
     .reduce((s, c2) => s + Number(c2.limite_total || 0), 0)
 
   const serie = janela.map((j, i) => {
@@ -623,8 +627,10 @@ cartoes.get('/analise', requireAuth, async (c) => {
   }
   const recLista = (recorrentes.results as any[] || [])
   if (recLista.length) {
+    // AC6: antes dizia "todo mês" mesmo com 3–4 aparições em 12 meses. Agora
+    // fala em "recorrentes" e projeta o anual como hipótese ("se mantidas").
     const anual = recLista.reduce((a, r) => a + Number(r.valor) * 12, 0)
-    leitura.push(`${recLista.length} cobrança(s) se repetem todo mês no cartão — ${reais(anual)} por ano se nada mudar.`)
+    leitura.push(`${recLista.length} cobrança(s) recorrente(s) no cartão — até ${reais(anual)} por ano se mantidas todos os meses.`)
   }
 
   return c.json({

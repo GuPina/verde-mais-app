@@ -21748,6 +21748,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // (#2FBF71) é claro demais para a faixa de luminância de marca em fundo
   // escuro, então as barras usam o passo #199e70.
   async pageAnaliseCartoes() {
+    if (window.VMTerminalAnaliseCartoes?.render) return window.VMTerminalAnaliseCartoes.render(this)
     const content = document.getElementById('page-content')
     this._acMeses = this._acMeses || 12
     this._acCartao = this._acCartao || ''
