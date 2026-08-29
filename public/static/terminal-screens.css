@@ -381,3 +381,6 @@
 .fe-card__meta small{color:var(--terminal-ink-soft);font-size:12px}
 .fe-card__actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .fe-card__actions .td-button--primary,.fe-card__actions .td-button:nth-child(2){flex:1;justify-content:center}
+
+/* ---- Empréstimos: badge de atraso ---- */
+.fe-badge--danger{color:var(--terminal-negative);border-color:color-mix(in srgb,var(--terminal-negative) 45%,var(--terminal-line))}

@@ -8,6 +8,19 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const emprestimos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ─── Helpers de validação (EMP9/EMP11/EMP12/EMP16) ───────────────────────────
+const MAX_PARCELAS = 600
+const TIPOS_VALIDOS = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
+// id de rota: só inteiro positivo, senão null → 400 (nunca 500) — EMP12
+function parseId(v: any): number | null {
+  const t = String(v ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+// data válida (ISO ou DD/MM/AAAA) — EMP11/EMP19
+function dataValida(s: any): boolean {
+  return parseDataSegura(String(s ?? '')) !== null
+}
+
 // ─── S-E1: GET /api/emprestimos/resumo ───────────────────────────────────────
 emprestimos.get('/resumo', requireAuth, async (c) => {
   const user = c.get('user')
@@ -74,7 +87,8 @@ emprestimos.get('/resumo', requireAuth, async (c) => {
 // ─── S-E2: PATCH /api/emprestimos/:id/quitado ────────────────────────────────
 emprestimos.patch('/:id/quitado', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const emp = await c.env.DB.prepare(
     'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
@@ -92,7 +106,7 @@ emprestimos.patch('/:id/quitado', requireAuth, async (c) => {
   // Marcar todas as despesas pendentes como pagas
   await c.env.DB.prepare(
     `UPDATE despesas SET status='pago', data=? WHERE user_id=? AND categoria='Empréstimo' AND status='pendente' AND observacoes LIKE ?`
-  ).bind(hoje, user.id, `%Empréstimo automático #${id}%`).run()
+  ).bind(hoje, user.id, `%Empréstimo automático #${id} %`).run()
 
   await verificarConquista(c.env.DB, user.id, 'sem_dividas')
   if (emp.tipo === 'veiculo') await verificarConquista(c.env.DB, user.id, 'carro_quitado')
@@ -136,7 +150,8 @@ emprestimos.get('/', requireAuth, async (c) => {
 // GET /api/emprestimos/:id — detalhe individual com campos calculados
 emprestimos.get('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const e = await c.env.DB.prepare(
     'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first() as any
@@ -190,10 +205,19 @@ emprestimos.post('/', requireAuth, async (c) => {
   if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
     return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
   }
+  // EMP16: teto de parcelas
+  if (totalParcelas > MAX_PARCELAS) return c.json({ error: `Número de parcelas muito alto (máximo ${MAX_PARCELAS}).` }, 400)
+  // EMP11: data de início precisa ser válida (senão .toISOString() dá 500)
+  if (!dataValida(data_inicio)) return c.json({ error: 'Data de início inválida (use AAAA-MM-DD).' }, 400)
+  // EMP9: dia de vencimento entre 1 e 31
+  if (dia_vencimento !== undefined && dia_vencimento !== null && dia_vencimento !== '') {
+    const dv = parseInt(dia_vencimento)
+    if (!Number.isInteger(dv) || dv < 1 || dv > 31) return c.json({ error: 'Dia de vencimento deve ser entre 1 e 31.' }, 400)
+  }
 
-  // Normalizar tipo — garantir que só valores válidos do CHECK constraint sejam inseridos
-  const TIPOS_VALIDOS = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
-  const tipoNormalizado = TIPOS_VALIDOS.includes(tipo) ? tipo : 'outros'
+  // EMP10: tipo inválido é RECUSADO (não coagido para 'outros')
+  if (!TIPOS_VALIDOS.includes(tipo)) return c.json({ error: 'Tipo inválido.', tipos_validos: TIPOS_VALIDOS }, 400)
+  const tipoNormalizado = tipo
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
@@ -206,7 +230,7 @@ emprestimos.post('/', requireAuth, async (c) => {
     saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
   }
 
-  const dataInicio = new Date(data_inicio)
+  const dataInicio = parseDataSegura(data_inicio) || new Date(data_inicio)  // EMP19: ancora ao meio-dia
   const dataFim = new Date(dataInicio)
   dataFim.setMonth(dataFim.getMonth() + parseInt(numero_parcelas))
 
@@ -275,7 +299,7 @@ emprestimos.post('/', requireAuth, async (c) => {
   try {
     const despGeradas = await c.env.DB.prepare(
       `SELECT id FROM despesas WHERE user_id=? AND observacoes LIKE ? ORDER BY id ASC`
-    ).bind(user.id, `Empréstimo automático #${empId}%`).all<{id:number}>()
+    ).bind(user.id, `Empréstimo automático #${empId} %`).all<{id:number}>()
     const despIds = (despGeradas.results || []).map(r => r.id)
     if (despIds.length > 0) {
       const tagEmpId  = await ensureTag(c.env.DB, user.id, 'Empréstimo', COR_MODULO.emprestimo)
@@ -293,7 +317,8 @@ emprestimos.post('/', requireAuth, async (c) => {
 // PUT /api/emprestimos/:id
 emprestimos.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const existing = await c.env.DB.prepare('SELECT id FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Empréstimo não encontrado' }, 404)
 
@@ -309,10 +334,18 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   if (saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== '' && (!Number.isFinite(Number(saldoInformado)) || Number(saldoInformado) < 0)) {
     return c.json({ error: 'Saldo devedor deve ser um número maior ou igual a zero.' }, 400)
   }
+  if (Number(numero_parcelas) > MAX_PARCELAS) return c.json({ error: `Número de parcelas muito alto (máximo ${MAX_PARCELAS}).` }, 400)
+  if (!dataValida(data_inicio)) return c.json({ error: 'Data de início inválida (use AAAA-MM-DD).' }, 400)
+  if (dia_vencimento !== undefined && dia_vencimento !== null && dia_vencimento !== '') {
+    const dv = parseInt(dia_vencimento)
+    if (!Number.isInteger(dv) || dv < 1 || dv > 31) return c.json({ error: 'Dia de vencimento deve ser entre 1 e 31.' }, 400)
+  }
+  if (status !== undefined && status !== null && status !== '' && !['ativo', 'quitado', 'em_atraso', 'negociado'].includes(status))
+    return c.json({ error: 'Status inválido.' }, 400)
 
-  // Normalizar tipo no PUT também
-  const TIPOS_VALIDOS_PUT = ['pessoal', 'consignado', 'veiculo', 'estudantil', 'microempresa', 'amigos_familia', 'imovel', 'imovel_comercial', 'rural', 'outros']
-  const tipoNormalizadoPut = TIPOS_VALIDOS_PUT.includes(tipoPut) ? tipoPut : 'outros'
+  // EMP10: tipo inválido é RECUSADO (não coagido)
+  if (!TIPOS_VALIDOS.includes(tipoPut)) return c.json({ error: 'Tipo inválido.', tipos_validos: TIPOS_VALIDOS }, 400)
+  const tipoNormalizadoPut = tipoPut
 
   const taxaM = parseFloat(taxa_juros_mensal) / 100
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
@@ -330,7 +363,7 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   const valorPago = parseFloat(valor_parcela) * parcelasPagasN
 
   // Recalcular data_previsao_fim
-  const dataInicioPut = new Date(data_inicio)
+  const dataInicioPut = parseDataSegura(data_inicio) || new Date(data_inicio)  // EMP19
   const dataFimPut = new Date(dataInicioPut)
   dataFimPut.setMonth(dataFimPut.getMonth() + parseInt(numero_parcelas))
 
@@ -345,7 +378,7 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   await c.env.DB.prepare(
     `UPDATE despesas SET valor = ?, descricao = REPLACE(descricao, SUBSTR(descricao, INSTR(descricao, '(')), '') || '(' || CAST(parcela_atual AS TEXT) || '/' || ? || ')'
      WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pendente' AND observacoes LIKE ?`
-  ).bind(parseFloat(valor_parcela), parseInt(numero_parcelas), user.id, `%Empréstimo automático #${id}%`).run()
+  ).bind(parseFloat(valor_parcela), parseInt(numero_parcelas), user.id, `%Empréstimo automático #${id} %`).run()
 
   return c.json({ success: true, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformadoPut ? 'informado' : 'calculado', message: 'Empréstimo atualizado!' })
 })
@@ -354,24 +387,31 @@ emprestimos.put('/:id', requireAuth, async (c) => {
 // Lógica correta: subtrai (parcela - juros_sobre_saldo_atual) do saldo_devedor
 emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const emp = await c.env.DB.prepare('SELECT * FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  // EMP4: não pagar parcela de empréstimo já quitado (evita parcelas_restantes negativo)
+  if (emp.parcelas_pagas >= emp.numero_parcelas || emp.saldo_devedor <= 0)
+    return c.json({ error: 'Empréstimo já quitado — não há parcelas a pagar.' }, 400)
 
   const novasParcelas = emp.parcelas_pagas + 1
   const taxaM = emp.taxa_juros_mensal / 100
 
   // CÁLCULO CORRETO: juros do mês sobre saldo_devedor atual, depois amortiza
-  const jurosMes = emp.saldo_devedor * taxaM
-  const amortizacao = emp.valor_parcela - jurosMes
+  const jurosMes = Math.round(emp.saldo_devedor * taxaM * 100) / 100
+  const amortizacao = Math.round((emp.valor_parcela - jurosMes) * 100) / 100
+
+  // EMP17: parcela que não cobre os juros aumentaria a dívida — bloquear
+  if (amortizacao <= 0)
+    return c.json({ error: `A parcela (R$ ${Number(emp.valor_parcela).toFixed(2)}) não cobre nem os juros deste mês (R$ ${jurosMes.toFixed(2)}). Pagá-la aumentaria a dívida — revise o valor da parcela ou a taxa.` }, 422)
+
   const novoSaldo = Math.max(0, Math.round((emp.saldo_devedor - amortizacao) * 100) / 100)
 
-  // FIX: valor_pago acumula o que efetivamente foi pago na parcela (pode diferir do valor_parcela
-  // se houve amortizações extraordinárias anteriores que alteraram o saldo). Usamos valor_parcela
-  // como pagamento desta parcela, pois amortizações são registradas separadamente via /amortizacao.
-  // O total real pago = saldo_devedor_original - saldo_devedor_atual + total_amortizacoes_extras
-  // Cálculo correto: valor_pago = valor_original - novoSaldo (reflexo direto do saldo reduzido)
-  const novoValorPago = Math.round((emp.valor_original - novoSaldo) * 100) / 100
+  // EMP13/EMP23: valor_pago acumula o DESEMBOLSO real (a parcela paga, que inclui juros),
+  // não a diferença de saldo (que ignora os juros pagos)
+  const novoValorPago = Math.round((Number(emp.valor_pago || 0) + Number(emp.valor_parcela)) * 100) / 100
   const status = novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare('UPDATE emprestimos SET parcelas_pagas=?, saldo_devedor=?, valor_pago=?, status=? WHERE id=? AND user_id=?').bind(novasParcelas, novoSaldo, novoValorPago, status, id, user.id).run()
@@ -380,7 +420,7 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
   const parcelaNum = novasParcelas
   await c.env.DB.prepare(
     `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Empréstimo' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
-  ).bind(user.id, parcelaNum, `%Empréstimo automático #${id}%`).run()
+  ).bind(user.id, parcelaNum, `%Empréstimo automático #${id} %`).run()
 
   if (status === 'quitado') {
     await verificarConquista(c.env.DB, user.id, 'sem_dividas')
@@ -410,17 +450,22 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
 // PATCH /api/emprestimos/:id/amortizacao — amortização extraordinária
 emprestimos.patch('/:id/amortizacao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const emp = await c.env.DB.prepare('SELECT * FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
 
-  const { valor_amortizado, novo_saldo, parcelas_antecipadas = 0, observacoes } = await c.req.json()
-  if (!valor_amortizado || novo_saldo === undefined) return c.json({ error: 'valor_amortizado e novo_saldo são obrigatórios' }, 400)
+  const { valor_amortizado, parcelas_antecipadas = 0, observacoes } = await c.req.json()
+  // EMP3/EMP22: valor precisa ser positivo; o novo saldo é SEMPRE calculado no
+  // servidor (novo_saldo do corpo é ignorado — o cliente não escolhe a dívida)
+  const valorAmort = Number(valor_amortizado)
+  if (!Number.isFinite(valorAmort) || valorAmort <= 0)
+    return c.json({ error: 'Valor da amortização deve ser um número maior que zero.' }, 400)
 
-  const novasPagasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas))
+  const novasPagasPorAntecipacao = Math.max(0, parseInt(parcelas_antecipadas) || 0)
   const novasParcelas = Math.min(emp.numero_parcelas, emp.parcelas_pagas + novasPagasPorAntecipacao)
-  const novoSaldoVal = Math.max(0, parseFloat(novo_saldo))
-  const novoValorPago = emp.valor_pago + parseFloat(valor_amortizado)
+  const novoSaldoVal = Math.max(0, Math.round((Number(emp.saldo_devedor) - valorAmort) * 100) / 100)
+  const novoValorPago = Math.round((Number(emp.valor_pago || 0) + valorAmort) * 100) / 100
   const status = novoSaldoVal <= 0 || novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare(
@@ -432,14 +477,14 @@ emprestimos.patch('/:id/amortizacao', requireAuth, async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, fixa_ou_variavel, observacoes, meio_pagamento)
      VALUES (?, ?, ?, ?, ?, 'pago', 'variavel', ?, 'transferencia')`
-  ).bind(user.id, `Amortização Extraordinária — ${emp.descricao}`, hoje, 'Empréstimo', parseFloat(valor_amortizado), observacoes || `Amortização de R$${valor_amortizado} no empréstimo #${id}`).run()
+  ).bind(user.id, `Amortização Extraordinária — ${emp.descricao}`, hoje, 'Empréstimo', valorAmort, `Empréstimo automático #${id} — Amortização extraordinária${observacoes ? ': ' + observacoes : ''}`).run()
 
   // Marcar parcelas antecipadas como pagas nas despesas
   if (novasPagasPorAntecipacao > 0) {
     for (let p = emp.parcelas_pagas + 1; p <= novasParcelas; p++) {
       await c.env.DB.prepare(
         `UPDATE despesas SET status='pago' WHERE user_id=? AND categoria='Empréstimo' AND parcela_atual=? AND status='pendente' AND observacoes LIKE ?`
-      ).bind(user.id, p, `%Empréstimo automático #${id}%`).run()
+      ).bind(user.id, p, `%Empréstimo automático #${id} %`).run()
     }
   }
 
@@ -451,14 +496,15 @@ emprestimos.patch('/:id/amortizacao', requireAuth, async (c) => {
     novo_saldo: novoSaldoVal,
     parcelas_pagas: novasParcelas,
     status,
-    message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `⚡ Amortização de R$${parseFloat(valor_amortizado).toFixed(2)} aplicada! Novo saldo: R$${novoSaldoVal.toFixed(2)}`
+    message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `⚡ Amortização de R$${valorAmort.toFixed(2)} aplicada! Novo saldo: R$${novoSaldoVal.toFixed(2)}`
   })
 })
 
 // GET /api/emprestimos/:id/simulacao — simula cenários de pagamento antecipado
 emprestimos.get('/:id/simulacao', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const emp = await c.env.DB.prepare(
     'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
@@ -516,7 +562,8 @@ emprestimos.get('/:id/simulacao', requireAuth, async (c) => {
 // DELETE /api/emprestimos/:id — cascade: apaga todas as despesas pendentes vinculadas
 emprestimos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   // Verifica existência antes de apagar
   const existing = await c.env.DB.prepare('SELECT id FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first()
@@ -525,7 +572,7 @@ emprestimos.delete('/:id', requireAuth, async (c) => {
   // Remove todas as despesas vinculadas (pagas e pendentes) com observacao referenciando este empréstimo
   await c.env.DB.prepare(
     `DELETE FROM despesas WHERE user_id = ? AND categoria = 'Empréstimo' AND observacoes LIKE ?`
-  ).bind(user.id, `%Empréstimo automático #${id}%`).run()
+  ).bind(user.id, `%Empréstimo automático #${id} %`).run()
 
   // Remove o empréstimo
   await c.env.DB.prepare('DELETE FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).run()
@@ -568,12 +615,12 @@ async function verificarConquista(db: D1Database, userId: number, codigo: string
   } catch { }
 }
 
-export default emprestimos
 
 // GET /api/emprestimos/:id/calendario — retorna todas as parcelas futuras com datas
 emprestimos.get('/:id/calendario', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const emp = await c.env.DB.prepare(
     'SELECT * FROM emprestimos WHERE id = ? AND user_id = ?'
@@ -678,7 +725,8 @@ emprestimos.post('/verificar-atrasos', requireAuth, async (c) => {
 // POST /api/emprestimos/:id/lembrete — cria lembrete automático para a próxima parcela
 emprestimos.post('/:id/lembrete', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const { dias_antes = 3 } = await c.req.json().catch(() => ({})) as any
 
   const emp = await c.env.DB.prepare(
@@ -714,3 +762,5 @@ emprestimos.post('/:id/lembrete', requireAuth, async (c) => {
     return c.json({ error: 'Erro ao criar lembrete: ' + e2.message }, 500)
   }
 })
+
+export default emprestimos

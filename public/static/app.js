@@ -13963,6 +13963,7 @@ const VM = {
 
   // ============== EMPRÉSTIMOS ==============
   async pageEmprestimos() {
+    if (window.VMTerminalEmprestimos?.render) return window.VMTerminalEmprestimos.render(this)
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>
