@@ -26,8 +26,15 @@ const aportes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 aportes.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const hoje = new Date()
-  const mes  = mesDoisDigitos(c.req.query('mes') || String(hoje.getMonth() + 1))
-  const ano  = String(c.req.query('ano') || hoje.getFullYear())
+  // AP6: antes `?mes=abc` respondia 200 com periodo.mes:"abc". Agora valida.
+  const mesRaw = c.req.query('mes')
+  const anoRaw = c.req.query('ano')
+  const mesNum = mesRaw === undefined ? hoje.getMonth() + 1 : parseInt(mesRaw, 10)
+  const anoNum = anoRaw === undefined ? hoje.getFullYear() : parseInt(anoRaw, 10)
+  if (!Number.isInteger(mesNum) || mesNum < 1 || mesNum > 12 || !Number.isInteger(anoNum) || anoNum < 2000 || anoNum > 2100)
+    return c.json({ error: 'Período inválido: mes deve ser 1–12 e ano entre 2000 e 2100.' }, 400)
+  const mes  = mesDoisDigitos(mesNum)
+  const ano  = String(anoNum)
 
   const [lista, totalMes, totalAno, porDestino, evolucao, patrimonio] = await Promise.all([
     // Aportes do mês, do mais recente para o mais antigo

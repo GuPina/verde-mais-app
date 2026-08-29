@@ -22001,6 +22001,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   },
 
   async pageAportes() {
+    if (window.VMTerminalAportes?.render) return window.VMTerminalAportes.render(this)
     const content = document.getElementById('page-content')
     const hoje = new Date()
     this._apMes = this._apMes || (hoje.getMonth() + 1)
