@@ -625,6 +625,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-2">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260828-4">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260829-1">
 </head>
 <body>
   <div id="app">
@@ -638,6 +639,8 @@ function appShell() {
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
   <script src="/static/terminal-dashboard.js?v=20260828-1"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
+  <script src="/static/terminal-metas.js?v=20260829-1"></script>
+  <script src="/static/terminal-orcamentos.js?v=20260829-1"></script>
   <script src="/static/app.js?v=20260828-2"></script>
   <script>
     // Registrar Service Worker para notificações push

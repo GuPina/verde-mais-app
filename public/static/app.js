@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -5076,6 +5076,7 @@ const VM = {
 
   // ============== METAS ==============
   async pageMetas() {
+    if (window.VMTerminalMetas?.render) return window.VMTerminalMetas.render(this)
     this._metasOrdem = this._metasOrdem || 'prazo'
     this._metasView  = this._metasView  || 'cards'
     document.getElementById('page-content').innerHTML = `
@@ -16164,6 +16165,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // F1 — ORÇAMENTOS POR CATEGORIA
   // ══════════════════════════════════════════════════════════════════════════
   async pageOrcamentos() {
+    if (window.VMTerminalOrcamentos?.render) return window.VMTerminalOrcamentos.render(this)
     const content = document.getElementById('page-content')
     const plano = this.user?.plano || 'free'
 

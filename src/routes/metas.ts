@@ -9,6 +9,33 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const metas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ── Validação de entrada (mesmo padrão de despesas.ts) ───────────────────────
+// Postgres é estrito: `'NaN'::numeric` passa no CHECK (> 0) e um id não-numérico
+// estoura 500. Estes helpers barram na porta, com Number.isFinite.
+const MAX_VALOR = 1_000_000_000
+
+function parseValorPositivo(valor: unknown): number | null {
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+
+function parseValorNaoNegativo(valor: unknown): number | null {
+  if (valor === null || valor === undefined || valor === '') return 0
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n < 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+
+function parseId(valor: unknown): number | null {
+  const texto = String(valor ?? '')
+  if (!/^\d+$/.test(texto)) return null
+  const n = parseInt(texto, 10)
+  return n > 0 ? n : null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/metas?status=ativa&prioridade=3
 // S-M5: suporta filtro por prioridade; ordena por prioridade DESC, data ASC
@@ -130,7 +157,8 @@ metas.get('/resumo', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 metas.get('/:id/historico', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Meta não encontrada' }, 404)
   const limit  = Math.min(parseInt(c.req.query('limit')  || '50'), 200)
   const offset = parseInt(c.req.query('offset') || '0')
 
@@ -199,8 +227,17 @@ metas.post('/', requireAuth, async (c) => {
   if (![1, 2, 3].includes(Number(prioridade)))
     return c.json({ error: 'prioridade deve ser 1 (baixa), 2 (média) ou 3 (alta)' }, 400)
 
-  let valorObj     = valor_objetivo ? parseFloat(valor_objetivo) : 0
-  let valorAtual   = parseFloat(valor_atual)
+  // M1: objetivo e valor atual validados na entrada (recusa negativo, NaN, ∞).
+  // Um único registro ruim contaminava o /resumo de todas as metas.
+  let valorObj = 0
+  if (valor_objetivo !== undefined && valor_objetivo !== null && valor_objetivo !== '') {
+    const v = parseValorPositivo(valor_objetivo)
+    if (v === null) return c.json({ error: 'valor_objetivo deve ser um número maior que zero.' }, 400)
+    valorObj = v
+  }
+  const valorAtualParsed = parseValorNaoNegativo(valor_atual)
+  if (valorAtualParsed === null) return c.json({ error: 'valor_atual deve ser um número maior ou igual a zero.' }, 400)
+  let valorAtual   = valorAtualParsed
   let originalDebt = null
 
   if (categoria === 'debt_payoff' && linked_debt_type) {
@@ -221,15 +258,19 @@ metas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Campo obrigatório: valor_objetivo' }, 400)
   }
 
+  // M3: meta que já nasce batendo o objetivo entra como concluída — antes ficava
+  // "ativa" e só era avaliada no primeiro depósito.
+  const statusInicial = (valorObj > 0 && valorAtual >= valorObj) ? 'concluida' : 'ativa'
+
   const result = await c.env.DB.prepare(
     `INSERT INTO metas (user_id, nome, descricao, valor_objetivo, valor_atual, data_meta,
-     categoria, cor, icone, linked_debt_type, linked_debt_id, original_debt_amount, prioridade)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     categoria, cor, icone, linked_debt_type, linked_debt_id, original_debt_amount, prioridade, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     user.id, nome, descricao || null,
     valorObj, valorAtual, dataMetaISO, categoria, cor, icone,
     linked_debt_type, linked_debt_id ? parseInt(linked_debt_id) : null,
-    originalDebt, Number(prioridade)
+    originalDebt, Number(prioridade), statusInicial
   ).run()
 
   const nomeMin = nome.toLowerCase()
@@ -248,6 +289,7 @@ metas.post('/', requireAuth, async (c) => {
     await verificarConquista(c.env.DB, user.id, 'meta_aposentadoria')
   await verificarConquista(c.env.DB, user.id, 'planejador')
   await verificarConquista(c.env.DB, user.id, 'sonhador')
+  if (statusInicial === 'concluida') await verificarConquista(c.env.DB, user.id, 'meta_concluida')
 
   // ── Tags automáticas para a meta ─────────────────────────────
   // Metas não geram despesas diretamente, mas criamos a tag para ser usada
@@ -271,7 +313,8 @@ metas.post('/', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 metas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Meta não encontrada' }, 404)
   const body = await c.req.json()
 
   const metaAtual = await c.env.DB.prepare('SELECT * FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
@@ -289,6 +332,28 @@ metas.put('/:id', requireAuth, async (c) => {
   if (!PRIORIDADE_VALIDA.includes(novaPrioridade))
     return c.json({ error: 'prioridade deve ser 1 (baixa), 2 (média) ou 3 (alta)' }, 400)
 
+  // M2: a validação de data valia só no POST — `PUT { data_meta: "32/13/2027" }`
+  // gravava lixo e a tela mostrava "Prazo -" / "null meses restantes".
+  let dataMetaFinal = metaAtual.data_meta
+  if (data_meta !== undefined) {
+    const iso = normalizarData(data_meta)
+    if (!iso) return c.json({ error: ERRO_DATA }, 400)
+    dataMetaFinal = iso
+  }
+  // M1: objetivo e valor atual validados também na edição.
+  let objetivoFinal = metaAtual.valor_objetivo
+  if (valor_objetivo !== undefined) {
+    const v = parseValorPositivo(valor_objetivo)
+    if (v === null) return c.json({ error: 'valor_objetivo deve ser um número maior que zero.' }, 400)
+    objetivoFinal = v
+  }
+  let atualFinal = metaAtual.valor_atual
+  if (valor_atual !== undefined) {
+    const v = parseValorNaoNegativo(valor_atual)
+    if (v === null) return c.json({ error: 'valor_atual deve ser um número maior ou igual a zero.' }, 400)
+    atualFinal = v
+  }
+
   await c.env.DB.prepare(
     `UPDATE metas SET nome = ?, descricao = ?, valor_objetivo = ?, valor_atual = ?,
      data_meta = ?, categoria = ?, cor = ?, icone = ?, status = ?, prioridade = ?
@@ -296,9 +361,9 @@ metas.put('/:id', requireAuth, async (c) => {
   ).bind(
     nome ?? metaAtual.nome,
     descricao !== undefined ? (descricao || null) : metaAtual.descricao,
-    valor_objetivo !== undefined ? parseFloat(valor_objetivo) : metaAtual.valor_objetivo,
-    valor_atual    !== undefined ? parseFloat(valor_atual)    : metaAtual.valor_atual,
-    data_meta ?? metaAtual.data_meta,
+    objetivoFinal,
+    atualFinal,
+    dataMetaFinal,
     categoria ?? metaAtual.categoria,
     cor       ?? metaAtual.cor,
     icone     ?? metaAtual.icone,
@@ -316,22 +381,25 @@ metas.put('/:id', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 metas.patch('/:id/deposito', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Meta não encontrada' }, 404)
   const body = await c.req.json()
 
-  const valorNum = parseFloat(body.valor)
+  // M6: parseFloat aceitava Infinity e valores absurdos sem teto. parseValorPositivo
+  // recusa NaN, ∞, negativo e acima de R$ 1 bi.
+  const valorNum = parseValorPositivo(body.valor)
   const tipo     = (body.tipo || 'aporte') as string
   const descricao = body.descricao || null
 
-  if (isNaN(valorNum) || valorNum <= 0)
-    return c.json({ error: 'O valor deve ser maior que zero' }, 400)
+  if (valorNum === null)
+    return c.json({ error: `Informe um valor entre R$ 0,01 e R$ ${MAX_VALOR.toLocaleString('pt-BR')}.` }, 400)
   if (!['aporte', 'saque'].includes(tipo))
     return c.json({ error: 'tipo deve ser "aporte" ou "saque"' }, 400)
 
   const meta = await c.env.DB.prepare('SELECT * FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
   if (!meta) return c.json({ error: 'Meta não encontrada' }, 404)
   if (meta.status === 'concluida')
-    return c.json({ error: 'Meta já concluída. Reabertura via PUT /metas/:id com status=ativa.' }, 400)
+    return c.json({ error: 'Esta meta já foi concluída. Reative-a antes de movimentar o valor.' }, 400)
 
   const valorAntes = Number(meta.valor_atual)
 
@@ -400,7 +468,8 @@ metas.patch('/:id/deposito', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 metas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Meta não encontrada' }, 404)
 
   const existing = await c.env.DB.prepare('SELECT id FROM metas WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   if (!existing) return c.json({ error: 'Meta não encontrada' }, 404)

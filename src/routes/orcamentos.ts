@@ -7,6 +7,30 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const orcamentos = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ── Validação de entrada (Postgres é estrito: NaN passa no CHECK, id/ mes não
+// numérico estoura 500). Barra na porta. ──────────────────────────────────────
+const MAX_VALOR = 1_000_000_000
+function parseLimite(valor: unknown): number | null {
+  if (typeof valor === 'string' && !/^\d+(\.\d+)?$/.test(valor.trim())) return null
+  const n = typeof valor === 'number' ? valor : parseFloat(String(valor))
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_VALOR) return null
+  return Math.round(n * 100) / 100
+}
+function parseMes(valor: unknown): number | null {
+  const n = parseInt(String(valor ?? ''), 10)
+  return Number.isInteger(n) && n >= 1 && n <= 12 ? n : null
+}
+function parseAno(valor: unknown): number | null {
+  const n = parseInt(String(valor ?? ''), 10)
+  return Number.isInteger(n) && n >= 2000 && n <= 2100 ? n : null
+}
+function parseId(valor: unknown): number | null {
+  const t = String(valor ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+const ERRO_PERIODO = 'Período inválido: mes deve ser 1–12 e ano entre 2000 e 2100.'
+const MSG_FREE_ORC = { error: 'Orçamentos são exclusivos do plano Premium.', upgrade: true }
+
 // ─── Categorias disponíveis (sync com despesas) ───────────────────────────────
 const CATEGORIAS = [
   'alimentacao', 'moradia', 'transporte', 'saude', 'educacao',
@@ -137,8 +161,10 @@ async function dispararAlertasProgressivos(db: D1Database, orc: any, percentual:
 // ─────────────────────────────────────────────────────────────────────────────
 orcamentos.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const mes  = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
-  const ano  = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
+  const mesQ = c.req.query('mes'); const anoQ = c.req.query('ano')
+  const mes  = mesQ === undefined ? new Date().getMonth() + 1 : parseMes(mesQ)
+  const ano  = anoQ === undefined ? new Date().getFullYear() : parseAno(anoQ)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
 
   const orcs = await c.env.DB.prepare(
     'SELECT * FROM orcamentos WHERE user_id = ? AND mes = ? AND ano = ? ORDER BY categoria'
@@ -152,25 +178,31 @@ orcamentos.get('/', requireAuth, async (c) => {
   const gastoGlobal = await getGastoGlobal(c.env.DB, user.id, mes, ano)
   const rolloverGlobal = globalRow ? await getRolloverCategoria(c.env.DB, user.id, 'GLOBAL', mes, ano) : 0
   const limiteGlobalEfetivo = globalRow ? (Number(globalRow.limite_global) + rolloverGlobal) : 0
-  const percentualGlobal = limiteGlobalEfetivo > 0 ? Math.round((gastoGlobal / limiteGlobalEfetivo) * 100) : 0
+  // O2: limite efetivo <= 0 (rollover negativo estourou o mês) já é "excedido".
+  const globalExcedido = globalRow ? (limiteGlobalEfetivo > 0 ? gastoGlobal > limiteGlobalEfetivo : true) : false
+  const percentualGlobal = limiteGlobalEfetivo > 0 ? Math.round((gastoGlobal / limiteGlobalEfetivo) * 100) : (globalExcedido ? 100 : 0)
 
   const result = []
   for (const o of (orcs.results as any[])) {
     const catNorm    = normCat(o.categoria)
     const gasto_real = await getGastoCategoria(c.env.DB, user.id, catNorm, mes, ano)
     const rollover   = await getRolloverCategoria(c.env.DB, user.id, catNorm, mes, ano)
-    const limiteEfetivo = Number(o.limite) + rollover
-    const percentual = limiteEfetivo > 0 ? Math.round((gasto_real / limiteEfetivo) * 100) : 0
-    const alertaP = Number(o.alerta_percentual) || 80
+    const limiteBase = Number(o.limite)
+    const limiteEfetivo = limiteBase + rollover
+    const alertaP = (Number(o.alerta_percentual) || 80) / 100
 
-    // Alertas progressivos: 70%, 90%, 100%
-    const { nivel, novo: alertaNovo } = await dispararAlertasProgressivos(c.env.DB, o, percentual)
+    // O11: status derivado da razão real — Math.round(99.5)=100 dizia "Excedido"
+    // com dinheiro sobrando. O2: efetivo <= 0 conta como excedido de imediato.
+    // O5: a leitura NÃO grava mais flags de alerta; status é cálculo puro.
+    const excedido = limiteEfetivo > 0 ? gasto_real > limiteEfetivo : (limiteBase > 0)
+    const ratio = limiteEfetivo > 0 ? gasto_real / limiteEfetivo : (excedido ? 1 : 0)
+    const percentual = limiteEfetivo > 0 ? Math.round(ratio * 100) : (excedido ? 100 : 0)
 
     const status =
-      percentual >= 100 ? 'exceeded' :
-      percentual >= 90  ? 'warning_90' :
-      percentual >= 70  ? 'warning_70' :
-      percentual >= alertaP ? 'attention' : 'ok'
+      excedido        ? 'exceeded'   :
+      ratio >= 0.90   ? 'warning_90' :
+      ratio >= 0.70   ? 'warning_70' :
+      ratio >= alertaP ? 'attention' : 'ok'
 
     // Sugestão baseada nos últimos 3 meses
     const sugestao = await getSugestaoCategoria(c.env.DB, user.id, catNorm, mes, ano)
@@ -178,12 +210,9 @@ orcamentos.get('/', requireAuth, async (c) => {
     const emoji = CATEGORIAS_EMOJI[catNorm] || '📦'
     const label = CATEGORIAS_LABEL[catNorm] || o.categoria
 
-    // Verificar se o gasto excede o limite (para bloqueio no frontend)
-    const excedido = gasto_real > limiteEfetivo && limiteEfetivo > 0
-
     result.push({
       ...o,
-      limite: Number(o.limite),
+      limite: limiteBase,
       limite_efetivo: limiteEfetivo,  // limite + rollover
       rollover,
       gasto: gasto_real,
@@ -191,8 +220,8 @@ orcamentos.get('/', requireAuth, async (c) => {
       restante_real: limiteEfetivo - gasto_real,  // pode ser negativo
       percentual,
       status,
-      nivel_alerta: nivel,
-      alerta_ativo: alertaNovo,
+      nivel_alerta: status,
+      alerta_ativo: false,   // O5: notificar é trabalho de job, não de GET
       excedido,
       sugestao,  // média dos 3 meses anteriores ou null
       label: `${emoji} ${label}`
@@ -226,7 +255,7 @@ orcamentos.get('/', requireAuth, async (c) => {
       gasto: gastoGlobal,
       restante: Math.max(0, limiteGlobalEfetivo - gastoGlobal),
       percentual: percentualGlobal,
-      status: percentualGlobal >= 100 ? 'exceeded' : percentualGlobal >= 90 ? 'warning_90' : percentualGlobal >= 70 ? 'warning_70' : percentualGlobal >= 80 ? 'attention' : 'ok',
+      status: globalExcedido ? 'exceeded' : percentualGlobal >= 90 ? 'warning_90' : percentualGlobal >= 70 ? 'warning_70' : percentualGlobal >= 80 ? 'attention' : 'ok',
       rollover_ativo: Boolean(globalRow.rollover)
     } : null
   })
@@ -237,8 +266,10 @@ orcamentos.get('/', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 orcamentos.get('/resumo', requireAuth, async (c) => {
   const user = c.get('user')
-  const mes  = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
-  const ano  = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
+  const mesQ = c.req.query('mes'); const anoQ = c.req.query('ano')
+  const mes  = mesQ === undefined ? new Date().getMonth() + 1 : parseMes(mesQ)
+  const ano  = anoQ === undefined ? new Date().getFullYear() : parseAno(anoQ)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
 
   const total = await c.env.DB.prepare(
     'SELECT COUNT(*) as qtd, SUM(limite) as total_limite FROM orcamentos WHERE user_id = ? AND mes = ? AND ano = ?'
@@ -274,8 +305,10 @@ orcamentos.get('/verificar-despesa', requireAuth, async (c) => {
   const user     = c.get('user')
   const catRaw   = c.req.query('categoria') || ''
   const valor    = parseFloat(c.req.query('valor') || '0')
-  const mes      = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
-  const ano      = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
+  const mesQ = c.req.query('mes'); const anoQ = c.req.query('ano')
+  const mes  = mesQ === undefined ? new Date().getMonth() + 1 : parseMes(mesQ)
+  const ano  = anoQ === undefined ? new Date().getFullYear() : parseAno(anoQ)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
 
   if (!catRaw) {
     return c.json({ error: 'Parâmetro obrigatório: categoria' }, 400)
@@ -400,7 +433,8 @@ orcamentos.get('/sugestoes', requireAuth, async (c) => {
 orcamentos.get('/historico', requireAuth, async (c) => {
   const user      = c.get('user')
   const catRaw    = c.req.query('categoria') || ''
-  const meses     = Math.min(parseInt(c.req.query('meses') || '6'), 24)
+  // O17: meses='abc' virava NaN → série vazia e meses:null. Clampa em [1,24].
+  const meses     = Math.min(Math.max(1, parseInt(c.req.query('meses') || '6', 10) || 6), 24)
 
   if (!catRaw) {
     return c.json({ error: 'Parâmetro obrigatório: categoria' }, 400)
@@ -456,17 +490,20 @@ orcamentos.post('/global', requireAuth, async (c) => {
     return c.json({ error: 'Orçamentos são exclusivos do plano Premium.', upgrade: true }, 403)
   }
 
-  const { mes, ano, limite_global, rollover = false } = await c.req.json()
+  const { mes: mesRaw, ano: anoRaw, limite_global, rollover = false } = await c.req.json()
 
-  if (!mes || !ano || !limite_global || Number(limite_global) <= 0)
-    return c.json({ error: 'Campos obrigatórios: mes, ano, limite_global (> 0)' }, 400)
+  const mes = parseMes(mesRaw); const ano = parseAno(anoRaw)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
+  // O1: 'abc' → NaN passava (Number('abc')<=0 é false e Postgres aceita NaN).
+  const limiteNum = parseLimite(limite_global)
+  if (limiteNum === null) return c.json({ error: 'limite_global deve ser um número maior que zero.' }, 400)
 
   await c.env.DB.prepare(
     `INSERT INTO orcamento_global (user_id, mes, ano, limite_global, rollover, updated_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(user_id, mes, ano)
      DO UPDATE SET limite_global=excluded.limite_global, rollover=excluded.rollover, updated_at=datetime('now')`
-  ).bind(user.id, mes, ano, Number(limite_global), rollover ? 1 : 0).run()
+  ).bind(user.id, mes, ano, limiteNum, rollover ? 1 : 0).run()
 
   const row = await c.env.DB.prepare(
     'SELECT * FROM orcamento_global WHERE user_id=? AND mes=? AND ano=?'
@@ -480,14 +517,22 @@ orcamentos.post('/global', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 orcamentos.delete('/global', requireAuth, async (c) => {
   const user = c.get('user')
-  const mes  = parseInt(c.req.query('mes')  || String(new Date().getMonth() + 1))
-  const ano  = parseInt(c.req.query('ano')  || String(new Date().getFullYear()))
+  if (user.plano === 'free') return c.json(MSG_FREE_ORC, 403)   // O14: free não apaga o global
+  const mesQ = c.req.query('mes'); const anoQ = c.req.query('ano')
+  const mes  = mesQ === undefined ? new Date().getMonth() + 1 : parseMes(mesQ)
+  const ano  = anoQ === undefined ? new Date().getFullYear() : parseAno(anoQ)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
+
+  // O16: informa se realmente havia algo para remover, em vez de mentir "removido".
+  const existia = await c.env.DB.prepare(
+    'SELECT id FROM orcamento_global WHERE user_id=? AND mes=? AND ano=?'
+  ).bind(user.id, mes, ano).first()
 
   await c.env.DB.prepare(
     'DELETE FROM orcamento_global WHERE user_id=? AND mes=? AND ano=?'
   ).bind(user.id, mes, ano).run()
 
-  return c.json({ success: true })
+  return c.json({ success: true, removido: !!existia })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -503,10 +548,11 @@ orcamentos.post('/calcular-rollover', requireAuth, async (c) => {
   }
 
   const body = await c.req.json()
-  const mesO = parseInt(body.mes_origem)
-  const anoO = parseInt(body.ano_origem)
+  // O13: mes_origem=99 gerava destino "4/2034". Valida faixa 1–12 / ano real.
+  const mesO = parseMes(body.mes_origem)
+  const anoO = parseAno(body.ano_origem)
 
-  if (!mesO || !anoO) return c.json({ error: 'mes_origem e ano_origem são obrigatórios' }, 400)
+  if (mesO === null || anoO === null) return c.json({ error: ERRO_PERIODO }, 400)
 
   // Calcular mês destino (próximo mês)
   const dDest = new Date(anoO, mesO, 1)  // next month
@@ -582,11 +628,11 @@ orcamentos.post('/copiar-mes', requireAuth, async (c) => {
   if (!mes_origem || !ano_origem || !mes_destino || !ano_destino)
     return c.json({ error: 'Campos obrigatórios: mes_origem, ano_origem, mes_destino, ano_destino' }, 400)
 
-  const mesO = parseInt(mes_origem); const anoO = parseInt(ano_origem)
-  const mesD = parseInt(mes_destino); const anoD = parseInt(ano_destino)
+  const mesO = parseMes(mes_origem); const anoO = parseAno(ano_origem)
+  const mesD = parseMes(mes_destino); const anoD = parseAno(ano_destino)
 
-  if ([mesO, anoO, mesD, anoD].some(isNaN))
-    return c.json({ error: 'Todos os campos de mês/ano devem ser numéricos' }, 400)
+  if (mesO === null || anoO === null || mesD === null || anoD === null)
+    return c.json({ error: ERRO_PERIODO }, 400)
 
   const origem = await c.env.DB.prepare(
     'SELECT * FROM orcamentos WHERE user_id = ? AND mes = ? AND ano = ?'
@@ -632,17 +678,22 @@ orcamentos.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Orçamentos por categoria são exclusivos do plano Premium.', upgrade: true, feature: 'orcamentos' }, 403)
   }
 
-  const { categoria: categoriaRaw, mes, ano, limite, alerta_percentual = 80, notas } = await c.req.json()
+  const { categoria: categoriaRaw, mes: mesRaw, ano: anoRaw, limite, alerta_percentual = 80, notas } = await c.req.json()
 
-  if (!categoriaRaw || !mes || !ano || limite === undefined || limite === null || limite === '')
+  if (!categoriaRaw || limite === undefined || limite === null || limite === '')
     return c.json({ error: 'Campos obrigatórios: categoria, mes, ano, limite' }, 400)
+
+  const mes = parseMes(mesRaw); const ano = parseAno(anoRaw)
+  if (mes === null || ano === null) return c.json({ error: ERRO_PERIODO }, 400)
 
   const categoria = normCat(String(categoriaRaw))
 
   if (!CATEGORIAS.includes(categoria))
     return c.json({ error: `Categoria inválida. Aceitas: ${CATEGORIAS.join(', ')}` }, 400)
-  if (Number(limite) <= 0)
-    return c.json({ error: 'Limite deve ser maior que zero' }, 400)
+  // O1: parseLimite recusa NaN, ∞, negativo e acima do teto.
+  const limiteNum = parseLimite(limite)
+  if (limiteNum === null)
+    return c.json({ error: 'Limite deve ser um número maior que zero.' }, 400)
   const alertaNum = Number(alerta_percentual)
   if (isNaN(alertaNum) || alertaNum < 50 || alertaNum > 100)
     return c.json({ error: 'alerta_percentual deve ser entre 50 e 100' }, 400)
@@ -658,7 +709,7 @@ orcamentos.post('/', requireAuth, async (c) => {
     `ON CONFLICT(user_id, categoria, mes, ano) ` +
     `DO UPDATE SET limite = excluded.limite, alerta_percentual = excluded.alerta_percentual, notas = excluded.notas, ` +
     `alerta_70_disparado=0, alerta_90_disparado=0, alerta_100_disparado=0, alerta_disparado=0, updated_at = datetime('now')`
-  ).bind(user.id, categoria, mes, ano, limite, alertaNum, notas || null).run()
+  ).bind(user.id, categoria, mes, ano, limiteNum, alertaNum, notas || null).run()
 
   const orc = await c.env.DB.prepare(
     'SELECT * FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?'
@@ -681,7 +732,9 @@ orcamentos.post('/', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 orcamentos.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_ORC, 403)   // O14: free não edita
+  const id   = parseId(c.req.param('id'))                        // O8: id não-numérico → 404, não 500
+  if (!id) return c.json({ error: 'Orçamento não encontrado' }, 404)
 
   const orc = await c.env.DB.prepare(
     'SELECT * FROM orcamentos WHERE id = ? AND user_id = ?'
@@ -691,8 +744,12 @@ orcamentos.put('/:id', requireAuth, async (c) => {
   const body = await c.req.json()
   const { limite, alerta_percentual, notas } = body
 
+  // O1: valida limite (recusa NaN/∞/negativo) também na edição.
+  let novoLimite = Number(orc.limite)
   if (limite !== undefined) {
-    if (Number(limite) <= 0) return c.json({ error: 'Limite deve ser maior que zero' }, 400)
+    const v = parseLimite(limite)
+    if (v === null) return c.json({ error: 'Limite deve ser um número maior que zero.' }, 400)
+    novoLimite = v
   }
   if (alerta_percentual !== undefined) {
     const ap = Number(alerta_percentual)
@@ -700,7 +757,6 @@ orcamentos.put('/:id', requireAuth, async (c) => {
       return c.json({ error: 'alerta_percentual deve ser entre 50 e 100' }, 400)
   }
 
-  const novoLimite  = limite !== undefined ? Number(limite) : Number(orc.limite)
   const novoAlerta  = alerta_percentual !== undefined ? Number(alerta_percentual) : Number(orc.alerta_percentual)
   const novasNotas  = notas !== undefined ? (notas || null) : orc.notas
 
@@ -719,14 +775,16 @@ orcamentos.put('/:id', requireAuth, async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 orcamentos.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  if (user.plano === 'free') return c.json(MSG_FREE_ORC, 403)   // O14
+  const id   = parseId(c.req.param('id'))                        // O8
+  if (!id) return c.json({ error: 'Orçamento não encontrado' }, 404)
 
   const orc = await c.env.DB.prepare(
     'SELECT id FROM orcamentos WHERE id = ? AND user_id = ?'
   ).bind(id, user.id).first()
   if (!orc) return c.json({ error: 'Orçamento não encontrado' }, 404)
 
-  await c.env.DB.prepare('DELETE FROM orcamentos WHERE id = ?').bind(id).run()
+  await c.env.DB.prepare('DELETE FROM orcamentos WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true })
 })
 
