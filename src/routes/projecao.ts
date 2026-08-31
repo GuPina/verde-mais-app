@@ -92,11 +92,23 @@ projecao.get('/', requireAuth, async (c) => {
   `).bind(user.id).all()
 
   // 2. Recorrências ativas (geram despesa todo mês)
-  // NOTA: coluna correta é 'ativa' (não 'ativo')
+  // NOTA: coluna correta é 'ativa' (não 'ativo').
+  // PJ6: 'fixa' não existe como tipo de recorrência (só 'despesa'/'receita') —
+  // cláusula removida por nunca casar.
   const recorrenciasAtivas = await c.env.DB.prepare(`
     SELECT COALESCE(SUM(valor), 0) as total_mensal
     FROM recorrencias
-    WHERE user_id = ? AND ativa = 1 AND tipo IN ('despesa', 'fixa')
+    WHERE user_id = ? AND ativa = 1 AND tipo = 'despesa'
+      AND (data_fim IS NULL OR data_fim > date('now'))
+  `).bind(user.id).first() as any
+
+  // 2b. PJ3: receita recorrente (ex.: salário cadastrado como recorrência).
+  // Antes só o lado da DESPESA era projetado, deixando a renda subprojetada
+  // para quem tem o salário como recorrência — projeção pessimista sistemática.
+  const recorrenciasReceita = await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(valor), 0) as total_mensal
+    FROM recorrencias
+    WHERE user_id = ? AND ativa = 1 AND tipo = 'receita'
       AND (data_fim IS NULL OR data_fim > date('now'))
   `).bind(user.id).first() as any
 
@@ -120,6 +132,7 @@ projecao.get('/', requireAuth, async (c) => {
   }
 
   const recorrenciaMensal = parseFloat(recorrenciasAtivas?.total_mensal || 0)
+  const recorrenciaReceitaMensal = parseFloat(recorrenciasReceita?.total_mensal || 0) // PJ3
   const lembretesTotal = parseFloat(lembretesValor?.total || 0)
 
   // ── Cálculo de tendência (regressão linear simples) ─────────────────────────
@@ -163,10 +176,17 @@ projecao.get('/', requireAuth, async (c) => {
     confianca = 15
   }
 
-  // Tendência
-  const tendencia = slope > 50 ? 'positive' : slope < -50 ? 'negative' : 'stable'
+  // PJ1: a "tendência" e a "projeção" precisam vir da MESMA fonte. Antes a
+  // tendência era uma regressão sobre os 6 meses do histórico (incluindo os
+  // vazios → inclinação negativa "queda") enquanto a projeção usava só os meses
+  // com dados (→ sobe), e a tela exibia as duas afirmações contraditórias lado
+  // a lado. Agora a tendência é derivada da própria linha projetada (definida
+  // logo após o cálculo das projeções, abaixo).
+  let tendencia: 'positive' | 'negative' | 'stable' = 'stable'
+  let deltaMensalProjetado = 0
 
-  // Saldo atual estimado (soma dos últimos 6 meses)
+  // Saldo acumulado dos últimos 6 meses (é a base da projeção — NÃO é o saldo
+  // em conta; ver `saldo_atual_desc` na resposta). PJ4.
   const saldoAtual = saldos.reduce((a, b) => a + b, 0)
 
   // ── Projeções com dados determinísticos ───────────────────────────────────
@@ -204,8 +224,8 @@ projecao.get('/', requireAuth, async (c) => {
     let m = mesAtual + i
     let a = anoAtual
     while (m > 12) { m -= 12; a += 1 }
-    // Receita estável (sem crescimento automático)
-    const recProj = avgReceitas
+    // Receita estável (sem crescimento automático) + receita recorrente (PJ3)
+    const recProj = avgReceitas + recorrenciaReceitaMensal
     // Despesa base com inflação acumulada
     let despProj = avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i)
     // Melhoria 2.3: adicionar recorrências mensais determinísticas
@@ -231,12 +251,16 @@ projecao.get('/', requireAuth, async (c) => {
     })
   }
 
+  // PJ1: tendência derivada da própria projeção (mesma fonte da linha do gráfico)
+  deltaMensalProjetado = mesesParam > 0 ? (saldoAcum - saldoAtual) / mesesParam : 0
+  tendencia = deltaMensalProjetado > 50 ? 'positive' : deltaMensalProjetado < -50 ? 'negative' : 'stable'
+
   // ── Insights personalizados ────────────────────────────────────────────────
   const insights: string[] = []
   if (tendencia === 'positive') {
-    insights.push(`📈 Tendência positiva! Seu saldo mensal cresce em média R$ ${Math.abs(slope).toFixed(0)}/mês.`)
+    insights.push(`📈 Tendência positiva! Seu saldo mensal cresce em média R$ ${Math.abs(deltaMensalProjetado).toFixed(0)}/mês.`)
   } else if (tendencia === 'negative') {
-    insights.push(`⚠️ Atenção: seu saldo mensal cai em média R$ ${Math.abs(slope).toFixed(0)}/mês. Revise suas despesas.`)
+    insights.push(`⚠️ Atenção: seu saldo mensal cai em média R$ ${Math.abs(deltaMensalProjetado).toFixed(0)}/mês. Revise suas despesas.`)
   } else {
     insights.push(`📊 Seu saldo está estável. Considere aumentar suas receitas ou criar metas de poupança.`)
   }
@@ -303,13 +327,13 @@ projecao.get('/', requireAuth, async (c) => {
     const detMin = parcelasMap[keyMes] || 0
 
     // Otimista: receitas +10%, despesas -5%
-    const recOtim = avgReceitas * 1.10
+    const recOtim = (avgReceitas + recorrenciaReceitaMensal) * 1.10
     const despOtim = (avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i) * 0.95) + recorrenciaMensal + detMin
     saldoOtim += (recOtim - despOtim)
     cenarioOtimista.push({ mes: m, ano: a, label, valor: Math.round(saldoOtim * 100) / 100 })
 
     // Pessimista: receitas -10%, despesas +10%
-    const recPess = avgReceitas * 0.90
+    const recPess = (avgReceitas + recorrenciaReceitaMensal) * 0.90
     const despPess = (avgDespesas * Math.pow(1 + INFLACAO_MENSAL, i) * 1.10) + recorrenciaMensal + detMin
     saldoPess += (recPess - despPess)
     cenarioPessimista.push({ mes: m, ano: a, label, valor: Math.round(saldoPess * 100) / 100 })
@@ -370,8 +394,17 @@ projecao.get('/', requireAuth, async (c) => {
       pessimista: cenarioPessimista
     },
     tendencia,
-    media_mensal: Math.round((avgReceitas - avgDespesas) * 100) / 100,
-    media_receitas: Math.round(avgReceitas * 100) / 100,
+    // PJ2: "média mensal" agora reflete a sobra REAL — receita (incl. recorrente)
+    // menos a despesa variável média E o que já está contratado (recorrências +
+    // parcelas futuras diluídas no horizonte). O valor antigo (só variável)
+    // prometia um superávit que só existia se nada contratado fosse pago.
+    media_mensal: Math.round((
+      (avgReceitas + recorrenciaReceitaMensal)
+      - avgDespesas - recorrenciaMensal
+      - (Object.values(parcelasMap).reduce((a, b) => a + b, 0) / Math.max(1, mesesParam))
+    ) * 100) / 100,
+    media_mensal_variavel: Math.round((avgReceitas - avgDespesas) * 100) / 100,
+    media_receitas: Math.round((avgReceitas + recorrenciaReceitaMensal) * 100) / 100,
     // `media_despesas` agora é a média da parte VARIÁVEL. O que é contratado
     // aparece separado em `dados_certos`, para a tela poder mostrar as duas
     // camadas — o que já está fechado e o que é estimativa.
@@ -382,6 +415,9 @@ projecao.get('/', requireAuth, async (c) => {
         ? mesesComDespesa.reduce((a, m) => a + m.despesas, 0) / mesesComDespesa.length
         : 0) * 100) / 100,
     saldo_atual: Math.round(saldoAtual * 100) / 100,
+    // PJ4: deixa explícito que o ponto de partida é a soma dos resultados dos
+    // últimos 6 meses, não o saldo em conta do usuário.
+    saldo_atual_desc: 'Soma do resultado líquido dos últimos 6 meses (ponto de partida da projeção)',
     confianca,
     insights,
     // S-P1: horizonte configurável
@@ -390,6 +426,10 @@ projecao.get('/', requireAuth, async (c) => {
     patrimonio: {
       investimentos_atual: Math.round(totalInvestimentos * 100) / 100,
       investimentos_investido: Math.round(totalInvestido * 100) / 100,
+      // PJ5: o cache guarda a SELIC — rotulamos como tal (não como CDI, que é
+      // outro número). O campo antigo é mantido por compatibilidade.
+      taxa_base_nome: 'SELIC',
+      taxa_base_anual: cdiAnual,
       rendimento_cdi_anual: cdiAnual,
       projecao_investimentos_12m: Math.round(totalInvestimentos * Math.pow(1 + cdiMensal, Math.min(12, mesesParam)) * 100) / 100
     },

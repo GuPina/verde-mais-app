@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -17419,6 +17419,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // F4 — PROJEÇÃO FINANCEIRA INTELIGENTE
   // ══════════════════════════════════════════════════════════════════════════
   async pageProjecao() {
+    if (window.VMTerminalProjecao?.render) return window.VMTerminalProjecao.render(this)
     const content = document.getElementById('page-content')
     const plano = this.user?.plano || 'free'
 
