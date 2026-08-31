@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -22119,6 +22119,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   },
 
   async pageAntecipacao() {
+    if (window.VMTerminalAntecipacao?.render) return window.VMTerminalAntecipacao.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div class="section-header">
@@ -22529,6 +22530,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   // ==================== RECEBIMENTOS PARCELADOS ====================
   async pageRecebimentosParcelados() {
+    if (window.VMTerminalRecebimentos?.render) return window.VMTerminalRecebimentos.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div class="section-header">

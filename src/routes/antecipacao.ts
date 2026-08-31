@@ -7,6 +7,50 @@ type Variables = { user: { id: number; nome: string; plano: string } }
 
 const antecipacao = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// ─── Helpers de validação (AN4/AN5/AN6/AN8/AN14 · RP2/RP4/RP5/RP6/RP7) ───────
+const MAX_VALOR = 1_000_000_000
+const TIPOS_ANTECIPACAO = ['conta', 'parcela', 'fatura', 'fatura_cartao', 'emprestimo', 'financiamento']
+const STATUS_ANTECIPACAO = ['pendente', 'antecipada', 'cancelada']
+const TIPOS_RECEBIMENTO = ['venda', 'servico', 'aluguel', 'emprestimo_a_receber', 'contrato', 'outros']
+// id de rota: só inteiro positivo, senão null → 400 (nunca 500)
+function parseId(v: any): number | null {
+  const t = String(v ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+// valor > 0 e finito; inválido → null
+function parseValorPos(v: any): number | null {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null
+}
+// valor >= 0 e finito; '' / null / undefined → 0; inválido → null
+function parseValorNaoNeg(v: any): number | null {
+  if (v === '' || v === null || v === undefined) return 0
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null
+}
+// data YYYY-MM-DD válida
+function dataValida(s: any): boolean {
+  if (!s) return false
+  const str = String(s)
+  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) return false
+  const d = new Date(str.slice(0, 10) + 'T12:00:00')
+  return !Number.isNaN(d.getTime())
+}
+
+// Reverte os efeitos de uma antecipação confirmada (AN2): apaga a despesa
+// "[Antecipado]" criada e restaura a original que havia sido cancelada.
+// O marcador "#<id> " (com espaço/`]` após o id) evita colisão entre #1 e #10.
+async function reverterAntecipacao(db: D1Database, userId: number, id: number) {
+  // 1. remove a despesa [Antecipado] criada por esta antecipação
+  await db.prepare(
+    `DELETE FROM despesas WHERE user_id=? AND observacoes LIKE ?`
+  ).bind(userId, `%[Antecipacao #${id} ]%`).run().catch(() => {})
+  // 2. restaura as despesas originais que esta antecipação cancelou
+  await db.prepare(
+    `UPDATE despesas SET status='pendente' WHERE user_id=? AND status='cancelado' AND observacoes LIKE ?`
+  ).bind(userId, `%antecipacao #${id}]%`).run().catch(() => {})
+}
+
 // ── GET /api/antecipacao — listar antecipações ────────────────────────────
 antecipacao.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -49,14 +93,27 @@ antecipacao.post('/', requireAuth, async (c) => {
     parcela_ref
   } = body
 
-  if (!descricao || !valor_total || !data_antecipacao) {
+  if (!descricao || valor_total == null || valor_total === '' || !data_antecipacao) {
     return c.json({ error: 'Campos obrigatórios: descricao, valor_total, data_antecipacao' }, 400)
   }
 
+  // AN4: valor precisa ser > 0 e finito (mata negativo e NaN)
+  const valorTotal = parseValorPos(valor_total)
+  if (valorTotal === null) return c.json({ error: 'Valor deve ser um número maior que zero.' }, 400)
+  // AN5: tipo precisa ser válido (senão o CHECK do banco dá 500)
+  if (!TIPOS_ANTECIPACAO.includes(tipo)) return c.json({ error: 'Tipo inválido.', tipos_validos: TIPOS_ANTECIPACAO }, 400)
+  // AN6: status inválido é RECUSADO (não coagido silenciosamente para pendente)
+  if (!STATUS_ANTECIPACAO.includes(status)) return c.json({ error: 'Status inválido.', status_validos: STATUS_ANTECIPACAO }, 400)
+  // AN14: datas válidas
+  if (!dataValida(data_antecipacao)) return c.json({ error: 'Data de antecipação inválida.' }, 400)
+  if (data_vencimento_original && !dataValida(data_vencimento_original)) return c.json({ error: 'Data de vencimento original inválida.' }, 400)
+
   const dataVenc = data_vencimento_original || data_antecipacao
-  const eco = economia_juros != null ? parseFloat(economia_juros) : 0
-  const valorTotal = parseFloat(valor_total)
-  const statusFinal = ['pendente','antecipada','cancelada'].includes(status) ? status : 'pendente'
+  // AN3/AN11: economia não vem crua do corpo — validada e capada ao valor antecipado
+  const ecoRaw = economia_juros != null ? parseValorNaoNeg(economia_juros) : 0
+  if (ecoRaw === null) return c.json({ error: 'Economia de juros inválida.' }, 400)
+  const eco = Math.min(ecoRaw, valorTotal)
+  const statusFinal = status
 
   // Determinar referência para cartão
   const refId   = referencia_id   || cartao_id   || null
@@ -86,9 +143,9 @@ antecipacao.post('/', requireAuth, async (c) => {
                 : 'Antecipação'
 
     const despRes = await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, valor, data, vencimento, categoria, status, purchase_group_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'pago', NULL)`
-    ).bind(user.id, `[Antecipado] ${descricao}`, valorTotal, data_antecipacao, data_antecipacao, categ).run()
+      `INSERT INTO despesas (user_id, descricao, valor, data, vencimento, categoria, status, purchase_group_id, observacoes)
+       VALUES (?, ?, ?, ?, ?, ?, 'pago', NULL, ?)`
+    ).bind(user.id, `[Antecipado] ${descricao}`, valorTotal, data_antecipacao, data_antecipacao, categ, `[Antecipacao #${antecipacaoId} ]`).run()
     despesaAntecipadaId = despRes.meta.last_row_id
 
     // 2. Se havia despesa futura vinculada diretamente (referencia_tipo='despesa'), cancelá-la
@@ -142,11 +199,14 @@ antecipacao.post('/', requireAuth, async (c) => {
       ).bind(user.id, cartaoIdCancel, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
 
       // 3b. Marcar card_charges do cartão naquele mês como pago
+      // AN1 (SEGURANÇA): restringe ao cartão DO PRÓPRIO usuário — sem isto uma
+      // conta conseguia quitar a fatura do cartão de outra pelo card_id do corpo
       await c.env.DB.prepare(
         `UPDATE card_charges SET status='pago'
          WHERE card_id=? AND status='pendente'
+           AND card_id IN (SELECT id FROM cartoes WHERE user_id=?)
            AND strftime('%m', data_vencimento)=? AND strftime('%Y', data_vencimento)=?`
-      ).bind(cartaoIdCancel, mesPad, anoStr).run().catch(() => {})
+      ).bind(cartaoIdCancel, user.id, mesPad, anoStr).run().catch(() => {})
     }
   }
 
@@ -258,23 +318,34 @@ antecipacao.get('/parcelas-disponiveis', requireAuth, async (c) => {
 // ── PUT /api/antecipacao/:id — editar antecipação ─────────────────────────
 antecipacao.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id')) // AN8
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const ant = await c.env.DB.prepare(
     `SELECT * FROM antecipacoes WHERE id=? AND user_id=?`
   ).bind(id, user.id).first() as any
   if (!ant) return c.json({ error: 'Não encontrada' }, 404)
 
   const body = await c.req.json()
+  // AN10: uma antecipação já confirmada não pode ter valor/tipo/referência trocados
+  // por baixo (os efeitos já foram aplicados) — só descrição/observações/datas.
+  const travada = ant.status === 'antecipada'
   const descricao      = body.descricao      ?? ant.descricao
-  const valor_total    = body.valor_total    != null ? parseFloat(body.valor_total) : ant.valor_total
-  const economia_juros = body.economia_juros != null ? parseFloat(body.economia_juros) : ant.economia_juros
+  const valorRaw       = (!travada && body.valor_total != null) ? parseValorPos(body.valor_total) : ant.valor_total
+  if (valorRaw === null) return c.json({ error: 'Valor deve ser um número maior que zero.' }, 400)
+  const valor_total    = valorRaw
+  const ecoRaw         = body.economia_juros != null ? parseValorNaoNeg(body.economia_juros) : ant.economia_juros
+  if (ecoRaw === null) return c.json({ error: 'Economia de juros inválida.' }, 400)
+  const economia_juros = Math.min(ecoRaw, valor_total)
   const data_antecipacao          = body.data_antecipacao          ?? ant.data_antecipacao
   const data_vencimento_original  = body.data_vencimento_original  ?? ant.data_vencimento_original
-  const tipo        = body.tipo        ?? ant.tipo
-  const status      = body.status      ?? ant.status
+  if (body.data_antecipacao && !dataValida(body.data_antecipacao)) return c.json({ error: 'Data de antecipação inválida.' }, 400)
+  const tipoRaw     = (!travada && body.tipo != null) ? body.tipo : ant.tipo
+  if (!TIPOS_ANTECIPACAO.includes(tipoRaw)) return c.json({ error: 'Tipo inválido.' }, 400)
+  const tipo        = tipoRaw
+  const status      = ant.status // status muda só via PATCH /:id/status (que reverte corretamente)
   const observacoes = body.observacoes !== undefined ? (body.observacoes || null) : ant.observacoes
-  const referencia_id   = body.referencia_id   !== undefined ? (body.referencia_id || null)   : ant.referencia_id
-  const referencia_tipo = body.referencia_tipo !== undefined ? (body.referencia_tipo || null) : ant.referencia_tipo
+  const referencia_id   = travada ? ant.referencia_id   : (body.referencia_id   !== undefined ? (body.referencia_id || null)   : ant.referencia_id)
+  const referencia_tipo = travada ? ant.referencia_tipo : (body.referencia_tipo !== undefined ? (body.referencia_tipo || null) : ant.referencia_tipo)
 
   await c.env.DB.prepare(
     `UPDATE antecipacoes
@@ -293,15 +364,20 @@ antecipacao.put('/:id', requireAuth, async (c) => {
 // Ao confirmar (status='antecipada'): cria despesa no mês atual e cancela original
 antecipacao.patch('/:id/status', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id')) // AN8
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const { status } = await c.req.json()
-  const validos = ['pendente', 'antecipada', 'cancelada']
-  if (!validos.includes(status)) return c.json({ error: 'Status inválido' }, 400)
+  if (!STATUS_ANTECIPACAO.includes(status)) return c.json({ error: 'Status inválido' }, 400)
 
   const ant = await c.env.DB.prepare(
     `SELECT * FROM antecipacoes WHERE id=? AND user_id=?`
   ).bind(id, user.id).first() as any
   if (!ant) return c.json({ error: 'Antecipação não encontrada' }, 404)
+
+  // AN2: cancelar uma antecipação confirmada REVERTE os efeitos
+  if (status === 'cancelada' && ant.status === 'antecipada') {
+    await reverterAntecipacao(c.env.DB, user.id, id)
+  }
 
   await c.env.DB.prepare(
     `UPDATE antecipacoes SET status=? WHERE id=? AND user_id=?`
@@ -319,9 +395,9 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
                 : 'Antecipação'
 
     const dr = await c.env.DB.prepare(
-      `INSERT INTO despesas (user_id, descricao, valor, data, vencimento, categoria, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pago')`
-    ).bind(user.id, `[Antecipado] ${ant.descricao}`, ant.valor_total, dataRef, dataRef, categ).run()
+      `INSERT INTO despesas (user_id, descricao, valor, data, vencimento, categoria, status, observacoes)
+       VALUES (?, ?, ?, ?, ?, ?, 'pago', ?)`
+    ).bind(user.id, `[Antecipado] ${ant.descricao}`, ant.valor_total, dataRef, dataRef, categ, `[Antecipacao #${id} ]`).run()
     despesaId = dr.meta.last_row_id
 
     // Cancelar despesa original futura se referenciada diretamente
@@ -383,11 +459,13 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
       ).bind(user.id, cartaoId, parseInt(mesPad), parseInt(anoStr), mesPad, anoStr).run().catch(() => {})
 
       // Marcar card_charges do cartão naquele mês como pago
+      // AN1 (SEGURANÇA): restringe ao cartão do próprio usuário
       await c.env.DB.prepare(
         `UPDATE card_charges SET status='pago'
          WHERE card_id=? AND status='pendente'
+           AND card_id IN (SELECT id FROM cartoes WHERE user_id=?)
            AND strftime('%m', data_vencimento)=? AND strftime('%Y', data_vencimento)=?`
-      ).bind(cartaoId, mesPad, anoStr).run().catch(() => {})
+      ).bind(cartaoId, user.id, mesPad, anoStr).run().catch(() => {})
     }
   }
 
@@ -397,7 +475,20 @@ antecipacao.patch('/:id/status', requireAuth, async (c) => {
 // ── DELETE /api/antecipacao/:id ───────────────────────────────────────────
 antecipacao.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id')) // AN8
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
+
+  // AN7: confere existência antes (não mente "success" para o que não existe)
+  const ant = await c.env.DB.prepare(
+    `SELECT id, status FROM antecipacoes WHERE id=? AND user_id=?`
+  ).bind(id, user.id).first() as any
+  if (!ant) return c.json({ error: 'Antecipação não encontrada' }, 404)
+
+  // AN2: excluir uma antecipação confirmada também reverte os efeitos
+  if (ant.status === 'antecipada') {
+    await reverterAntecipacao(c.env.DB, user.id, id)
+  }
+
   await c.env.DB.prepare(`DELETE FROM antecipacoes WHERE id=? AND user_id=?`).bind(id, user.id).run()
   return c.json({ success: true })
 })
@@ -456,13 +547,23 @@ antecipacao.post('/recebimentos', requireAuth, async (c) => {
   const { descricao, valor_total, numero_parcelas, valor_parcela,
     data_inicio, tipo = 'venda', pagador, observacoes } = body
 
-  if (!descricao || !valor_total || !numero_parcelas || !data_inicio) {
+  if (!descricao || valor_total == null || valor_total === '' || !numero_parcelas || !data_inicio) {
     return c.json({ error: 'Campos obrigatórios: descricao, valor_total, numero_parcelas, data_inicio' }, 400)
   }
 
+  // RP5: valor_total > 0 e finito (mata NaN)
+  const vTotal = parseValorPos(valor_total)
+  if (vTotal === null) return c.json({ error: 'Valor total deve ser um número maior que zero.' }, 400)
+  // RP4: numero_parcelas inteiro >= 1 (barra negativo e 0)
   const nParcelas = parseInt(numero_parcelas)
-  const vTotal = parseFloat(valor_total)
-  const vParcela = valor_parcela ? parseFloat(valor_parcela) : Math.round((vTotal / nParcelas) * 100) / 100
+  if (!Number.isInteger(nParcelas) || nParcelas < 1 || nParcelas > 360)
+    return c.json({ error: 'Número de parcelas deve ser um inteiro entre 1 e 360.' }, 400)
+  // RP10: tipo e data válidos
+  if (!TIPOS_RECEBIMENTO.includes(tipo)) return c.json({ error: 'Tipo inválido.', tipos_validos: TIPOS_RECEBIMENTO }, 400)
+  if (!dataValida(data_inicio)) return c.json({ error: 'Data de início inválida.' }, 400)
+  const vParcelaRaw = valor_parcela ? parseValorPos(valor_parcela) : Math.round((vTotal / nParcelas) * 100) / 100
+  if (vParcelaRaw === null) return c.json({ error: 'Valor da parcela inválido.' }, 400)
+  const vParcela = vParcelaRaw
   const dataInicio = new Date(data_inicio + 'T12:00:00')
   const dataFim = new Date(dataInicio)
   dataFim.setMonth(dataFim.getMonth() + nParcelas - 1)
@@ -496,7 +597,8 @@ antecipacao.post('/recebimentos', requireAuth, async (c) => {
 // ── GET /api/recebimentos/:id/parcelas ────────────────────────────────────
 antecipacao.get('/recebimentos/:id/parcelas', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id')) // RP7
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const rec = await c.env.DB.prepare(
     `SELECT * FROM recebimentos_parcelados WHERE id=? AND user_id=?`
@@ -514,9 +616,12 @@ antecipacao.get('/recebimentos/:id/parcelas', requireAuth, async (c) => {
 // ── PATCH /api/recebimentos/parcelas/:id/valor — ajustar valor previsto ─────
 antecipacao.patch('/recebimentos/parcelas/:id/valor', requireAuth, async (c) => {
   const user = c.get('user')
-  const parcelaId = c.req.param('id')
+  const parcelaId = parseId(c.req.param('id')) // RP7
+  if (parcelaId === null) return c.json({ error: 'ID inválido.' }, 400)
   const { valor } = await c.req.json()
-  if (!valor || isNaN(parseFloat(valor))) return c.json({ error: 'Valor inválido' }, 400)
+  // RP6: valor > 0 (não aceita negativo)
+  const valorNovo = parseValorPos(valor)
+  if (valorNovo === null) return c.json({ error: 'Valor deve ser maior que zero.' }, 400)
 
   const parcela = await c.env.DB.prepare(
     `SELECT p.id FROM recebimentos_parcelas p
@@ -527,14 +632,15 @@ antecipacao.patch('/recebimentos/parcelas/:id/valor', requireAuth, async (c) => 
 
   await c.env.DB.prepare(
     `UPDATE recebimentos_parcelas SET valor=? WHERE id=? AND user_id=?`
-  ).bind(parseFloat(valor), parcelaId, user.id).run()
+  ).bind(valorNovo, parcelaId, user.id).run()
 
   return c.json({ success: true, message: 'Valor da parcela atualizado!' })
 })
 
 antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) => {
   const user = c.get('user')
-  const parcelaId = c.req.param('id')
+  const parcelaId = parseId(c.req.param('id')) // RP7
+  if (parcelaId === null) return c.json({ error: 'ID inválido.' }, 400)
   const body = await c.req.json()
   // valor_real: permite informar o valor efetivamente recebido (reajuste INCC, etc)
   const { data_recebimento, criar_receita = true, valor_real, observacoes } = body
@@ -547,9 +653,19 @@ antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) =
   ).bind(parcelaId, user.id).first() as any
   if (!parcela) return c.json({ error: 'Parcela não encontrada' }, 404)
 
+  // RP1: idempotência — receber uma parcela já recebida NÃO cria segunda receita
+  if (parcela.status === 'recebida')
+    return c.json({ error: 'Esta parcela já foi recebida.' }, 400)
+
   const dataRec = data_recebimento || new Date().toISOString().split('T')[0]
-  // Usa valor_real se informado (reajuste por INCC/índice), senão usa valor original da parcela
-  const valorEfetivo = valor_real ? parseFloat(valor_real) : parcela.valor
+  if (data_recebimento && !dataValida(data_recebimento)) return c.json({ error: 'Data de recebimento inválida.' }, 400)
+  // RP2: valor_real, quando informado, precisa ser > 0 (não cria receita negativa)
+  let valorEfetivo = Number(parcela.valor)
+  if (valor_real !== undefined && valor_real !== null && valor_real !== '') {
+    const vr = parseValorPos(valor_real)
+    if (vr === null) return c.json({ error: 'Valor recebido deve ser maior que zero.' }, 400)
+    valorEfetivo = vr
+  }
   const diferenca = Math.round((valorEfetivo - parcela.valor) * 100) / 100
 
   // Criar receita automaticamente se solicitado
@@ -558,10 +674,11 @@ antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) =
     const descReceita = diferenca !== 0
       ? `${parcela.rec_descricao} — Parcela ${parcela.numero_parcela} (reaj. ${diferenca > 0 ? '+' : ''}${diferenca.toFixed(2)})`
       : `${parcela.rec_descricao} — Parcela ${parcela.numero_parcela}`
+    // RP8: grava o vínculo de volta (recebimento/parcela) na própria receita
     const res = await c.env.DB.prepare(
-      `INSERT INTO receitas (user_id, descricao, valor, data, categoria, tipo)
-       VALUES (?, ?, ?, ?, 'Recebimento Parcelado', 'receita')`
-    ).bind(user.id, descReceita, valorEfetivo, dataRec).run()
+      `INSERT INTO receitas (user_id, descricao, valor, data, categoria, tipo, observacoes)
+       VALUES (?, ?, ?, ?, 'Recebimento Parcelado', 'receita', ?)`
+    ).bind(user.id, descReceita, valorEfetivo, dataRec, `[recebimento #${parcela.recebimento_id} parcela #${parcelaId} ]`).run()
     receitaId = res.meta.last_row_id
   }
 
@@ -591,7 +708,21 @@ antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) =
 // ── DELETE /api/recebimentos/:id ──────────────────────────────────────────
 antecipacao.delete('/recebimentos/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id')) // RP7
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
+
+  const rec = await c.env.DB.prepare(
+    `SELECT id FROM recebimentos_parcelados WHERE id=? AND user_id=?`
+  ).bind(id, user.id).first() as any
+  if (!rec) return c.json({ error: 'Recebimento não encontrado' }, 404)
+
+  // RP3: cascata de verdade — estorna as receitas geradas e remove as parcelas
+  await c.env.DB.prepare(
+    `DELETE FROM receitas WHERE user_id=? AND categoria='Recebimento Parcelado' AND observacoes LIKE ?`
+  ).bind(user.id, `%[recebimento #${id} parcela%`).run().catch(() => {})
+  await c.env.DB.prepare(
+    `DELETE FROM recebimentos_parcelas WHERE recebimento_id=? AND user_id=?`
+  ).bind(id, user.id).run().catch(() => {})
   await c.env.DB.prepare(`DELETE FROM recebimentos_parcelados WHERE id=? AND user_id=?`).bind(id, user.id).run()
   return c.json({ success: true })
 })
