@@ -106,9 +106,18 @@
           <div class="td-panel__head"><div><span class="td-eyebrow">Mês a mês</span><h2>Saldo de cada mês</h2></div></div>
           <div class="rl-grid">
             ${meses.map(m => {
-              const has = m.receitas > 0 || m.despesas > 0
+              const r = Number(m.receitas) || 0, dp = Number(m.despesas) || 0
+              const has = r > 0 || dp > 0
               const tone = !has ? 'muted' : m.saldo >= 0 ? 'ok' : 'neg'
-              return `<div class="rl-cell rl-cell--${tone}" title="${esc(m.label)}: ${has ? money(m.saldo) : 'sem movimento'}"><span class="rl-cell__m">${esc(m.label)}</span><span class="rl-cell__s">${has ? money(m.saldo) : '—'}</span></div>`
+              const tot = r + dp
+              const rPct = tot ? (r / tot) * 100 : 50
+              const dPct = tot ? (dp / tot) * 100 : 50
+              const ico = !has ? '—' : m.saldo >= 0 ? '<i class="fas fa-arrow-trend-up"></i>' : '<i class="fas fa-arrow-trend-down"></i>'
+              return `<div class="rl-mcell rl-mcell--${tone}">
+                <div class="rl-mcell__top"><span class="rl-mcell__m">${esc(m.label)}</span><span class="rl-mcell__ico">${ico}</span></div>
+                <span class="rl-mcell__s">${has ? money(m.saldo) : '—'}</span>
+                ${has ? `<div class="rl-mcell__bar" title="Receitas ${money(r)} · Despesas ${money(dp)}"><span style="flex:${rPct.toFixed(1)}"></span><span style="flex:${dPct.toFixed(1)}"></span></div>` : '<div class="rl-mcell__bar rl-mcell__bar--empty"></div>'}
+              </div>`
             }).join('')}
           </div>
         </article>
@@ -177,14 +186,55 @@
 
       const xlabels = meses.map((m, i) => `<text x="${cxs[i].toFixed(1)}" y="${(pB + 16).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">${esc((m.label || '').slice(0, 3))}</text>`).join('')
 
-      return `<div class="rl-chartwrap"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Receitas e despesas mês a mês" style="display:block">
+      // hover hit-areas (full-height per month) + highlight band
+      const hits = meses.map((m, i) => {
+        const sx = (pL + slotW * i).toFixed(1)
+        return `<rect x="${sx}" y="${pT}" width="${slotW.toFixed(1)}" height="${pH.toFixed(1)}" fill="transparent" style="cursor:pointer" onmousemove="VMTerminalRelatorios._tip(event,${i})" onmouseenter="VMTerminalRelatorios._tip(event,${i})" onmouseleave="VMTerminalRelatorios._tipHide()"/>`
+      }).join('')
+
+      this._geo = { pL, slotW, pT, pH }
+
+      return `<div class="rl-chartwrap"><div class="rl-tip" id="rl-tip"></div><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Receitas e despesas mês a mês" style="display:block">
         ${grid}
+        <rect id="rl-band" x="0" y="${pT}" width="${slotW.toFixed(1)}" height="${pH.toFixed(1)}" fill="var(--terminal-ink)" opacity="0" rx="4"/>
         ${bars}
         <polyline points="${linePts}" fill="none" stroke="var(--terminal-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
         ${dots}
         ${xlabels}
+        ${hits}
       </svg></div>
       <div class="cm-legend"><span><i style="background:var(--terminal-primary)"></i>Receitas</span><span><i style="background:var(--terminal-negative)"></i>Despesas</span><span><i style="background:var(--terminal-accent)"></i>Saldo</span></div>`
+    },
+
+    _tip(ev, i) {
+      const tip = document.getElementById('rl-tip')
+      if (!tip || !this._d) return
+      const m = (this._d.meses || [])[i]
+      if (!m) return
+      const wrap = tip.parentElement
+      const r = Number(m.receitas) || 0, dp = Number(m.despesas) || 0, s = Number(m.saldo) || 0
+      const has = r > 0 || dp > 0
+      const sCls = s >= 0 ? 'rl-tip__pos' : 'rl-tip__neg'
+      tip.innerHTML = `<strong class="rl-tip__t">${esc(m.label)}</strong>` +
+        (has
+          ? `<span class="rl-tip__ln"><i style="background:var(--terminal-primary)"></i>Receitas <b>${money(r)}</b></span>` +
+            `<span class="rl-tip__ln"><i style="background:var(--terminal-negative)"></i>Despesas <b>${money(dp)}</b></span>` +
+            `<span class="rl-tip__ln rl-tip__sep"><i style="background:var(--terminal-accent)"></i>Saldo <b class="${sCls}">${money(s)}</b></span>`
+          : `<span class="rl-tip__ln rl-tip__muted">Sem movimento neste mês</span>`)
+      tip.classList.add('is-on')
+      const rect = wrap.getBoundingClientRect()
+      const x = ev.clientX - rect.left + (wrap.scrollLeft || 0)
+      const y = ev.clientY - rect.top
+      const half = tip.offsetWidth / 2
+      const cx = Math.max(half + 4, Math.min(x, wrap.clientWidth - half - 4 + (wrap.scrollLeft || 0)))
+      tip.style.left = cx + 'px'
+      tip.style.top = Math.max(6, y - 14) + 'px'
+      const band = document.getElementById('rl-band')
+      if (band && this._geo) { band.setAttribute('x', (this._geo.pL + this._geo.slotW * i).toFixed(1)); band.setAttribute('opacity', '0.06') }
+    },
+    _tipHide() {
+      const tip = document.getElementById('rl-tip'); if (tip) tip.classList.remove('is-on')
+      const band = document.getElementById('rl-band'); if (band) band.setAttribute('opacity', '0')
     },
 
     _upsell(d) {

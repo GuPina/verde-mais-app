@@ -539,8 +539,40 @@
 .rl-hl--warn .rl-hl__val{color:var(--terminal-accent)}
 .rl-hl--neg .rl-hl__val{color:var(--terminal-negative)}
 
-.rl-chartwrap{width:100%;overflow-x:auto;padding:6px 0 2px}
+.rl-chartwrap{position:relative;width:100%;overflow-x:auto;padding:6px 0 2px}
 .rl-chartwrap svg{min-width:520px}
+/* interactive chart tooltip */
+.rl-tip{position:absolute;z-index:5;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .12s ease;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);box-shadow:0 8px 26px rgba(0,0,0,.5);padding:10px 12px;min-width:172px;display:flex;flex-direction:column;gap:5px}
+.rl-tip.is-on{opacity:1}
+.rl-tip__t{font:700 12px/1 var(--terminal-font);color:var(--terminal-ink);margin-bottom:2px}
+.rl-tip__ln{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--terminal-ink-soft)}
+.rl-tip__ln b{margin-left:auto;color:var(--terminal-ink);font-weight:600;font-family:var(--terminal-mono)}
+.rl-tip__ln i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.rl-tip__sep{margin-top:4px;padding-top:6px;border-top:1px solid var(--terminal-line)}
+.rl-tip__pos{color:var(--terminal-primary)!important}
+.rl-tip__neg{color:var(--terminal-negative)!important}
+.rl-tip__muted{color:var(--terminal-ink-soft);font-style:italic}
+
+/* Saldo de cada mês — cards */
+.rl-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
+.rl-mcell{display:flex;flex-direction:column;gap:8px;background:var(--terminal-bg);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:12px 13px;border-left:3px solid var(--terminal-line);transition:transform .12s ease,border-color .12s ease}
+.rl-mcell:hover{transform:translateY(-2px)}
+.rl-mcell--ok{border-left-color:var(--terminal-primary)}
+.rl-mcell--neg{border-left-color:var(--terminal-negative)}
+.rl-mcell--muted{opacity:.6}
+.rl-mcell__top{display:flex;align-items:center;justify-content:space-between}
+.rl-mcell__m{font:700 10px/1 var(--terminal-mono);letter-spacing:.03em;text-transform:uppercase;color:var(--terminal-ink-soft)}
+.rl-mcell__ico{font-size:11px;color:var(--terminal-ink-soft)}
+.rl-mcell--ok .rl-mcell__ico{color:var(--terminal-primary)}
+.rl-mcell--neg .rl-mcell__ico{color:var(--terminal-negative)}
+.rl-mcell__s{font:700 15px/1.05 var(--terminal-font);color:var(--terminal-ink);white-space:nowrap}
+.rl-mcell--ok .rl-mcell__s{color:var(--terminal-primary)}
+.rl-mcell--neg .rl-mcell__s{color:var(--terminal-negative)}
+.rl-mcell--muted .rl-mcell__s{color:var(--terminal-ink-soft);font-size:15px}
+.rl-mcell__bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--terminal-line);gap:2px}
+.rl-mcell__bar>span:first-child{background:var(--terminal-primary);border-radius:3px 0 0 3px}
+.rl-mcell__bar>span:last-child{background:var(--terminal-negative);border-radius:0 3px 3px 0}
+.rl-mcell__bar--empty{background:var(--terminal-line);opacity:.5}
 
 /* ---- Simulações (sim-*) ---- */
 .sim-form{margin-bottom:0}
