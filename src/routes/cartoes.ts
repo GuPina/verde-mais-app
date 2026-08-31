@@ -483,7 +483,7 @@ cartoes.get('/analise', requireAuth, async (c) => {
   const filtroCartao = cartaoFiltro ? ' AND cc.card_id = ?' : ''
   const paramsCartao = cartaoFiltro ? [cartaoFiltro] : []
 
-  const [porMes, porCartaoMes, futuras, categorias, recorrentes, cartoesLista] = await Promise.all([
+  const [porMes, porCartaoMes, futuras, categorias, recorrentes, cartoesLista, usoPorCartao] = await Promise.all([
     // Fatura de cada mês da janela
     c.env.DB.prepare(
       `SELECT cc.billing_year as ano, cc.billing_month as mes,
@@ -550,6 +550,15 @@ cartoes.get('/analise', requireAuth, async (c) => {
     c.env.DB.prepare(
       `SELECT id, nome, cor, limite_total FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY nome`
     ).bind(user.id).all(),
+
+    // Uso atual por cartão = limite comprometido (parcelas/lançamentos pendentes)
+    c.env.DB.prepare(
+      `SELECT cc.card_id, COALESCE(SUM(cc.valor),0) as utilizado
+       FROM card_charges cc
+       JOIN cartoes c2 ON c2.id = cc.card_id
+       WHERE c2.user_id = ? AND cc.status = 'pendente'${filtroCartao}
+       GROUP BY cc.card_id`
+    ).bind(user.id, ...paramsCartao).all(),
   ])
 
   // ── Série mensal, já com a variação sobre o mês anterior ──────────────────
@@ -582,6 +591,25 @@ cartoes.get('/analise', requireAuth, async (c) => {
         ? Math.round((atual / limiteTotalSomado) * 100) : null,
     }
   })
+
+  // ── Uso por cartão (limite comprometido) e uso total somado ───────────────
+  const usoMap = new Map<number, number>()
+  for (const r of (usoPorCartao.results as any[] || [])) usoMap.set(Number(r.card_id), Number(r.utilizado || 0))
+  const cartoesUso = (cartoesLista.results as any[] || [])
+    .filter(c2 => !cartaoFiltro || Number(c2.id) === cartaoFiltro)
+    .map(c2 => {
+      const lim = Number(c2.limite_total || 0)
+      const util = usoMap.get(Number(c2.id)) || 0
+      return {
+        id: Number(c2.id), nome: c2.nome, cor: c2.cor,
+        limite_total: Math.round(lim * 100) / 100,
+        utilizado: Math.round(util * 100) / 100,
+        disponivel: Math.round(Math.max(0, lim - util) * 100) / 100,
+        uso_pct: lim > 0 ? Math.round((util / lim) * 100) : null,
+      }
+    })
+    .sort((a, b) => b.utilizado - a.utilizado)
+  const utilizadoSomado = cartoesUso.reduce((s, c2) => s + c2.utilizado, 0)
 
   // Empilhamento por cartão
   const porCartao = new Map<number, any>()
@@ -638,6 +666,13 @@ cartoes.get('/analise', requireAuth, async (c) => {
     serie,
     por_cartao: [...porCartao.values()],
     cartoes: (cartoesLista.results as any[] || []),
+    cartoes_uso: cartoesUso,
+    uso_total: {
+      limite: Math.round(limiteTotalSomado * 100) / 100,
+      utilizado: Math.round(utilizadoSomado * 100) / 100,
+      disponivel: Math.round(Math.max(0, limiteTotalSomado - utilizadoSomado) * 100) / 100,
+      pct: limiteTotalSomado > 0 ? Math.round((utilizadoSomado / limiteTotalSomado) * 100) : null,
+    },
     limite_total_somado: Math.round(limiteTotalSomado * 100) / 100,
     resumo: {
       fatura_atual: Math.round(faturaAtual * 100) / 100,
