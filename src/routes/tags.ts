@@ -146,6 +146,7 @@ tags.post('/', requireAuth, async (c) => {
 tags.patch('/:id', requireAuth, async (c) => {
   const user   = c.get('user')
   const tagId  = parseInt(c.req.param('id'))
+  if (!Number.isInteger(tagId) || tagId < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { nome, cor } = await c.req.json()
 
   const tag = await c.env.DB.prepare(
@@ -179,6 +180,7 @@ tags.patch('/:id', requireAuth, async (c) => {
 tags.delete('/:id', requireAuth, async (c) => {
   const user  = c.get('user')
   const tagId = parseInt(c.req.param('id'))
+  if (!Number.isInteger(tagId) || tagId < 1) return c.json({ error: 'ID inválido.' }, 400)
 
   const tag = await c.env.DB.prepare(
     `SELECT id FROM tags WHERE id=? AND user_id=?`
@@ -201,6 +203,7 @@ tags.delete('/:id', requireAuth, async (c) => {
 tags.post('/despesa/:despesaId', requireAuth, async (c) => {
   const user      = c.get('user')
   const despesaId = parseInt(c.req.param('despesaId'))
+  if (!Number.isInteger(despesaId) || despesaId < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { tag_ids } = await c.req.json() as { tag_ids: number[] }
 
   // Verificar que a despesa pertence ao usuário e não é de categoria bloqueada
@@ -266,6 +269,7 @@ tags.post('/despesa/:despesaId', requireAuth, async (c) => {
 tags.get('/despesa/:despesaId', requireAuth, async (c) => {
   const user      = c.get('user')
   const despesaId = parseInt(c.req.param('despesaId'))
+  if (!Number.isInteger(despesaId) || despesaId < 1) return c.json({ error: 'ID inválido.' }, 400)
 
   const despesa = await c.env.DB.prepare(
     `SELECT id FROM despesas WHERE id=? AND user_id=?`
@@ -362,6 +366,7 @@ tags.get('/buscar', requireAuth, async (c) => {
 tags.post('/receita/:receitaId', requireAuth, async (c) => {
   const user     = c.get('user')
   const receitaId = parseInt(c.req.param('receitaId'))
+  if (!Number.isInteger(receitaId) || receitaId < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { tag_ids } = await c.req.json() as { tag_ids: number[] }
 
   const receita = await c.env.DB.prepare(
@@ -396,6 +401,7 @@ tags.post('/receita/:receitaId', requireAuth, async (c) => {
 tags.get('/receita/:receitaId', requireAuth, async (c) => {
   const user     = c.get('user')
   const receitaId = parseInt(c.req.param('receitaId'))
+  if (!Number.isInteger(receitaId) || receitaId < 1) return c.json({ error: 'ID inválido.' }, 400)
 
   const receita = await c.env.DB.prepare(
     `SELECT id FROM receitas WHERE id=? AND user_id=?`
@@ -415,6 +421,7 @@ tags.get('/receita/:receitaId', requireAuth, async (c) => {
 tags.put('/investimento/:investimentoId', requireAuth, async (c) => {
   const user          = c.get('user')
   const investimentoId = parseInt(c.req.param('investimentoId'))
+  if (!Number.isInteger(investimentoId) || investimentoId < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { tag_ids }   = await c.req.json().catch(() => ({} as any))
 
   const inv = await c.env.DB.prepare(
@@ -437,6 +444,7 @@ tags.put('/investimento/:investimentoId', requireAuth, async (c) => {
 tags.get('/investimento/:investimentoId', requireAuth, async (c) => {
   const user          = c.get('user')
   const investimentoId = parseInt(c.req.param('investimentoId'))
+  if (!Number.isInteger(investimentoId) || investimentoId < 1) return c.json({ error: 'ID inválido.' }, 400)
 
   const inv = await c.env.DB.prepare(
     `SELECT id FROM investimentos WHERE id=? AND user_id=?`

@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas', 'conquistas', 'tags', 'organizador'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -7152,6 +7152,7 @@ const VM = {
   // CENTRAL DE ORGANIZAÇÃO
   // ═══════════════════════════════════════════════════════════════════════════
   async pageOrganizador() {
+    if (window.VMTerminalOrganizador?.render) return window.VMTerminalOrganizador.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
@@ -7856,6 +7857,7 @@ const VM = {
   // TAGS & FILTROS
   // ═══════════════════════════════════════════════════════════════════════════
   async pageTags() {
+    if (window.VMTerminalTags?.render) return window.VMTerminalTags.render(this)
     document.getElementById('page-content').innerHTML = `
       <!-- Header -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
@@ -15855,6 +15857,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   // ============== CONQUISTAS ==============
   async pageConquistas() {
+    if (window.VMTerminalConquistas?.render) return window.VMTerminalConquistas.render(this)
     document.getElementById('page-content').innerHTML = `
       <div class="section-header">
         <div>

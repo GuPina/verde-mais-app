@@ -581,3 +581,52 @@
 .dc-pend:last-child{border-bottom:0}
 .dc-pend span{color:var(--terminal-ink-soft)}
 .dc-pend strong{color:var(--terminal-ink)}
+
+/* ---- Conquistas (cq-*) ---- */
+.cq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:18px}
+.cq-card{display:flex;gap:14px;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:16px}
+.cq-card--off{opacity:.62}
+.cq-card--on{border-color:color-mix(in srgb,var(--terminal-primary) 35%,var(--terminal-line))}
+.cq-card__ic{font-size:30px;line-height:1;flex:none;filter:grayscale(0)}
+.cq-card--off .cq-card__ic{filter:grayscale(1) opacity(.8)}
+.cq-card__body{flex:1;min-width:0}
+.cq-card__top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.cq-card__top strong{color:var(--terminal-ink);font-size:14px;font-weight:640}
+.cq-pts{font:700 11px/1 var(--terminal-mono);color:var(--terminal-accent)}
+.cq-card__body p{color:var(--terminal-ink-soft);font-size:12px;margin:5px 0 8px}
+.cq-prog{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cq-prog .to-bar{flex:1}
+.cq-prog small{font:700 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
+.cq-card__foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cq-rar{font:700 9px/1 var(--terminal-mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 7px;border-radius:999px;border:1px solid var(--terminal-line);color:var(--terminal-ink-soft)}
+.cq-rar--raro{color:#3B82F6;border-color:#3B82F655}
+.cq-rar--epico,.cq-rar--épico{color:#8B5CF6;border-color:#8B5CF655}
+.cq-rar--lendario,.cq-rar--lendária,.cq-rar--lendario{color:var(--terminal-accent);border-color:color-mix(in srgb,var(--terminal-accent) 40%,var(--terminal-line))}
+.cq-done{font:700 10px/1 var(--terminal-mono);color:var(--terminal-primary)}
+.cq-lock{font:700 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
+
+/* ---- Tags (tg-*) ---- */
+.tg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.tg-card{display:flex;align-items:center;gap:12px;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:13px 15px}
+.tg-dot{flex:none;width:14px;height:14px;border-radius:50%}
+.tg-card__main{flex:1;min-width:0}
+.tg-card__main strong{display:block;color:var(--terminal-ink);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-card__main small{color:var(--terminal-ink-soft);font-size:11.5px}
+.tg-card__act{display:flex;gap:6px}
+.tg-swatches{display:flex;gap:8px;flex-wrap:wrap}
+.tg-sw{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.tg-sw--on{border-color:var(--terminal-ink)}
+
+/* ---- Organizador (or-*) ---- */
+.or-dups{display:flex;flex-direction:column;gap:8px}
+.or-dup{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;background:color-mix(in srgb,var(--terminal-accent) 7%,var(--terminal-bg));border:1px solid color-mix(in srgb,var(--terminal-accent) 25%,var(--terminal-line));border-radius:var(--terminal-radius-sm)}
+.or-dup__main strong{color:var(--terminal-ink);font-size:13px}
+.or-dup__main small{display:block;color:var(--terminal-ink-soft);font-size:11.5px;margin-top:2px}
+.or-list{display:flex;flex-direction:column;gap:8px}
+.or-cat{display:flex;align-items:center;gap:14px;padding:9px 4px;border-bottom:1px solid var(--terminal-line)}
+.or-cat:last-child{border-bottom:0}
+.or-cat__id{width:170px;min-width:130px;display:flex;align-items:center;gap:8px}
+.or-cat__id strong{color:var(--terminal-ink);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.or-flag{font:700 8.5px/1 var(--terminal-mono);color:var(--terminal-accent);border:1px solid color-mix(in srgb,var(--terminal-accent) 40%,var(--terminal-line));border-radius:999px;padding:2px 5px}
+.or-cat__bar{flex:1;min-width:80px}
+.or-cat__meta{width:190px;text-align:right;font-size:12px;color:var(--terminal-ink-soft)}
