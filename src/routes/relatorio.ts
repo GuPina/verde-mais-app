@@ -227,6 +227,81 @@ relatorio.get('/anual', requireAuth, async (c) => {
   const melhorMes = baseMelhor.reduce((best, m) => m.saldo > best.saldo ? m : best, baseMelhor[0])
   const piorMes   = baseMelhor.reduce((worst, m) => m.saldo < worst.saldo ? m : worst, baseMelhor[0])
 
+  const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100
+
+  // ── Seções analíticas do ano ──────────────────────────────────────────────
+  // Top categorias de despesa, top tags, ano anterior (p/ comparação) — em
+  // paralelo, cada uma um GROUP BY, sem loop.
+  const anoPrev = ano - 1
+  const [topCats, topTags, prevRec, prevDesp] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(categoria),''),'Sem categoria') as categoria,
+              COALESCE(SUM(valor),0) as total, COUNT(*) as qtd
+       FROM despesas
+       WHERE user_id=?
+         ${filtroDespesaDoAno()}
+       GROUP BY COALESCE(NULLIF(TRIM(categoria),''),'Sem categoria')
+       ORDER BY total DESC
+       LIMIT 8`
+    ).bind(user.id, as).all<any>(),
+
+    c.env.DB.prepare(
+      `SELECT t.nome as tag, t.cor, COALESCE(SUM(d.valor),0) as total, COUNT(d.id) as qtd
+       FROM tags t
+       JOIN despesa_tags dt ON dt.tag_id = t.id
+       JOIN despesas d ON d.id = dt.despesa_id
+       WHERE t.user_id = ?
+         ${filtroDespesaDoAno('d')}
+       GROUP BY t.id, t.nome, t.cor
+       ORDER BY total DESC
+       LIMIT 8`
+    ).bind(user.id, as).all<any>(),
+
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM receitas
+       WHERE user_id=? AND strftime('%Y',data)=?`
+    ).bind(user.id, String(anoPrev)).first<{ total: number }>(),
+
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(valor),0) as total FROM despesas
+       WHERE user_id=?
+         ${filtroDespesaDoAno()}`
+    ).bind(user.id, String(anoPrev)).first<{ total: number }>(),
+  ])
+
+  const prevR = Number(prevRec?.total) || 0
+  const prevD = Number(prevDesp?.total) || 0
+
+  // ── Projeção para o restante do ano ───────────────────────────────────────
+  // Base = média mensal dos meses COM dados. Só projeta quando ainda há meses a
+  // vir (ano corrente ou futuro) e existe base para a média.
+  const now      = new Date()
+  const anoAtual = now.getFullYear()
+  const mesAtual = now.getMonth() + 1
+  const nDados   = mesesComDados.length
+  let mesesRestantes = 0
+  if (ano === anoAtual)      mesesRestantes = Math.max(0, 12 - mesAtual)
+  else if (ano > anoAtual)   mesesRestantes = 12
+  const mediaRec  = nDados ? totRec  / nDados : 0
+  const mediaDesp = nDados ? totDesp / nDados : 0
+  const projRecRest  = mediaRec  * mesesRestantes
+  const projDespRest = mediaDesp * mesesRestantes
+  const projecao = {
+    aplicavel:        mesesRestantes > 0 && nDados > 0 && ano >= anoAtual,
+    ano_atual:        anoAtual,
+    meses_restantes:  mesesRestantes,
+    meses_com_dados:  nDados,
+    media_receitas:   round2(mediaRec),
+    media_despesas:   round2(mediaDesp),
+    media_saldo:      round2(mediaRec - mediaDesp),
+    proj_receitas_restante: round2(projRecRest),
+    proj_despesas_restante: round2(projDespRest),
+    proj_saldo_restante:    round2(projRecRest - projDespRest),
+    proj_receitas_ano: round2(totRec  + projRecRest),
+    proj_despesas_ano: round2(totDesp + projDespRest),
+    proj_saldo_ano:    round2((totRec + projRecRest) - (totDesp + projDespRest)),
+  }
+
   // RL5: conquista idempotente, sem escrever em `ia_insights` (tabela de outra
   // feature) a cada GET — isso poluía e colidia com o DELETE do POST /ia/insights.
   await verificarConquista(c.env.DB, user.id, 'analista')
@@ -252,7 +327,20 @@ relatorio.get('/anual', requireAuth, async (c) => {
       melhor_mes_positivo: melhorMes.saldo > 0, // RL1
       pior_mes:           piorMes.label,
       pior_mes_saldo:     piorMes.saldo,
-    }
+    },
+    top_categorias: (topCats.results || []).map((r: any) => ({
+      categoria: r.categoria, total: round2(r.total), qtd: Number(r.qtd) || 0,
+    })),
+    top_tags: (topTags.results || []).map((r: any) => ({
+      tag: r.tag, cor: r.cor, total: round2(r.total), qtd: Number(r.qtd) || 0,
+    })),
+    comparativo: {
+      ano_atual:    ano,
+      ano_anterior: anoPrev,
+      atual:    { receitas: round2(totRec), despesas: round2(totDesp), saldo: round2(totRec - totDesp) },
+      anterior: { receitas: round2(prevR),  despesas: round2(prevD),  saldo: round2(prevR - prevD) },
+    },
+    projecao,
   })
 })
 

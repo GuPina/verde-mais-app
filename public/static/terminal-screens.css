@@ -491,16 +491,6 @@
 .cm-cat__diff--neutral{color:var(--terminal-ink-soft)}
 
 /* ---- Relatórios (rl-*) ---- */
-.rl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
-.rl-cell{background:var(--terminal-bg);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);padding:10px;text-align:center}
-.rl-cell--ok{border-color:color-mix(in srgb,var(--terminal-primary) 30%,var(--terminal-line))}
-.rl-cell--neg{border-color:color-mix(in srgb,var(--terminal-negative) 30%,var(--terminal-line))}
-.rl-cell__m{display:block;font:700 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft);text-transform:uppercase;margin-bottom:5px}
-.rl-cell__s{font-size:12px;font-weight:600;color:var(--terminal-ink)}
-.rl-cell--ok .rl-cell__s{color:var(--terminal-primary)}
-.rl-cell--neg .rl-cell__s{color:var(--terminal-negative)}
-.rl-cell--muted .rl-cell__s{color:var(--terminal-ink-soft)}
-
 /* Relatórios — toolbar + summary redesign */
 .rl-yearnav__row{display:flex;align-items:center;gap:10px;margin-top:4px}
 .rl-yearnav__row strong{font:700 22px/1 var(--terminal-font);color:var(--terminal-ink);min-width:56px;text-align:center}
@@ -553,26 +543,81 @@
 .rl-tip__neg{color:var(--terminal-negative)!important}
 .rl-tip__muted{color:var(--terminal-ink-soft);font-style:italic}
 
-/* Saldo de cada mês — cards */
-.rl-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
-.rl-mcell{display:flex;flex-direction:column;gap:8px;background:var(--terminal-bg);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:12px 13px;border-left:3px solid var(--terminal-line);transition:transform .12s ease,border-color .12s ease}
-.rl-mcell:hover{transform:translateY(-2px)}
-.rl-mcell--ok{border-left-color:var(--terminal-primary)}
-.rl-mcell--neg{border-left-color:var(--terminal-negative)}
-.rl-mcell--muted{opacity:.6}
-.rl-mcell__top{display:flex;align-items:center;justify-content:space-between}
-.rl-mcell__m{font:700 10px/1 var(--terminal-mono);letter-spacing:.03em;text-transform:uppercase;color:var(--terminal-ink-soft)}
-.rl-mcell__ico{font-size:11px;color:var(--terminal-ink-soft)}
-.rl-mcell--ok .rl-mcell__ico{color:var(--terminal-primary)}
-.rl-mcell--neg .rl-mcell__ico{color:var(--terminal-negative)}
-.rl-mcell__s{font:700 15px/1.05 var(--terminal-font);color:var(--terminal-ink);white-space:nowrap}
-.rl-mcell--ok .rl-mcell__s{color:var(--terminal-primary)}
-.rl-mcell--neg .rl-mcell__s{color:var(--terminal-negative)}
-.rl-mcell--muted .rl-mcell__s{color:var(--terminal-ink-soft);font-size:15px}
-.rl-mcell__bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--terminal-line);gap:2px}
-.rl-mcell__bar>span:first-child{background:var(--terminal-primary);border-radius:3px 0 0 3px}
-.rl-mcell__bar>span:last-child{background:var(--terminal-negative);border-radius:0 3px 3px 0}
-.rl-mcell__bar--empty{background:var(--terminal-line);opacity:.5}
+/* two-column layout for analytical panels */
+.rl-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.rl-cols{grid-template-columns:1fr}}
+.rl-note{margin:10px 2px 0;font-size:11px;line-height:1.4;color:var(--terminal-ink-soft)}
+
+/* Top categorias / Top tags — ranking list */
+.rl-rank{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.rl-rank__it{display:flex;flex-direction:column;gap:6px}
+.rl-rank__top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.rl-rank__name{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--terminal-ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl-rank__pos{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;border-radius:6px;background:var(--terminal-panel);border:1px solid var(--terminal-line);font:700 11px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
+.rl-rank__dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.rl-rank__val{font:700 13px/1 var(--terminal-mono);color:var(--terminal-ink);white-space:nowrap}
+.rl-rank__bar{height:8px;border-radius:4px;background:var(--terminal-line);overflow:hidden}
+.rl-rank__bar>span{display:block;height:100%;border-radius:4px;background:var(--terminal-primary);min-width:3px}
+.rl-rank__sub{font-size:11px;color:var(--terminal-ink-soft)}
+
+/* Comparação ano vs ano */
+.rl-cmp{width:100%;border-collapse:collapse;font-size:13px;min-width:420px}
+.rl-cmp th{text-align:right;padding:0 12px 10px;font:600 10px/1 var(--terminal-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--terminal-ink-soft);border-bottom:1px solid var(--terminal-line)}
+.rl-cmp th:first-child{text-align:left}
+.rl-cmp td{padding:12px;border-bottom:1px solid var(--terminal-line)}
+.rl-cmp tr:last-child td{border-bottom:none}
+.rl-cmp__lbl{font-weight:600;color:var(--terminal-ink)}
+.rl-cmp__num{text-align:right;font-family:var(--terminal-mono);color:var(--terminal-ink-soft)}
+.rl-cmp__delta{text-align:right;font-family:var(--terminal-mono);font-weight:600;white-space:nowrap}
+.rl-cmp__delta--ok{color:var(--terminal-primary)}
+.rl-cmp__delta--neg{color:var(--terminal-negative)}
+.rl-cmp__delta--neutral{color:var(--terminal-ink-soft)}
+.rl-cmp__arr{font-size:11px}
+.rl-cmp__pct{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:20px;background:var(--terminal-panel);font-size:11px}
+
+/* Projeção */
+.rl-proj{display:flex;flex-direction:column;gap:14px}
+.rl-proj--na{align-items:center;justify-content:center;text-align:center;gap:10px;padding:24px 16px;color:var(--terminal-ink-soft)}
+.rl-proj--na i{font-size:22px;opacity:.6}
+.rl-proj--na p{margin:0;font-size:13px;max-width:340px}
+.rl-proj__hero{display:flex;flex-direction:column;gap:5px;padding:18px 20px;border-radius:var(--terminal-radius);background:var(--terminal-bg);border:1px solid var(--terminal-line);border-left:4px solid var(--terminal-line)}
+.rl-proj__hero--ok{border-left-color:var(--terminal-primary)}
+.rl-proj__hero--neg{border-left-color:var(--terminal-negative)}
+.rl-proj__lbl{font:700 11px/1 var(--terminal-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--terminal-ink-soft)}
+.rl-proj__val{font:700 28px/1.05 var(--terminal-font)}
+.rl-proj__hero--ok .rl-proj__val{color:var(--terminal-primary)}
+.rl-proj__hero--neg .rl-proj__val{color:var(--terminal-negative)}
+.rl-proj__sub{font-size:12px;color:var(--terminal-ink-soft)}
+.rl-proj__grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rl-proj__cell{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:var(--terminal-radius-sm);background:var(--terminal-bg);border:1px solid var(--terminal-line)}
+.rl-proj__cell span{font-size:11px;color:var(--terminal-ink-soft)}
+.rl-proj__cell strong{font:700 15px/1 var(--terminal-mono);color:var(--terminal-ink)}
+.rl-proj__cell strong.is-ok{color:var(--terminal-primary)}
+.rl-proj__cell strong.is-neg{color:var(--terminal-negative)}
+
+/* Detalhamento mensal — tabela */
+.rl-tablewrap{width:100%;overflow-x:auto}
+.rl-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+.rl-table th{padding:10px 14px;font:600 10px/1 var(--terminal-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--terminal-ink-soft);border-bottom:1px solid var(--terminal-line);text-align:left;background:var(--terminal-panel)}
+.rl-table td{padding:12px 14px;border-bottom:1px solid var(--terminal-line)}
+.rl-table tbody tr{transition:background .12s ease}
+.rl-table tbody tr:hover{background:color-mix(in srgb,var(--terminal-ink) 4%,transparent)}
+.rl-td-m{font-weight:600;color:var(--terminal-ink);white-space:nowrap}
+.rl-num{text-align:right;font-family:var(--terminal-mono);white-space:nowrap;color:var(--terminal-ink)}
+.rl-num--rec{color:var(--terminal-primary)}
+.rl-num--desp{color:var(--terminal-negative)}
+.rl-num--ok{color:var(--terminal-primary);font-weight:600}
+.rl-num--neg{color:var(--terminal-negative);font-weight:600}
+.rl-num--muted{color:var(--terminal-ink-soft)}
+.rl-tr--muted td{color:var(--terminal-ink-soft)}
+.rl-st{text-align:right;white-space:nowrap}
+.rl-table thead .rl-num,.rl-table thead .rl-st{text-align:right}
+.rl-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font:600 11px/1.3 var(--terminal-font);border:1px solid}
+.rl-badge--ok{color:var(--terminal-primary);background:color-mix(in srgb,var(--terminal-primary) 12%,transparent);border-color:color-mix(in srgb,var(--terminal-primary) 40%,transparent)}
+.rl-badge--neg{color:var(--terminal-negative);background:color-mix(in srgb,var(--terminal-negative) 12%,transparent);border-color:color-mix(in srgb,var(--terminal-negative) 40%,transparent)}
+.rl-badge--muted{color:var(--terminal-ink-soft);background:transparent;border-color:var(--terminal-line)}
+.rl-tr--total td{border-top:2px solid var(--terminal-line);border-bottom:none;font-weight:700;background:var(--terminal-panel)}
+.rl-tr--total .rl-td-m{text-transform:uppercase;font:700 11px/1 var(--terminal-mono);letter-spacing:.04em;color:var(--terminal-ink-soft)}
 
 /* ---- Simulações (sim-*) ---- */
 .sim-form{margin-bottom:0}

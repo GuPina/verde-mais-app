@@ -1,6 +1,7 @@
 (function () {
   const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
   const money = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 }).format(Number(v) || 0)
+  const safeColor = (c, fallback) => (typeof c === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(c.trim())) ? c.trim() : fallback
   const short = (v) => {
     const n = Number(v) || 0, a = Math.abs(n), s = n < 0 ? '-' : ''
     if (a >= 1e6) return s + 'R$ ' + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',') + 'M'
@@ -102,26 +103,151 @@
           ${this._chart(meses)}
         </article>
 
+        <div class="rl-cols" style="margin-top:16px">
+          <article class="td-panel">
+            <div class="td-panel__head"><div><span class="td-eyebrow">Para onde foi</span><h2>Top categorias de despesas</h2></div></div>
+            ${this._rankCats(d.top_categorias, Number(t.despesas) || 0)}
+          </article>
+          <article class="td-panel">
+            <div class="td-panel__head"><div><span class="td-eyebrow">Seus rótulos</span><h2>Top tags do ano</h2></div></div>
+            ${this._rankTags(d.top_tags, Number(t.despesas) || 0)}
+          </article>
+        </div>
+
+        <div class="rl-cols" style="margin-top:16px">
+          <article class="td-panel">
+            <div class="td-panel__head"><div><span class="td-eyebrow">Ano vs ano</span><h2>Comparação ${d.ano} × ${d.ano - 1}</h2></div></div>
+            ${this._cmp(d.comparativo)}
+          </article>
+          <article class="td-panel">
+            <div class="td-panel__head"><div><span class="td-eyebrow">Olhando à frente</span><h2>Projeção para o restante do ano</h2></div></div>
+            ${this._proj(d.projecao, d.ano)}
+          </article>
+        </div>
+
         <article class="td-panel" style="margin-top:16px">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Mês a mês</span><h2>Saldo de cada mês</h2></div></div>
-          <div class="rl-grid">
-            ${meses.map(m => {
-              const r = Number(m.receitas) || 0, dp = Number(m.despesas) || 0
-              const has = r > 0 || dp > 0
-              const tone = !has ? 'muted' : m.saldo >= 0 ? 'ok' : 'neg'
-              const tot = r + dp
-              const rPct = tot ? (r / tot) * 100 : 50
-              const dPct = tot ? (dp / tot) * 100 : 50
-              const ico = !has ? '—' : m.saldo >= 0 ? '<i class="fas fa-arrow-trend-up"></i>' : '<i class="fas fa-arrow-trend-down"></i>'
-              return `<div class="rl-mcell rl-mcell--${tone}">
-                <div class="rl-mcell__top"><span class="rl-mcell__m">${esc(m.label)}</span><span class="rl-mcell__ico">${ico}</span></div>
-                <span class="rl-mcell__s">${has ? money(m.saldo) : '—'}</span>
-                ${has ? `<div class="rl-mcell__bar" title="Receitas ${money(r)} · Despesas ${money(dp)}"><span style="flex:${rPct.toFixed(1)}"></span><span style="flex:${dPct.toFixed(1)}"></span></div>` : '<div class="rl-mcell__bar rl-mcell__bar--empty"></div>'}
-              </div>`
-            }).join('')}
-          </div>
+          <div class="td-panel__head"><div><span class="td-eyebrow">Mês a mês</span><h2>Detalhamento mensal</h2></div></div>
+          ${this._table(meses, d.ano, t)}
         </article>
       `)
+    },
+
+    _rankCats(cats, totDesp) {
+      if (!cats || !cats.length) return '<div class="td-empty-row"><span>Sem despesas categorizadas neste ano.</span></div>'
+      const max = Math.max(...cats.map(c => Number(c.total) || 0), 1)
+      return `<ul class="rl-rank">${cats.map((c, i) => {
+        const val = Number(c.total) || 0
+        const pct = totDesp > 0 ? (val / totDesp * 100) : 0
+        const w = (val / max * 100)
+        return `<li class="rl-rank__it">
+          <div class="rl-rank__top"><span class="rl-rank__name"><span class="rl-rank__pos">${i + 1}</span>${esc(c.categoria)}</span><span class="rl-rank__val">${money(val)}</span></div>
+          <div class="rl-rank__bar"><span style="width:${w.toFixed(1)}%"></span></div>
+          <div class="rl-rank__sub">${pct.toFixed(1)}% das despesas · ${c.qtd} ${Number(c.qtd) === 1 ? 'lançamento' : 'lançamentos'}</div>
+        </li>`
+      }).join('')}</ul>`
+    },
+
+    _rankTags(tags, totDesp) {
+      if (!tags || !tags.length) return '<div class="td-empty-row"><span>Nenhuma tag usada em despesas neste ano.</span></div>'
+      const max = Math.max(...tags.map(t => Number(t.total) || 0), 1)
+      return `<ul class="rl-rank">${tags.map(t => {
+        const cor = safeColor(t.cor, 'var(--terminal-accent)')
+        const val = Number(t.total) || 0
+        const pct = totDesp > 0 ? (val / totDesp * 100) : 0
+        const w = (val / max * 100)
+        return `<li class="rl-rank__it">
+          <div class="rl-rank__top"><span class="rl-rank__name"><i class="rl-rank__dot" style="background:${cor}"></i>${esc(t.tag)}</span><span class="rl-rank__val">${money(val)}</span></div>
+          <div class="rl-rank__bar"><span style="width:${w.toFixed(1)}%;background:${cor}"></span></div>
+          <div class="rl-rank__sub">${pct.toFixed(1)}% das despesas · ${t.qtd} ${Number(t.qtd) === 1 ? 'lançamento' : 'lançamentos'}</div>
+        </li>`
+      }).join('')}</ul>`
+    },
+
+    _cmp(cmp) {
+      if (!cmp) return '<div class="td-empty-row"><span>Sem dados de comparação.</span></div>'
+      const a = cmp.atual || {}, b = cmp.anterior || {}
+      const prevEmpty = !((Number(b.receitas) || 0) || (Number(b.despesas) || 0))
+      const row = (lbl, cur, prev, good) => {
+        cur = Number(cur) || 0; prev = Number(prev) || 0
+        const diff = cur - prev
+        const pct = prev !== 0 ? (diff / Math.abs(prev) * 100) : null
+        let tone = 'neutral'
+        if (Math.abs(diff) >= 0.01) tone = ((good === 'up') ? diff > 0 : diff < 0) ? 'ok' : 'neg'
+        const arrow = diff > 0.009 ? '▲' : diff < -0.009 ? '▼' : '–'
+        const pctTxt = pct === null ? '—' : `${pct > 0 ? '+' : ''}${pct.toFixed(0)}%`
+        return `<tr>
+          <td class="rl-cmp__lbl">${lbl}</td>
+          <td class="rl-cmp__num">${money(prev)}</td>
+          <td class="rl-cmp__num">${money(cur)}</td>
+          <td class="rl-cmp__delta rl-cmp__delta--${tone}"><span class="rl-cmp__arr">${arrow}</span> ${money(Math.abs(diff))} <span class="rl-cmp__pct">${pctTxt}</span></td>
+        </tr>`
+      }
+      return `<div class="rl-tablewrap"><table class="rl-cmp">
+        <thead><tr><th></th><th>${cmp.ano_anterior}</th><th>${cmp.ano_atual}</th><th>Variação</th></tr></thead>
+        <tbody>
+          ${row('Receitas', a.receitas, b.receitas, 'up')}
+          ${row('Despesas', a.despesas, b.despesas, 'down')}
+          ${row('Saldo', a.saldo, b.saldo, 'up')}
+        </tbody>
+      </table></div>${prevEmpty ? `<p class="rl-note">Sem lançamentos em ${esc(cmp.ano_anterior)} para comparar — os números acima são só de ${esc(cmp.ano_atual)}.</p>` : ''}`
+    },
+
+    _proj(p, ano) {
+      if (!p || !p.aplicavel) {
+        const msg = (p && ano < p.ano_atual)
+          ? `${ano} já está encerrado — o resultado acima é o número final do ano.`
+          : (p && ano > p.ano_atual)
+            ? `Ainda não há lançamentos em ${ano} para projetar.`
+            : 'Ainda não há meses com movimento suficientes para projetar o restante do ano.'
+        return `<div class="rl-proj rl-proj--na"><i class="fas fa-hourglass-half"></i><p>${msg}</p></div>`
+      }
+      const tone = p.proj_saldo_ano >= 0 ? 'ok' : 'neg'
+      return `<div class="rl-proj">
+        <div class="rl-proj__hero rl-proj__hero--${tone}">
+          <span class="rl-proj__lbl">Saldo projetado ao fechar ${ano}</span>
+          <strong class="rl-proj__val">${money(p.proj_saldo_ano)}</strong>
+          <span class="rl-proj__sub">${p.meses_restantes} ${p.meses_restantes === 1 ? 'mês restante' : 'meses restantes'} · base na média de ${p.meses_com_dados} ${p.meses_com_dados === 1 ? 'mês' : 'meses'} com dados</span>
+        </div>
+        <div class="rl-proj__grid">
+          <div class="rl-proj__cell"><span>Média mensal (saldo)</span><strong class="${p.media_saldo >= 0 ? 'is-ok' : 'is-neg'}">${money(p.media_saldo)}</strong></div>
+          <div class="rl-proj__cell"><span>Receitas a entrar</span><strong class="is-ok">${money(p.proj_receitas_restante)}</strong></div>
+          <div class="rl-proj__cell"><span>Despesas a vir</span><strong class="is-neg">${money(p.proj_despesas_restante)}</strong></div>
+          <div class="rl-proj__cell"><span>Saldo restante estimado</span><strong class="${p.proj_saldo_restante >= 0 ? 'is-ok' : 'is-neg'}">${money(p.proj_saldo_restante)}</strong></div>
+        </div>
+        <p class="rl-note">Estimativa linear pela média dos meses com movimento — referência, não previsão garantida.</p>
+      </div>`
+    },
+
+    _table(meses, ano, t) {
+      const rows = meses.map(m => {
+        const has = m.receitas > 0 || m.despesas > 0
+        const tone = !has ? 'muted' : m.saldo >= 0 ? 'ok' : 'neg'
+        const badge = !has
+          ? '<span class="rl-badge rl-badge--muted">Sem dados</span>'
+          : m.saldo >= 0
+            ? '<span class="rl-badge rl-badge--ok"><i class="fas fa-circle-check"></i> Positivo</span>'
+            : '<span class="rl-badge rl-badge--neg"><i class="fas fa-circle-xmark"></i> Negativo</span>'
+        return `<tr class="rl-tr rl-tr--${tone}">
+          <td class="rl-td-m">${esc(m.label)}/${ano}</td>
+          <td class="rl-num rl-num--rec">${has ? money(m.receitas) : '—'}</td>
+          <td class="rl-num rl-num--desp">${has ? money(m.despesas) : '—'}</td>
+          <td class="rl-num rl-num--${tone}">${has ? money(m.saldo) : '—'}</td>
+          <td class="rl-st">${badge}</td>
+        </tr>`
+      }).join('')
+      const tt = t || {}
+      const totTone = Number(tt.saldo) >= 0 ? 'ok' : 'neg'
+      return `<div class="rl-tablewrap"><table class="rl-table">
+        <thead><tr><th>Mês</th><th class="rl-num">Receitas</th><th class="rl-num">Despesas</th><th class="rl-num">Saldo</th><th class="rl-st">Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr class="rl-tr rl-tr--total">
+          <td class="rl-td-m">Total ${ano}</td>
+          <td class="rl-num rl-num--rec">${money(tt.receitas)}</td>
+          <td class="rl-num rl-num--desp">${money(tt.despesas)}</td>
+          <td class="rl-num rl-num--${totTone}">${money(tt.saldo)}</td>
+          <td class="rl-st"></td>
+        </tr></tfoot>
+      </table></div>`
     },
 
     _chart(meses) {
