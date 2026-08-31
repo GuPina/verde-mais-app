@@ -501,7 +501,6 @@ assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
   try {
     const user = c.get('user')
     const id = parseInt(c.req.param('id'))
-
     if (isNaN(id)) return c.json({ error: 'ID inválido' }, 400)
 
     const sub = await c.env.DB.prepare(
@@ -575,6 +574,7 @@ assinaturas.post('/:id/reduzir-preco', requireAuth, async (c) => {
   try {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
+  if (!Number.isInteger(id) || id < 1) return c.json({ error: 'ID inválido.' }, 400)
   if (isNaN(id)) return c.json({ error: 'ID inválido' }, 400)
   let body: any
   try { body = await c.req.json() } catch { return c.json({ error: 'JSON inválido no body' }, 400) }
@@ -818,6 +818,7 @@ assinaturas.get('/canceladas', requireAuth, async (c) => {
 assinaturas.patch('/:id/feedback', requireAuth, async (c) => {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
+  if (!Number.isInteger(id) || id < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { feedback, motivo } = await c.req.json() as { feedback: string; motivo?: string }
 
   if (!['use_regularly', 'want_cancel', 'ignore'].includes(feedback))

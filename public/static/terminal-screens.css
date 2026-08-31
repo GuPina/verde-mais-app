@@ -630,3 +630,44 @@
 .or-flag{font:700 8.5px/1 var(--terminal-mono);color:var(--terminal-accent);border:1px solid color-mix(in srgb,var(--terminal-accent) 40%,var(--terminal-line));border-radius:999px;padding:2px 5px}
 .or-cat__bar{flex:1;min-width:80px}
 .or-cat__meta{width:190px;text-align:right;font-size:12px;color:var(--terminal-ink-soft)}
+
+/* ---- Compras Fantasma (cf-*) ---- */
+.cf-list{display:flex;flex-direction:column;gap:2px}
+.cf-row{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--terminal-line)}
+.cf-row:last-child{border-bottom:0}
+.cf-emoji{font-size:18px;width:24px;text-align:center}
+.cf-main{flex:1;min-width:0}
+.cf-main strong{display:block;color:var(--terminal-ink);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cf-main small{color:var(--terminal-ink-soft);font-size:11.5px}
+.cf-score{width:34px;text-align:center;font:700 12px/1 var(--terminal-mono);border-radius:6px;padding:4px 0}
+.cf-score--neg{color:var(--terminal-negative);background:color-mix(in srgb,var(--terminal-negative) 12%,transparent)}
+.cf-score--warn{color:var(--terminal-accent);background:color-mix(in srgb,var(--terminal-accent) 12%,transparent)}
+.cf-score--neutral{color:var(--terminal-ink-soft)}
+.cf-val{width:110px;text-align:right;font-weight:700;font-size:13px;color:var(--terminal-ink)}
+
+/* ---- Importar CSV (im-*) ---- */
+.im-form{margin-bottom:0}
+.im-tipo{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.im-table{width:100%;border-collapse:collapse;font-size:12px}
+.im-table th{text-align:left;font:700 9.5px/1 var(--terminal-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--terminal-ink-soft);padding:8px 10px;border-bottom:1px solid var(--terminal-line)}
+.im-table td{padding:8px 10px;border-bottom:1px solid var(--terminal-line);color:var(--terminal-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
+.im-flag{font:700 9px/1 var(--terminal-mono);text-transform:uppercase;padding:3px 6px;border-radius:999px;border:1px solid var(--terminal-line);color:var(--terminal-ink-soft)}
+.im-flag--neg{color:var(--terminal-negative);border-color:color-mix(in srgb,var(--terminal-negative) 40%,var(--terminal-line))}
+.im-flag--warn{color:var(--terminal-accent);border-color:color-mix(in srgb,var(--terminal-accent) 40%,var(--terminal-line))}
+
+/* ---- Assistente (as-*) ---- */
+.as-panel{display:flex;flex-direction:column}
+.as-chat{min-height:320px;max-height:min(56vh,560px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:8px 2px 14px}
+.as-row{display:flex}
+.as-row--user{justify-content:flex-end}
+.as-bubble{max-width:76%;padding:11px 14px;border-radius:14px;font-size:13.5px;line-height:1.5}
+.as-bubble--user{background:var(--terminal-primary-soft);color:var(--terminal-ink);border-bottom-right-radius:4px}
+.as-bubble--bot{background:var(--terminal-bg);border:1px solid var(--terminal-line);color:var(--terminal-ink);border-bottom-left-radius:4px}
+.as-welcome{text-align:center;color:var(--terminal-ink-soft);margin:auto;max-width:420px;padding:30px 0}
+.as-avatar{font-size:34px;margin-bottom:10px}
+.as-welcome strong{display:block;color:var(--terminal-ink);font-size:15px;margin-bottom:6px}
+.as-welcome p{font-size:13px;margin:0}
+.as-sug{display:flex;gap:8px;flex-wrap:wrap;padding:6px 0 12px}
+.as-chip{background:var(--terminal-bg);border:1px solid var(--terminal-line);color:var(--terminal-ink-soft);border-radius:999px;padding:7px 12px;font-size:12px;cursor:pointer;font-family:var(--terminal-font);transition:.15s}
+.as-chip:hover{color:var(--terminal-ink);border-color:var(--terminal-primary)}
+.as-input{display:flex;gap:10px;align-items:center;border-top:1px solid var(--terminal-line);padding-top:14px}

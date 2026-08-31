@@ -600,6 +600,7 @@ comprasFantasma.get('/recorrentes', requireAuth, async (c) => {
 comprasFantasma.post('/recorrentes/:id/reduzir', requireAuth, async (c) => {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
+  if (!Number.isInteger(id) || id < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { novo_valor, motivo } = await c.req.json() as { novo_valor: number; motivo?: string }
 
   if (!novo_valor || parseFloat(String(novo_valor)) <= 0) {
@@ -699,6 +700,7 @@ comprasFantasma.get('/recorrentes/historico-economia', requireAuth, async (c) =>
 comprasFantasma.post('/marcar/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = parseInt(c.req.param('id'))
+  if (!Number.isInteger(id) || id < 1) return c.json({ error: 'ID inválido.' }, 400)
   const { classificacao } = await c.req.json() as { classificacao: string }
 
   if (!['necessaria', 'desnecessaria', 'impulso'].includes(classificacao))

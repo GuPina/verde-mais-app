@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas', 'conquistas', 'tags', 'organizador'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas', 'conquistas', 'tags', 'organizador', 'assinaturas-fantasma', 'compras-fantasma', 'importacao', 'assistente'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -18527,6 +18527,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.0 — DETECTOR DE ASSINATURAS FANTASMA
   // ═══════════════════════════════════════════════════════════════
   async pageAssinaturasFantasma(aba) {
+    if (window.VMTerminalAssinaturasFantasma?.render) return window.VMTerminalAssinaturasFantasma.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
     const abaAtiva = aba || 'ativas'
@@ -19073,6 +19074,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.1 — COMPRAS FANTASMA
   // ═══════════════════════════════════════════════════════════════
   async pageComprasFantasma(aba) {
+    if (window.VMTerminalComprasFantasma?.render) return window.VMTerminalComprasFantasma.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:180px;border-radius:16px;margin-bottom:16px;"></div></div>`
     const abaAtiva = aba || 'impulsos'
@@ -20495,6 +20497,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   // ============== ASSISTENTE IA CONVERSACIONAL ==============
   async pageAssistente() {
+    if (window.VMTerminalAssistente?.render) return window.VMTerminalAssistente.render(this)
     const content = document.getElementById('page-content')
     let historico = []
     
@@ -20625,6 +20628,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   // ── IMPORTAÇÃO CSV ──────────────────────────────────────────────────────────
   async pageImportacao() {
+    if (window.VMTerminalImportacao?.render) return window.VMTerminalImportacao.render(this)
     const content = document.getElementById('page-content')
     // Carregar templates de banco em background
     this._impCarregarTemplates().catch(() => {})
