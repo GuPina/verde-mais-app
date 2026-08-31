@@ -99,7 +99,14 @@ ia.get('/insights', requireAuth, async (c) => {
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM receitas WHERE user_id=? AND strftime('%m',data)=? AND strftime('%Y',data)=?`).bind(uid,mes,ano).first(),
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as t FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first(),
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM investimentos WHERE user_id=?`).bind(uid).first(),
-      c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as t FROM reserva_emergencia WHERE user_id=?`).bind(uid).first(),
+      // DG10: reserva = legada (reserva_emergencia) + especializada (specialized_reserves)
+      c.env.DB.prepare(`
+        SELECT COALESCE(
+          (SELECT SUM(valor_atual) FROM reserva_emergencia WHERE user_id=?),0
+        ) + COALESCE(
+          (SELECT SUM(current_amount) FROM specialized_reserves WHERE user_id=? AND status!='cancelled'),0
+        ) as t
+      `).bind(uid, uid).first(),
     ]) as any[]
     const rec   = Number(recR?.t || 0)
     const desp  = Number(despR?.t || 0)
@@ -716,12 +723,16 @@ ia.get('/insights', requireAuth, async (c) => {
   } catch { /* tabela pode não existir */ }
 
   // ── Salvar score no histórico mensal (continua) ───────────────────────────
+  // DG2/DG8: as colunas de score são INTEGER no Postgres — gravar um float
+  // (ex.: score_metas 50.65) fazia o INSERT falhar em silêncio e o histórico
+  // nunca era gravado. Arredondamos cada score para inteiro antes de gravar.
   const mesPeriodo = `${ano}-${mes}`
+  const rint = (v: any) => Math.round(Number(v) || 0)
   c.env.DB.prepare(
     `INSERT OR REPLACE INTO score_historico
      (user_id, mes, score_geral, score_fluxo, score_reserva, score_dividas, score_investimentos, score_metas)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(uid, mesPeriodo, scoreGeral, sCashFlow, sEmergency, sDebt, sInvest, sGoals).run().catch(() => {})
+  ).bind(uid, mesPeriodo, rint(scoreGeral), rint(sCashFlow), rint(sEmergency), rint(sDebt), rint(sInvest), rint(sGoals)).run().catch(() => {})
 
   // ── Salvar snapshot de patrimônio (fire-and-forget) ──────────────────────
   const totalDividasSnap = saldoEmp + saldoFin
@@ -741,14 +752,14 @@ ia.get('/insights', requireAuth, async (c) => {
       gerado_em: now.toISOString()
     },
 
-    // Scores por módulo
+    // Scores por módulo (DG8: anéis exibidos como inteiros, não 50.65)
     scores: {
-      geral:       scoreGeral,
-      fluxo_caixa: sCashFlow,
-      reserva:     sEmergency,
-      dividas:     sDebt,
-      investimentos: sInvest,
-      metas:       sGoals
+      geral:       Math.round(scoreGeral),
+      fluxo_caixa: Math.round(sCashFlow),
+      reserva:     Math.round(sEmergency),
+      dividas:     Math.round(sDebt),
+      investimentos: Math.round(sInvest),
+      metas:       Math.round(sGoals)
     },
 
     // Painel de dados reais (mini-KPIs)
@@ -915,7 +926,15 @@ ia.get('/score-saude', requireAuth, async (c) => {
           (SELECT SUM(current_amount) FROM specialized_reserves WHERE user_id=? AND status!='cancelled'),0
         ) as total
       `).bind(uid, uid).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+      // DG7/DG3: dívida = empréstimos + financiamentos (antes ignorava financiamento,
+      // dando nota máxima a quem tinha R$ 500 mil de imóvel financiado)
+      c.env.DB.prepare(`
+        SELECT COALESCE(
+          (SELECT SUM(saldo_devedor) FROM emprestimos WHERE user_id=? AND status='ativo'),0
+        ) + COALESCE(
+          (SELECT SUM(saldo_devedor) FROM financiamentos WHERE user_id=? AND status='ativo'),0
+        ) as total
+      `).bind(uid, uid).first() as any,
     ])
 
     const receita = Number(recRow?.total || 0)
@@ -1069,6 +1088,12 @@ ia.get('/patrimonio-historico', requireAuth, async (c) => {
 // Analisa os dados financeiros e retorna insights acionáveis via OpenAI
 ia.post('/insights', requireAuth, async (c) => {
   const user = c.get('user')
+  // DG4: o POST também gasta tokens da OpenAI — precisa do MESMO gate de plano
+  // que o GET. Sem isto, o paywall de IA nasceria furado quando a chave existir.
+  const limPlano = getLimites(user.plano)
+  if (!limPlano.ia_insights) {
+    return c.json({ error: 'Insights com IA disponíveis nos planos pagos.', upgrade: true, feature: 'ia_insights' }, 403)
+  }
   try {
     const now  = new Date()
     const mes  = String(now.getMonth() + 1).padStart(2, '0')
@@ -1081,9 +1106,24 @@ ia.post('/insights', requireAuth, async (c) => {
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()}`).bind(uid,mes,ano).first() as any,
       c.env.DB.prepare(`SELECT categoria, COALESCE(SUM(valor),0) as total FROM despesas WHERE user_id=? ${filtroDespesaDoMes()} GROUP BY categoria ORDER BY total DESC LIMIT 5`).bind(uid,mes,ano).all() as any,
       c.env.DB.prepare(`SELECT COALESCE(SUM(valor_atual),0) as total, COUNT(*) as cnt FROM investimentos WHERE user_id=?`).bind(uid).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(current_amount),0) as total FROM specialized_reserves WHERE user_id=? AND status!='cancelled'`).bind(uid).first() as any,
-      c.env.DB.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
-      c.env.DB.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as obj, COALESCE(SUM(valor_atual),0) as atual FROM metas WHERE user_id=? AND status='ativo'`).bind(uid).first() as any,
+      // DG10: reserva = legada + especializada (era só especializada aqui)
+      c.env.DB.prepare(`
+        SELECT COALESCE(
+          (SELECT SUM(valor_atual) FROM reserva_emergencia WHERE user_id=?),0
+        ) + COALESCE(
+          (SELECT SUM(current_amount) FROM specialized_reserves WHERE user_id=? AND status!='cancelled'),0
+        ) as total
+      `).bind(uid, uid).first() as any,
+      // DG3/DG7: dívida = empréstimos + financiamentos (era só empréstimos)
+      c.env.DB.prepare(`
+        SELECT COALESCE(
+          (SELECT SUM(saldo_devedor) FROM emprestimos WHERE user_id=? AND status='ativo'),0
+        ) + COALESCE(
+          (SELECT SUM(saldo_devedor) FROM financiamentos WHERE user_id=? AND status='ativo'),0
+        ) as total
+      `).bind(uid, uid).first() as any,
+      // DG5: status de meta é 'ativa' (feminino) — 'ativo' retornava sempre 0
+      c.env.DB.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(valor_objetivo),0) as obj, COALESCE(SUM(valor_atual),0) as atual FROM metas WHERE user_id=? AND status='ativa'`).bind(uid).first() as any,
       c.env.DB.prepare(`SELECT COUNT(*) as cnt, COALESCE(SUM(CASE WHEN tipo='despesa' THEN valor ELSE 0 END),0) as desp FROM recorrencias WHERE user_id=? AND ativa=1`).bind(uid).first() as any,
       c.env.DB.prepare(`SELECT perfil_investidor, salario_mensal, situacao_emprego FROM users WHERE id=?`).bind(uid).first() as any,
     ])

@@ -653,6 +653,7 @@ function appShell() {
   <script src="/static/terminal-emprestimos.js?v=20260829-1"></script>
   <script src="/static/terminal-antecipacao.js?v=20260830-1"></script>
   <script src="/static/terminal-recebimentos.js?v=20260830-1"></script>
+  <script src="/static/terminal-diagnostico.js?v=20260830-1"></script>
   <script src="/static/app.js?v=20260828-2"></script>
   <script>
     // Registrar Service Worker para notificações push
