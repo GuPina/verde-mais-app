@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -9320,6 +9320,7 @@ const VM = {
   // ════════════════════════════════════════════════════════════════════════════
 
   async pageAlertasCartao() {
+    if (window.VMTerminalAlertasCartao?.render) return window.VMTerminalAlertasCartao.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div class="section-header">
@@ -10296,6 +10297,7 @@ const VM = {
 
   // ============== PERFIL ==============
   async pagePerfil() {
+    if (window.VMTerminalPerfil?.render) return window.VMTerminalPerfil.render(this)
     // Buscar perfil atualizado do servidor
     document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="skeleton" style="height:400px;border-radius:16px;"></div></div>`
     let perfilData = {}
@@ -22840,6 +22842,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // DESPESAS COMPARTILHADAS — Categoria 1 #1
   // ══════════════════════════════════════════════════════════════════════════
   async pageDespesasCompartilhadas() {
+    if (window.VMTerminalDespesasComp?.render) return window.VMTerminalDespesasComp.render(this)
     const content = document.getElementById('page-content')
     content.innerHTML = `
       <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">

@@ -551,3 +551,33 @@
 .am-rows{display:flex;flex-direction:column;gap:8px}
 .am-row{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--terminal-ink-soft)}
 .am-row strong{font-weight:640}
+
+/* ---- Meu Perfil (pf-*) ---- */
+.pf-hero{display:flex;gap:20px;align-items:center;flex-wrap:wrap;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:22px 24px}
+.pf-avatar{flex:none;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 22px/1 var(--terminal-font);color:var(--terminal-ink)}
+.pf-hero__main{flex:1;min-width:200px}
+.pf-hero__main h2{font:640 20px/1.2 var(--terminal-font);color:var(--terminal-ink);margin:0}
+.pf-hero__main p{color:var(--terminal-ink-soft);font-size:13px;margin:3px 0 8px}
+.pf-tags{display:flex;gap:8px;flex-wrap:wrap}
+.pf-hero__renda{text-align:right}
+.pf-renda{font:700 24px/1 var(--terminal-font);color:var(--terminal-primary);margin-top:6px}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+
+/* ---- Alertas de Cartão (al-*) ---- */
+.al-list{display:flex;flex-direction:column;gap:10px}
+.al-card{display:flex;align-items:center;gap:14px;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:14px 16px}
+.al-card--neg{border-color:color-mix(in srgb,var(--terminal-negative) 30%,var(--terminal-line))}
+.al-card--warn{border-color:color-mix(in srgb,var(--terminal-accent) 30%,var(--terminal-line))}
+.al-card__ic{font-size:18px;width:24px;text-align:center}
+.al-card--neg .al-card__ic{color:var(--terminal-negative)}
+.al-card--warn .al-card__ic{color:var(--terminal-accent)}
+.al-card__main{flex:1;min-width:0}
+.al-card__main strong{display:block;color:var(--terminal-ink);font-size:14px}
+.al-card__main span{display:block;color:var(--terminal-ink-soft);font-size:12.5px;margin-top:2px}
+.al-card__main small{display:block;color:var(--terminal-ink-soft);font-size:11px;margin-top:4px;font-family:var(--terminal-mono)}
+
+/* ---- Despesas Compartilhadas (dc-*) ---- */
+.dc-pend{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--terminal-line);font-size:13px}
+.dc-pend:last-child{border-bottom:0}
+.dc-pend span{color:var(--terminal-ink-soft)}
+.dc-pend strong{color:var(--terminal-ink)}

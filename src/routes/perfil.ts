@@ -40,9 +40,9 @@ perfil.put('/', requireAuth, async (c) => {
   if (nome !== undefined)             { fields.push('nome=?');              values.push(nome) }
   if (profissao !== undefined)        { fields.push('profissao=?');         values.push(profissao || null) }
   if (situacao_emprego !== undefined) { fields.push('situacao_emprego=?');  values.push(situacao_emprego) }
-  if (salarioFinal !== undefined)     { fields.push('salario_mensal=?');    values.push(parseFloat(salarioFinal) || 0) }
-  if (outras_rendas !== undefined)    { fields.push('outras_rendas=?');     values.push(parseFloat(outras_rendas) || 0) }
-  if (dependentes !== undefined)      { fields.push('dependentes=?');       values.push(parseInt(dependentes) || 0) }
+  if (salarioFinal !== undefined)     { fields.push('salario_mensal=?');    values.push(Math.max(0, parseFloat(salarioFinal) || 0)) }
+  if (outras_rendas !== undefined)    { fields.push('outras_rendas=?');     values.push(Math.max(0, parseFloat(outras_rendas) || 0)) }
+  if (dependentes !== undefined)      { fields.push('dependentes=?');       values.push(Math.max(0, Math.min(30, parseInt(dependentes) || 0))) }
   if (estado_civil !== undefined)     { fields.push('estado_civil=?');      values.push(estado_civil) }
   if (cidade !== undefined)           { fields.push('cidade=?');            values.push(cidade || null) }
   if (estado !== undefined)           { fields.push('estado=?');            values.push(estado || null) }
@@ -135,6 +135,9 @@ perfil.patch('/email', requireAuth, async (c) => {
 
   if (!email || !senha) {
     return c.json({ error: 'Informe o novo e-mail e sua senha' }, 400)
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+    return c.json({ error: 'E-mail inválido.' }, 400)
   }
 
   const { verifyPassword } = await import('../lib/auth')

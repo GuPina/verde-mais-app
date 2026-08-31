@@ -660,6 +660,9 @@ function appShell() {
   <script src="/static/terminal-simulacao.js?v=20260831-1"></script>
   <script src="/static/terminal-regra.js?v=20260831-1"></script>
   <script src="/static/terminal-amortizacao.js?v=20260831-1"></script>
+  <script src="/static/terminal-perfil.js?v=20260831-2"></script>
+  <script src="/static/terminal-alertas-cartao.js?v=20260831-2"></script>
+  <script src="/static/terminal-despesas-compartilhadas.js?v=20260831-2"></script>
   <script src="/static/app.js?v=20260828-2"></script>
   <script>
     // Registrar Service Worker para notificações push

@@ -10,6 +10,12 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const despesasCompartilhadas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// id de rota: só inteiro positivo, senão null → 400 (nunca 500)
+function parseId(v: any): number | null {
+  const t = String(v ?? '')
+  return /^\d+$/.test(t) && parseInt(t, 10) > 0 ? parseInt(t, 10) : null
+}
+
 // GET /api/despesas-compartilhadas
 // Lista todas as divisões de despesas do usuário (join com despesas)
 despesasCompartilhadas.get('/', requireAuth, async (c) => {
@@ -45,7 +51,7 @@ despesasCompartilhadas.get('/', requireAuth, async (c) => {
   }
 
   sql += ' ORDER BY se.created_at DESC LIMIT ? OFFSET ?'
-  params.push(parseInt(limit), parseInt(offset))
+  params.push(Math.max(1, Math.min(200, parseInt(limit) || 50)), Math.max(0, parseInt(offset) || 0))
 
   const result = await c.env.DB.prepare(sql).bind(...params).all()
   const rows = result.results as any[]
@@ -92,7 +98,9 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Nome do parceiro é obrigatório' }, 400)
   }
 
-  const userPct = Math.min(100, Math.max(0, parseFloat(user_percentage)))
+  const userPctRaw = parseFloat(user_percentage)
+  if (!Number.isFinite(userPctRaw)) return c.json({ error: 'Percentual inválido.' }, 400)
+  const userPct = Math.min(100, Math.max(0, userPctRaw))
   const partnerPct = 100 - userPct
 
   let despesaId = expense_id
@@ -109,6 +117,8 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
       return c.json({ error: 'Para criar despesa: descricao, valor e data são obrigatórios' }, 400)
     }
     valorTotalConta = parseFloat(valor)
+    if (!Number.isFinite(valorTotalConta) || valorTotalConta <= 0)
+      return c.json({ error: 'Valor da conta deve ser maior que zero.' }, 400)
     const minhaParte = Math.round(valorTotalConta * userPct / 100 * 100) / 100
     const newDesp = await c.env.DB.prepare(`
       INSERT INTO despesas (user_id, descricao, data, categoria, valor, status, meio_pagamento)
@@ -163,7 +173,8 @@ despesasCompartilhadas.post('/', requireAuth, async (c) => {
 // GET /api/despesas-compartilhadas/:id
 despesasCompartilhadas.get('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const row = await c.env.DB.prepare(`
     SELECT 
@@ -184,7 +195,8 @@ despesasCompartilhadas.get('/:id', requireAuth, async (c) => {
 // PATCH /api/despesas-compartilhadas/:id/status
 despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
   const { status } = await c.req.json()
 
   // Mapeamento de aliases para os valores aceitos pelo DB CHECK (pending, settled)
@@ -218,7 +230,8 @@ despesasCompartilhadas.patch('/:id/status', requireAuth, async (c) => {
 // DELETE /api/despesas-compartilhadas/:id
 despesasCompartilhadas.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id = c.req.param('id')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
 
   const existing = await c.env.DB.prepare(
     'SELECT id FROM shared_expenses WHERE id = ? AND user_id = ?'
