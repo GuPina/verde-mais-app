@@ -1,6 +1,12 @@
 (function () {
   const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
   const money = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 }).format(Number(v) || 0)
+  const short = (v) => {
+    const n = Number(v) || 0, a = Math.abs(n), s = n < 0 ? '-' : ''
+    if (a >= 1e6) return s + 'R$ ' + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',') + 'M'
+    if (a >= 1e3) return s + 'R$ ' + (a / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace('.', ',') + 'k'
+    return s + 'R$ ' + a.toFixed(0)
+  }
 
   window.VMTerminalRelatorios = {
     async render(vm) {
@@ -30,86 +36,154 @@
       const d = this._d, t = d.totais || {}, dz = d.destaques || {}
       const meses = d.meses || []
       const saldoTone = Number(t.saldo) >= 0 ? 'ok' : 'neg'
-      // RL1: só é "melhor mês" (verde) se for positivo; senão é "mês menos ruim" (âmbar)
-      const melhorPos = !!dz.melhor_mes_positivo
       const mediaTone = Number(t.media_mensal) >= 0 ? 'ok' : 'neg'
+      const melhorPos = !!dz.melhor_mes_positivo
+      const comDados = Number(t.meses_com_dados) || 0
 
       content.innerHTML = this._shell(`
         <div class="mr-toolbar">
-          <div><span class="td-eyebrow">Ano</span><h2 style="display:flex;align-items:center;gap:12px"><button class="td-icon-btn" onclick="VMTerminalRelatorios.mudarAno(-1)"><i class="fas fa-chevron-left"></i></button>${d.ano}<button class="td-icon-btn" onclick="VMTerminalRelatorios.mudarAno(1)"><i class="fas fa-chevron-right"></i></button></h2></div>
-          <div style="display:flex;gap:8px">
+          <div class="rl-yearnav"><span class="td-eyebrow">Ano</span>
+            <div class="rl-yearnav__row">
+              <button class="td-icon-btn" onclick="VMTerminalRelatorios.mudarAno(-1)" title="Ano anterior"><i class="fas fa-chevron-left"></i></button>
+              <strong>${d.ano}</strong>
+              <button class="td-icon-btn" onclick="VMTerminalRelatorios.mudarAno(1)" title="Próximo ano"><i class="fas fa-chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="rl-actions">
             <button class="td-button td-button--sm" onclick="(window.VM.exportarRelatorioPDF&&VM.exportarRelatorioPDF())"><i class="fas fa-file-pdf"></i> PDF</button>
             <button class="td-button td-button--sm" onclick="(window.VM.exportarRelatorioExcel&&VM.exportarRelatorioExcel())"><i class="fas fa-file-excel"></i> Excel</button>
           </div>
         </div>
 
-        <div class="dg-kpis">
-          ${this._kpi('Receitas ' + d.ano, money(t.receitas), 'ok')}
-          ${this._kpi('Despesas ' + d.ano, money(t.despesas), 'neg')}
-          ${this._kpi('Saldo do ano', money(t.saldo), saldoTone)}
-          ${this._kpi('Média mensal', money(t.media_mensal), mediaTone, 'sobre 12 meses, com o sinal real')}
+        <div class="rl-summary">
+          <div class="rl-hero rl-hero--${saldoTone}">
+            <span class="rl-hero__lbl">Saldo do ano ${d.ano}</span>
+            <strong class="rl-hero__val">${money(t.saldo)}</strong>
+            <span class="rl-hero__sub">${comDados ? `Fechado em ${comDados} ${comDados === 1 ? 'mês' : 'meses'} com movimento` : 'Sem movimento registrado ainda'}</span>
+          </div>
+          <div class="rl-stats">
+            <div class="rl-stat">
+              <span class="rl-stat__lbl"><i class="fas fa-arrow-down" style="color:var(--terminal-primary)"></i> Receitas</span>
+              <strong class="rl-stat__val rl-stat__val--ok">${money(t.receitas)}</strong>
+            </div>
+            <div class="rl-stat">
+              <span class="rl-stat__lbl"><i class="fas fa-arrow-up" style="color:var(--terminal-negative)"></i> Despesas</span>
+              <strong class="rl-stat__val rl-stat__val--neg">${money(t.despesas)}</strong>
+            </div>
+            <div class="rl-stat">
+              <span class="rl-stat__lbl">Média mensal</span>
+              <strong class="rl-stat__val rl-stat__val--${mediaTone}">${money(t.media_mensal)}</strong>
+              <span class="rl-stat__hint">saldo médio sobre 12 meses</span>
+            </div>
+          </div>
         </div>
 
-        <div class="dg-kpis" style="margin-top:12px">
-          <div class="dg-kpi">
-            <span class="dg-kpi__lbl">${melhorPos ? '🏆 Melhor mês' : 'Mês menos ruim'}</span>
-            <span class="dg-kpi__val dg-kpi__val--${melhorPos ? 'ok' : 'warn'}">${esc(dz.melhor_mes || '—')}</span>
-            <span class="pj-kpi__hint">${money(dz.melhor_mes_saldo)}${melhorPos ? '' : ' · ainda negativo'}</span>
+        <div class="rl-highlights">
+          <div class="rl-hl rl-hl--${melhorPos ? 'ok' : 'warn'}">
+            <span class="rl-hl__ico">${melhorPos ? '🏆' : '🙂'}</span>
+            <div class="rl-hl__body">
+              <span class="rl-hl__lbl">${melhorPos ? 'Melhor mês' : 'Mês menos ruim'}</span>
+              <strong class="rl-hl__mes">${esc(dz.melhor_mes || '—')}</strong>
+              <span class="rl-hl__val">${money(dz.melhor_mes_saldo)}${melhorPos ? '' : ' · ainda negativo'}</span>
+            </div>
           </div>
-          <div class="dg-kpi">
-            <span class="dg-kpi__lbl">Pior mês</span>
-            <span class="dg-kpi__val dg-kpi__val--neg">${esc(dz.pior_mes || '—')}</span>
-            <span class="pj-kpi__hint">${money(dz.pior_mes_saldo)}</span>
+          <div class="rl-hl rl-hl--neg">
+            <span class="rl-hl__ico">📉</span>
+            <div class="rl-hl__body">
+              <span class="rl-hl__lbl">Pior mês</span>
+              <strong class="rl-hl__mes">${esc(dz.pior_mes || '—')}</strong>
+              <span class="rl-hl__val">${money(dz.pior_mes_saldo)}</span>
+            </div>
           </div>
         </div>
 
         <article class="td-panel" style="margin-top:16px">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Evolução ${d.ano}</span><h2>Receitas × Despesas × Saldo</h2></div></div>
+          <div class="td-panel__head"><div><span class="td-eyebrow">Evolução ${d.ano}</span><h2>Receitas e despesas, mês a mês</h2></div></div>
           ${this._chart(meses)}
         </article>
 
         <article class="td-panel" style="margin-top:16px">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Mês a mês</span><h2>Fechamento de cada mês</h2></div></div>
+          <div class="td-panel__head"><div><span class="td-eyebrow">Mês a mês</span><h2>Saldo de cada mês</h2></div></div>
           <div class="rl-grid">
             ${meses.map(m => {
               const has = m.receitas > 0 || m.despesas > 0
               const tone = !has ? 'muted' : m.saldo >= 0 ? 'ok' : 'neg'
-              return `<div class="rl-cell rl-cell--${tone}"><span class="rl-cell__m">${esc(m.label)}</span><span class="rl-cell__s">${has ? money(m.saldo) : '—'}</span></div>`
+              return `<div class="rl-cell rl-cell--${tone}" title="${esc(m.label)}: ${has ? money(m.saldo) : 'sem movimento'}"><span class="rl-cell__m">${esc(m.label)}</span><span class="rl-cell__s">${has ? money(m.saldo) : '—'}</span></div>`
             }).join('')}
           </div>
         </article>
       `)
     },
 
-    _kpi(lbl, val, tone, hint) {
-      return `<div class="dg-kpi"><span class="dg-kpi__lbl">${esc(lbl)}</span><span class="dg-kpi__val dg-kpi__val--${tone || 'neutral'}">${val}</span>${hint ? `<span class="pj-kpi__hint">${esc(hint)}</span>` : ''}</div>`
-    },
-
     _chart(meses) {
       if (!meses.length) return '<div class="td-empty-row"><span>Sem dados.</span></div>'
-      const W = 680, H = 210, pad = 12
+      const temMov = meses.some(m => (Number(m.receitas) || 0) > 0 || (Number(m.despesas) || 0) > 0)
+      if (!temMov) return '<div class="td-empty-row"><span>Nenhum lançamento neste ano ainda.</span></div>'
+
+      const W = 760, H = 300
+      const mL = 52, mR = 14, mT = 14, mB = 34
+      const pL = mL, pR = W - mR, pT = mT, pB = H - mB
+      const pW = pR - pL, pH = pB - pT
+
       const rec = meses.map(m => Number(m.receitas) || 0)
       const desp = meses.map(m => Number(m.despesas) || 0)
       const sal = meses.map(m => Number(m.saldo) || 0)
-      const all = rec.concat(desp, sal)
-      const min = Math.min(...all, 0), max = Math.max(...all, 0), span = (max - min) || 1
-      const x = (i) => pad + (i / 11) * (W - 2 * pad)
-      const y = (v) => H - pad - ((v - min) / span) * (H - 2 * pad)
-      const bw = (W - 2 * pad) / 12 * 0.36
-      const bars = meses.map((m, i) => {
-        const s = Number(m.saldo) || 0
-        const y0 = y(0), ys = y(s)
-        const col = (m.receitas > 0 || m.despesas > 0) ? (s >= 0 ? 'var(--terminal-primary)' : 'var(--terminal-negative)') : 'var(--terminal-line)'
-        return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(y0, ys).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(ys - y0).toFixed(1)}" fill="${col}" opacity="0.55" rx="2"/>`
+      let maxV = Math.max(...rec, ...desp, ...sal, 0)
+      let minV = Math.min(...sal, 0)
+      // headroom + nice-ish rounding for the top
+      const rawTop = maxV * 1.08 || 1
+      const pow = Math.pow(10, Math.floor(Math.log10(rawTop)))
+      const niceTop = Math.ceil(rawTop / pow) * pow
+      maxV = niceTop
+      if (minV < 0) { const pB2 = Math.pow(10, Math.floor(Math.log10(Math.abs(minV) || 1))); minV = -Math.ceil(Math.abs(minV) * 1.08 / pB2) * pB2 }
+      const span = (maxV - minV) || 1
+      const y = (v) => pB - ((v - minV) / span) * pH
+
+      // gridlines
+      const ticks = []
+      const nTicks = 4
+      for (let i = 0; i <= nTicks; i++) { ticks.push(minV + (span * i / nTicks)) }
+      const grid = ticks.map(v => {
+        const yy = y(v)
+        return `<line x1="${pL}" y1="${yy.toFixed(1)}" x2="${pR}" y2="${yy.toFixed(1)}" stroke="var(--terminal-line)" stroke-width="1" opacity="${Math.abs(v) < 1e-6 ? 0.9 : 0.35}"/><text x="${(pL - 8).toFixed(1)}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">${short(v)}</text>`
       }).join('')
-      const path = (arr, col, dash) => `<path d="${arr.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="2" ${dash ? 'stroke-dasharray="5 3"' : ''}/>`
-      return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" style="max-height:220px">
-        <line x1="${pad}" y1="${y(0).toFixed(1)}" x2="${W - pad}" y2="${y(0).toFixed(1)}" stroke="var(--terminal-line)" stroke-dasharray="3 3"/>
+
+      const slotW = pW / 12
+      const groupW = slotW * 0.62
+      const barW = groupW / 2 - 1.5
+      const y0 = y(0)
+
+      const bars = meses.map((m, i) => {
+        const cx = pL + slotW * (i + 0.5)
+        const gx = cx - groupW / 2
+        const r = Number(m.receitas) || 0, dp = Number(m.despesas) || 0
+        const rH = Math.abs(y0 - y(r)), dH = Math.abs(y0 - y(dp))
+        const has = r > 0 || dp > 0
+        const t = `<title>${esc(m.label)} — Receitas ${money(r)} · Despesas ${money(dp)} · Saldo ${money(Number(m.saldo) || 0)}</title>`
+        const rBar = `<rect x="${gx.toFixed(1)}" y="${y(r).toFixed(1)}" width="${barW.toFixed(1)}" height="${rH.toFixed(1)}" rx="2" fill="var(--terminal-primary)" opacity="${has ? 0.92 : 0.25}">${t}</rect>`
+        const dBar = `<rect x="${(gx + barW + 3).toFixed(1)}" y="${y(dp).toFixed(1)}" width="${barW.toFixed(1)}" height="${dH.toFixed(1)}" rx="2" fill="var(--terminal-negative)" opacity="${has ? 0.92 : 0.25}">${t}</rect>`
+        return rBar + dBar
+      }).join('')
+
+      // saldo line + dots
+      const cxs = meses.map((_, i) => pL + slotW * (i + 0.5))
+      const linePts = meses.map((m, i) => `${cxs[i].toFixed(1)},${y(Number(m.saldo) || 0).toFixed(1)}`).join(' ')
+      const dots = meses.map((m, i) => {
+        const s = Number(m.saldo) || 0
+        const has = m.receitas > 0 || m.despesas > 0
+        if (!has) return ''
+        return `<circle cx="${cxs[i].toFixed(1)}" cy="${y(s).toFixed(1)}" r="3" fill="var(--terminal-bg)" stroke="var(--terminal-accent)" stroke-width="2"/>`
+      }).join('')
+
+      const xlabels = meses.map((m, i) => `<text x="${cxs[i].toFixed(1)}" y="${(pB + 16).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">${esc((m.label || '').slice(0, 3))}</text>`).join('')
+
+      return `<div class="rl-chartwrap"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Receitas e despesas mês a mês" style="display:block">
+        ${grid}
         ${bars}
-        ${path(rec, 'var(--terminal-primary)')}
-        ${path(desp, 'var(--terminal-negative)')}
-        ${path(sal, 'var(--terminal-accent)', true)}
-      </svg>
+        <polyline points="${linePts}" fill="none" stroke="var(--terminal-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${dots}
+        ${xlabels}
+      </svg></div>
       <div class="cm-legend"><span><i style="background:var(--terminal-primary)"></i>Receitas</span><span><i style="background:var(--terminal-negative)"></i>Despesas</span><span><i style="background:var(--terminal-accent)"></i>Saldo</span></div>`
     },
 
