@@ -69,16 +69,20 @@ amortizacao.post('/simular', requireAuth, exigeFeature('amortizacao'), async (c)
     dias_desde_ultima_parcela = 0
   } = body
 
-  if (!amortization_amount || amortization_amount <= 0)
-    return c.json({ error: 'Valor de amortização inválido' }, 400)
+  const extra = Number(amortization_amount)
+  if (!Number.isFinite(extra) || extra <= 0)
+    return c.json({ error: 'Valor de amortização inválido.' }, 400)
 
   // Fonte dos dados: financiamento cadastrado ou manual
   let balance: number, installment: number, remainingMonths: number, annualRate: number, system: string
 
-  if (financing_id) {
+  if (financing_id !== undefined && financing_id !== null && financing_id !== '') {
+    // id não numérico não pode ir para a query (coluna inteira no Postgres → 500)
+    if (!/^\d+$/.test(String(financing_id)))
+      return c.json({ error: 'ID de financiamento inválido.' }, 400)
     const fin = await c.env.DB.prepare(
       `SELECT * FROM financiamentos WHERE id = ? AND user_id = ?`
-    ).bind(financing_id, user.id).first() as any
+    ).bind(parseInt(String(financing_id), 10), user.id).first() as any
     if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
     balance = fin.saldo_devedor
@@ -87,18 +91,23 @@ amortizacao.post('/simular', requireAuth, exigeFeature('amortizacao'), async (c)
     annualRate = fin.taxa_juros_anual
     system = (fin.sistema_amortizacao || 'price').toUpperCase()
   } else {
-    // Validar campos manuais
-    if (!manual_balance || !manual_installment || !manual_remaining_months || manual_annual_rate === undefined || manual_annual_rate === null || manual_annual_rate === '')
-      return c.json({ error: 'Forneça financing_id ou preencha todos os campos manuais' }, 400)
-
-    balance = parseFloat(manual_balance)
-    installment = parseFloat(manual_installment)
+    // Validar campos manuais — todos finitos e positivos (mata NaN e negativos)
+    balance = Number(manual_balance)
+    installment = Number(manual_installment)
     remainingMonths = parseInt(manual_remaining_months)
-    annualRate = parseFloat(manual_annual_rate)
+    annualRate = Number(manual_annual_rate)
     system = (manual_system || 'PRICE').toUpperCase()
+    if (!Number.isFinite(balance) || balance <= 0)
+      return c.json({ error: 'Saldo devedor manual inválido.' }, 400)
+    if (!Number.isFinite(installment) || installment <= 0)
+      return c.json({ error: 'Valor da parcela manual inválido.' }, 400)
+    if (!Number.isInteger(remainingMonths) || remainingMonths < 2 || remainingMonths > 600)
+      return c.json({ error: 'Prazo restante manual inválido (2 a 600 meses).' }, 400)
+    if (!Number.isFinite(annualRate) || annualRate < 0 || annualRate > 1000)
+      return c.json({ error: 'Taxa de juros manual inválida.' }, 400)
   }
-
-  const extra = parseFloat(amortization_amount)
+  if (!['PRICE', 'SAC', 'SACRE'].includes(system))
+    return c.json({ error: 'Sistema de amortização inválido (PRICE, SAC ou SACRE).' }, 400)
   if (extra >= balance) return c.json({ error: 'Amortização não pode ser maior que o saldo devedor' }, 400)
   if (remainingMonths <= 1) return c.json({ error: 'Prazo restante insuficiente para simulação' }, 400)
 

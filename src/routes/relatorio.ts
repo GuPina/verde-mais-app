@@ -32,6 +32,11 @@ relatorio.get('/dados', requireAuth, async (c) => {
   const hoje = new Date()
   const mes  = parseInt(c.req.query('mes') || String(hoje.getMonth() + 1))
   const ano  = parseInt(c.req.query('ano') || String(hoje.getFullYear()))
+  // RL4: nunca deixar "undefined/2026" ou "Agosto/NaN" chegar ao título do PDF/Excel
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12)
+    return c.json({ error: 'Mês inválido (use 1 a 12).' }, 400)
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100)
+    return c.json({ error: 'Ano inválido.' }, 400)
   const ms   = String(mes).padStart(2, '0')
   const as   = String(ano)
 
@@ -170,6 +175,8 @@ relatorio.get('/anual', requireAuth, async (c) => {
   }
 
   const ano  = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100)
+    return c.json({ error: 'Ano inválido.' }, 400)
   const mN   = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
   const as   = String(ano)
 
@@ -212,20 +219,18 @@ relatorio.get('/anual', requireAuth, async (c) => {
 
   const totRec  = meses.reduce((s, m) => s + m.receitas, 0)
   const totDesp = meses.reduce((s, m) => s + m.despesas, 0)
-  const melhorMes = meses.reduce((best, m) => m.saldo > best.saldo ? m : best, meses[0])
-  const piorMes   = meses.reduce((worst, m) => m.saldo < worst.saldo ? m : worst, meses[0])
+  // RL1/RL7: melhor/pior mês só entre os meses COM dados (janeiro vazio não vence
+  // como "melhor"), e devolvemos o saldo + se o melhor mês é de fato positivo —
+  // a tela não deve pintar de verde um "melhor mês" que ainda é prejuízo.
+  const mesesComDados = meses.filter(m => m.receitas > 0 || m.despesas > 0)
+  const baseMelhor = mesesComDados.length > 0 ? mesesComDados : meses
+  const melhorMes = baseMelhor.reduce((best, m) => m.saldo > best.saldo ? m : best, baseMelhor[0])
+  const piorMes   = baseMelhor.reduce((worst, m) => m.saldo < worst.saldo ? m : worst, baseMelhor[0])
 
-  // Conquistas — ANTES do return
-  try {
-    await verificarConquista(c.env.DB, user.id, 'analista')
-    await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, titulo, conteudo, data_criacao) VALUES (?, 'relatorio_anual_visto', 'Visualizou relatório anual', 'Visualizou relatório anual', datetime('now'))`
-    ).bind(user.id).run().catch(() => {})
-    const totalViz = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='relatorio_anual_visto'`
-    ).bind(user.id).first() as any
-    if ((totalViz?.cnt || 0) >= 3) await verificarConquista(c.env.DB, user.id, 'curioso')
-  } catch(_) {}
+  // RL5: conquista idempotente, sem escrever em `ia_insights` (tabela de outra
+  // feature) a cada GET — isso poluía e colidia com o DELETE do POST /ia/insights.
+  await verificarConquista(c.env.DB, user.id, 'analista')
+  await verificarConquista(c.env.DB, user.id, 'curioso')
 
   return c.json({
     ano,
@@ -234,11 +239,19 @@ relatorio.get('/anual', requireAuth, async (c) => {
       receitas:     Math.round(totRec  * 100) / 100,
       despesas:     Math.round(totDesp * 100) / 100,
       saldo:        Math.round((totRec - totDesp) * 100) / 100,
+      // RL2: média sobre 12 meses E sobre os meses com dados — a tela usa uma
+      // fonte só, com o sinal correto (sem abs()).
       media_mensal: Math.round((totRec - totDesp) / 12 * 100) / 100,
+      media_mensal_com_dados: mesesComDados.length > 0
+        ? Math.round((totRec - totDesp) / mesesComDados.length * 100) / 100 : 0,
+      meses_com_dados: mesesComDados.length,
     },
     destaques: {
-      melhor_mes: melhorMes.label,
-      pior_mes:   piorMes.label,
+      melhor_mes:         melhorMes.label,
+      melhor_mes_saldo:   melhorMes.saldo,
+      melhor_mes_positivo: melhorMes.saldo > 0, // RL1
+      pior_mes:           piorMes.label,
+      pior_mes_saldo:     piorMes.saldo,
     }
   })
 })

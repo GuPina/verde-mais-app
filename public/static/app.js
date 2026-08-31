@@ -1843,7 +1843,7 @@ const VM = {
     }
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
-    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao'].includes(page))
+    document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao'].includes(page))
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -6827,6 +6827,7 @@ const VM = {
   // COMPARATIVO MENSAL
   // ═══════════════════════════════════════════════════════════════════════════
   async pageComparativo() {
+    if (window.VMTerminalComparativo?.render) return window.VMTerminalComparativo.render(this)
     const hoje = new Date()
     let mesAtual = hoje.getMonth() + 1
     let anoAtual = hoje.getFullYear()
@@ -9464,6 +9465,7 @@ const VM = {
   },
 
   async pageRelatorios() {
+    if (window.VMTerminalRelatorios?.render) return window.VMTerminalRelatorios.render(this)
     // Verifica se o plano tem acesso a relatórios anuais
     if (this.limites !== null && !this.limites.relatorio_anual) {
       this.upsellModal('relatorio_anual')
@@ -10122,6 +10124,7 @@ const VM = {
 
 
   pageSimulacao() {
+    if (window.VMTerminalSimulacao?.render) return window.VMTerminalSimulacao.render(this)
     // Verifica se o plano tem acesso a simulação
     if (this.limites !== null && !this.limites.simulacao) {
       this.upsellModal('simulacao')
@@ -19711,6 +19714,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.0 — REGRA 50/30/20
   // ═══════════════════════════════════════════════════════════════
   async pageRegra503020() {
+    if (window.VMTerminalRegra?.render) return window.VMTerminalRegra.render(this)
     const now = new Date()
     const content = document.getElementById('page-content')
     content.innerHTML = `<div class="empty-state"><div class="skeleton" style="height:280px;border-radius:16px;"></div></div>`
@@ -20049,6 +20053,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   // v3.0 — SIMULADOR DE AMORTIZAÇÃO INTELIGENTE
   // ═══════════════════════════════════════════════════════════════
   async pageAmortizacao() {
+    if (window.VMTerminalAmortizacao?.render) return window.VMTerminalAmortizacao.render(this)
     const content = document.getElementById('page-content')
     
     // Buscar financiamentos cadastrados

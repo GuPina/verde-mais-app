@@ -90,6 +90,10 @@ regra503020.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const mes = parseInt(c.req.query('mes') || String(new Date().getMonth() + 1))
   const ano = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12)
+    return c.json({ error: 'Mês inválido (use 1 a 12).' }, 400)
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100)
+    return c.json({ error: 'Ano inválido.' }, 400)
   // Parâmetros de simulação dinâmica (usados pelo botão "Recalcular" do frontend)
   // Se fornecidos e somam 100, substituem temporariamente os valores da config
   const pctNeedsQ = c.req.query('pct_needs')
@@ -186,7 +190,10 @@ regra503020.get('/', requireAuth, async (c) => {
   // Se não há receita registrada, o score é 0 (sem dados para avaliar)
   const needsScore = Math.max(0, 100 - Math.abs(percentNeeds - PCT_NECESSIDADES) * 2)
   const wantsScore = Math.max(0, 100 - Math.abs(percentWants - PCT_DESEJOS) * 3)
-  const savingsScore = Math.max(0, Math.min(100, (percentSavings / PCT_POUPANCA) * 100))
+  // Guarda contra config personalizada com poupança 0% (evita divisão por zero → score NaN)
+  const savingsScore = PCT_POUPANCA > 0
+    ? Math.max(0, Math.min(100, (percentSavings / PCT_POUPANCA) * 100))
+    : (percentSavings > 0 ? 100 : 0)
   const score = income === 0 ? 0 : Math.round((needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4))
 
   // 9. Recomendações

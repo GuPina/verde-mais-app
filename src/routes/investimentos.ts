@@ -1056,12 +1056,20 @@ investimentos.get('/simulacao', requireAuth, exigeFeature('simulacao'), async (c
     cripto: 0.02, caixinha: 0, outros: 0.007
   }
 
+  // Guardas contra NaN: taxa_personalizada / percentual_cdi inválidos não devem
+  // contaminar toda a projeção (valores NaN em cada linha).
   let taxaMensal: number
   if (tipo === 'caixinha' && percentual_cdi) {
+    const pc = parseFloat(percentual_cdi)
+    if (!Number.isFinite(pc) || pc < 0) return c.json({ error: 'percentual_cdi inválido.' }, 400)
     const cdiMensal = Math.pow(1 + CDI_EFETIVO / 100, 1 / 12) - 1
-    taxaMensal = cdiMensal * (parseFloat(percentual_cdi) / 100)
+    taxaMensal = cdiMensal * (pc / 100)
+  } else if (taxa_personalizada !== undefined && taxa_personalizada !== '') {
+    const tp = parseFloat(taxa_personalizada)
+    if (!Number.isFinite(tp) || tp < 0 || tp > 100) return c.json({ error: 'taxa_personalizada inválida (0 a 100% a.m.).' }, 400)
+    taxaMensal = tp / 100
   } else {
-    taxaMensal = taxa_personalizada ? parseFloat(taxa_personalizada) / 100 : (taxas[tipo] || 0.008)
+    taxaMensal = taxas[tipo] || 0.008
   }
 
   const valorInicial = valorInicialV

@@ -23,6 +23,12 @@ comparativo.get('/', requireAuth, async (c) => {
   const mesAtual = parseInt(c.req.query('mes')  || String(hoje.getMonth() + 1))
   const anoAtual = parseInt(c.req.query('ano')  || String(hoje.getFullYear()))
 
+  // CM4: validar mês (1–12) e ano — sem isto a tela mostrava "undefined/2026"
+  if (!Number.isInteger(mesAtual) || mesAtual < 1 || mesAtual > 12)
+    return c.json({ error: 'Mês inválido (use 1 a 12).' }, 400)
+  if (!Number.isInteger(anoAtual) || anoAtual < 2000 || anoAtual > 2100)
+    return c.json({ error: 'Ano inválido.' }, 400)
+
   // Mês anterior
   let mesAnt = mesAtual - 1
   let anoAnt = anoAtual
@@ -94,14 +100,18 @@ comparativo.get('/', requireAuth, async (c) => {
     const atual  = (catAtual.results || []).find(r => r.categoria === cat)?.total || 0
     const ant    = antMap[cat] || 0
     const diff   = atual - ant
-    const variacao = ant > 0 ? ((diff / ant) * 100) : (atual > 0 ? 100 : 0)
+    const nova   = ant === 0 && atual > 0 // CM6: categoria que não existia no mês anterior
+    // CM5: variação sem base é 0; com base é capada em ±999% para exibição
+    const variacaoBruta = ant > 0 ? ((diff / ant) * 100) : 0
+    const variacao = Math.max(-999, Math.min(999, variacaoBruta))
     return {
       categoria: cat,
       atual:     Math.round(atual  * 100) / 100,
       anterior:  Math.round(ant    * 100) / 100,
       diferenca: Math.round(diff   * 100) / 100,
       variacao:  Math.round(variacao * 10) / 10,
-      status: variacao > 10 ? 'alta' : variacao < -10 ? 'queda' : 'estavel'
+      nova,
+      status: nova ? 'nova' : variacao > 10 ? 'alta' : variacao < -10 ? 'queda' : 'estavel'
     }
   }).sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca))
 
@@ -122,7 +132,13 @@ comparativo.get('/', requireAuth, async (c) => {
 
   const varReceitas = rAn > 0 ? ((rA - rAn) / rAn) * 100 : (rA > 0 ? 100 : 0)
   const varDespesas = dAn > 0 ? ((dA - dAn) / dAn) * 100 : (dA > 0 ? 100 : 0)
-  const varSaldo    = saldoAn !== 0 ? ((saldoA - saldoAn) / Math.abs(saldoAn)) * 100 : (saldoA !== 0 ? 100 : 0)
+  // CM1: quando o saldo anterior é zero, o SINAL do saldo atual decide a direção —
+  // um prejuízo (saldo negativo) nunca deve virar "+100% alta". A tendência do
+  // saldo passa a olhar a variação monetária real, imune à base zero.
+  const varSaldo = saldoAn !== 0
+    ? ((saldoA - saldoAn) / Math.abs(saldoAn)) * 100
+    : (saldoA > 0 ? 100 : saldoA < 0 ? -100 : 0)
+  const tendenciaSaldo = saldoA > saldoAn + 1 ? 'alta' : saldoA < saldoAn - 1 ? 'queda' : 'estavel'
 
   const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                       'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -162,16 +178,11 @@ comparativo.get('/', requireAuth, async (c) => {
     insights.push(`💡 Maior economia: "${maiorQueda.categoria}" -R$ ${Math.abs(maiorQueda.diferenca).toFixed(2)}. Continue assim!`)
   }
 
-  // Bloco 5: conquista 'analitico' — usou comparativo 5+ vezes (deve ser ANTES do return)
-  try {
-    await c.env.DB.prepare(
-      `INSERT INTO ia_insights (user_id, tipo, titulo, conteudo, data_criacao) VALUES (?, 'comparativo_visto', 'Usou comparativo mensal', 'Usou comparativo mensal', datetime('now'))`
-    ).bind(user.id).run().catch(() => {})
-    const cnt = await c.env.DB.prepare(
-      `SELECT COUNT(*) as cnt FROM ia_insights WHERE user_id=? AND tipo='comparativo_visto'`
-    ).bind(user.id).first() as any
-    if ((cnt?.cnt || 0) >= 5) await verificarConquista(c.env.DB, user.id, 'analitico')
-  } catch(_) {}
+  // CM3: um GET não deve ESCREVER. Antes, cada abertura inseria uma linha em
+  // `ia_insights` (tabela de OUTRA feature) para contar visualizações — poluía
+  // sem limpar e colidia com o DELETE do POST /ia/insights. A conquista passa a
+  // ser concedida de forma idempotente, sem sujar a tabela alheia.
+  await verificarConquista(c.env.DB, user.id, 'analitico')
 
   return c.json({
     periodo: {
@@ -194,7 +205,7 @@ comparativo.get('/', requireAuth, async (c) => {
       var_saldo:        Math.round(varSaldo    * 10) / 10,
       tendencia_receitas: varReceitas > 5 ? 'alta' : varReceitas < -5 ? 'queda' : 'estavel',
       tendencia_despesas: varDespesas > 5 ? 'alta' : varDespesas < -5 ? 'queda' : 'estavel',
-      tendencia_saldo:    varSaldo    > 5 ? 'alta' : varSaldo    < -5 ? 'queda' : 'estavel',
+      tendencia_saldo:    tendenciaSaldo,
     },
     categorias,
     alertas,
@@ -206,7 +217,8 @@ comparativo.get('/', requireAuth, async (c) => {
 // Últimos N meses (para gráfico de linha) — usa GROUP BY, sem loop de queries
 comparativo.get('/historico', requireAuth, async (c) => {
   const user   = c.get('user')
-  const nMeses = Math.min(12, parseInt(c.req.query('meses') || '6'))
+  // CM2: clampar nas DUAS pontas — só Math.min deixava ?meses=0/-5/abc estourar
+  const nMeses = Math.max(1, Math.min(12, parseInt(c.req.query('meses') || '6') || 6))
   const hoje   = new Date()
 
   // Calcular intervalo de datas
