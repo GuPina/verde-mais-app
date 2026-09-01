@@ -561,6 +561,17 @@ cartoes.get('/analise', requireAuth, async (c) => {
     ).bind(user.id, ...paramsCartao).all(),
   ])
 
+  // ── Total gasto no ano corrente (todas as faturas do ano) ─────────────────
+  const totalAnoR = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(cc.valor),0) as total, COUNT(*) as lancamentos
+     FROM card_charges cc
+     JOIN cartoes c2 ON c2.id = cc.card_id
+     WHERE c2.user_id = ? AND cc.status != 'cancelado'
+       AND cc.billing_year = ?${filtroCartao}`
+  ).bind(user.id, anoAtual, ...paramsCartao).first<any>()
+  const gastoAno = Math.round((Number(totalAnoR?.total) || 0) * 100) / 100
+  const gastoAnoLanc = Number(totalAnoR?.lancamentos) || 0
+
   // ── Série mensal, já com a variação sobre o mês anterior ──────────────────
   const mapaMes = new Map<string, { total: number; lancamentos: number }>()
   for (const r of (porMes.results as any[] || [])) {
@@ -687,6 +698,8 @@ cartoes.get('/analise', requireAuth, async (c) => {
       total_comprometido: Math.round(totalComprometido * 100) / 100,
       pior_mes: piorMes,
     },
+    ano_atual: anoAtual,
+    gasto_ano: { ano: anoAtual, total: gastoAno, lancamentos: gastoAnoLanc },
     categorias_do_mes: (categorias.results as any[] || []).map(r => ({
       categoria: r.categoria, total: Math.round(Number(r.total) * 100) / 100, qtd: Number(r.qtd),
     })),
@@ -1731,7 +1744,7 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
         descricao: limpar(r.descricao) || 'Compra no cartão',
         categoria: r.categoria || null,
         total_parcelas: Number(r.total_parcelas) || 0,
-        valor_total: 0, valor_parcela: 0, parcelas_pagas: 0,
+        valor_total: 0, valor_parcela: 0, parcelas_pagas: 0, valor_pago: 0,
         data_compra: r.data_compra || null, _tagIds: new Set<string>(), tags: [] as any[],
         _encerra: null as any, _prox: null as any, _primeira: null as number | null,
       }
@@ -1739,7 +1752,7 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
     const v = Number(r.valor) || 0
     g.valor_total += v
     g.total_parcelas = Math.max(g.total_parcelas, Number(r.total_parcelas) || 0)
-    if (r.status === 'pago') g.parcelas_pagas += 1
+    if (r.status === 'pago') { g.parcelas_pagas += 1; g.valor_pago += v }
     if (g._primeira === null || (Number(r.parcela_atual) || 99) < g._primeira) { g._primeira = Number(r.parcela_atual) || 1; g.valor_parcela = v }
     // última parcela → encerramento
     if (Number(r.parcela_atual) === Number(r.total_parcelas)) {
@@ -1768,6 +1781,7 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
       ...rest,
       valor_parcela: parcela,
       valor_total: total,
+      valor_pago: round2(g.valor_pago),
       parcelas_restantes: restantes,
       valor_restante: round2(parcela * restantes),
       quitada: restantes === 0,
@@ -1792,6 +1806,7 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
     compras,
     resumo: {
       count: compras.length,
+      total_pago: round2(compras.reduce((s, g) => s + (g.valor_pago || 0), 0)),
       total_restante: round2(compras.reduce((s, g) => s + (g.quitada ? 0 : g.valor_restante), 0)),
       total_compras: round2(compras.reduce((s, g) => s + g.valor_total, 0)),
     },

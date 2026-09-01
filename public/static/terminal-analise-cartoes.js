@@ -48,8 +48,9 @@
           </div>
         </header>
 
-        <section class="tm-kpis" style="grid-template-columns:repeat(3,1fr)">
+        <section class="tm-kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
           <article class="td-kpi"><span>Fatura atual</span><strong>${money(r.fatura_atual)}</strong><span class="td-kpi__delta td-kpi__delta--muted">média 6m ${money(r.media_6m)}</span></article>
+          <article class="td-kpi"><span>Gasto em ${d.gasto_ano?.ano || ''}</span><strong>${money(d.gasto_ano?.total)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${d.gasto_ano?.lancamentos || 0} lançamento${(d.gasto_ano?.lancamentos || 0) === 1 ? '' : 's'} no ano</span></article>
           <article class="td-kpi"><span>Limite total usado</span><strong>${uso.pct == null ? '—' : `${uso.pct}<small>%</small>`}</strong><span class="td-kpi__delta td-kpi__delta--muted">${money(uso.utilizado)} de ${money(uso.limite)}</span></article>
           <article class="td-kpi"><span>Já comprometido à frente</span><strong>${money(d.futuro?.total_comprometido)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${(d.futuro?.meses || []).length} mês(es) com parcelas</span></article>
         </section>
@@ -145,7 +146,7 @@
           catSel.innerHTML = '<option value="">Todas categorias</option>' + d.categorias.map(cat => `<option value="${esc(cat)}" ${f.categoria === cat ? 'selected' : ''}>${esc(cat)}</option>`).join('')
         }
         const cnt = document.getElementById('ac-parc-count')
-        if (cnt) cnt.textContent = `${d.resumo?.count || 0} compra${(d.resumo?.count || 0) === 1 ? '' : 's'} · falta ${money(d.resumo?.total_restante)}`
+        if (cnt) cnt.textContent = `${d.resumo?.count || 0} compra${(d.resumo?.count || 0) === 1 ? '' : 's'} · pago ${money(d.resumo?.total_pago)} · falta ${money(d.resumo?.total_restante)}`
         this._parcRows(d.compras || [], body)
       } catch (e) {
         body.innerHTML = `<div class="td-empty-row"><i class="fas fa-triangle-exclamation"></i><span>${esc(e.response?.data?.error || 'Erro ao carregar as compras parceladas.')}</span></div>`
