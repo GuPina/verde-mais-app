@@ -355,6 +355,33 @@ dashboard.get('/', requireAuth, async (c) => {
   const cartoesTotUsado  = Math.round(cartoesLista.reduce((s, k) => s + k.utilizado, 0) * 100) / 100
   const cartoesTotFatura = Math.round(cartoesLista.reduce((s, k) => s + k.fatura_mes, 0) * 100) / 100
 
+  // ── Parcelas de cartão que ENCERRAM no mês selecionado ─────────────────────
+  // "Encerra" = é a última parcela (parcela_atual = total_parcelas) e cai na
+  // fatura (billing) do mês em questão. Fonte: card_charges (guarda parcela).
+  const encerrandoRows = await c.env.DB.prepare(
+    `SELECT cc.descricao, cc.valor, cc.parcela_atual, cc.total_parcelas, cc.card_id,
+            cc.data_vencimento, ct.nome as cartao_nome, ct.cor as cartao_cor
+     FROM card_charges cc
+     JOIN cartoes ct ON ct.id = cc.card_id
+     WHERE ct.user_id = ? AND cc.status != 'cancelado'
+       AND COALESCE(cc.total_parcelas, 1) > 1
+       AND cc.parcela_atual = cc.total_parcelas
+       AND cc.billing_month = ? AND cc.billing_year = ?
+     ORDER BY cc.valor DESC`
+  ).bind(user.id, parseInt(mes), parseInt(ano)).all<any>()
+  const limparParcelaLabel = (s: string) => String(s || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim()
+  const parcelasEncerrando = (encerrandoRows.results || []).map((r: any) => ({
+    descricao: limparParcelaLabel(r.descricao) || 'Compra no cartão',
+    valor: Math.round((Number(r.valor) || 0) * 100) / 100,
+    parcela_atual: Number(r.parcela_atual) || 0,
+    total_parcelas: Number(r.total_parcelas) || 0,
+    cartao_id: r.card_id,
+    cartao_nome: r.cartao_nome,
+    cartao_cor: r.cartao_cor || '#6EA8FE',
+    vencimento: r.data_vencimento || null,
+  }))
+  const parcelasEncerrandoTotal = Math.round(parcelasEncerrando.reduce((s: number, p: any) => s + p.valor, 0) * 100) / 100
+
   // Bloco 4.2: Top 5 Tags por gastos do mês (widget "Gastos por Tag")
   const topTagsResult = await c.env.DB.prepare(`
     SELECT t.nome, t.cor, COALESCE(SUM(d.valor), 0) as total, COUNT(DISTINCT d.id) as qtd
@@ -641,6 +668,13 @@ dashboard.get('/', requireAuth, async (c) => {
       total_disponivel: Math.round(Math.max(0, cartoesTotLimite - cartoesTotUsado) * 100) / 100,
       total_fatura_mes: cartoesTotFatura,
       uso_pct: cartoesTotLimite > 0 ? Math.round((cartoesTotUsado / cartoesTotLimite) * 100) : 0,
+    },
+    parcelas_encerrando: {
+      mes: parseInt(mes),
+      ano: parseInt(ano),
+      itens: parcelasEncerrando,
+      count: parcelasEncerrando.length,
+      total: parcelasEncerrandoTotal,
     },
     periodo: { mes, ano },
     // Comparativo com mês anterior

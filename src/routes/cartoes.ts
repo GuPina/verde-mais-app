@@ -1669,6 +1669,137 @@ cartoes.get('/:id/info', requireAuth, async (c) => {
   })
 })
 
+// ─── GET /api/cartoes/parceladas ─────────────────────────────────────────────
+// Todas as compras PARCELADAS de cartão, agregadas por compra (purchase_group).
+// Cada linha: valor da parcela, nº de parcelas, valor total, categoria, tags,
+// cartão e progresso. Suporta filtros: busca, cartao_id, categoria, status.
+cartoes.get('/parceladas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartaoIdRaw = c.req.query('cartao_id')
+  if (cartaoIdRaw && !/^\d+$/.test(cartaoIdRaw)) return c.json({ error: 'cartao_id inválido.' }, 400)
+  const cartaoId = cartaoIdRaw ? parseInt(cartaoIdRaw, 10) : null
+  const busca = (c.req.query('busca') || '').trim().toLowerCase()
+  const categoriaFiltro = (c.req.query('categoria') || '').trim().toLowerCase()
+  const statusFiltro = c.req.query('status') || '' // 'andamento' | 'quitada'
+
+  const filtroCartao = cartaoId ? ' AND cc.card_id = ?' : ''
+  const binds: any[] = [user.id]
+  if (cartaoId) binds.push(cartaoId)
+
+  const rowsR = await c.env.DB.prepare(
+    `SELECT cc.id, cc.card_id, cc.expense_id, cc.descricao, cc.valor, cc.data_compra,
+            cc.data_vencimento, cc.billing_month, cc.billing_year, cc.parcela_atual,
+            cc.total_parcelas, cc.purchase_group_id, cc.status,
+            ct.nome as cartao_nome, ct.cor as cartao_cor,
+            d.categoria as categoria
+     FROM card_charges cc
+     JOIN cartoes ct ON ct.id = cc.card_id
+     LEFT JOIN despesas d ON d.id = cc.expense_id
+     WHERE ct.user_id = ? AND cc.status != 'cancelado'
+       AND COALESCE(cc.total_parcelas, 1) > 1${filtroCartao}
+     ORDER BY cc.purchase_group_id, cc.parcela_atual`
+  ).bind(...binds).all<any>()
+  const rows = rowsR.results || []
+
+  // Tags por despesa (expense_id) — 1 query com IN(...)
+  const expenseIds = [...new Set(rows.map((r: any) => r.expense_id).filter((x: any) => x != null))]
+  const tagsPorDespesa: Record<number, Array<{ nome: string; cor: string }>> = {}
+  if (expenseIds.length) {
+    const ph = expenseIds.map(() => '?').join(',')
+    const tagsR = await c.env.DB.prepare(
+      `SELECT dt.despesa_id, t.nome, t.cor
+       FROM despesa_tags dt JOIN tags t ON t.id = dt.tag_id
+       WHERE dt.despesa_id IN (${ph})`
+    ).bind(...expenseIds).all<any>()
+    for (const t of (tagsR.results || [])) {
+      (tagsPorDespesa[t.despesa_id] ||= []).push({ nome: t.nome, cor: t.cor })
+    }
+  }
+
+  const NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const limpar = (s: string) => String(s || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim()
+  const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100
+
+  // Agrupar por compra
+  const grupos: Record<string, any> = {}
+  for (const r of rows) {
+    const key = r.purchase_group_id || `single-${r.id}`
+    let g = grupos[key]
+    if (!g) {
+      g = grupos[key] = {
+        group_id: key, cartao_id: r.card_id, cartao_nome: r.cartao_nome, cartao_cor: r.cartao_cor || '#6EA8FE',
+        descricao: limpar(r.descricao) || 'Compra no cartão',
+        categoria: r.categoria || null,
+        total_parcelas: Number(r.total_parcelas) || 0,
+        valor_total: 0, valor_parcela: 0, parcelas_pagas: 0,
+        data_compra: r.data_compra || null, _tagIds: new Set<string>(), tags: [] as any[],
+        _encerra: null as any, _prox: null as any, _primeira: null as number | null,
+      }
+    }
+    const v = Number(r.valor) || 0
+    g.valor_total += v
+    g.total_parcelas = Math.max(g.total_parcelas, Number(r.total_parcelas) || 0)
+    if (r.status === 'pago') g.parcelas_pagas += 1
+    if (g._primeira === null || (Number(r.parcela_atual) || 99) < g._primeira) { g._primeira = Number(r.parcela_atual) || 1; g.valor_parcela = v }
+    // última parcela → encerramento
+    if (Number(r.parcela_atual) === Number(r.total_parcelas)) {
+      g._encerra = { mes: r.billing_month, ano: r.billing_year, label: `${NOMES[(r.billing_month || 1) - 1]}/${String(r.billing_year).slice(2)}` }
+    }
+    // próxima pendente (menor vencimento)
+    if (r.status === 'pendente') {
+      if (!g._prox || String(r.data_vencimento || '') < String(g._prox.venc || '9999')) {
+        g._prox = { venc: r.data_vencimento, mes: r.billing_month, ano: r.billing_year, valor: v, label: `${NOMES[(r.billing_month || 1) - 1]}/${String(r.billing_year).slice(2)}` }
+      }
+    }
+    // tags (união do grupo)
+    if (r.expense_id && tagsPorDespesa[r.expense_id]) {
+      for (const t of tagsPorDespesa[r.expense_id]) {
+        if (!g._tagIds.has(t.nome)) { g._tagIds.add(t.nome); g.tags.push(t) }
+      }
+    }
+  }
+
+  let compras = Object.values(grupos).map((g: any) => {
+    const total = round2(g.valor_total)
+    const parcela = g.valor_parcela > 0 ? round2(g.valor_parcela) : (g.total_parcelas > 0 ? round2(total / g.total_parcelas) : total)
+    const restantes = Math.max(0, g.total_parcelas - g.parcelas_pagas)
+    const { _tagIds, _encerra, _prox, _primeira, ...rest } = g
+    return {
+      ...rest,
+      valor_parcela: parcela,
+      valor_total: total,
+      parcelas_restantes: restantes,
+      valor_restante: round2(parcela * restantes),
+      quitada: restantes === 0,
+      encerra_em: _encerra,
+      proxima: _prox ? { mes: _prox.mes, ano: _prox.ano, valor: round2(_prox.valor), label: _prox.label } : null,
+    }
+  })
+
+  // Filtros em memória
+  if (busca) compras = compras.filter(g => g.descricao.toLowerCase().includes(busca))
+  if (categoriaFiltro) compras = compras.filter(g => (g.categoria || '').toLowerCase() === categoriaFiltro)
+  if (statusFiltro === 'andamento') compras = compras.filter(g => !g.quitada)
+  else if (statusFiltro === 'quitada') compras = compras.filter(g => g.quitada)
+
+  // Ordena: em andamento primeiro, depois por valor restante desc
+  compras.sort((a, b) => (Number(a.quitada) - Number(b.quitada)) || (b.valor_restante - a.valor_restante) || (b.valor_total - a.valor_total))
+
+  const categorias = [...new Set(Object.values(grupos).map((g: any) => g.categoria).filter(Boolean))].sort()
+  const cartoesLista = [...new Map(rows.map((r: any) => [r.card_id, { id: r.card_id, nome: r.cartao_nome }])).values()]
+
+  return c.json({
+    compras,
+    resumo: {
+      count: compras.length,
+      total_restante: round2(compras.reduce((s, g) => s + (g.quitada ? 0 : g.valor_restante), 0)),
+      total_compras: round2(compras.reduce((s, g) => s + g.valor_total, 0)),
+    },
+    categorias,
+    cartoes: cartoesLista,
+  })
+})
+
 export default cartoes
 
 // ─────────────────────────────────────────────────────────────────────────────

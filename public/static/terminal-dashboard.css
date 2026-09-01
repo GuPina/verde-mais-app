@@ -816,3 +816,20 @@ body.terminal-dashboard-active #modal-container [style*="border-radius:20px"][st
     border-radius: var(--terminal-radius-lg) var(--terminal-radius-lg) 0 0 !important;
   }
 }
+
+/* ── Dashboard: parcelas que encerram no mês (td-enc-*) ── */
+.td-encerra-section { margin-bottom: 14px; }
+.td-enc-wrap { width: 100%; overflow-x: auto; }
+.td-enc-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+.td-enc-table thead th { padding: 10px 14px; text-align: left; font: 700 10px/1 var(--terminal-mono); letter-spacing: .07em; text-transform: uppercase; color: var(--terminal-ink-soft); border-bottom: 1px solid var(--terminal-line); }
+.td-enc-table th.td-enc-val, .td-enc-table td.td-enc-val { text-align: right; }
+.td-enc-table td { padding: 12px 14px; border-bottom: 1px solid var(--terminal-line); vertical-align: middle; }
+.td-enc-table tbody tr:hover td { background: rgba(61,220,132,.04); }
+.td-enc-desc { font-weight: 650; color: var(--terminal-ink); }
+.td-enc-card { white-space: nowrap; color: var(--terminal-ink-soft); }
+.td-enc-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+.td-enc-parc { color: var(--terminal-ink-soft); font-size: 12px; white-space: nowrap; }
+.td-enc-badge { display: inline-block; margin-right: 6px; padding: 2px 8px; border-radius: 999px; font: 700 11px/1 var(--terminal-mono); color: var(--terminal-accent); background: rgba(242,201,76,.12); border: 1px solid rgba(242,201,76,.34); }
+.td-enc-val { font-family: var(--terminal-mono); font-weight: 700; white-space: nowrap; color: var(--terminal-ink); }
+.td-enc-table tfoot td { padding: 12px 14px; border-top: 2px solid var(--terminal-line); font-weight: 700; color: var(--terminal-ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.td-enc-table tfoot td.td-enc-val { color: var(--terminal-primary); }

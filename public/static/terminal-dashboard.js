@@ -179,6 +179,33 @@
     </article>`
   }
 
+  const encerrandoPanel = (data) => {
+    const pe = data.parcelas_encerrando || {}
+    const itens = pe.itens || []
+    const mesNome = months[(Number(pe.mes) || 1) - 1] || ''
+    const head = `<div class="td-panel__head"><div><span class="td-eyebrow">Cartões · ${esc(mesNome)}</span><h2>Parcelas que encerram este mês</h2></div>${itens.length ? `<span class="td-chip">${money(pe.total)}</span>` : ''}</div>`
+    if (!itens.length) {
+      return `<article class="td-panel td-encerra">${head}<div class="td-empty-row"><i class="fas fa-flag-checkered"></i><span>Nenhuma parcela de cartão encerra em ${esc(mesNome)}.</span></div></article>`
+    }
+    const rows = itens.map(p => {
+      const cor = safeColor(p.cartao_cor, '#6EA8FE')
+      return `<tr>
+        <td class="td-enc-desc">${esc(p.descricao)}</td>
+        <td class="td-enc-card"><span class="td-enc-dot" style="background:${cor}"></span>${esc(p.cartao_nome || '—')}</td>
+        <td class="td-enc-parc"><span class="td-enc-badge">${p.parcela_atual}/${p.total_parcelas}</span> última</td>
+        <td class="td-enc-val">${money(p.valor)}</td>
+      </tr>`
+    }).join('')
+    return `<article class="td-panel td-encerra">${head}
+      <div class="td-enc-wrap"><table class="td-enc-table">
+        <thead><tr><th>Compra</th><th>Cartão</th><th>Parcela</th><th class="td-enc-val">Valor</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="3">${itens.length} parcela${itens.length === 1 ? '' : 's'} encerrando</td><td class="td-enc-val">${money(pe.total)}</td></tr></tfoot>
+      </table></div>
+      <p class="td-explainer"><i class="fas fa-circle-info"></i> São as compras parceladas no cartão cuja <b>última parcela</b> cai na fatura de ${esc(mesNome)} — depois delas, esse valor sai do seu compromisso mensal.</p>
+    </article>`
+  }
+
   const metricsStrip = (resumo, data) => {
     const r = resumo || {}
     const tiles = []
@@ -271,6 +298,10 @@
             <section class="td-analysis-grid">
               ${scorePanel(data)}
               ${cardsPanel(data.cartoes)}
+            </section>
+
+            <section class="td-encerra-section">
+              ${encerrandoPanel(data)}
             </section>
 
             <section class="td-insights-grid">

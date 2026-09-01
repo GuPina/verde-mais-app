@@ -7,6 +7,7 @@
 
   window.VMTerminalAnaliseCartoes = {
     _meses: 12, _cartao: '',
+    _parcFiltro: { busca: '', cartao: '', categoria: '', status: '' },
     async render(vm) {
       this._vm = vm
       const content = document.getElementById('page-content')
@@ -86,8 +87,98 @@
           </article>
         </section>
 
+        ${this._parcSection(cartoes)}
+
         ${(d.leitura || []).length ? `<section class="ac-leitura">${d.leitura.map(l => `<p><i class="fas fa-lightbulb"></i> ${esc(l)}</p>`).join('')}</section>` : ''}
       </div>`
+
+      this.loadParceladas()
+    },
+
+    _parcSection(cartoes) {
+      const f = this._parcFiltro
+      return `<section class="ac-parc">
+        <article class="td-panel">
+          <div class="td-panel__head"><div><span class="td-eyebrow">Cartões · compras parceladas</span><h2>Suas compras parceladas</h2></div><span class="td-chip" id="ac-parc-count">—</span></div>
+          <div class="ac-parc__filters">
+            <div class="ac-parc__search"><i class="fas fa-search"></i><input id="ac-parc-busca" type="text" placeholder="Buscar compra…" value="${esc(f.busca)}" oninput="clearTimeout(VMTerminalAnaliseCartoes._pt);VMTerminalAnaliseCartoes._pt=setTimeout(()=>VMTerminalAnaliseCartoes.filtrarParceladas(),360)"></div>
+            <select id="ac-parc-cartao" onchange="VMTerminalAnaliseCartoes.filtrarParceladas()">
+              <option value="">Todos os cartões</option>
+              ${(cartoes || []).map(c => `<option value="${c.id}" ${String(f.cartao) === String(c.id) ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}
+            </select>
+            <select id="ac-parc-cat" onchange="VMTerminalAnaliseCartoes.filtrarParceladas()"><option value="">Todas categorias</option></select>
+            <select id="ac-parc-status" onchange="VMTerminalAnaliseCartoes.filtrarParceladas()">
+              <option value="">Todas</option>
+              <option value="andamento" ${f.status === 'andamento' ? 'selected' : ''}>Em andamento</option>
+              <option value="quitada" ${f.status === 'quitada' ? 'selected' : ''}>Quitadas</option>
+            </select>
+          </div>
+          <div class="ac-parc__wrap" id="ac-parc-body"><div class="td-loading"><span></span><span></span><span></span></div></div>
+        </article>
+      </section>`
+    },
+
+    filtrarParceladas() {
+      this._parcFiltro = {
+        busca: document.getElementById('ac-parc-busca')?.value || '',
+        cartao: document.getElementById('ac-parc-cartao')?.value || '',
+        categoria: document.getElementById('ac-parc-cat')?.value || '',
+        status: document.getElementById('ac-parc-status')?.value || '',
+      }
+      this.loadParceladas()
+    },
+
+    async loadParceladas() {
+      const body = document.getElementById('ac-parc-body')
+      if (!body) return
+      const f = this._parcFiltro
+      const p = new URLSearchParams()
+      if (f.busca) p.set('busca', f.busca)
+      if (f.cartao) p.set('cartao_id', f.cartao)
+      if (f.categoria) p.set('categoria', f.categoria)
+      if (f.status) p.set('status', f.status)
+      try {
+        const d = await this._vm.api('GET', `cartoes/parceladas${p.toString() ? '?' + p.toString() : ''}`)
+        // popular categorias (uma vez)
+        const catSel = document.getElementById('ac-parc-cat')
+        if (catSel && catSel.options.length <= 1 && (d.categorias || []).length) {
+          catSel.innerHTML = '<option value="">Todas categorias</option>' + d.categorias.map(cat => `<option value="${esc(cat)}" ${f.categoria === cat ? 'selected' : ''}>${esc(cat)}</option>`).join('')
+        }
+        const cnt = document.getElementById('ac-parc-count')
+        if (cnt) cnt.textContent = `${d.resumo?.count || 0} compra${(d.resumo?.count || 0) === 1 ? '' : 's'} · falta ${money(d.resumo?.total_restante)}`
+        this._parcRows(d.compras || [], body)
+      } catch (e) {
+        body.innerHTML = `<div class="td-empty-row"><i class="fas fa-triangle-exclamation"></i><span>${esc(e.response?.data?.error || 'Erro ao carregar as compras parceladas.')}</span></div>`
+      }
+    },
+
+    _parcRows(compras, body) {
+      if (!compras.length) {
+        body.innerHTML = '<div class="td-empty-row"><i class="fas fa-layer-group"></i><span>Nenhuma compra parcelada com esse filtro.</span></div>'
+        return
+      }
+      const rows = compras.map(g => {
+        const cor = corDe(g.cartao_cor, 0)
+        const pagas = g.parcelas_pagas || 0, tot = g.total_parcelas || 0
+        const pct = tot > 0 ? Math.round((pagas / tot) * 100) : 0
+        const tags = (g.tags || []).slice(0, 3).map(t => `<span class="ac-parc-tag" style="--tc:${corDe(t.cor, 1)}">${esc(t.nome)}</span>`).join('')
+        const catLine = g.categoria ? `<span class="ac-parc-cat">${esc(g.categoria)}</span>` : ''
+        return `<tr class="${g.quitada ? 'is-quit' : ''}">
+          <td class="ac-parc-desc"><strong>${esc(g.descricao)}</strong>${g.encerra_em ? `<small>encerra em ${esc(g.encerra_em.label)}</small>` : ''}</td>
+          <td class="ac-parc-card"><span class="ac-dot" style="background:${cor}"></span>${esc(g.cartao_nome || '—')}</td>
+          <td class="ac-parc-tags">${catLine}${tags || (catLine ? '' : '<span class="ac-parc-muted">—</span>')}</td>
+          <td class="ac-parc-num">${money(g.valor_parcela)}</td>
+          <td class="ac-parc-prog">
+            <div class="ac-parc-prog__top"><span>${pagas}/${tot}</span>${g.quitada ? '<span class="ac-parc-quit">quitada</span>' : `<span class="ac-parc-rest">faltam ${g.parcelas_restantes}</span>`}</div>
+            <div class="to-bar" style="height:6px"><span style="width:${pct}%;background:${cor}"></span></div>
+          </td>
+          <td class="ac-parc-num ac-parc-total">${money(g.valor_total)}</td>
+        </tr>`
+      }).join('')
+      body.innerHTML = `<div class="ac-parc__scroll"><table class="ac-parc-table">
+        <thead><tr><th>Compra</th><th>Cartão</th><th>Categoria · Tags</th><th class="ac-parc-num">Parcela</th><th>Parcelas</th><th class="ac-parc-num">Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`
     },
 
     // ── Mostrador circular do uso total ──

@@ -813,3 +813,34 @@
 .ac-seg:first-child { border-radius: 4px 4px 0 0; }
 .ac-legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 10px; font-size: 11.5px; color: var(--terminal-ink-soft); }
 .ac-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+/* ============ Análise de Cartões — Compras parceladas (ac-parc-*) ============ */
+.ac-parc { margin-top: 16px; }
+.ac-parc__filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.ac-parc__search { flex: 1; min-width: 200px; display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 38px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm); background: var(--terminal-bg); }
+.ac-parc__search i { color: var(--terminal-ink-soft); font-size: 12px; }
+.ac-parc__search input { flex: 1; border: 0; background: transparent; color: var(--terminal-ink); font-size: 13px; }
+.ac-parc__search input:focus { outline: none; }
+.ac-parc__filters select { height: 38px; padding: 0 30px 0 12px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm); background: var(--terminal-bg); color: var(--terminal-ink); font: 600 12.5px/1 var(--terminal-font); cursor: pointer; }
+.ac-parc__filters select:focus { outline: none; border-color: #35503e; }
+.ac-parc__scroll { width: 100%; overflow-x: auto; }
+.ac-parc-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
+.ac-parc-table thead th { padding: 11px 14px; text-align: left; font: 700 10px/1 var(--terminal-mono); letter-spacing: .07em; text-transform: uppercase; color: var(--terminal-ink-soft); border-bottom: 1px solid var(--terminal-line); }
+.ac-parc-table th.ac-parc-num, .ac-parc-table td.ac-parc-num { text-align: right; }
+.ac-parc-table td { padding: 12px 14px; border-bottom: 1px solid var(--terminal-line); vertical-align: middle; }
+.ac-parc-table tbody tr:last-child td { border-bottom: 0; }
+.ac-parc-table tbody tr:hover td { background: color-mix(in srgb, var(--terminal-ink) 4%, transparent); }
+.ac-parc-table tr.is-quit { opacity: .62; }
+.ac-parc-desc strong { display: block; color: var(--terminal-ink); font-weight: 650; }
+.ac-parc-desc small { display: block; margin-top: 2px; color: var(--terminal-ink-soft); font-size: 11px; }
+.ac-parc-card { white-space: nowrap; color: var(--terminal-ink-soft); }
+.ac-parc-card .ac-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+.ac-parc-num { font-family: var(--terminal-mono); white-space: nowrap; color: var(--terminal-ink); }
+.ac-parc-total { font-weight: 700; }
+.ac-parc-cat { display: inline-block; margin-right: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--terminal-ink-soft); border: 1px solid var(--terminal-line); background: var(--terminal-bg); }
+.ac-parc-tag { display: inline-block; margin-right: 5px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--tc, var(--terminal-accent)); border: 1px solid color-mix(in srgb, var(--tc, var(--terminal-accent)) 40%, transparent); background: color-mix(in srgb, var(--tc, var(--terminal-accent)) 12%, transparent); }
+.ac-parc-muted { color: var(--terminal-ink-soft); }
+.ac-parc-prog { min-width: 130px; }
+.ac-parc-prog__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; font: 700 11px/1 var(--terminal-mono); color: var(--terminal-ink); }
+.ac-parc-rest { color: var(--terminal-ink-soft); font-weight: 600; }
+.ac-parc-quit { color: var(--terminal-primary); font-weight: 600; }
