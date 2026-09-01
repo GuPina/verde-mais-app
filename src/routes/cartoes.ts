@@ -1748,13 +1748,18 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
         parcelas_pendentes: 0, valor_pendente: 0,
         data_compra: r.data_compra || null, _tagIds: new Set<string>(), tags: [] as any[],
         _encerra: null as any, _prox: null as any, _primeira: null as number | null,
+        _first: null as any, _last: null as any,
       }
     }
     const v = Number(r.valor) || 0
+    const pa = Number(r.parcela_atual) || 0
     g.valor_total += v
     g.total_declarado = Math.max(g.total_declarado, Number(r.total_parcelas) || 0)
     if (r.status === 'pago') { g.parcelas_pagas += 1; g.valor_pago += v }
     else if (r.status === 'pendente') { g.parcelas_pendentes += 1; g.valor_pendente += v }
+    // primeira e última parcela REAIS da compra (por parcela_atual), p/ o evolutivo
+    if (!g._first || pa < g._first.pa) g._first = { pa, m: r.billing_month, a: r.billing_year, valor: v }
+    if (!g._last || pa > g._last.pa) g._last = { pa, m: r.billing_month, a: r.billing_year, valor: v }
     if (g._primeira === null || (Number(r.parcela_atual) || 99) < g._primeira) { g._primeira = Number(r.parcela_atual) || 1; g.valor_parcela = v }
     // última parcela → encerramento
     if (Number(r.parcela_atual) === Number(r.total_parcelas)) {
@@ -1784,7 +1789,7 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
     const totalParcelas = Math.max(geradas, 1)
     const parcela = g.valor_parcela > 0 ? round2(g.valor_parcela) : round2(total / totalParcelas)
     const restantes = g.parcelas_pendentes
-    const { _tagIds, _encerra, _prox, _primeira, total_declarado, valor_pendente, parcelas_pendentes, ...rest } = g
+    const { _tagIds, _encerra, _prox, _primeira, _first, _last, total_declarado, valor_pendente, parcelas_pendentes, ...rest } = g
     return {
       ...rest,
       total_parcelas: totalParcelas,
@@ -1812,6 +1817,38 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
   const categorias = [...new Set(Object.values(grupos).map((g: any) => g.categoria).filter(Boolean))].sort()
   const cartoesLista = [...new Map(rows.map((r: any) => [r.card_id, { id: r.card_id, nome: r.cartao_nome }])).values()]
 
+  // ── Evolutivo mês a mês: parcelas que ENTRAM (1ª parcela de compra nova) vs
+  // parcelas que SAEM (última parcela — compra que encerra). Base: todos os
+  // grupos (respeita só o filtro de cartão), independente da busca/status. ─────
+  const evoMap: Record<string, { a: number; m: number; entramQ: number; entramV: number; saemQ: number; saemV: number }> = {}
+  const ensureEvo = (a: number, m: number) => {
+    const k = `${a}-${String(m).padStart(2, '0')}`
+    return evoMap[k] || (evoMap[k] = { a, m, entramQ: 0, entramV: 0, saemQ: 0, saemV: 0 })
+  }
+  for (const g of Object.values(grupos) as any[]) {
+    if (g._first && g._first.a) { const e = ensureEvo(g._first.a, g._first.m); e.entramQ += 1; e.entramV += g._first.valor }
+    if (g._last && g._last.a) { const e = ensureEvo(g._last.a, g._last.m); e.saemQ += 1; e.saemV += g._last.valor }
+  }
+  const now2 = new Date()
+  const nowIdx = now2.getFullYear() * 12 + now2.getMonth() // índice do mês atual
+  const idxs = Object.values(evoMap).map(e => e.a * 12 + (e.m - 1))
+  let evolucao: any[] = []
+  if (idxs.length) {
+    const minI = Math.max(Math.min(...idxs), nowIdx - 6)
+    const maxI = Math.min(Math.max(...idxs), nowIdx + 18)
+    for (let i = minI; i <= maxI; i++) {
+      const a = Math.floor(i / 12), m = (i % 12) + 1
+      const e = evoMap[`${a}-${String(m).padStart(2, '0')}`]
+      const entramV = round2(e?.entramV || 0), saemV = round2(e?.saemV || 0)
+      evolucao.push({
+        label: `${NOMES[m - 1]}/${String(a).slice(2)}`, mes: m, ano: a, idx: i, futuro: i > nowIdx,
+        entram: { qtd: e?.entramQ || 0, valor: entramV },
+        saem: { qtd: e?.saemQ || 0, valor: saemV },
+        saldo: round2(entramV - saemV),
+      })
+    }
+  }
+
   return c.json({
     compras,
     resumo: {
@@ -1819,7 +1856,11 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
       total_pago: round2(compras.reduce((s, g) => s + (g.valor_pago || 0), 0)),
       total_restante: round2(compras.reduce((s, g) => s + (g.quitada ? 0 : g.valor_restante), 0)),
       total_compras: round2(compras.reduce((s, g) => s + g.valor_total, 0)),
+      em_andamento: compras.filter(g => !g.quitada).length,
+      quitadas: compras.filter(g => g.quitada).length,
     },
+    evolucao,
+    mes_atual_idx: nowIdx,
     categorias,
     cartoes: cartoesLista,
   })

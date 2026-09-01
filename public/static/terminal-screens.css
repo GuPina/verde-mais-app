@@ -844,3 +844,48 @@
 .ac-parc-prog__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; font: 700 11px/1 var(--terminal-mono); color: var(--terminal-ink); }
 .ac-parc-rest { color: var(--terminal-ink-soft); font-weight: 600; }
 .ac-parc-quit { color: var(--terminal-primary); font-weight: 600; }
+
+/* ── Compras parceladas: resumo separado (pago/falta) ── */
+.ac-parc-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 640px) { .ac-parc-sum { grid-template-columns: 1fr; } }
+.ac-sum-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius); background: var(--terminal-bg); border-left: 3px solid var(--terminal-line); }
+.ac-sum-tile--ok { border-left-color: var(--terminal-primary); }
+.ac-sum-tile--warn { border-left-color: var(--terminal-accent); }
+.ac-sum-lbl { font: 700 10px/1.2 var(--terminal-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--terminal-ink-soft); }
+.ac-sum-tile strong { font-size: 22px; line-height: 1.05; letter-spacing: -.03em; font-weight: 600; white-space: nowrap; }
+.ac-sum-tile--ok strong { color: var(--terminal-primary); }
+.ac-sum-tile--warn strong { color: var(--terminal-accent); }
+.ac-sum-tile small { font-size: 11px; color: var(--terminal-ink-soft); }
+.ac-sum-bar { height: 5px; margin-top: 6px; border-radius: 999px; overflow: hidden; background: var(--terminal-line); }
+.ac-sum-bar span { display: block; height: 100%; border-radius: inherit; background: var(--terminal-primary); }
+
+/* ── Evolutivo mês a mês (ac-evo-*) ── */
+.ac-evo-legend { display: flex; gap: 14px; font-size: 11px; color: var(--terminal-ink-soft); align-self: center; }
+.ac-evo-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+.ac-evo-sw--in { background: var(--terminal-negative); }
+.ac-evo-sw--out { background: var(--terminal-primary); }
+.ac-evo-wrap { width: 100%; overflow-x: auto; }
+.ac-evo-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.ac-evo-table thead th { padding: 10px 14px; text-align: left; font: 700 10px/1 var(--terminal-mono); letter-spacing: .07em; text-transform: uppercase; color: var(--terminal-ink-soft); border-bottom: 1px solid var(--terminal-line); }
+.ac-evo-table th.ac-evo-saldo, .ac-evo-table td.ac-evo-saldo { text-align: right; }
+.ac-evo-table td { padding: 11px 14px; border-bottom: 1px solid var(--terminal-line); vertical-align: middle; white-space: nowrap; }
+.ac-evo-table tbody tr:last-child td { border-bottom: 0; }
+.ac-evo-table tr.is-now td { background: rgba(61,220,132,.06); }
+.ac-evo-table tr.is-fut td { color: var(--terminal-ink-soft); }
+.ac-evo-m { font-weight: 650; color: var(--terminal-ink); }
+.ac-evo-tag { display: inline-block; margin-left: 5px; padding: 1px 7px; border-radius: 999px; font: 700 9px/1.4 var(--terminal-mono); text-transform: uppercase; color: var(--terminal-primary); background: var(--terminal-primary-soft); }
+.ac-evo-tag--fut { color: var(--terminal-ink-soft); background: rgba(122,139,128,.14); }
+.ac-evo-e b { color: var(--terminal-negative); }
+.ac-evo-s b { color: var(--terminal-primary); }
+.ac-evo-e, .ac-evo-s { font-family: var(--terminal-mono); color: var(--terminal-ink); }
+.ac-evo-dash { color: var(--terminal-ink-soft); }
+.ac-evo-bar { width: 200px; min-width: 140px; }
+.ac-evo-track { position: relative; display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--terminal-line); }
+.ac-evo-in { display: block; height: 100%; background: var(--terminal-negative); }
+.ac-evo-out { display: block; height: 100%; background: var(--terminal-primary); }
+.ac-evo-saldo { font-family: var(--terminal-mono); font-weight: 700; }
+.ac-evo-saldo--neg { color: var(--terminal-negative); }
+.ac-evo-saldo--ok { color: var(--terminal-primary); }
+.ac-evo-saldo--muted { color: var(--terminal-ink-soft); }
+.ac-parc-ins__head { margin-bottom: 4px; }
+.ac-parc-ins__head i { color: var(--terminal-accent); margin-right: 5px; }

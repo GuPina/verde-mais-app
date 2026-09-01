@@ -101,6 +101,7 @@
       return `<section class="ac-parc">
         <article class="td-panel">
           <div class="td-panel__head"><div><span class="td-eyebrow">Cartões · compras parceladas</span><h2>Suas compras parceladas</h2></div><span class="td-chip" id="ac-parc-count">—</span></div>
+          <div class="ac-parc-sum" id="ac-parc-sum"></div>
           <div class="ac-parc__filters">
             <div class="ac-parc__search"><i class="fas fa-search"></i><input id="ac-parc-busca" type="text" placeholder="Buscar compra…" value="${esc(f.busca)}" oninput="clearTimeout(VMTerminalAnaliseCartoes._pt);VMTerminalAnaliseCartoes._pt=setTimeout(()=>VMTerminalAnaliseCartoes.filtrarParceladas(),360)"></div>
             <select id="ac-parc-cartao" onchange="VMTerminalAnaliseCartoes.filtrarParceladas()">
@@ -116,6 +117,13 @@
           </div>
           <div class="ac-parc__wrap" id="ac-parc-body"><div class="td-loading"><span></span><span></span><span></span></div></div>
         </article>
+
+        <article class="td-panel" style="margin-top:16px">
+          <div class="td-panel__head"><div><span class="td-eyebrow">Compras parceladas · mês a mês</span><h2>Entraram × encerraram</h2></div><div class="ac-evo-legend"><span><i class="ac-evo-sw ac-evo-sw--in"></i>entram</span><span><i class="ac-evo-sw ac-evo-sw--out"></i>encerram</span></div></div>
+          <div id="ac-parc-evo"><div class="td-loading"><span></span><span></span><span></span></div></div>
+        </article>
+
+        <section class="ac-leitura" id="ac-parc-insights"></section>
       </section>`
     },
 
@@ -145,12 +153,84 @@
         if (catSel && catSel.options.length <= 1 && (d.categorias || []).length) {
           catSel.innerHTML = '<option value="">Todas categorias</option>' + d.categorias.map(cat => `<option value="${esc(cat)}" ${f.categoria === cat ? 'selected' : ''}>${esc(cat)}</option>`).join('')
         }
+        const r = d.resumo || {}
         const cnt = document.getElementById('ac-parc-count')
-        if (cnt) cnt.textContent = `${d.resumo?.count || 0} compra${(d.resumo?.count || 0) === 1 ? '' : 's'} · pago ${money(d.resumo?.total_pago)} · falta ${money(d.resumo?.total_restante)}`
+        if (cnt) cnt.textContent = `${r.count || 0} compra${(r.count || 0) === 1 ? '' : 's'} · ${r.em_andamento || 0} em andamento`
+        const sum = document.getElementById('ac-parc-sum')
+        if (sum) {
+          const pctPago = Number(r.total_compras) > 0 ? Math.round((Number(r.total_pago) / Number(r.total_compras)) * 100) : 0
+          sum.innerHTML = `
+            <div class="ac-sum-tile"><span class="ac-sum-lbl">Total das compras</span><strong>${money(r.total_compras)}</strong><small>${r.count || 0} compra${(r.count || 0) === 1 ? '' : 's'} parcelada${(r.count || 0) === 1 ? '' : 's'}</small></div>
+            <div class="ac-sum-tile ac-sum-tile--ok"><span class="ac-sum-lbl">Já pago</span><strong>${money(r.total_pago)}</strong><small>${pctPago}% do total${r.quitadas ? ` · ${r.quitadas} quitada${r.quitadas === 1 ? '' : 's'}` : ''}</small>
+              <div class="ac-sum-bar"><span style="width:${Math.min(100, pctPago)}%"></span></div></div>
+            <div class="ac-sum-tile ac-sum-tile--warn"><span class="ac-sum-lbl">Falta pagar</span><strong>${money(r.total_restante)}</strong><small>${r.em_andamento || 0} em andamento</small></div>`
+        }
         this._parcRows(d.compras || [], body)
+        this._parcEvo(d.evolucao || [], d.mes_atual_idx)
+        this._parcInsights(d)
       } catch (e) {
         body.innerHTML = `<div class="td-empty-row"><i class="fas fa-triangle-exclamation"></i><span>${esc(e.response?.data?.error || 'Erro ao carregar as compras parceladas.')}</span></div>`
       }
+    },
+
+    _parcEvo(evo, nowIdx) {
+      const el = document.getElementById('ac-parc-evo')
+      if (!el) return
+      if (!evo.length) { el.innerHTML = '<div class="td-empty-row"><i class="fas fa-wave-square"></i><span>Sem parcelas para montar o evolutivo.</span></div>'; return }
+      const maxV = Math.max(1, ...evo.flatMap(e => [e.entram.valor, e.saem.valor]))
+      const rows = evo.map(e => {
+        const isNow = e.idx === nowIdx
+        const tone = e.saldo > 0.005 ? 'neg' : e.saldo < -0.005 ? 'ok' : 'muted'
+        const eW = (e.entram.valor / maxV * 100), sW = (e.saem.valor / maxV * 100)
+        return `<tr class="${isNow ? 'is-now' : ''}${e.futuro ? ' is-fut' : ''}">
+          <td class="ac-evo-m">${esc(e.label)}${isNow ? ' <span class="ac-evo-tag">agora</span>' : e.futuro ? ' <span class="ac-evo-tag ac-evo-tag--fut">prev.</span>' : ''}</td>
+          <td class="ac-evo-e">${e.entram.qtd ? `<b>${e.entram.qtd}</b> · ${money(e.entram.valor)}` : '<span class="ac-evo-dash">—</span>'}</td>
+          <td class="ac-evo-s">${e.saem.qtd ? `<b>${e.saem.qtd}</b> · ${money(e.saem.valor)}` : '<span class="ac-evo-dash">—</span>'}</td>
+          <td class="ac-evo-bar"><div class="ac-evo-track"><span class="ac-evo-in" style="width:${eW.toFixed(1)}%"></span><span class="ac-evo-out" style="width:${sW.toFixed(1)}%"></span></div></td>
+          <td class="ac-evo-saldo ac-evo-saldo--${tone}">${e.saldo > 0.005 ? '+' : ''}${money(e.saldo)}</td>
+        </tr>`
+      }).join('')
+      el.innerHTML = `<div class="ac-evo-wrap"><table class="ac-evo-table">
+        <thead><tr><th>Mês</th><th>Novas compras</th><th>Encerraram</th><th>Fluxo</th><th class="ac-evo-saldo">Δ compromisso</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="td-explainer"><i class="fas fa-circle-info"></i> <b>Novas</b> = 1ª parcela de compras que entraram no mês. <b>Encerraram</b> = última parcela de compras que terminaram. <b>Δ</b> positivo = seu compromisso mensal de parcelas cresceu; negativo = aliviou.</p>`
+    },
+
+    _parcInsights(d) {
+      const el = document.getElementById('ac-parc-insights')
+      if (!el) return
+      const evo = d.evolucao || [], r = d.resumo || {}, now = d.mes_atual_idx
+      const compras = d.compras || []
+      const ins = []
+      const futSaem = evo.filter(e => e.idx >= now && e.saem.qtd > 0)
+      if (futSaem.length) {
+        const mx = futSaem.reduce((a, e) => e.saem.valor > a.saem.valor ? e : a, futSaem[0])
+        ins.push(`Em <b>${esc(mx.label)}</b> encerram <b>${mx.saem.qtd}</b> parcela${mx.saem.qtd === 1 ? '' : 's'} somando <b>${money(mx.saem.valor)}/mês</b> — é quando sua fatura mais alivia.`)
+      }
+      if (Number(r.total_restante) > 0) {
+        ins.push(`Ainda faltam <b>${money(r.total_restante)}</b> em <b>${r.em_andamento || 0}</b> compra${(r.em_andamento || 0) === 1 ? '' : 's'} parcelada${(r.em_andamento || 0) === 1 ? '' : 's'} em aberto.`)
+      }
+      const prox3 = evo.filter(e => e.idx >= now && e.idx < now + 3)
+      if (prox3.length) {
+        const s3 = prox3.reduce((s, e) => s + e.saldo, 0)
+        if (s3 < -0.005) ins.push(`Nos próximos 3 meses encerram mais parcelas do que entram: seu compromisso mensal tende a cair <b>${money(Math.abs(s3))}</b>.`)
+        else if (s3 > 0.005) ins.push(`Nos próximos 3 meses entram mais compras do que encerram (<b>+${money(s3)}/mês</b>) — atenção para não pesar a fatura.`)
+      }
+      const aberto = compras.filter(g => !g.quitada)
+      if (aberto.length) {
+        const mc = aberto.reduce((a, g) => (g.valor_restante || 0) > (a.valor_restante || 0) ? g : a, aberto[0])
+        ins.push(`Sua maior compra em aberto é <b>${esc(mc.descricao)}</b> (${esc(mc.cartao_nome || '—')}): faltam <b>${money(mc.valor_restante)}</b> em ${mc.parcelas_restantes} parcela${mc.parcelas_restantes === 1 ? '' : 's'}.`)
+      }
+      // categoria que mais compromete em aberto
+      const porCat = {}
+      for (const g of aberto) { const k = g.categoria || 'Sem categoria'; porCat[k] = (porCat[k] || 0) + (g.valor_restante || 0) }
+      const catArr = Object.entries(porCat).sort((a, b) => b[1] - a[1])
+      if (catArr.length > 1 && catArr[0][1] > 0) {
+        ins.push(`A categoria que mais pesa nas parcelas em aberto é <b>${esc(catArr[0][0])}</b>, com <b>${money(catArr[0][1])}</b> a pagar.`)
+      }
+      if (!ins.length) { el.innerHTML = ''; return }
+      el.innerHTML = `<div class="ac-parc-ins__head"><span class="td-eyebrow"><i class="fas fa-lightbulb"></i> Insights das parcelas</span></div>${ins.map(t => `<p>${t}</p>`).join('')}`
     },
 
     _parcRows(compras, body) {
