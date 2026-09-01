@@ -6,6 +6,8 @@
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 
+  const safeColor = (c, fallback) => (typeof c === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(c.trim())) ? c.trim() : fallback
+
   const money = (value) => new Intl.NumberFormat('pt-BR', {
     style: 'currency', currency: 'BRL', maximumFractionDigits: 2
   }).format(Number(value) || 0)
@@ -105,6 +107,91 @@
       <div class="td-category-list">${items.slice(0, 5).map((item, index) => `<button onclick="VM.navigate('despesas')"><i style="background:${colors[index % colors.length]}"></i><span>${esc(item.categoria || 'Sem categoria')}</span><strong>${Math.round((Number(item.total) / total) * 100)}%</strong><small>${money(item.total)}</small></button>`).join('')}</div>`
   }
 
+  const scorePanel = (data) => {
+    const score = data.score_saude
+    if (data.score_bloqueado || score === null || score === undefined) {
+      return `<article class="td-panel td-score">
+        <div class="td-panel__head"><div><span class="td-eyebrow">Saúde financeira</span><h2>Score de saúde</h2></div></div>
+        <div class="td-score__locked"><i class="fas fa-lock"></i><p>O score de saúde e o detalhamento por fator fazem parte do plano Premium.</p><button class="td-button td-button--primary" onclick="VM.upsellModal('score_saude')"><i class="fas fa-arrow-up"></i> Ver planos</button></div>
+      </article>`
+    }
+    const s = Number(score)
+    const band = s >= 75 ? 'ok' : s >= 50 ? 'warn' : 'bad'
+    const color = band === 'ok' ? 'var(--terminal-primary)' : band === 'warn' ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
+    const label = s >= 80 ? 'Muito bom' : s >= 60 ? 'Bom caminho' : s >= 40 ? 'Pede atenção' : 'Situação crítica'
+    const R = 52, C = 2 * Math.PI * R, off = C * (1 - Math.max(0, Math.min(100, s)) / 100)
+    const fatores = data.fatores_score || (data.score_saude_obj && data.score_saude_obj.fatores) || []
+    const factorsHtml = fatores.length
+      ? `<ul class="td-score__factors">${fatores.map(f => {
+          const t = f.tipo
+          const ico = t === 'positivo' ? '<i class="fas fa-circle-check"></i>' : t === 'negativo' ? '<i class="fas fa-circle-exclamation"></i>' : '<i class="fas fa-circle-info"></i>'
+          const p = Number(f.pontos) || 0
+          const chip = p > 0 ? `+${p}` : p < 0 ? `${p}` : '0'
+          return `<li class="td-score__factor td-score__factor--${t}">${ico}<span>${esc(f.descricao)}</span><b>${chip}</b></li>`
+        }).join('')}</ul>`
+      : `<p class="td-score__hint">Cadastre receitas e despesas para o score detalhar seus fatores.</p>`
+    return `<article class="td-panel td-score">
+      <div class="td-panel__head"><div><span class="td-eyebrow">Saúde financeira</span><h2>Score de saúde</h2></div><a onclick="VM.navigate('ia')">Ver análise <i class="fas fa-arrow-right"></i></a></div>
+      <div class="td-score__body">
+        <div class="td-score__gauge">
+          <svg viewBox="0 0 120 120" width="118" height="118" aria-hidden="true">
+            <circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--terminal-line)" stroke-width="11"/>
+            <circle cx="60" cy="60" r="${R}" fill="none" stroke="${color}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 60 60)"/>
+          </svg>
+          <div class="td-score__center"><strong style="color:${color}">${s}</strong><small>/100</small></div>
+        </div>
+        <div class="td-score__meta"><span class="td-score__label" style="color:${color}">${label}</span><p>Vem da sua taxa de poupança, do peso das dívidas, dos investimentos e das metas deste mês.</p></div>
+      </div>
+      ${factorsHtml}
+    </article>`
+  }
+
+  const cardsPanel = (cartoes) => {
+    cartoes = cartoes || {}
+    const lista = cartoes.lista || []
+    if (!lista.length) {
+      return `<article class="td-panel td-cards">
+        <div class="td-panel__head"><div><span class="td-eyebrow">Cartões</span><h2>Seus cartões</h2></div></div>
+        <div class="td-cards__empty"><i class="fas fa-credit-card"></i><p>Você ainda não cadastrou cartões. Cadastre para acompanhar fatura e limite por aqui.</p><button class="td-button td-button--primary" onclick="VM.navigate('cartoes')"><i class="fas fa-plus"></i> Adicionar cartão</button></div>
+      </article>`
+    }
+    const usoTot = Number(cartoes.uso_pct) || 0
+    const usoTone = usoTot >= 90 ? 'bad' : usoTot >= 70 ? 'warn' : 'ok'
+    const rows = lista.slice(0, 4).map(k => {
+      const cor = safeColor(k.cor, '#6EA8FE')
+      const uso = Number(k.uso_pct) || 0
+      const tone = uso >= 90 ? 'bad' : uso >= 70 ? 'warn' : 'ok'
+      return `<button class="td-card-row" onclick="VM.navigate('cartoes')">
+        <span class="td-card-row__dot" style="background:${cor}"></span>
+        <span class="td-card-row__main"><strong>${esc(k.nome)}</strong><small>Fatura ${money(k.fatura_mes)} · disponível ${money(k.disponivel)}</small>
+          <span class="td-card-row__bar"><span style="width:${Math.min(100, uso)}%;background:${cor}"></span></span></span>
+        <span class="td-card-row__pct td-card-row__pct--${tone}">${uso}%</span>
+      </button>`
+    }).join('')
+    return `<article class="td-panel td-cards">
+      <div class="td-panel__head"><div><span class="td-eyebrow">Cartões</span><h2>Seus cartões</h2></div><a onclick="VM.navigate('cartoes')">Ver todos <i class="fas fa-arrow-right"></i></a></div>
+      <div class="td-cards__summary">
+        <div class="td-cards__fatura"><span class="td-cards__lbl">Fatura do mês</span><strong>${money(cartoes.total_fatura_mes)}</strong></div>
+        <div class="td-cards__uso"><span class="td-cards__lbl">Limite usado <b class="is-${usoTone}">${usoTot}%</b></span><small>${money(cartoes.total_utilizado)} de ${money(cartoes.total_limite)}</small><span class="td-cards__bar"><span class="is-${usoTone}" style="width:${Math.min(100, usoTot)}%"></span></span></div>
+      </div>
+      <div class="td-cards__list">${rows}</div>
+      ${lista.length > 4 ? `<button class="td-link-button" onclick="VM.navigate('cartoes')">+${lista.length - 4} outro(s) cartão(ões)</button>` : ''}
+    </article>`
+  }
+
+  const metricsStrip = (resumo, data) => {
+    const r = resumo || {}
+    const tiles = []
+    tiles.push({ lbl: 'Investido', val: shortMoney(r.total_investimentos), sub: `${r.percentual_investido || 0}% da renda do mês`, tone: Number(r.total_investimentos) > 0 ? 'ok' : 'muted', ico: 'chart-line', route: 'investimentos' })
+    tiles.push({ lbl: 'Dívidas ativas', val: shortMoney(r.total_devedor), sub: `${money(r.total_parcela_mensal_dividas)} por mês`, tone: Number(r.total_devedor) > 0 ? 'warn' : 'ok', ico: 'hand-holding-dollar', route: 'amortizacao' })
+    tiles.push({ lbl: 'Reservas', val: shortMoney(r.total_reservas), sub: Number(r.meta_reservas_esp) > 0 ? `${r.progresso_reservas_pct || 0}% da meta` : 'sem meta definida', tone: 'ok', ico: 'piggy-bank', route: 'reserva' })
+    tiles.push({ lbl: 'Metas ativas', val: String(data.metas?.ativas || 0), sub: Number(data.metas?.objetivo_total) > 0 ? `objetivo ${shortMoney(data.metas.objetivo_total)}` : 'nenhuma meta', tone: 'ok', ico: 'bullseye', route: 'metas' })
+    if (data.alerta_assinaturas?.tem_alerta) {
+      tiles.push({ lbl: 'Assinaturas p/ revisar', val: String(data.alerta_assinaturas.count_nao_avaliadas), sub: `~${money(data.alerta_assinaturas.custo_mensal_estimado)}/mês`, tone: 'warn', ico: 'ghost', route: 'assinaturas-fantasma' })
+    }
+    return `<section class="td-metrics">${tiles.map(t => `<button class="td-metric td-metric--${t.tone}" onclick="VM.navigate('${t.route}')"><span class="td-metric__ico"><i class="fas fa-${t.ico}"></i></span><span class="td-metric__body"><span class="td-metric__lbl">${t.lbl}</span><strong>${t.val}</strong><small>${esc(t.sub)}</small></span></button>`).join('')}</section>`
+  }
+
   window.VMTerminalDashboard = {
     async render(vm, mesFiltro, anoFiltro) {
       this._vm = vm
@@ -177,6 +264,13 @@
                 <article class="td-kpi"><span>Despesas</span><strong>${money(resumo.total_despesas)}</strong>${delta(resumo.var_despesas_pct, true)}</article>
                 <article class="td-kpi td-kpi--score" onclick="${data.score_bloqueado ? "VM.upsellModal('score_saude')" : "VM.navigate('ia')"}"><span>Score de saúde</span><strong>${score === null ? '—' : `${Number(score)}<small>/100</small>`}</strong><span class="td-kpi__delta">${score === null ? 'Disponível no Premium' : score >= 80 ? 'Muito bom' : score >= 60 ? 'Bom caminho' : 'Pede atenção'}</span></article>
               </div>
+            </section>
+
+            ${metricsStrip(resumo, data)}
+
+            <section class="td-analysis-grid">
+              ${scorePanel(data)}
+              ${cardsPanel(data.cartoes)}
             </section>
 
             <section class="td-insights-grid">

@@ -623,7 +623,7 @@ function appShell() {
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
   <link rel="stylesheet" href="/static/app.css?v=20260317-1">
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-2">
-  <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260828-4">
+  <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260831-8">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
   <link rel="stylesheet" href="/static/terminal-screens.css?v=20260829-1">
 </head>
@@ -637,7 +637,7 @@ function appShell() {
     </div>
   </div>
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
-  <script src="/static/terminal-dashboard.js?v=20260828-1"></script>
+  <script src="/static/terminal-dashboard.js?v=20260831-8"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
   <script src="/static/terminal-metas.js?v=20260829-1"></script>
   <script src="/static/terminal-orcamentos.js?v=20260829-1"></script>

@@ -311,6 +311,50 @@ dashboard.get('/', requireAuth, async (c) => {
 
   const lim = getLimites(user.plano)
 
+  // ── Cartões: resumo por cartão (limite, utilizado e fatura do mês) ─────────
+  // 3 GROUP BY em 1 round-trip, em vez do loop 2-queries-por-cartão da tela de
+  // cartões. Alimenta o painel "Seus cartões" do dashboard.
+  const cartoesBatch = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT id, nome, apelido, cor, limite_total FROM cartoes WHERE user_id = ? AND ativo = 1 ORDER BY id ASC`
+    ).bind(user.id),
+    c.env.DB.prepare(
+      `SELECT cc.card_id, COALESCE(SUM(cc.valor),0) as utilizado
+       FROM card_charges cc JOIN cartoes c ON c.id = cc.card_id
+       WHERE c.user_id = ? AND cc.status = 'pendente'
+       GROUP BY cc.card_id`
+    ).bind(user.id),
+    c.env.DB.prepare(
+      `SELECT cc.card_id, COALESCE(SUM(cc.valor),0) as fatura
+       FROM card_charges cc JOIN cartoes c ON c.id = cc.card_id
+       WHERE c.user_id = ? AND cc.billing_month = ? AND cc.billing_year = ? AND cc.status = 'pendente'
+       GROUP BY cc.card_id`
+    ).bind(user.id, parseInt(mes), parseInt(ano)),
+  ])
+  const cartoesRows = (cartoesBatch[0].results || []) as any[]
+  const usoMap: Record<number, number> = {}
+  const fatMap: Record<number, number> = {}
+  for (const r of (cartoesBatch[1].results || []) as any[]) usoMap[Number(r.card_id)] = Number(r.utilizado) || 0
+  for (const r of (cartoesBatch[2].results || []) as any[]) fatMap[Number(r.card_id)] = Number(r.fatura) || 0
+  const cartoesLista = cartoesRows.map((cardRow) => {
+    const limite = Math.round((Number(cardRow.limite_total) || 0) * 100) / 100
+    const utilizado = Math.round((usoMap[Number(cardRow.id)] || 0) * 100) / 100
+    const disponivel = Math.round(Math.max(0, limite - utilizado) * 100) / 100
+    return {
+      id: cardRow.id,
+      nome: cardRow.apelido || cardRow.nome,
+      cor: cardRow.cor || '#6EA8FE',
+      limite_total: limite,
+      utilizado,
+      disponivel,
+      uso_pct: limite > 0 ? Math.round((utilizado / limite) * 100) : 0,
+      fatura_mes: Math.round((fatMap[Number(cardRow.id)] || 0) * 100) / 100,
+    }
+  })
+  const cartoesTotLimite = Math.round(cartoesLista.reduce((s, k) => s + k.limite_total, 0) * 100) / 100
+  const cartoesTotUsado  = Math.round(cartoesLista.reduce((s, k) => s + k.utilizado, 0) * 100) / 100
+  const cartoesTotFatura = Math.round(cartoesLista.reduce((s, k) => s + k.fatura_mes, 0) * 100) / 100
+
   // Bloco 4.2: Top 5 Tags por gastos do mês (widget "Gastos por Tag")
   const topTagsResult = await c.env.DB.prepare(`
     SELECT t.nome, t.cor, COALESCE(SUM(d.valor), 0) as total, COUNT(DISTINCT d.id) as qtd
@@ -589,6 +633,15 @@ dashboard.get('/', requireAuth, async (c) => {
     proximos_vencimentos: proximosVencimentos.results,
     despesas_status: despesasStatus.results,
     top_tags: topTags,  // Bloco 4.2: widget Gastos por Tag
+    cartoes: {
+      lista: cartoesLista,
+      count: cartoesLista.length,
+      total_limite: cartoesTotLimite,
+      total_utilizado: cartoesTotUsado,
+      total_disponivel: Math.round(Math.max(0, cartoesTotLimite - cartoesTotUsado) * 100) / 100,
+      total_fatura_mes: cartoesTotFatura,
+      uso_pct: cartoesTotLimite > 0 ? Math.round((cartoesTotUsado / cartoesTotLimite) * 100) : 0,
+    },
     periodo: { mes, ano },
     // Comparativo com mês anterior
     mes_anterior: {
