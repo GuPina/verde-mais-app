@@ -1743,16 +1743,18 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
         group_id: key, cartao_id: r.card_id, cartao_nome: r.cartao_nome, cartao_cor: r.cartao_cor || '#6EA8FE',
         descricao: limpar(r.descricao) || 'Compra no cartão',
         categoria: r.categoria || null,
-        total_parcelas: Number(r.total_parcelas) || 0,
+        total_declarado: Number(r.total_parcelas) || 0,
         valor_total: 0, valor_parcela: 0, parcelas_pagas: 0, valor_pago: 0,
+        parcelas_pendentes: 0, valor_pendente: 0,
         data_compra: r.data_compra || null, _tagIds: new Set<string>(), tags: [] as any[],
         _encerra: null as any, _prox: null as any, _primeira: null as number | null,
       }
     }
     const v = Number(r.valor) || 0
     g.valor_total += v
-    g.total_parcelas = Math.max(g.total_parcelas, Number(r.total_parcelas) || 0)
+    g.total_declarado = Math.max(g.total_declarado, Number(r.total_parcelas) || 0)
     if (r.status === 'pago') { g.parcelas_pagas += 1; g.valor_pago += v }
+    else if (r.status === 'pendente') { g.parcelas_pendentes += 1; g.valor_pendente += v }
     if (g._primeira === null || (Number(r.parcela_atual) || 99) < g._primeira) { g._primeira = Number(r.parcela_atual) || 1; g.valor_parcela = v }
     // última parcela → encerramento
     if (Number(r.parcela_atual) === Number(r.total_parcelas)) {
@@ -1774,16 +1776,24 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
 
   let compras = Object.values(grupos).map((g: any) => {
     const total = round2(g.valor_total)
-    const parcela = g.valor_parcela > 0 ? round2(g.valor_parcela) : (g.total_parcelas > 0 ? round2(total / g.total_parcelas) : total)
-    const restantes = Math.max(0, g.total_parcelas - g.parcelas_pagas)
-    const { _tagIds, _encerra, _prox, _primeira, ...rest } = g
+    // "Quitada"/"faltam" saem das parcelas que REALMENTE existem (pago + pendente),
+    // não do campo total_parcelas — que às vezes vem inconsistente entre as parcelas
+    // da mesma compra (ex.: financiamento sincronizado) e fazia uma compra 100% paga
+    // aparecer como "faltam 1".
+    const geradas = g.parcelas_pagas + g.parcelas_pendentes
+    const totalParcelas = Math.max(geradas, 1)
+    const parcela = g.valor_parcela > 0 ? round2(g.valor_parcela) : round2(total / totalParcelas)
+    const restantes = g.parcelas_pendentes
+    const { _tagIds, _encerra, _prox, _primeira, total_declarado, valor_pendente, parcelas_pendentes, ...rest } = g
     return {
       ...rest,
+      total_parcelas: totalParcelas,
+      total_declarado,
       valor_parcela: parcela,
       valor_total: total,
       valor_pago: round2(g.valor_pago),
       parcelas_restantes: restantes,
-      valor_restante: round2(parcela * restantes),
+      valor_restante: round2(g.valor_pendente),
       quitada: restantes === 0,
       encerra_em: _encerra,
       proxima: _prox ? { mes: _prox.mes, ano: _prox.ano, valor: round2(_prox.valor), label: _prox.label } : null,
