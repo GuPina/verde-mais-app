@@ -3722,7 +3722,9 @@ const VM = {
     const catD     = saved.cat    || ''
     const busca    = saved.busca  || ''
     const tagFiltro = saved.tagFiltro || ''
+    const parcD    = saved.parcelas || ''
     const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const parcelasOpcoes = [['','Todas'],['avista','À vista (1x)'],['multi','Parceladas (2x+)'],['2','2x'],['3','3x'],['4','4x'],['5','5x'],['6','6x'],['10','10x'],['12','12x'],['18','18x'],['24','24x'],['36','36x'],['48','48x'],['60','60x']]
 
     document.getElementById('page-content').innerHTML = `
       <div class="tf-screen tf-screen--despesas">
@@ -3801,6 +3803,13 @@ const VM = {
             <select id="filtro-tag-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:140px;" onchange="VM.carregarDespesas()">
               <option value="">Todas as tags</option>
               <option value="__sem_tag__">🚫 Sem tag</option>
+            </select>
+          </div>
+          <!-- Filtro por Parcelas -->
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Parcelas</label>
+            <select id="filtro-parcelas-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:130px;" onchange="VM.carregarDespesas()">
+              ${parcelasOpcoes.map(([v,l]) => `<option value="${v}" ${v === parcD ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
@@ -3938,6 +3947,7 @@ const VM = {
     if (el('filtro-busca-d'))  el('filtro-busca-d').value  = ''
     if (el('filtro-cartao-d')) el('filtro-cartao-d').value = ''
     if (el('filtro-tag-d'))    el('filtro-tag-d').value    = ''
+    if (el('filtro-parcelas-d')) el('filtro-parcelas-d').value = ''
     this.carregarDespesas()
   },
 
@@ -3988,10 +3998,11 @@ const VM = {
     const busca  = document.getElementById('filtro-busca-d')?.value  || ''
     const cartaoFiltro = document.getElementById('filtro-cartao-d')?.value || ''
     const tagFiltro    = document.getElementById('filtro-tag-d')?.value    || ''
+    const parcelas     = document.getElementById('filtro-parcelas-d')?.value || ''
     const limit  = 20
     const offset = (pagina - 1) * limit
 
-    this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro, tagFiltro }
+    this._despesaFiltro = { mes, ano, status, cat, busca, cartaoFiltro, tagFiltro, parcelas }
 
     const params = new URLSearchParams({ ano, limit: String(limit), offset: String(offset) })
     if (mes) params.set('mes', mes)
@@ -4012,6 +4023,7 @@ const VM = {
     } else if (tagFiltro === '__sem_tag__') {
       params.set('sem_tag', '1')
     }
+    if (parcelas) params.set('parcelas', parcelas)
     const qs = params.toString()
 
     try {

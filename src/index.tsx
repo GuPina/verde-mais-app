@@ -670,7 +670,7 @@ function appShell() {
   <script src="/static/terminal-compras-fantasma.js?v=20260831-3"></script>
   <script src="/static/terminal-importacao.js?v=20260831-3"></script>
   <script src="/static/terminal-assistente.js?v=20260831-3"></script>
-  <script src="/static/app.js?v=20260828-2"></script>
+  <script src="/static/app.js?v=20260901-1"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

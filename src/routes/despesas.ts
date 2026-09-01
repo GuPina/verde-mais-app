@@ -175,7 +175,7 @@ function filtroCategoriaDespaSQL(categoria: string): string {
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag } = c.req.query()
+  const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag, parcelas } = c.req.query()
 
   const paginacao = parsePaginacao(limit, offset)
   if ('error' in paginacao) return c.json({ error: paginacao.error }, 400)
@@ -187,6 +187,23 @@ despesas.get('/', requireAuth, async (c) => {
   if (cartao_id && !cartaoIdNum) return c.json({ error: 'cartao_id inválido.' }, 400)
   const tagIdNum = tag_id ? parseInteiroPositivo(tag_id) : null
   if (tag_id && !tagIdNum) return c.json({ error: 'tag_id inválido.' }, 400)
+
+  // Filtro por número de parcelas: 'multi' = todas parceladas (2x+); 'avista' = à vista (1x);
+  // um inteiro N (1..60) = exatamente N parcelas. Devolve {clause, bind}.
+  let parcelasClause = ''
+  let parcelasBind: number | null = null
+  if (parcelas === 'multi') {
+    parcelasClause = ' AND COALESCE(numero_parcelas, 1) > 1'
+  } else if (parcelas === 'avista') {
+    parcelasClause = ' AND COALESCE(numero_parcelas, 1) = 1'
+  } else if (parcelas && /^\d+$/.test(parcelas)) {
+    const n = parseInt(parcelas, 10)
+    if (n < 1 || n > 60) return c.json({ error: 'Número de parcelas inválido (use 1 a 60).' }, 400)
+    parcelasClause = ' AND COALESCE(numero_parcelas, 1) = ?'
+    parcelasBind = n
+  } else if (parcelas) {
+    return c.json({ error: 'Filtro de parcelas inválido.' }, 400)
+  }
 
   let query = 'SELECT * FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
   const params: any[] = [user.id]
@@ -226,6 +243,7 @@ despesas.get('/', requireAuth, async (c) => {
   if (sem_tag === '1') {
     query += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)'
   }
+  if (parcelasClause) { query += parcelasClause; if (parcelasBind !== null) params.push(parcelasBind) }
 
   query += ' ORDER BY data DESC, id DESC LIMIT ? OFFSET ?'
   params.push(paginacao.limitNum, paginacao.offsetNum)
@@ -252,6 +270,7 @@ despesas.get('/', requireAuth, async (c) => {
   if (busca)       { baseFilter += ' AND descricao LIKE ?';    baseParams.push(`%${busca.replace(/'/g, "''")}%`) }
   if (tagIdNum)    { baseFilter += ' AND EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id AND dt.tag_id = ?)'; baseParams.push(tagIdNum) }
   if (sem_tag === '1') { baseFilter += ' AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = despesas.id)' }
+  if (parcelasClause) { baseFilter += parcelasClause; if (parcelasBind !== null) baseParams.push(parcelasBind) }
 
   const caseExpr = gerarCaseCategoriaDesp()
 
