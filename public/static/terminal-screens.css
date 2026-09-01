@@ -889,3 +889,25 @@
 .ac-evo-saldo--muted { color: var(--terminal-ink-soft); }
 .ac-parc-ins__head { margin-bottom: 4px; }
 .ac-parc-ins__head i { color: var(--terminal-accent); margin-right: 5px; }
+
+/* ── Paginação (ac-pager) ── */
+.ac-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--terminal-line); }
+.ac-pager:empty { border-top: 0; margin: 0; padding: 0; }
+.ac-pager__info { font: 600 11px/1 var(--terminal-mono); color: var(--terminal-ink-soft); text-transform: uppercase; letter-spacing: .05em; }
+.ac-pager__ctrl { display: inline-flex; align-items: center; gap: 5px; }
+.ac-pager__ctrl button { min-width: 32px; height: 32px; padding: 0 8px; display: grid; place-items: center; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm); background: var(--terminal-bg); color: var(--terminal-ink); font: 600 12px/1 var(--terminal-font); cursor: pointer; }
+.ac-pager__ctrl button:hover:not(:disabled) { border-color: #35503e; }
+.ac-pager__ctrl button.is-on { background: var(--terminal-primary); color: var(--terminal-bg); border-color: var(--terminal-primary); }
+.ac-pager__ctrl button:disabled { opacity: .4; cursor: default; }
+.ac-pager__dots { color: var(--terminal-ink-soft); padding: 0 2px; }
+
+/* ── Evolutivo: cabeçalho com seletor de ano ── */
+.ac-evo-head { display: flex; align-items: center; gap: 14px; }
+.ac-evo-head select { height: 34px; padding: 0 28px 0 12px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm); background: var(--terminal-bg); color: var(--terminal-ink); font: 700 12.5px/1 var(--terminal-font); cursor: pointer; }
+.ac-evo-head select:focus { outline: none; border-color: #35503e; }
+
+/* ── Compras pontuais: badge de situação ── */
+.ac-pont-st { white-space: nowrap; }
+.ac-pont-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font: 600 11px/1.3 var(--terminal-font); border: 1px solid; }
+.ac-pont-badge--ok { color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 12%, transparent); border-color: color-mix(in srgb, var(--terminal-primary) 40%, transparent); }
+.ac-pont-badge--warn { color: var(--terminal-accent); background: color-mix(in srgb, var(--terminal-accent) 12%, transparent); border-color: color-mix(in srgb, var(--terminal-accent) 40%, transparent); }

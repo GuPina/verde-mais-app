@@ -645,7 +645,7 @@ function appShell() {
   <script src="/static/terminal-lembretes.js?v=20260829-1"></script>
   <script src="/static/terminal-desafio.js?v=20260829-1"></script>
   <script src="/static/terminal-investimentos.js?v=20260829-1"></script>
-  <script src="/static/terminal-analise-cartoes.js?v=20260901-4"></script>
+  <script src="/static/terminal-analise-cartoes.js?v=20260901-5"></script>
   <script src="/static/terminal-aportes.js?v=20260829-1"></script>
   <script src="/static/terminal-reserva.js?v=20260829-1"></script>
   <script src="/static/terminal-reservas-esp.js?v=20260829-1"></script>

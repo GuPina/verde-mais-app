@@ -1694,6 +1694,9 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
   const busca = (c.req.query('busca') || '').trim().toLowerCase()
   const categoriaFiltro = (c.req.query('categoria') || '').trim().toLowerCase()
   const statusFiltro = c.req.query('status') || '' // 'andamento' | 'quitada'
+  const faltamRaw = (c.req.query('faltam') || '').trim() // '1'..'5' exato, '6+' = 6 ou mais
+  const evoAnoRaw = c.req.query('evo_ano')
+  const evoAno = evoAnoRaw && /^\d{4}$/.test(evoAnoRaw) ? parseInt(evoAnoRaw, 10) : new Date().getFullYear()
 
   const filtroCartao = cartaoId ? ' AND cc.card_id = ?' : ''
   const binds: any[] = [user.id]
@@ -1810,6 +1813,10 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
   if (categoriaFiltro) compras = compras.filter(g => (g.categoria || '').toLowerCase() === categoriaFiltro)
   if (statusFiltro === 'andamento') compras = compras.filter(g => !g.quitada)
   else if (statusFiltro === 'quitada') compras = compras.filter(g => g.quitada)
+  if (faltamRaw) {
+    if (faltamRaw === '6+') compras = compras.filter(g => (g.parcelas_restantes || 0) >= 6)
+    else if (/^\d+$/.test(faltamRaw)) { const n = parseInt(faltamRaw, 10); compras = compras.filter(g => (g.parcelas_restantes || 0) === n) }
+  }
 
   // Ordena: em andamento primeiro, depois por valor restante desc
   compras.sort((a, b) => (Number(a.quitada) - Number(b.quitada)) || (b.valor_restante - a.valor_restante) || (b.valor_total - a.valor_total))
@@ -1831,23 +1838,24 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
   }
   const now2 = new Date()
   const nowIdx = now2.getFullYear() * 12 + now2.getMonth() // índice do mês atual
-  const idxs = Object.values(evoMap).map(e => e.a * 12 + (e.m - 1))
-  let evolucao: any[] = []
-  if (idxs.length) {
-    const minI = Math.max(Math.min(...idxs), nowIdx - 6)
-    const maxI = Math.min(Math.max(...idxs), nowIdx + 18)
-    for (let i = minI; i <= maxI; i++) {
-      const a = Math.floor(i / 12), m = (i % 12) + 1
-      const e = evoMap[`${a}-${String(m).padStart(2, '0')}`]
-      const entramV = round2(e?.entramV || 0), saemV = round2(e?.saemV || 0)
-      evolucao.push({
-        label: `${NOMES[m - 1]}/${String(a).slice(2)}`, mes: m, ano: a, idx: i, futuro: i > nowIdx,
-        entram: { qtd: e?.entramQ || 0, valor: entramV },
-        saem: { qtd: e?.saemQ || 0, valor: saemV },
-        saldo: round2(entramV - saemV),
-      })
-    }
+  const anoAtual2 = now2.getFullYear()
+  // Ano completo (Jan..Dez) do ano selecionado.
+  const evolucao: any[] = []
+  for (let m = 1; m <= 12; m++) {
+    const i = evoAno * 12 + (m - 1)
+    const e = evoMap[`${evoAno}-${String(m).padStart(2, '0')}`]
+    const entramV = round2(e?.entramV || 0), saemV = round2(e?.saemV || 0)
+    evolucao.push({
+      label: `${NOMES[m - 1]}/${String(evoAno).slice(2)}`, mes: m, ano: evoAno, idx: i, futuro: i > nowIdx,
+      entram: { qtd: e?.entramQ || 0, valor: entramV },
+      saem: { qtd: e?.saemQ || 0, valor: saemV },
+      saldo: round2(entramV - saemV),
+    })
   }
+  // Anos com dados + ano atual e os 2 próximos (para o seletor).
+  const anosSet = new Set<number>([anoAtual2, anoAtual2 + 1, anoAtual2 + 2])
+  for (const e of Object.values(evoMap)) anosSet.add(e.a)
+  const evoAnos = [...anosSet].filter(a => a >= 2020 && a <= 2100).sort((a, b) => a - b)
 
   return c.json({
     compras,
@@ -1860,6 +1868,135 @@ cartoes.get('/parceladas', requireAuth, async (c) => {
       quitadas: compras.filter(g => g.quitada).length,
     },
     evolucao,
+    evo_ano: evoAno,
+    evo_anos: evoAnos,
+    mes_atual_idx: nowIdx,
+    categorias,
+    cartoes: cartoesLista,
+  })
+})
+
+// ─── GET /api/cartoes/pontuais ───────────────────────────────────────────────
+// Compras À VISTA (não parceladas) de cartão — cada cobrança é uma compra.
+// Espelha /parceladas: resumo (total/pago/pendente), evolutivo mensal por ano,
+// filtros (busca, cartão, categoria, status) e insights (gerados no front).
+cartoes.get('/pontuais', requireAuth, async (c) => {
+  const user = c.get('user')
+  const cartaoIdRaw = c.req.query('cartao_id')
+  if (cartaoIdRaw && !/^\d+$/.test(cartaoIdRaw)) return c.json({ error: 'cartao_id inválido.' }, 400)
+  const cartaoId = cartaoIdRaw ? parseInt(cartaoIdRaw, 10) : null
+  const busca = (c.req.query('busca') || '').trim().toLowerCase()
+  const categoriaFiltro = (c.req.query('categoria') || '').trim().toLowerCase()
+  const statusFiltro = c.req.query('status') || '' // 'pago' | 'pendente'
+  const anoRaw = c.req.query('ano')
+  const now2 = new Date()
+  const anoAtual2 = now2.getFullYear()
+  const ano = anoRaw && /^\d{4}$/.test(anoRaw) ? parseInt(anoRaw, 10) : anoAtual2
+
+  const filtroCartao = cartaoId ? ' AND cc.card_id = ?' : ''
+  const bindsBase: any[] = [user.id, ano]
+  if (cartaoId) bindsBase.push(cartaoId)
+
+  const rowsR = await c.env.DB.prepare(
+    `SELECT cc.id, cc.card_id, cc.expense_id, cc.descricao, cc.valor, cc.data_compra,
+            cc.billing_month, cc.billing_year, cc.status,
+            ct.nome as cartao_nome, ct.cor as cartao_cor,
+            d.categoria as categoria
+     FROM card_charges cc
+     JOIN cartoes ct ON ct.id = cc.card_id
+     LEFT JOIN despesas d ON d.id = cc.expense_id
+     WHERE ct.user_id = ? AND cc.status != 'cancelado'
+       AND COALESCE(cc.total_parcelas, 1) <= 1
+       AND cc.billing_year = ?${filtroCartao}
+     ORDER BY cc.billing_month DESC, cc.id DESC`
+  ).bind(...bindsBase).all<any>()
+  const rows = rowsR.results || []
+
+  // Tags por despesa
+  const expenseIds = [...new Set(rows.map((r: any) => r.expense_id).filter((x: any) => x != null))]
+  const tagsPorDespesa: Record<number, Array<{ nome: string; cor: string }>> = {}
+  if (expenseIds.length) {
+    const ph = expenseIds.map(() => '?').join(',')
+    const tagsR = await c.env.DB.prepare(
+      `SELECT dt.despesa_id, t.nome, t.cor
+       FROM despesa_tags dt JOIN tags t ON t.id = dt.tag_id
+       WHERE dt.despesa_id IN (${ph})`
+    ).bind(...expenseIds).all<any>()
+    for (const t of (tagsR.results || [])) (tagsPorDespesa[t.despesa_id] ||= []).push({ nome: t.nome, cor: t.cor })
+  }
+
+  const NOMES2 = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const round2b = (v: number) => Math.round((Number(v) || 0) * 100) / 100
+
+  let compras = rows.map((r: any) => ({
+    id: r.id,
+    descricao: r.descricao || 'Compra no cartão',
+    cartao_id: r.card_id,
+    cartao_nome: r.cartao_nome,
+    cartao_cor: r.cartao_cor || '#6EA8FE',
+    categoria: r.categoria || null,
+    tags: r.expense_id ? (tagsPorDespesa[r.expense_id] || []) : [],
+    valor: round2b(r.valor),
+    status: r.status,
+    data_compra: r.data_compra || null,
+    mes: r.billing_month,
+    mes_label: `${NOMES2[(r.billing_month || 1) - 1]}/${String(r.billing_year).slice(2)}`,
+  }))
+
+  // Evolutivo mensal (Jan..Dez do ano) — de TODAS as pontuais do ano (só filtro de cartão)
+  const evoMap: Record<number, { q: number; v: number; pago: number; pend: number }> = {}
+  for (const r of rows) {
+    const m = Number(r.billing_month) || 0
+    if (m < 1 || m > 12) continue
+    const e = evoMap[m] || (evoMap[m] = { q: 0, v: 0, pago: 0, pend: 0 })
+    const v = Number(r.valor) || 0
+    e.q += 1; e.v += v
+    if (r.status === 'pago') e.pago += v
+    else if (r.status === 'pendente') e.pend += v
+  }
+  const nowIdx = anoAtual2 * 12 + now2.getMonth()
+  const evolucao = []
+  for (let m = 1; m <= 12; m++) {
+    const e = evoMap[m]
+    evolucao.push({
+      label: `${NOMES2[m - 1]}/${String(ano).slice(2)}`, mes: m, ano, idx: ano * 12 + (m - 1), futuro: (ano * 12 + (m - 1)) > nowIdx,
+      qtd: e?.q || 0, valor: round2b(e?.v || 0), pago: round2b(e?.pago || 0), pendente: round2b(e?.pend || 0),
+    })
+  }
+
+  // Filtros em memória (na tabela)
+  if (busca) compras = compras.filter(g => g.descricao.toLowerCase().includes(busca))
+  if (categoriaFiltro) compras = compras.filter(g => (g.categoria || '').toLowerCase() === categoriaFiltro)
+  if (statusFiltro === 'pago') compras = compras.filter(g => g.status === 'pago')
+  else if (statusFiltro === 'pendente') compras = compras.filter(g => g.status === 'pendente')
+  compras.sort((a, b) => (b.mes - a.mes) || (b.valor - a.valor))
+
+  const total = round2b(compras.reduce((s, g) => s + g.valor, 0))
+  const totalPago = round2b(compras.reduce((s, g) => s + (g.status === 'pago' ? g.valor : 0), 0))
+  const totalPend = round2b(compras.reduce((s, g) => s + (g.status === 'pendente' ? g.valor : 0), 0))
+
+  // Anos disponíveis
+  const anosDataR = await c.env.DB.prepare(
+    `SELECT DISTINCT cc.billing_year as ano
+     FROM card_charges cc JOIN cartoes ct ON ct.id = cc.card_id
+     WHERE ct.user_id = ? AND cc.status != 'cancelado' AND COALESCE(cc.total_parcelas,1) <= 1`
+  ).bind(user.id).all<any>()
+  const anosSet = new Set<number>([anoAtual2, anoAtual2 - 1])
+  for (const r of (anosDataR.results || [])) { const a = Number(r.ano); if (a >= 2020 && a <= 2100) anosSet.add(a) }
+  const anos = [...anosSet].sort((a, b) => b - a)
+
+  const categorias = [...new Set(rows.map((r: any) => r.categoria).filter(Boolean))].sort()
+  const cartoesLista = [...new Map(rows.map((r: any) => [r.card_id, { id: r.card_id, nome: r.cartao_nome }])).values()]
+
+  return c.json({
+    compras,
+    resumo: {
+      count: compras.length,
+      total, total_pago: totalPago, total_pendente: totalPend,
+      ticket_medio: compras.length ? round2b(total / compras.length) : 0,
+    },
+    evolucao,
+    ano, anos,
     mes_atual_idx: nowIdx,
     categorias,
     cartoes: cartoesLista,

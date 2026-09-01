@@ -7,7 +7,11 @@
 
   window.VMTerminalAnaliseCartoes = {
     _meses: 12, _cartao: '',
-    _parcFiltro: { busca: '', cartao: '', categoria: '', status: '' },
+    _parcFiltro: { busca: '', cartao: '', categoria: '', status: '', faltam: '' },
+    _parcPage: 1, _evoAno: null,
+    _pontFiltro: { busca: '', cartao: '', categoria: '', status: '' },
+    _pontPage: 1, _pontAno: null,
+    PER_PAGE: 10,
     async render(vm) {
       this._vm = vm
       const content = document.getElementById('page-content')
@@ -90,10 +94,13 @@
 
         ${this._parcSection(cartoes)}
 
+        ${this._pontSection(cartoes)}
+
         ${(d.leitura || []).length ? `<section class="ac-leitura">${d.leitura.map(l => `<p><i class="fas fa-lightbulb"></i> ${esc(l)}</p>`).join('')}</section>` : ''}
       </div>`
 
       this.loadParceladas()
+      this.loadPontuais()
     },
 
     _parcSection(cartoes) {
@@ -114,12 +121,19 @@
               <option value="andamento" ${f.status === 'andamento' ? 'selected' : ''}>Em andamento</option>
               <option value="quitada" ${f.status === 'quitada' ? 'selected' : ''}>Quitadas</option>
             </select>
+            <select id="ac-parc-faltam" onchange="VMTerminalAnaliseCartoes.filtrarParceladas()">
+              <option value="">Faltam: todas</option>
+              ${['1', '2', '3', '4', '5', '6+'].map(n => `<option value="${n}" ${f.faltam === n ? 'selected' : ''}>Faltam ${n}${n === '6+' ? '' : ' parcela' + (n === '1' ? '' : 's')}</option>`).join('')}
+            </select>
           </div>
           <div class="ac-parc__wrap" id="ac-parc-body"><div class="td-loading"><span></span><span></span><span></span></div></div>
+          <div class="ac-pager" id="ac-parc-pager"></div>
         </article>
 
         <article class="td-panel" style="margin-top:16px">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Compras parceladas · mês a mês</span><h2>Entraram × encerraram</h2></div><div class="ac-evo-legend"><span><i class="ac-evo-sw ac-evo-sw--in"></i>entram</span><span><i class="ac-evo-sw ac-evo-sw--out"></i>encerram</span></div></div>
+          <div class="td-panel__head"><div><span class="td-eyebrow">Compras parceladas · mês a mês</span><h2>Entraram × encerraram</h2></div>
+            <div class="ac-evo-head"><select id="ac-parc-evoano" onchange="VMTerminalAnaliseCartoes.setEvoAno(this.value)"></select><div class="ac-evo-legend"><span><i class="ac-evo-sw ac-evo-sw--in"></i>entram</span><span><i class="ac-evo-sw ac-evo-sw--out"></i>encerram</span></div></div>
+          </div>
           <div id="ac-parc-evo"><div class="td-loading"><span></span><span></span><span></span></div></div>
         </article>
 
@@ -133,9 +147,13 @@
         cartao: document.getElementById('ac-parc-cartao')?.value || '',
         categoria: document.getElementById('ac-parc-cat')?.value || '',
         status: document.getElementById('ac-parc-status')?.value || '',
+        faltam: document.getElementById('ac-parc-faltam')?.value || '',
       }
+      this._parcPage = 1
       this.loadParceladas()
     },
+    setEvoAno(a) { this._evoAno = a || null; this.loadParceladas() },
+    gotoParcPage(p) { this._parcPage = Math.max(1, p); this._parcRenderPage() },
 
     async loadParceladas() {
       const body = document.getElementById('ac-parc-body')
@@ -146,12 +164,22 @@
       if (f.cartao) p.set('cartao_id', f.cartao)
       if (f.categoria) p.set('categoria', f.categoria)
       if (f.status) p.set('status', f.status)
+      if (f.faltam) p.set('faltam', f.faltam)
+      if (this._evoAno) p.set('evo_ano', this._evoAno)
       try {
         const d = await this._vm.api('GET', `cartoes/parceladas${p.toString() ? '?' + p.toString() : ''}`)
+        this._parcData = d
         // popular categorias (uma vez)
         const catSel = document.getElementById('ac-parc-cat')
         if (catSel && catSel.options.length <= 1 && (d.categorias || []).length) {
           catSel.innerHTML = '<option value="">Todas categorias</option>' + d.categorias.map(cat => `<option value="${esc(cat)}" ${f.categoria === cat ? 'selected' : ''}>${esc(cat)}</option>`).join('')
+        }
+        // popular anos do evolutivo
+        const anoSel = document.getElementById('ac-parc-evoano')
+        if (anoSel && (d.evo_anos || []).length) {
+          const cur = String(this._evoAno || d.evo_ano)
+          anoSel.innerHTML = d.evo_anos.map(a => `<option value="${a}" ${String(a) === cur ? 'selected' : ''}>${a}</option>`).join('')
+          if (!this._evoAno) this._evoAno = String(d.evo_ano)
         }
         const r = d.resumo || {}
         const cnt = document.getElementById('ac-parc-count')
@@ -165,12 +193,38 @@
               <div class="ac-sum-bar"><span style="width:${Math.min(100, pctPago)}%"></span></div></div>
             <div class="ac-sum-tile ac-sum-tile--warn"><span class="ac-sum-lbl">Falta pagar</span><strong>${money(r.total_restante)}</strong><small>${r.em_andamento || 0} em andamento</small></div>`
         }
-        this._parcRows(d.compras || [], body)
+        this._parcPage = 1
+        this._parcRenderPage()
         this._parcEvo(d.evolucao || [], d.mes_atual_idx)
         this._parcInsights(d)
       } catch (e) {
         body.innerHTML = `<div class="td-empty-row"><i class="fas fa-triangle-exclamation"></i><span>${esc(e.response?.data?.error || 'Erro ao carregar as compras parceladas.')}</span></div>`
       }
+    },
+
+    _parcRenderPage() {
+      const body = document.getElementById('ac-parc-body')
+      const all = this._parcData?.compras || []
+      const per = this.PER_PAGE
+      const pages = Math.max(1, Math.ceil(all.length / per))
+      if (this._parcPage > pages) this._parcPage = pages
+      const slice = all.slice((this._parcPage - 1) * per, this._parcPage * per)
+      if (body) this._parcRows(slice, body)
+      this._pager('ac-parc-pager', all.length, this._parcPage, pages, 'gotoParcPage')
+    },
+
+    _pager(elId, total, page, pages, fn) {
+      const el = document.getElementById(elId)
+      if (!el) return
+      if (pages <= 1) { el.innerHTML = total ? `<span class="ac-pager__info">${total} ite${total === 1 ? 'm' : 'ns'}</span>` : ''; return }
+      const btn = (p, lbl, dis, on) => `<button ${dis ? 'disabled' : ''} ${on ? 'class="is-on"' : ''} onclick="VMTerminalAnaliseCartoes.${fn}(${p})">${lbl}</button>`
+      let nums = ''
+      const win = []
+      for (let i = 1; i <= pages; i++) { if (i === 1 || i === pages || Math.abs(i - page) <= 1) win.push(i) }
+      let last = 0
+      for (const i of win) { if (i - last > 1) nums += '<span class="ac-pager__dots">…</span>'; nums += btn(i, String(i), false, i === page); last = i }
+      el.innerHTML = `<span class="ac-pager__info">${total} ite${total === 1 ? 'm' : 'ns'} · pág. ${page}/${pages}</span>
+        <div class="ac-pager__ctrl">${btn(page - 1, '<i class="fas fa-chevron-left"></i>', page <= 1, false)}${nums}${btn(page + 1, '<i class="fas fa-chevron-right"></i>', page >= pages, false)}</div>`
     },
 
     _parcEvo(evo, nowIdx) {
@@ -260,6 +314,175 @@
         <thead><tr><th>Compra</th><th>Cartão</th><th>Categoria · Tags</th><th class="ac-parc-num">Parcela</th><th>Parcelas</th><th class="ac-parc-num">Total</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`
+    },
+
+    // ════════════ Compras pontuais (à vista) ════════════
+    _pontSection(cartoes) {
+      const f = this._pontFiltro
+      return `<section class="ac-parc ac-pont" style="margin-top:22px">
+        <article class="td-panel">
+          <div class="td-panel__head"><div><span class="td-eyebrow">Cartões · compras à vista</span><h2>Suas compras pontuais</h2></div><span class="td-chip" id="ac-pont-count">—</span></div>
+          <div class="ac-parc-sum" id="ac-pont-sum"></div>
+          <div class="ac-parc__filters">
+            <div class="ac-parc__search"><i class="fas fa-search"></i><input id="ac-pont-busca" type="text" placeholder="Buscar compra…" value="${esc(f.busca)}" oninput="clearTimeout(VMTerminalAnaliseCartoes._pt2);VMTerminalAnaliseCartoes._pt2=setTimeout(()=>VMTerminalAnaliseCartoes.filtrarPontuais(),360)"></div>
+            <select id="ac-pont-ano" onchange="VMTerminalAnaliseCartoes.filtrarPontuais()"></select>
+            <select id="ac-pont-cartao" onchange="VMTerminalAnaliseCartoes.filtrarPontuais()">
+              <option value="">Todos os cartões</option>
+              ${(cartoes || []).map(c => `<option value="${c.id}" ${String(f.cartao) === String(c.id) ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}
+            </select>
+            <select id="ac-pont-cat" onchange="VMTerminalAnaliseCartoes.filtrarPontuais()"><option value="">Todas categorias</option></select>
+            <select id="ac-pont-status" onchange="VMTerminalAnaliseCartoes.filtrarPontuais()">
+              <option value="">Todas</option>
+              <option value="pago" ${f.status === 'pago' ? 'selected' : ''}>Pagas</option>
+              <option value="pendente" ${f.status === 'pendente' ? 'selected' : ''}>Pendentes</option>
+            </select>
+          </div>
+          <div class="ac-parc__wrap" id="ac-pont-body"><div class="td-loading"><span></span><span></span><span></span></div></div>
+          <div class="ac-pager" id="ac-pont-pager"></div>
+        </article>
+
+        <article class="td-panel" style="margin-top:16px">
+          <div class="td-panel__head"><div><span class="td-eyebrow">Compras à vista · mês a mês</span><h2>Gasto pontual por mês</h2></div></div>
+          <div id="ac-pont-evo"><div class="td-loading"><span></span><span></span><span></span></div></div>
+        </article>
+
+        <section class="ac-leitura" id="ac-pont-insights"></section>
+      </section>`
+    },
+
+    filtrarPontuais() {
+      this._pontFiltro = {
+        busca: document.getElementById('ac-pont-busca')?.value || '',
+        cartao: document.getElementById('ac-pont-cartao')?.value || '',
+        categoria: document.getElementById('ac-pont-cat')?.value || '',
+        status: document.getElementById('ac-pont-status')?.value || '',
+      }
+      this._pontAno = document.getElementById('ac-pont-ano')?.value || this._pontAno
+      this._pontPage = 1
+      this.loadPontuais()
+    },
+    gotoPontPage(p) { this._pontPage = Math.max(1, p); this._pontRenderPage() },
+
+    async loadPontuais() {
+      const body = document.getElementById('ac-pont-body')
+      if (!body) return
+      const f = this._pontFiltro
+      const p = new URLSearchParams()
+      if (f.busca) p.set('busca', f.busca)
+      if (f.cartao) p.set('cartao_id', f.cartao)
+      if (f.categoria) p.set('categoria', f.categoria)
+      if (f.status) p.set('status', f.status)
+      if (this._pontAno) p.set('ano', this._pontAno)
+      try {
+        const d = await this._vm.api('GET', `cartoes/pontuais${p.toString() ? '?' + p.toString() : ''}`)
+        this._pontData = d
+        const anoSel = document.getElementById('ac-pont-ano')
+        if (anoSel && (d.anos || []).length) {
+          const cur = String(this._pontAno || d.ano)
+          anoSel.innerHTML = d.anos.map(a => `<option value="${a}" ${String(a) === cur ? 'selected' : ''}>${a}</option>`).join('')
+          if (!this._pontAno) this._pontAno = String(d.ano)
+        }
+        const catSel = document.getElementById('ac-pont-cat')
+        if (catSel && catSel.options.length <= 1 && (d.categorias || []).length) {
+          catSel.innerHTML = '<option value="">Todas categorias</option>' + d.categorias.map(cat => `<option value="${esc(cat)}" ${f.categoria === cat ? 'selected' : ''}>${esc(cat)}</option>`).join('')
+        }
+        const r = d.resumo || {}
+        const cnt = document.getElementById('ac-pont-count')
+        if (cnt) cnt.textContent = `${r.count || 0} compra${(r.count || 0) === 1 ? '' : 's'} · ${d.ano}`
+        const sum = document.getElementById('ac-pont-sum')
+        if (sum) {
+          const pctPago = Number(r.total) > 0 ? Math.round((Number(r.total_pago) / Number(r.total)) * 100) : 0
+          sum.innerHTML = `
+            <div class="ac-sum-tile"><span class="ac-sum-lbl">Total à vista (${d.ano})</span><strong>${money(r.total)}</strong><small>ticket médio ${money(r.ticket_medio)}</small></div>
+            <div class="ac-sum-tile ac-sum-tile--ok"><span class="ac-sum-lbl">Já pago</span><strong>${money(r.total_pago)}</strong><small>${pctPago}% do total</small>
+              <div class="ac-sum-bar"><span style="width:${Math.min(100, pctPago)}%"></span></div></div>
+            <div class="ac-sum-tile ac-sum-tile--warn"><span class="ac-sum-lbl">Pendente</span><strong>${money(r.total_pendente)}</strong><small>a pagar na fatura</small></div>`
+        }
+        this._pontPage = 1
+        this._pontRenderPage()
+        this._pontEvo(d.evolucao || [], d.mes_atual_idx)
+        this._pontInsights(d)
+      } catch (e) {
+        body.innerHTML = `<div class="td-empty-row"><i class="fas fa-triangle-exclamation"></i><span>${esc(e.response?.data?.error || 'Erro ao carregar as compras à vista.')}</span></div>`
+      }
+    },
+
+    _pontRenderPage() {
+      const body = document.getElementById('ac-pont-body')
+      const all = this._pontData?.compras || []
+      const per = this.PER_PAGE
+      const pages = Math.max(1, Math.ceil(all.length / per))
+      if (this._pontPage > pages) this._pontPage = pages
+      const slice = all.slice((this._pontPage - 1) * per, this._pontPage * per)
+      if (body) this._pontRows(slice, body)
+      this._pager('ac-pont-pager', all.length, this._pontPage, pages, 'gotoPontPage')
+    },
+
+    _pontRows(compras, body) {
+      if (!compras.length) { body.innerHTML = '<div class="td-empty-row"><i class="fas fa-receipt"></i><span>Nenhuma compra à vista com esse filtro.</span></div>'; return }
+      const rows = compras.map(g => {
+        const cor = corDe(g.cartao_cor, 0)
+        const tags = (g.tags || []).slice(0, 3).map(t => `<span class="ac-parc-tag" style="--tc:${corDe(t.cor, 1)}">${esc(t.nome)}</span>`).join('')
+        const catLine = g.categoria ? `<span class="ac-parc-cat">${esc(g.categoria)}</span>` : ''
+        const stBadge = g.status === 'pago'
+          ? '<span class="ac-pont-badge ac-pont-badge--ok">pago</span>'
+          : '<span class="ac-pont-badge ac-pont-badge--warn">pendente</span>'
+        return `<tr>
+          <td class="ac-parc-desc"><strong>${esc(g.descricao)}</strong><small>${esc(g.mes_label)}</small></td>
+          <td class="ac-parc-card"><span class="ac-dot" style="background:${cor}"></span>${esc(g.cartao_nome || '—')}</td>
+          <td class="ac-parc-tags">${catLine}${tags || (catLine ? '' : '<span class="ac-parc-muted">—</span>')}</td>
+          <td class="ac-pont-st">${stBadge}</td>
+          <td class="ac-parc-num ac-parc-total">${money(g.valor)}</td>
+        </tr>`
+      }).join('')
+      body.innerHTML = `<div class="ac-parc__scroll"><table class="ac-parc-table">
+        <thead><tr><th>Compra</th><th>Cartão</th><th>Categoria · Tags</th><th>Situação</th><th class="ac-parc-num">Valor</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`
+    },
+
+    _pontEvo(evo, nowIdx) {
+      const el = document.getElementById('ac-pont-evo')
+      if (!el) return
+      if (!evo.length) { el.innerHTML = '<div class="td-empty-row"><i class="fas fa-wave-square"></i><span>Sem compras à vista neste ano.</span></div>'; return }
+      const maxV = Math.max(1, ...evo.map(e => e.valor))
+      const rows = evo.map(e => {
+        const isNow = e.idx === nowIdx
+        const w = (e.valor / maxV * 100)
+        return `<tr class="${isNow ? 'is-now' : ''}${e.futuro ? ' is-fut' : ''}">
+          <td class="ac-evo-m">${esc(e.label)}${isNow ? ' <span class="ac-evo-tag">agora</span>' : e.futuro ? ' <span class="ac-evo-tag ac-evo-tag--fut">futuro</span>' : ''}</td>
+          <td class="ac-evo-e">${e.qtd ? `<b>${e.qtd}</b> compra${e.qtd === 1 ? '' : 's'}` : '<span class="ac-evo-dash">—</span>'}</td>
+          <td class="ac-evo-bar"><div class="ac-evo-track"><span class="ac-evo-in" style="width:${w.toFixed(1)}%;background:#6EA8FE"></span></div></td>
+          <td class="ac-parc-num">${e.pendente > 0.005 ? `<span class="ac-evo-dash">${money(e.pendente)} pend.</span>` : ''}</td>
+          <td class="ac-evo-saldo">${money(e.valor)}</td>
+        </tr>`
+      }).join('')
+      el.innerHTML = `<div class="ac-evo-wrap"><table class="ac-evo-table">
+        <thead><tr><th>Mês</th><th>Compras</th><th>Volume</th><th>Pendente</th><th class="ac-evo-saldo">Gasto</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="td-explainer"><i class="fas fa-circle-info"></i> Total gasto em compras <b>à vista</b> no cartão a cada mês do ano selecionado.</p>`
+    },
+
+    _pontInsights(d) {
+      const el = document.getElementById('ac-pont-insights')
+      if (!el) return
+      const evo = d.evolucao || [], r = d.resumo || {}, compras = d.compras || []
+      const ins = []
+      const comMov = evo.filter(e => e.valor > 0)
+      if (comMov.length) {
+        const mx = comMov.reduce((a, e) => e.valor > a.valor ? e : a, comMov[0])
+        ins.push(`O mês em que você mais gastou à vista foi <b>${esc(mx.label)}</b>, com <b>${money(mx.valor)}</b> em ${mx.qtd} compra${mx.qtd === 1 ? '' : 's'}.`)
+        const mediaMes = r.total / comMov.length
+        ins.push(`Média de <b>${money(mediaMes)}/mês</b> em compras à vista ao longo de ${d.ano}.`)
+      }
+      if (Number(r.total_pendente) > 0) ins.push(`Ainda há <b>${money(r.total_pendente)}</b> em compras à vista pendentes na fatura.`)
+      const porCat = {}
+      for (const g of compras) { const k = g.categoria || 'Sem categoria'; porCat[k] = (porCat[k] || 0) + (g.valor || 0) }
+      const catArr = Object.entries(porCat).sort((a, b) => b[1] - a[1])
+      if (catArr.length && catArr[0][1] > 0) ins.push(`A categoria que mais consome no à vista é <b>${esc(catArr[0][0])}</b>, com <b>${money(catArr[0][1])}</b>.`)
+      if (!ins.length) { el.innerHTML = ''; return }
+      el.innerHTML = `<div class="ac-parc-ins__head"><span class="td-eyebrow"><i class="fas fa-lightbulb"></i> Insights das compras à vista</span></div>${ins.map(t => `<p>${t}</p>`).join('')}`
     },
 
     // ── Mostrador circular do uso total ──
