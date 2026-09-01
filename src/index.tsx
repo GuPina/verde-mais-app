@@ -638,8 +638,6 @@ function appShell() {
   </div>
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
   <script src="/static/terminal-dashboard.js?v=20260831-8"></script>
-  <script src="/static/terminal-receitas.js?v=20260831-1"></script>
-  <script src="/static/terminal-despesas.js?v=20260831-1"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
   <script src="/static/terminal-metas.js?v=20260829-1"></script>
   <script src="/static/terminal-orcamentos.js?v=20260829-1"></script>

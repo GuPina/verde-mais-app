@@ -1844,8 +1844,6 @@ const VM = {
     // ────────────────────────────────────────────────────────────────────────
     this.currentPage = page
     document.body.classList.toggle('terminal-dashboard-active', ['dashboard', 'receitas', 'despesas', 'cartoes', 'metas', 'orcamentos', 'recorrencias', 'lembretes', 'desafio-52', 'investimentos', 'analise-cartoes', 'aportes', 'reserva', 'reservas-esp', 'financiamentos', 'emprestimos', 'antecipacao', 'recebimentos-parcelados', 'ia', 'projecao', 'comparativo', 'relatorios', 'simulacao', 'regra-503020', 'amortizacao', 'perfil', 'alertas-cartao', 'despesas-compartilhadas', 'conquistas', 'tags', 'organizador', 'assinaturas-fantasma', 'compras-fantasma', 'importacao', 'assistente'].includes(page))
-    if (window.VMTerminalReceitas && page !== 'receitas') window.VMTerminalReceitas._active = false
-    if (window.VMTerminalDespesas && page !== 'despesas') window.VMTerminalDespesas._active = false
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'))
     const navEl = document.getElementById(`nav-${page}`)
     if (navEl) navEl.classList.add('active')
@@ -2959,7 +2957,6 @@ const VM = {
 
   // ============== RECEITAS ==============
   async pageReceitas() {
-    if (window.VMTerminalReceitas?.render) return window.VMTerminalReceitas.render(this)
     const now = new Date()
     const savedRec = this._receitaFiltro || {}
     const mes = savedRec.mes !== undefined ? savedRec.mes : String(now.getMonth() + 1)
@@ -3114,7 +3111,6 @@ const VM = {
   },
 
   async carregarReceitas(pagina = 1) {
-    if (window.VMTerminalReceitas?._active) return window.VMTerminalReceitas.reload()
     const mesEl = document.getElementById('filtro-mes')
     const mes = mesEl ? mesEl.value : String(new Date().getMonth() + 1)
     const ano = document.getElementById('filtro-ano')?.value || String(new Date().getFullYear())
@@ -3718,7 +3714,6 @@ const VM = {
 
   // ============== DESPESAS ==============
   async pageDespesas() {
-    if (window.VMTerminalDespesas?.render) return window.VMTerminalDespesas.render(this)
     const now = new Date()
     const saved = this._despesaFiltro || {}
     const mes      = saved.mes !== undefined ? saved.mes : String(now.getMonth() + 1)
@@ -3985,7 +3980,6 @@ const VM = {
   },
 
   async carregarDespesas(pagina = 1) {
-    if (window.VMTerminalDespesas?._active) return window.VMTerminalDespesas.reload()
     const mesEl  = document.getElementById('filtro-mes-d')
     const mes    = mesEl ? mesEl.value : String(new Date().getMonth() + 1)
     const ano    = document.getElementById('filtro-ano-d')?.value    || String(new Date().getFullYear())
