@@ -1934,8 +1934,12 @@ const VM = {
       'recebimentos-parcelados': () => this.pageRecebimentosParcelados()
     }
 
-    if (pages[page]) pages[page]()
-    else this.pageDashboard()
+    // A troca de tela vai numa View Transition (cross-fade) quando o browser
+    // suporta. Só a parte síncrona do render entra na transição — o fetch
+    // continua depois, com o skeleton já pintado.
+    const render = () => { if (pages[page]) pages[page](); else this.pageDashboard() }
+    if (window.VMAnim?.transicao) window.VMAnim.transicao(render)
+    else render()
 
     // Mostrar/ocultar FAB de lançamento rápido (sempre visível exceto em páginas de edição)
     this._atualizarFAB(page)

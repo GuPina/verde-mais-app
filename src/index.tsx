@@ -628,6 +628,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260901-2">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
   <link rel="stylesheet" href="/static/terminal-screens.css?v=20260829-1">
+  <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
 <body>
   <div id="app">
@@ -672,7 +673,8 @@ function appShell() {
   <script src="/static/terminal-compras-fantasma.js?v=20260831-3"></script>
   <script src="/static/terminal-importacao.js?v=20260831-3"></script>
   <script src="/static/terminal-assistente.js?v=20260831-3"></script>
-  <script src="/static/app.js?v=20260901-1"></script>
+  <script src="/static/terminal-anim.js?v=20260901-1"></script>
+  <script src="/static/app.js?v=20260901-2"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

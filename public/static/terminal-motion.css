@@ -1,0 +1,105 @@
+/**
+ * VerdeMais — camada de movimento
+ * ============================================================================
+ * Regras deste arquivo:
+ *  1. Só anima `transform` e `opacity` (o resto força layout/paint a 60fps).
+ *  2. Movimento curto: 150–500ms. É um app de dinheiro, não uma vitrine.
+ *  3. Tudo desliga em `prefers-reduced-motion` — no fim do arquivo.
+ */
+
+/* ══════════ 1. View Transitions entre telas ══════════ */
+::view-transition-old(root) {
+  animation: vmFadeOut 140ms cubic-bezier(.4, 0, 1, 1) both;
+}
+::view-transition-new(root) {
+  animation: vmFadeSlideIn 260ms cubic-bezier(.16, .84, .44, 1) both;
+}
+@keyframes vmFadeOut { to { opacity: 0; } }
+@keyframes vmFadeSlideIn { from { opacity: 0; transform: translateY(8px); } }
+
+/* A sidebar e a topbar não devem piscar junto com o conteúdo — elas saem do
+   snapshot do root e ficam paradas. Cada uma precisa de um nome PRÓPRIO:
+   `view-transition-name` repetido em dois elementos aborta a transição toda. */
+body.terminal-dashboard-active .sidebar { view-transition-name: vm-sidebar; }
+body.terminal-dashboard-active .topbar  { view-transition-name: vm-topbar; }
+::view-transition-old(vm-sidebar), ::view-transition-new(vm-sidebar),
+::view-transition-old(vm-topbar),  ::view-transition-new(vm-topbar) { animation: none; opacity: 1; }
+
+/* ══════════ 2. Skeleton no lugar dos 3 pontinhos ══════════ */
+/* O `.td-loading` já existe em todas as telas; aqui ele vira um esqueleto de
+   conteúdo. Ganho de percepção de velocidade sem tocar em nenhum render. */
+.td-loading {
+  display: block !important;
+  min-height: 420px !important;
+  padding: 4px 0;
+}
+.td-loading > span {
+  display: block;
+  width: 100%;
+  height: 74px;
+  margin-bottom: 14px;
+  border-radius: var(--terminal-radius, 12px);
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--terminal-ink, #E8F3EA) 4%, transparent) 8%,
+    color-mix(in srgb, var(--terminal-ink, #E8F3EA) 9%, transparent) 20%,
+    color-mix(in srgb, var(--terminal-ink, #E8F3EA) 4%, transparent) 34%);
+  background-size: 220% 100%;
+  animation: vmShimmer 1.25s linear infinite;
+  border: 1px solid var(--terminal-line, #1d2a22);
+  opacity: 1;
+  transform: none;
+}
+.td-loading > span:nth-child(1) { height: 108px; }
+.td-loading > span:nth-child(2) { height: 220px; animation-delay: .12s; }
+.td-loading > span:nth-child(3) { height: 150px; animation-delay: .24s; }
+@keyframes vmShimmer { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+
+/* ══════════ 3. Entrada escalonada de blocos e linhas ══════════ */
+.vm-in { animation: vmRise 380ms cubic-bezier(.16, .84, .44, 1) both; animation-delay: var(--vm-d, 0ms); }
+@keyframes vmRise { from { opacity: 0; transform: translateY(10px); } }
+
+.vm-in-row { animation: vmRowIn 300ms cubic-bezier(.16, .84, .44, 1) both; animation-delay: var(--vm-d, 0ms); }
+@keyframes vmRowIn { from { opacity: 0; transform: translateY(6px); } }
+
+/* ══════════ 4. Micro-interações de botão ══════════ */
+.td-button, .lg-save, .td-icon-btn, .ac-pager__ctrl button, .lg-seg button,
+.tf-screen .btn-primary, .tf-screen .btn-secondary, .tf-screen .btn-success, .tf-screen .btn-danger,
+.td-metric, .td-transaction, .td-action, .td-card-row {
+  transition: transform 120ms cubic-bezier(.2, 0, .2, 1),
+              background-color 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+.td-button:active, .lg-save:active, .td-icon-btn:active, .ac-pager__ctrl button:not(:disabled):active,
+.tf-screen .btn-primary:active, .tf-screen .btn-secondary:active,
+.tf-screen .btn-success:active, .tf-screen .btn-danger:active { transform: scale(.965); }
+
+.td-button:hover, .lg-save:hover { transform: translateY(-1px); }
+.td-button:active, .lg-save:active { transform: scale(.965) translateY(0); }
+
+/* Cards que já são clicáveis ganham elevação */
+.td-metric:hover, .td-patrimony:hover, .rl-mcell:hover { transform: translateY(-2px); }
+
+/* Estado de carregamento no próprio botão */
+.td-button.is-loading, .lg-save.is-loading, button.is-loading { position: relative; color: transparent !important; pointer-events: none; }
+.td-button.is-loading::after, .lg-save.is-loading::after, button.is-loading::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  color: var(--terminal-bg, #0A0F0C);
+  animation: vmSpin .6s linear infinite;
+}
+.td-button:not(.td-button--primary).is-loading::after { color: var(--terminal-primary, #3DDC84); }
+@keyframes vmSpin { to { transform: rotate(360deg); } }
+
+/* Números em contagem: trava a largura para o layout não “dançar” */
+.vm-counting { font-variant-numeric: tabular-nums; }
+
+/* ══════════ 5. Acessibilidade — desliga tudo ══════════ */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+  .vm-in, .vm-in-row { animation: none !important; }
+  .td-loading > span { animation: none !important; }
+  .td-button, .lg-save, .td-icon-btn, .td-metric, .td-patrimony, .rl-mcell,
+  .td-transaction, .td-action, .td-card-row { transition: none !important; }
+  .td-button:hover, .lg-save:hover, .td-metric:hover, .td-patrimony:hover, .rl-mcell:hover,
+  .td-button:active, .lg-save:active { transform: none !important; }
+}
