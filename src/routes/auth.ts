@@ -103,6 +103,7 @@ export async function requireAuth(c: any, next: any) {
 const JANELA_MINUTOS = 15
 const MAX_FALHAS_ORIGEM = 8    // mesmo e-mail vindo do mesmo IP
 const MAX_FALHAS_IP = 30       // qualquer e-mail vindo do mesmo IP
+const MAX_REGISTROS_IP = 5     // contas criadas a partir do mesmo IP na janela
 
 async function contarFalhas(db: any, chave: string): Promise<number> {
   const r = await db.prepare(
@@ -122,6 +123,13 @@ async function limparFalhas(db: any, chave: string) {
   await db.prepare('DELETE FROM tentativas_login WHERE chave = ?').bind(chave).run()
 }
 
+// Verificações de disponibilidade de e-mail por IP, na mesma janela do login.
+// O endpoint é legítimo (valida o cadastro em tempo real), mas responder
+// "já cadastrado" em volume transforma ele num enumerador de contas: dá para
+// varrer uma lista de e-mails e descobrir quem tem conta aqui. O limite mantém
+// a UX de quem está preenchendo o formulário e corta a varredura.
+const MAX_CHECK_EMAIL_IP = 20
+
 // ─── GET /api/auth/check-email ────────────────────────────────────────────────
 // Valida e-mail em tempo real: formato, domínio bloqueado, disponibilidade
 auth.get('/check-email', async (c) => {
@@ -129,6 +137,8 @@ auth.get('/check-email', async (c) => {
 
   if (!email) return c.json({ valid: false, error: 'E-mail obrigatório' })
 
+  // Formato e domínio bloqueado não tocam no banco e não revelam nada sobre
+  // quem tem conta — ficam livres de limite.
   if (!isValidEmailFormat(email)) {
     return c.json({ valid: false, error: 'Formato de e-mail inválido' })
   }
@@ -136,6 +146,18 @@ auth.get('/check-email', async (c) => {
   if (isBlockedEmail(email)) {
     return c.json({ valid: false, error: 'E-mails temporários não são permitidos' })
   }
+
+  // Daqui para baixo a resposta depende de existir ou não uma conta.
+  const ip = ipDoCliente(c)
+  const chaveCheck = `checkmail:${ip}`
+  if (await contarFalhas(c.env.DB, chaveCheck) >= MAX_CHECK_EMAIL_IP) {
+    // Neutro de propósito: não diz se existe conta nem nega o e-mail.
+    return c.json({
+      valid: null,
+      error: 'Muitas verificações seguidas. Tente novamente em alguns minutos.',
+    }, 429, { 'Retry-After': String(JANELA_MINUTOS * 60) })
+  }
+  await registrarTentativa(c.env.DB, chaveCheck, false)
 
   const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
   if (existing) {
@@ -166,10 +188,21 @@ auth.post('/register', async (c) => {
       return c.json({ error: 'Senha deve ter pelo menos 8 caracteres' }, 400)
     }
 
+    // Cadastro é aberto por design, mas sem teto uma única origem cria contas em
+    // massa (e dispara e-mail de OTP em massa junto). Mesmo mecanismo do login.
+    const ipReg = ipDoCliente(c)
+    const chaveReg = `registro:${ipReg}`
+    if (await contarFalhas(c.env.DB, chaveReg) >= MAX_REGISTROS_IP) {
+      return c.json({
+        error: `Muitas contas criadas a partir desta conexão. Tente novamente em ${JANELA_MINUTOS} minutos.`,
+      }, 429, { 'Retry-After': String(JANELA_MINUTOS * 60) })
+    }
+
     const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
     if (existing) {
       return c.json({ error: 'Email já cadastrado' }, 409)
     }
+    await registrarTentativa(c.env.DB, chaveReg, false)
 
     const senhaHash = await hashPassword(senha)
     const colors = ['#2FBF71', '#208040', '#1a6b35', '#34d88a', '#0d4d2a']

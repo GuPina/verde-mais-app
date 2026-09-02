@@ -108,7 +108,9 @@ app.post('/api/chat/mensagem', async (c) => {
 app.route('/admin', adminRoutes)
 
 // Health check
-app.get('/api/health', (c) => c.json({ status: 'ok', app: 'VerdeMais', version: '3.1.0', fase: '3B+3C+4+v3.1', features: ['patrimônio', 'assistente-ia', 'desafio-configuravel', 'regra-editavel', 'tags-receitas', 'integracoes-modulos', 'despesas-compartilhadas', 'aporte-patrimonial', 'responsividade-mobile'], timestamp: new Date().toISOString() }))
+// Só o que um health check precisa. Versão, fase interna e lista de features
+// eram um mapa gratuito do que existe aqui dentro para quem sonda o serviço.
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
 // Service Worker — servido inline para evitar problemas de CORS/path no wrangler
 app.get('/sw.js', (c) => {
