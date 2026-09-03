@@ -169,34 +169,45 @@ const VM = {
   },
 
   // ======= MODAL DE CONFIRMAÇÃO CUSTOMIZADO (substitui confirm() nativo) =======
-  vmConfirm(mensagem, { titulo = 'Confirmar ação', corBotao = '#ef4444', textoBotao = 'Confirmar', icone = '⚠️' } = {}) {
+  /**
+   * Confirmação. Nasceu com paleta própria (#1a1a2e, azul-arroxeado) numa
+   * época em que o app inteiro era assim; sobreviveu ao redesenho e virou a
+   * única janela do produto que não parece o produto. Agora usa os tokens do
+   * design system, como todo o resto.
+   *
+   * `corBotao` continua sendo aceito porque dezenas de chamadas passam a cor
+   * do risco da ação — só que agora ela vira uma variante do .ds-btn em vez
+   * de um background solto.
+   */
+  vmConfirm(mensagem, { titulo = 'Confirmar ação', corBotao = '#FF6B6B', textoBotao = 'Confirmar', icone = '⚠️' } = {}) {
     return new Promise((resolve) => {
       const id = 'vm-confirm-' + Date.now()
+      const destrutiva = String(corBotao).toUpperCase().startsWith('#FF') || String(corBotao).toUpperCase().startsWith('#EF')
       const overlay = document.createElement('div')
       overlay.id = id
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:fadeIn 0.15s ease;'
+      overlay.className = 'vm-dialog'
       overlay.innerHTML = `
-        <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px 28px 24px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:slideUp 0.2s ease;">
-          <div style="text-align:center;margin-bottom:18px;">
-            <div style="font-size:2.2rem;margin-bottom:10px;">${icone}</div>
-            <div style="font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:8px;">${titulo}</div>
-            <div style="font-size:0.88rem;color:#94a3b8;line-height:1.5;">${mensagem}</div>
+        <div class="vm-dialog__box" role="alertdialog" aria-modal="true" aria-labelledby="${id}-t">
+          <div class="vm-dialog__ico ${destrutiva ? 'is-neg' : 'is-ok'}">${icone}</div>
+          <div id="${id}-t" class="vm-dialog__title">${titulo}</div>
+          <div class="vm-dialog__msg">${mensagem}</div>
+          <div class="vm-dialog__acoes">
+            <button id="${id}-cancel" class="ds-btn" style="flex:1">Cancelar</button>
+            <button id="${id}-ok" class="ds-btn ${destrutiva ? 'ds-btn--danger' : 'ds-btn--primary'}" style="flex:1">${textoBotao}</button>
           </div>
-          <div style="display:flex;gap:10px;margin-top:4px;">
-            <button id="${id}-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#cbd5e1;cursor:pointer;font-size:0.9rem;font-weight:600;transition:all 0.2s;">
-              Cancelar
-            </button>
-            <button id="${id}-ok" style="flex:1;padding:10px;border-radius:10px;border:none;background:${corBotao};color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;transition:all 0.2s;">
-              ${textoBotao}
-            </button>
-          </div>
-        </div>
-      `
+        </div>`
       document.body.appendChild(overlay)
-      const close = (val) => { overlay.remove(); resolve(val) }
+      const close = (val) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(val) }
+      // Sem isto, Esc fechava o modal por trás do diálogo em vez do diálogo.
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false) }
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true) }
+      }
+      document.addEventListener('keydown', onKey, true)
       document.getElementById(`${id}-ok`).onclick = () => close(true)
       document.getElementById(`${id}-cancel`).onclick = () => close(false)
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false) })
+      setTimeout(() => document.getElementById(`${id}-ok`)?.focus(), 30)
     })
   },
 
@@ -259,13 +270,16 @@ const VM = {
       document.body.appendChild(container)
     }
     const t = document.createElement('div')
-    t.className = `toast ${type}`
-    t.style.cssText = 'display:flex;align-items:center;gap:8px;position:relative;padding-right:32px;'
-    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' }
-    t.innerHTML = `<span>${icons[type] || '💬'}</span><span style="flex:1;">${msg}</span><button onclick="this.parentElement.remove()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:inherit;opacity:0.6;cursor:pointer;font-size:1rem;line-height:1;padding:2px 4px;" title="Fechar">✕</button>`
+    t.className = `toast toast--${type}`
+    t.setAttribute('role', type === 'error' ? 'alert' : 'status')
+    const icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' }
+    t.innerHTML = `<i class="fas ${icons[type] || 'fa-comment'} toast__ico"></i>
+      <span class="toast__msg">${msg}</span>
+      <button class="toast__x" title="Fechar" aria-label="Fechar">&times;</button>`
     container.appendChild(t)
-    const timer = setTimeout(() => t.remove(), duration)
-    t.querySelector('button').addEventListener('click', () => clearTimeout(timer))
+    const fechar = () => { clearTimeout(timer); t.classList.add('is-out'); setTimeout(() => t.remove(), 180) }
+    const timer = setTimeout(fechar, duration)
+    t.querySelector('.toast__x').addEventListener('click', fechar)
   },
 
   formatMoney(v, compact = false) {
@@ -1571,106 +1585,206 @@ const VM = {
   },
 
   // ── Lançamento Rápido ─────────────────────────────────────────────────────
-  abrirLancamentoRapido() {
-    const categoriasDespesa = ['Alimentação','Transporte','Moradia','Saúde','Educação','Lazer','Vestuário','Streaming','Outros']
-    const categoriasReceita = ['Salário','Freelance','Investimentos','Aluguel','Outros']
+  /**
+   * O lançamento rápido tinha nove categorias fixas escritas à mão, nenhuma
+   * escolha de forma de pagamento e nenhum jeito de parcelar — quem comprava
+   * no cartão em 10x tinha que abrir a tela de Despesas e lançar de novo, e a
+   * categoria escolhida aqui muitas vezes nem existia no resto do app.
+   *
+   * Agora ele usa a mesma lista de categorias das outras telas, oferece as
+   * formas de pagamento reais e revela cartão e parcelas quando fazem
+   * sentido. E o visual é o do design system, não a paleta de 2024.
+   */
+  _CATS_RECEITA: ['Salário', 'Freelance', 'Renda Extra', 'Investimentos', 'Aluguel',
+    'Dividendos', 'Vendas', 'Bônus', '13º Salário', 'Férias', 'Reembolso', 'Presente', 'Outros'],
+
+  async abrirLancamentoRapido() {
+    const hoje = new Date().toISOString().slice(0, 10)
+    this._lrTipoAtual = 'despesa'
     this.showModal(`
-      <div style="padding:4px 0;">
-        <h3 style="margin:0 0 16px;font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
-          <span style="width:32px;height:32px;background:linear-gradient(135deg,#2FBF71,#059669);border-radius:8px;display:flex;align-items:center;justify-content:center;"><i class="fas fa-bolt" style="color:#fff;font-size:0.85rem;"></i></span>
-          Lançamento Rápido
-        </h3>
-        <!-- Tipo -->
-        <div style="display:flex;gap:8px;margin-bottom:16px;">
-          <button id="lr-tipo-despesa" onclick="VM._lrTipo('despesa')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #ff6b6b;background:rgba(255,107,107,0.15);color:#ff6b6b;font-weight:700;cursor:pointer;transition:all 0.2s;">
+      <div class="lr">
+        <div class="lr__head">
+          <span class="lr__bolt"><i class="fas fa-bolt"></i></span>
+          <div>
+            <strong>Lançamento rápido</strong>
+            <small>Enter salva · Esc fecha</small>
+          </div>
+        </div>
+
+        <div class="lr__tipo" role="tablist">
+          <button id="lr-tipo-despesa" class="lr__tipo-b is-on is-desp" onclick="VM._lrTipo('despesa')" role="tab">
             <i class="fas fa-arrow-down"></i> Despesa
           </button>
-          <button id="lr-tipo-receita" onclick="VM._lrTipo('receita')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #374151;background:transparent;color:#888;font-weight:700;cursor:pointer;transition:all 0.2s;">
+          <button id="lr-tipo-receita" class="lr__tipo-b is-rec" onclick="VM._lrTipo('receita')" role="tab">
             <i class="fas fa-arrow-up"></i> Receita
           </button>
         </div>
-        <!-- Valor -->
-        <div style="margin-bottom:12px;">
-          <label style="font-size:0.78rem;color:#888;font-weight:600;">VALOR (R$)</label>
+
+        <label class="lr__lbl" for="lr-valor">Valor</label>
+        <div class="lr__valor">
+          <span>R$</span>
           <input type="number" id="lr-valor" placeholder="0,00" step="0.01" min="0.01"
-            style="width:100%;margin-top:4px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:1.3rem;font-weight:700;text-align:center;"
-            onkeydown="if(event.key==='Enter')VM._lrSalvar()" autofocus>
+                 inputmode="decimal" onkeydown="if(event.key==='Enter')VM._lrSalvar()">
         </div>
-        <!-- Descrição -->
-        <div style="margin-bottom:12px;">
-          <label style="font-size:0.78rem;color:#888;font-weight:600;">DESCRIÇÃO</label>
-          <input type="text" id="lr-desc" placeholder="Ex: Almoço, Uber, Salário..."
-            style="width:100%;margin-top:4px;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;"
-            onkeydown="if(event.key==='Enter')VM._lrSalvar()">
+
+        <label class="lr__lbl" for="lr-desc">Descrição</label>
+        <input type="text" id="lr-desc" class="lr__in" placeholder="Ex.: almoço, Uber, salário…"
+               onkeydown="if(event.key==='Enter')VM._lrSalvar()">
+
+        <div class="lr__row">
+          <div>
+            <label class="lr__lbl" for="lr-cat">Categoria</label>
+            <select id="lr-cat" class="lr__in"></select>
+          </div>
+          <div>
+            <label class="lr__lbl" for="lr-data">Data</label>
+            <input type="date" id="lr-data" class="lr__in" value="${hoje}">
+          </div>
         </div>
-        <!-- Categoria -->
-        <div style="margin-bottom:12px;">
-          <label style="font-size:0.78rem;color:#888;font-weight:600;">CATEGORIA</label>
-          <select id="lr-cat" style="width:100%;margin-top:4px;padding:10px;background:rgba(30,41,59,0.9);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;">
-            ${categoriasDespesa.map(c => `<option value="${c}">${c}</option>`).join('')}
-          </select>
+
+        <div id="lr-bloco-despesa">
+          <label class="lr__lbl">Como foi pago</label>
+          <div class="lr__meios" id="lr-meios">
+            ${[
+              { v: 'pix', r: 'Pix', i: 'fa-bolt' },
+              { v: 'dinheiro', r: 'Dinheiro', i: 'fa-money-bill' },
+              { v: 'cartao_debito', r: 'Débito', i: 'fa-credit-card' },
+              { v: 'cartao_credito', r: 'Crédito', i: 'fa-credit-card' },
+              { v: 'parcelado_cartao', r: 'Parcelado', i: 'fa-layer-group' },
+              { v: 'boleto', r: 'Boleto', i: 'fa-barcode' },
+            ].map((m, i) => `<button class="lr__meio ${i === 0 ? 'is-on' : ''}" data-meio="${m.v}" onclick="VM._lrMeio('${m.v}')"><i class="fas ${m.i}"></i> ${m.r}</button>`).join('')}
+          </div>
+
+          <div id="lr-cartao-wrap" style="display:none">
+            <label class="lr__lbl" for="lr-cartao">Cartão</label>
+            <select id="lr-cartao" class="lr__in"><option value="">Carregando…</option></select>
+          </div>
+
+          <div id="lr-parcelas-wrap" style="display:none">
+            <label class="lr__lbl" for="lr-parcelas">Parcelas</label>
+            <select id="lr-parcelas" class="lr__in" onchange="VM._lrPreviewParcela()">
+              ${Array.from({ length: 24 }, (_, i) => i + 2).map(n => `<option value="${n}">${n}x</option>`).join('')}
+            </select>
+            <small id="lr-parcela-preview" class="lr__hint"></small>
+          </div>
+
+          <label class="lr__check">
+            <input type="checkbox" id="lr-pago" checked>
+            <span>Já está pago</span>
+          </label>
         </div>
-        <!-- Data -->
-        <div style="margin-bottom:20px;">
-          <label style="font-size:0.78rem;color:#888;font-weight:600;">DATA</label>
-          <input type="date" id="lr-data" value="${new Date().toISOString().slice(0,10)}"
-            style="width:100%;margin-top:4px;padding:10px;background:rgba(30,41,59,0.9);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:inherit;font-size:0.9rem;">
-        </div>
-        <!-- Botão salvar -->
-        <button onclick="VM._lrSalvar()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2FBF71,#059669);color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px;">
-          <i class="fas fa-check"></i> Salvar Lançamento
+
+        <button class="ds-btn ds-btn--primary ds-btn--lg ds-btn--block" style="margin-top:18px" onclick="VM._lrSalvar()">
+          <i class="fas fa-check"></i> Salvar lançamento
         </button>
-        <p style="text-align:center;font-size:0.72rem;color:#555;margin-top:10px;"><i class="fas fa-keyboard"></i> Pressione Enter para salvar</p>
       </div>
     `)
-    this._lrTipoAtual = 'despesa'
-    setTimeout(() => document.getElementById('lr-valor')?.focus(), 100)
+    this._lrTipo('despesa')
+    setTimeout(() => document.getElementById('lr-valor')?.focus(), 90)
+    // Os cartões só importam se a pessoa escolher crédito — buscar em paralelo
+    // evita segurar a abertura do modal por uma requisição que talvez nem use.
+    this.api('GET', 'cartoes').then(r => {
+      const sel = document.getElementById('lr-cartao')
+      if (!sel) return
+      const lista = r.cartoes || r || []
+      sel.innerHTML = lista.length
+        ? lista.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')
+        : '<option value="">Nenhum cartão cadastrado</option>'
+    }).catch(() => {
+      const sel = document.getElementById('lr-cartao')
+      if (sel) sel.innerHTML = '<option value="">Não foi possível carregar</option>'
+    })
   },
 
   _lrTipoAtual: 'despesa',
+  _lrMeioAtual: 'pix',
 
   _lrTipo(tipo) {
     this._lrTipoAtual = tipo
-    const catSelect = document.getElementById('lr-cat')
-    const btnDesp = document.getElementById('lr-tipo-despesa')
-    const btnRec = document.getElementById('lr-tipo-receita')
-    const categoriasDespesa = ['Alimentação','Transporte','Moradia','Saúde','Educação','Lazer','Vestuário','Streaming','Outros']
-    const categoriasReceita = ['Salário','Freelance','Investimentos','Aluguel','Outros']
-    if (tipo === 'despesa') {
-      if (btnDesp) { btnDesp.style.borderColor='#ff6b6b'; btnDesp.style.background='rgba(255,107,107,0.15)'; btnDesp.style.color='#ff6b6b' }
-      if (btnRec)  { btnRec.style.borderColor='#374151'; btnRec.style.background='transparent'; btnRec.style.color='#888' }
-      if (catSelect) catSelect.innerHTML = categoriasDespesa.map(c => `<option value="${c}">${c}</option>`).join('')
-    } else {
-      if (btnRec)  { btnRec.style.borderColor='#2FBF71'; btnRec.style.background='rgba(47,191,113,0.15)'; btnRec.style.color='#2FBF71' }
-      if (btnDesp) { btnDesp.style.borderColor='#374151'; btnDesp.style.background='transparent'; btnDesp.style.color='#888' }
-      if (catSelect) catSelect.innerHTML = categoriasReceita.map(c => `<option value="${c}">${c}</option>`).join('')
-    }
+    const cat = document.getElementById('lr-cat')
+    const bDesp = document.getElementById('lr-tipo-despesa')
+    const bRec = document.getElementById('lr-tipo-receita')
+    bDesp?.classList.toggle('is-on', tipo === 'despesa')
+    bRec?.classList.toggle('is-on', tipo === 'receita')
+    const lista = tipo === 'despesa' ? this._CATS_DESPESA : this._CATS_RECEITA
+    if (cat) cat.innerHTML = lista.map(c => `<option value="${c}">${c}</option>`).join('')
+    const bloco = document.getElementById('lr-bloco-despesa')
+    if (bloco) bloco.style.display = tipo === 'despesa' ? 'block' : 'none'
+  },
+
+  _lrMeio(meio) {
+    this._lrMeioAtual = meio
+    document.querySelectorAll('#lr-meios .lr__meio').forEach(b =>
+      b.classList.toggle('is-on', b.dataset.meio === meio))
+    const usaCartao = meio === 'cartao_credito' || meio === 'parcelado_cartao'
+    const cw = document.getElementById('lr-cartao-wrap')
+    const pw = document.getElementById('lr-parcelas-wrap')
+    if (cw) cw.style.display = usaCartao ? 'block' : 'none'
+    if (pw) pw.style.display = meio === 'parcelado_cartao' ? 'block' : 'none'
+    // Compra parcelada no cartão não está paga: ela vence mês a mês.
+    const pago = document.getElementById('lr-pago')
+    if (pago && meio === 'parcelado_cartao') pago.checked = false
+    this._lrPreviewParcela()
+  },
+
+  _lrPreviewParcela() {
+    const el = document.getElementById('lr-parcela-preview')
+    if (!el) return
+    const valor = parseFloat(document.getElementById('lr-valor')?.value || '0')
+    const n = parseInt(document.getElementById('lr-parcelas')?.value || '2', 10)
+    el.textContent = valor > 0 && n > 1
+      ? `${n}× de ${this.fmt(valor / n)} — valor total ${this.fmt(valor)}`
+      : 'Informe o valor total da compra; dividimos pelas parcelas.'
   },
 
   async _lrSalvar() {
     const valor = parseFloat(document.getElementById('lr-valor')?.value || '0')
-    const desc  = (document.getElementById('lr-desc')?.value || '').trim()
-    const cat   = document.getElementById('lr-cat')?.value || 'Outros'
-    const data  = document.getElementById('lr-data')?.value || new Date().toISOString().slice(0,10)
-    if (!valor || valor <= 0) { this.toast('Informe um valor válido', 'error'); return }
-    if (!desc) { this.toast('Informe uma descrição', 'error'); return }
+    const desc = (document.getElementById('lr-desc')?.value || '').trim()
+    const cat = document.getElementById('lr-cat')?.value || 'Outros'
+    const data = document.getElementById('lr-data')?.value || new Date().toISOString().slice(0, 10)
+    if (!valor || valor <= 0) { this.toast('Informe um valor maior que zero.', 'error'); return }
+    if (!desc) { this.toast('Informe uma descrição.', 'error'); return }
+
     try {
       if (this._lrTipoAtual === 'despesa') {
-        await this.api('POST', 'despesas', { descricao:desc, valor, categoria:cat, data, status:'pago', tipo:'normal' })
+        const meio = this._lrMeioAtual || 'pix'
+        const parcelado = meio === 'parcelado_cartao'
+        const cartaoId = document.getElementById('lr-cartao')?.value || null
+        if ((meio === 'cartao_credito' || parcelado) && !cartaoId) {
+          this.toast('Escolha o cartão da compra.', 'error'); return
+        }
+        const corpo = {
+          descricao: desc, valor, categoria: cat, data, tipo: 'normal',
+          meio_pagamento: meio,
+          status: document.getElementById('lr-pago')?.checked ? 'pago' : 'pendente',
+          cartao_id: cartaoId || null,
+        }
+        if (parcelado) {
+          corpo.parcelado = true
+          corpo.numero_parcelas = parseInt(document.getElementById('lr-parcelas')?.value || '2', 10)
+        }
+        await this.api('POST', 'despesas', corpo)
       } else {
-        await this.api('POST', 'receitas', { descricao:desc, valor, categoria:cat, data, tipo:'outros' })
+        await this.api('POST', 'receitas', { descricao: desc, valor, categoria: cat, data, tipo: 'outros' })
       }
       this.closeModal()
-      this.toast(`✅ ${this._lrTipoAtual === 'despesa' ? 'Despesa' : 'Receita'} lançada com sucesso!`)
-      // Recarregar a página atual, qualquer que seja ela
+      this.toast(`${this._lrTipoAtual === 'despesa' ? 'Despesa' : 'Receita'} lançada.`, 'success')
+      // Conquista pode ter caído com este lançamento. checkNovasConquistas só
+      // LÊ as não vistas; sem o /verificar antes, a conquista nova só
+      // apareceria no polling de cinco minutos — tarde demais para o usuário
+      // ligar o prêmio ao que acabou de fazer.
+      this.api('POST', 'conquistas/verificar')
+        .then(() => this.checkNovasConquistas?.())
+        .catch(() => {})
       const pg = this.currentPage
       if (pg === 'dashboard') this.pageDashboard()
       else if (pg === 'despesas') this.carregarDespesas()
       else if (pg === 'receitas') this.carregarReceitas()
       else if (pg === 'orcamentos') this.pageOrcamentos()
       else if (pg === 'relatorios') this.pageRelatorios()
-    } catch(e) {
-      this.toast('Erro ao salvar lançamento', 'error')
+      else if (pg === 'cartoes') this.pageCartoes()
+    } catch (e) {
+      this.toast(e?.response?.data?.error || 'Erro ao salvar lançamento.', 'error')
     }
   },
 
@@ -1780,88 +1894,82 @@ const VM = {
     } catch { }
   },
 
+  /**
+   * Overlay de nova conquista.
+   *
+   * Duas coisas mudaram além da paleta. Primeiro, ele mostrava só a primeira
+   * de várias conquistas e resumia o resto a "+2 mais conquista(s)" — quem
+   * desbloqueava três de uma vez via uma e perdia duas; agora todas passam,
+   * uma a uma. Segundo, ele navegava para a tela de Conquistas ao fechar,
+   * mesmo quando o usuário estava no meio de outra coisa; agora só navega se
+   * a pessoa clicar em ver, e o X apenas fecha.
+   */
   mostrarAlertaConquista(novas) {
     if (!novas || novas.length === 0) return
-    const conquista = novas[0]
-    // Criar overlay de conquista
-    const overlay = document.createElement('div')
-    overlay.id = 'conquista-overlay'
-    overlay.style.cssText = `
-      position:fixed;top:0;left:0;right:0;bottom:0;
-      background:rgba(0,0,0,0.85);z-index:9999;
-      display:flex;align-items:center;justify-content:center;
-      animation:fadeIn 0.3s ease;
-    `
-    overlay.innerHTML = `
-      <div style="
-        background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);
-        border:2px solid #2FBF71;border-radius:24px;padding:40px;
-        text-align:center;max-width:380px;width:90%;
-        box-shadow:0 0 60px rgba(47,191,113,0.4);
-        animation:conquistaEntrada 0.5s cubic-bezier(0.175,0.885,0.32,1.275);
-      ">
-        <div style="font-size:4rem;margin-bottom:12px;animation:conquista-bounce 0.6s ease infinite alternate;">${conquista.icone || '🏆'}</div>
-        <div style="color:#2FBF71;font-size:0.75rem;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;">🎉 Nova Conquista Desbloqueada!</div>
-        <div style="color:#fff;font-size:1.5rem;font-weight:800;margin-bottom:8px;">${conquista.titulo}</div>
-        <div style="color:#aaa;font-size:0.9rem;margin-bottom:20px;">${conquista.descricao}</div>
-        <div style="background:rgba(47,191,113,0.1);border-radius:12px;padding:10px;margin-bottom:20px;">
-          <span style="color:#2FBF71;font-weight:700;">+${conquista.pontos || 10} pontos</span>
-          ${conquista.raridade && conquista.raridade !== 'comum' ? `<span style="margin-left:12px;color:#FFD700;font-size:0.8rem;">⭐ ${conquista.raridade.toUpperCase()}</span>` : ''}
-        </div>
-        ${novas.length > 1 ? `<div style="color:#888;font-size:0.8rem;margin-bottom:16px;">+${novas.length - 1} mais conquista(s)!</div>` : ''}
-        <button id="btn-fechar-conquista" onclick="VM.fecharAlertaConquista()" style="
-          background:#2FBF71;color:#000;border:none;padding:12px 32px;
-          border-radius:50px;font-weight:700;font-size:1rem;cursor:pointer;
-          width:100%;transition:all 0.2s;
-        " onmouseover="this.style.background='#26a060'" onmouseout="this.style.background='#2FBF71'">
-          🎊 Incrível! Ver conquistas (6s)
-        </button>
-      </div>
-    `
-    // Injetar animações
-    if (!document.getElementById('conquista-anim')) {
-      const style = document.createElement('style')
-      style.id = 'conquista-anim'
-      style.textContent = `
-        @keyframes conquistaEntrada { from{transform:scale(0.3) rotate(-10deg);opacity:0} to{transform:scale(1) rotate(0deg);opacity:1} }
-        @keyframes conquista-bounce { from{transform:translateY(0) scale(1)} to{transform:translateY(-10px) scale(1.1)} }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-      `
-      document.head.appendChild(style)
-    }
-    document.body.appendChild(overlay)
-    // Marcar como visualizadas
+    this._filaConquistas = novas.slice()
     this.api('PATCH', 'conquistas/visualizar').catch(() => {})
-    // Auto-fechar em 6s com contagem regressiva
-    let secsLeft = 6
-    const updateBtn = () => {
-      const btnFechar = document.getElementById('btn-fechar-conquista')
-      if (btnFechar && secsLeft > 0) {
-        btnFechar.textContent = `🎊 Incrível! Ver conquistas (${secsLeft}s)`
-      }
-    }
-    updateBtn()
-    const countInterval = setInterval(() => {
-      secsLeft--
-      updateBtn()
-      if (secsLeft <= 0) {
-        clearInterval(countInterval)
-        this.fecharAlertaConquista()
-      }
-    }, 1000)
-    overlay._countInterval = countInterval
+    this._proximaConquista()
   },
 
-  fecharAlertaConquista() {
-    const overlay = document.getElementById('conquista-overlay')
-    if (overlay) {
-      if (overlay._countInterval) clearInterval(overlay._countInterval)
-      overlay.remove()
+  _proximaConquista() {
+    const fila = this._filaConquistas || []
+    const c = fila.shift()
+    if (!c) { this._fecharOverlayConquista(); return }
+    const restantes = fila.length
+    const RAR = {
+      comum:    { rot: 'Comum',    cor: 'var(--terminal-ink-soft)' },
+      raro:     { rot: 'Raro',     cor: '#6EA8FE' },
+      epico:    { rot: 'Épico',    cor: '#B58AF4' },
+      lendario: { rot: 'Lendário', cor: 'var(--terminal-accent)' },
     }
-    const badgeConq = document.getElementById('badge-conquistas')
-    if (badgeConq) { badgeConq.style.display = 'none'; badgeConq.textContent = ''; }
+    const rar = RAR[c.raridade] || RAR.comum
+
+    let overlay = document.getElementById('conquista-overlay')
+    if (!overlay) {
+      overlay = document.createElement('div')
+      overlay.id = 'conquista-overlay'
+      overlay.className = 'vm-conq'
+      document.body.appendChild(overlay)
+    }
+    overlay.innerHTML = `
+      <div class="vm-conq__box" style="--rar:${rar.cor}">
+        <button class="vm-conq__x" onclick="VM._fecharOverlayConquista()" aria-label="Fechar">&times;</button>
+        <div class="vm-conq__glow"></div>
+        <div class="vm-conq__ico">${c.icone || '🏆'}</div>
+        <span class="td-eyebrow vm-conq__eyebrow">Nova conquista</span>
+        <h2>${c.titulo || ''}</h2>
+        <p>${c.descricao || ''}</p>
+        <div class="vm-conq__meta">
+          <span class="ds-pill ds-pill--ok">+${c.pontos || 10} pontos</span>
+          <span class="ds-pill" style="color:${rar.cor};border-color:${rar.cor}55">${rar.rot}</span>
+        </div>
+        <div class="vm-conq__acoes">
+          ${restantes > 0
+            ? `<button class="ds-btn ds-btn--primary ds-btn--block" onclick="VM._proximaConquista()">Próxima (${restantes} restante${restantes > 1 ? 's' : ''})</button>`
+            : `<button class="ds-btn ds-btn--primary ds-btn--block" onclick="VM._verConquistas()">Ver minhas conquistas</button>`}
+          ${restantes > 0 ? '<button class="ds-btn ds-btn--ghost ds-btn--block" onclick="VM._fecharOverlayConquista()">Fechar todas</button>' : ''}
+        </div>
+      </div>`
+    // Reinicia a animação de entrada a cada conquista da fila.
+    const box = overlay.querySelector('.vm-conq__box')
+    if (box) { box.style.animation = 'none'; void box.offsetWidth; box.style.animation = '' }
+  },
+
+  _fecharOverlayConquista() {
+    this._filaConquistas = []
+    const overlay = document.getElementById('conquista-overlay')
+    if (overlay) overlay.remove()
+    const badge = document.getElementById('badge-conquistas')
+    if (badge) { badge.style.display = 'none'; badge.textContent = '' }
+  },
+
+  _verConquistas() {
+    this._fecharOverlayConquista()
     this.navigate('conquistas')
   },
+
+  /** Mantida porque outros pontos do app ainda chamam por este nome. */
+  fecharAlertaConquista() { this._fecharOverlayConquista() },
 
   navigate(page) {
     // Marca esta navegação. Toda leitura iniciada antes daqui vira obsoleta e

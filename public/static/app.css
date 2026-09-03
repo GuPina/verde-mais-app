@@ -345,22 +345,7 @@ body {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-/* TOAST */
-.toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
-.toast {
-  background: #1a2740;
-  border-radius: 12px;
-  padding: 14px 20px;
-  display: flex; align-items: center; gap: 10px;
-  font-size: 0.88rem;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  border-left: 3px solid #2FBF71;
-  animation: slideInRight 0.3s ease;
-  min-width: 280px; max-width: 380px;
-}
-.toast.error { border-left-color: #ff6b6b; }
-.toast.warning { border-left-color: #ffc400; }
-@keyframes slideInRight { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+/* TOAST — ver terminal-ds.css (bloco "Chrome do app") */
 
 /* SCORE RING */
 .score-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; }

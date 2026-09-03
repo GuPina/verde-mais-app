@@ -146,3 +146,206 @@
             color: var(--terminal-ink-soft); }
 .ds-empty i { font-size: 24px; opacity: .5; }
 .ds-empty p { margin: 0; font-size: 13px; max-width: 340px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Ponte com as classes antigas
+   --------------------------------------------------------------------------
+   Trinta telas ainda escrevem .td-button, .td-panel e .to-status — são mais
+   de trezentos pontos no código. Reescrever um por um seria mexer em trinta
+   arquivos para não mudar comportamento nenhum, com risco de errar um
+   onclick pelo caminho. Em vez disso, as classes antigas passam a apontar
+   para as regras daqui: uma definição, e o app inteiro adota o sistema.
+
+   A regra para código NOVO continua sendo escrever .ds-*; esta ponte existe
+   para o que já está escrito, não para autorizar mais .td-button.
+   ══════════════════════════════════════════════════════════════════════════ */
+.td-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ds-2);
+  min-height: 40px; padding: 10px var(--ds-4);
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  background: var(--terminal-surface); color: var(--terminal-ink);
+  font: 700 13px/1 var(--terminal-font); cursor: pointer; text-decoration: none;
+  transition: transform 120ms cubic-bezier(.2,0,.2,1), background-color 140ms ease,
+              border-color 140ms ease, color 140ms ease;
+}
+.td-button:hover { transform: translateY(-1px); border-color: #35503e; }
+.td-button:active { transform: scale(.965) translateY(0); }
+.td-button:focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 2px; }
+.td-button[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
+.td-button--primary { background: var(--terminal-primary); border-color: var(--terminal-primary); color: var(--terminal-bg); }
+.td-button--ghost   { background: transparent; border-color: transparent; color: var(--terminal-primary); }
+.td-button--danger  { background: color-mix(in srgb, var(--terminal-negative) 12%, transparent);
+                      border-color: color-mix(in srgb, var(--terminal-negative) 40%, transparent); color: var(--terminal-negative); }
+
+/* .to-status nasceu como pílula de estado nos Orçamentos e se espalhou. */
+.to-status { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+  border: 1px solid var(--terminal-line); border-radius: 999px;
+  font: 700 10px/1.4 var(--terminal-mono); text-transform: uppercase; letter-spacing: .07em;
+  color: var(--terminal-ink-soft); white-space: nowrap; }
+.to-status--ok   { color: var(--terminal-primary);  border-color: color-mix(in srgb, var(--terminal-primary) 40%, transparent);  background: color-mix(in srgb, var(--terminal-primary) 12%, transparent); }
+.to-status--warn { color: var(--terminal-accent);   border-color: color-mix(in srgb, var(--terminal-accent) 40%, transparent);   background: color-mix(in srgb, var(--terminal-accent) 12%, transparent); }
+.to-status--neg,
+.to-status--over,
+.to-status--danger { color: var(--terminal-negative); border-color: color-mix(in srgb, var(--terminal-negative) 40%, transparent); background: color-mix(in srgb, var(--terminal-negative) 12%, transparent); }
+
+/* Vazio: o .td-empty-row antigo era uma linha; agora respira como o .ds-empty. */
+.td-empty-row { min-height: 110px; padding: var(--ds-6) var(--ds-5); display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: var(--ds-2);
+  color: var(--terminal-ink-soft); font-size: 13px; text-align: center; }
+.td-empty-row i { font-size: 22px; opacity: .5; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Chrome do app — diálogos, toasts e conquista
+   --------------------------------------------------------------------------
+   Estas três peças aparecem por cima de qualquer tela, então eram as mais
+   visíveis fora do sistema: o diálogo de confirmação era azul-arroxeado
+   (#1a1a2e), o toast tinha fundo #1a2740 e a conquista um gradiente próprio.
+   Todas passam a usar os mesmos tokens do resto do produto.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Diálogo de confirmação ─────────────────────────────────────────────── */
+.vm-dialog { position: fixed; inset: 0; z-index: 99999; display: flex;
+  align-items: center; justify-content: center; padding: var(--ds-5);
+  background: rgba(4, 8, 6, .74); backdrop-filter: blur(4px);
+  animation: vm-dialog-in 140ms ease; }
+.vm-dialog__box { width: min(420px, 100%); padding: var(--ds-6) var(--ds-6) var(--ds-6);
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-lg);
+  background: var(--terminal-surface); box-shadow: 0 24px 70px rgba(0,0,0,.55);
+  text-align: center; font-family: var(--terminal-font); color: var(--terminal-ink);
+  animation: vm-dialog-rise 180ms cubic-bezier(.2,0,.2,1); }
+.vm-dialog__ico { width: 46px; height: 46px; margin: 0 auto var(--ds-4); display: grid;
+  place-items: center; border-radius: 50%; font-size: 21px;
+  border: 1px solid var(--terminal-line); background: var(--terminal-bg); }
+.vm-dialog__ico.is-neg { border-color: color-mix(in srgb, var(--terminal-negative) 45%, transparent);
+  background: color-mix(in srgb, var(--terminal-negative) 10%, transparent); }
+.vm-dialog__ico.is-ok { border-color: color-mix(in srgb, var(--terminal-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--terminal-primary) 10%, transparent); }
+.vm-dialog__title { font-size: 17px; font-weight: 640; letter-spacing: -.02em; }
+.vm-dialog__msg { margin: var(--ds-2) 0 var(--ds-6); color: var(--terminal-ink-soft);
+  font-size: 13px; line-height: 1.55; }
+.vm-dialog__msg strong { color: var(--terminal-ink); }
+.vm-dialog__acoes { display: flex; gap: var(--ds-2); }
+@keyframes vm-dialog-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes vm-dialog-rise { from { transform: translateY(14px) scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 999;
+  display: flex; flex-direction: column; gap: var(--ds-2); pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: flex-start; gap: var(--ds-3);
+  min-width: 280px; max-width: 400px; padding: 13px var(--ds-4);
+  border: 1px solid var(--terminal-line); border-left: 3px solid var(--terminal-primary);
+  border-radius: var(--terminal-radius-sm); background: var(--terminal-surface);
+  color: var(--terminal-ink); font: 500 13px/1.45 var(--terminal-font);
+  box-shadow: 0 10px 34px rgba(0,0,0,.45); animation: vm-toast-in 220ms cubic-bezier(.2,0,.2,1); }
+.toast.is-out { animation: vm-toast-out 180ms ease forwards; }
+.toast__ico { flex: 0 0 auto; margin-top: 1px; font-size: 14px; color: var(--terminal-primary); }
+.toast__msg { flex: 1; }
+.toast__x { flex: 0 0 auto; margin: -2px -4px 0 0; padding: 0 4px; border: 0; background: none;
+  color: var(--terminal-ink-soft); font-size: 18px; line-height: 1; cursor: pointer; opacity: .6; }
+.toast__x:hover { opacity: 1; color: var(--terminal-ink); }
+.toast--error   { border-left-color: var(--terminal-negative); }
+.toast--error   .toast__ico { color: var(--terminal-negative); }
+.toast--warning { border-left-color: var(--terminal-accent); }
+.toast--warning .toast__ico { color: var(--terminal-accent); }
+.toast--info    { border-left-color: var(--terminal-info); }
+.toast--info    .toast__ico { color: var(--terminal-info); }
+@keyframes vm-toast-in  { from { transform: translateX(30px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes vm-toast-out { to { transform: translateX(20px); opacity: 0 } }
+
+/* ── Conquista ──────────────────────────────────────────────────────────── */
+.vm-conq { position: fixed; inset: 0; z-index: 99999; display: flex;
+  align-items: center; justify-content: center; padding: var(--ds-5);
+  background: rgba(4, 8, 6, .82); backdrop-filter: blur(5px); animation: vm-dialog-in 200ms ease; }
+.vm-conq__box { position: relative; overflow: hidden; width: min(400px, 100%);
+  padding: var(--ds-8) var(--ds-6) var(--ds-6); text-align: center;
+  border: 1px solid var(--rar, var(--terminal-primary));
+  border-radius: var(--terminal-radius-lg); background: var(--terminal-surface);
+  font-family: var(--terminal-font); color: var(--terminal-ink);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--rar, var(--terminal-primary)) 22%, transparent),
+              0 24px 70px rgba(0,0,0,.55);
+  animation: vm-conq-in 460ms cubic-bezier(.175,.885,.32,1.275); }
+/* O brilho é uma camada própria: no gradiente do box ele apagava o texto. */
+.vm-conq__glow { position: absolute; top: -70px; left: 50%; width: 260px; height: 200px;
+  transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--rar) 28%, transparent), transparent 68%); }
+.vm-conq__x { position: absolute; top: 10px; right: 12px; z-index: 2; border: 0; background: none;
+  color: var(--terminal-ink-soft); font-size: 22px; line-height: 1; cursor: pointer; opacity: .55; }
+.vm-conq__x:hover { opacity: 1; }
+.vm-conq__ico { position: relative; font-size: 54px; line-height: 1; margin-bottom: var(--ds-3);
+  animation: vm-conq-bounce .9s ease-in-out infinite alternate; }
+.vm-conq__eyebrow { display: block; color: var(--rar) !important; }
+.vm-conq__box h2 { margin: var(--ds-2) 0 var(--ds-2); font-size: 22px; font-weight: 640; letter-spacing: -.03em; }
+.vm-conq__box p { margin: 0 0 var(--ds-5); color: var(--terminal-ink-soft); font-size: 13px; line-height: 1.5; }
+.vm-conq__meta { display: flex; justify-content: center; gap: var(--ds-2); margin-bottom: var(--ds-6); flex-wrap: wrap; }
+.vm-conq__acoes { display: flex; flex-direction: column; gap: var(--ds-2); }
+@keyframes vm-conq-in { from { transform: scale(.62) rotate(-6deg); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes vm-conq-bounce { from { transform: translateY(0) } to { transform: translateY(-8px) } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vm-dialog, .vm-dialog__box, .toast, .vm-conq, .vm-conq__box, .vm-conq__ico { animation: none !important; }
+}
+
+/* ── Lançamento rápido ──────────────────────────────────────────────────── */
+.lr { font-family: var(--terminal-font); color: var(--terminal-ink); }
+.lr__head { display: flex; align-items: center; gap: var(--ds-3); margin-bottom: var(--ds-5); }
+.lr__bolt { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 10px; background: var(--terminal-primary); color: var(--terminal-bg); font-size: 14px; }
+.lr__head strong { display: block; font-size: 16px; font-weight: 640; letter-spacing: -.02em; }
+.lr__head small { display: block; margin-top: 2px; color: var(--terminal-ink-soft); font-size: 11px; }
+
+.lr__tipo { display: flex; gap: var(--ds-2); margin-bottom: var(--ds-5); }
+.lr__tipo-b { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 42px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  background: var(--terminal-bg); color: var(--terminal-ink-soft);
+  font: 700 13px/1 var(--terminal-font); cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease; }
+.lr__tipo-b:hover { color: var(--terminal-ink); }
+.lr__tipo-b.is-desp.is-on { color: var(--terminal-negative);
+  border-color: color-mix(in srgb, var(--terminal-negative) 55%, transparent);
+  background: color-mix(in srgb, var(--terminal-negative) 12%, transparent); }
+.lr__tipo-b.is-rec.is-on { color: var(--terminal-primary);
+  border-color: color-mix(in srgb, var(--terminal-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--terminal-primary) 12%, transparent); }
+
+.lr__lbl { display: block; margin: var(--ds-4) 0 var(--ds-2);
+  font: 700 10px/1 var(--terminal-mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--terminal-ink-soft); }
+/* :first-of-type conta por pai — sem escopo, todo rótulo que abre uma div
+   (cartão, parcelas) perdia o respiro de cima. Só o primeiro da coluna zera. */
+.lr > .lr__lbl:first-of-type { margin-top: 0; }
+.lr__in { width: 100%; padding: 10px 12px; border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm); background: var(--terminal-bg);
+  color: var(--terminal-ink); font: 500 13px/1.3 var(--terminal-font); }
+.lr__in:focus { outline: none; border-color: var(--terminal-primary); }
+
+/* O valor é o campo que a pessoa vem preencher — merece ser o maior da tela. */
+.lr__valor { display: flex; align-items: center; gap: var(--ds-2); padding: 6px 14px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  background: var(--terminal-bg); }
+.lr__valor:focus-within { border-color: var(--terminal-primary); }
+.lr__valor span { color: var(--terminal-ink-soft); font: 600 15px/1 var(--terminal-mono); }
+.lr__valor input { flex: 1; min-width: 0; padding: 8px 0; border: 0; background: none;
+  color: var(--terminal-ink); font: 600 26px/1.2 var(--terminal-mono); letter-spacing: -.02em; }
+.lr__valor input:focus { outline: none; }
+.lr__valor input::-webkit-outer-spin-button,
+.lr__valor input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.lr__row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-3); }
+.lr__row .lr__lbl { margin-top: var(--ds-4); }
+
+.lr__meios { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ds-2); }
+.lr__meio { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 8px 6px; border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm); background: var(--terminal-bg);
+  color: var(--terminal-ink-soft); font: 600 11.5px/1 var(--terminal-font); cursor: pointer;
+  transition: border-color .16s ease, color .16s ease, background .16s ease; }
+.lr__meio:hover { color: var(--terminal-ink); }
+.lr__meio.is-on { color: var(--terminal-primary);
+  border-color: color-mix(in srgb, var(--terminal-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--terminal-primary) 10%, transparent); }
+
+.lr__hint { display: block; margin-top: 6px; color: var(--terminal-ink-soft); font-size: 11px; }
+.lr__check { display: flex; align-items: center; gap: 9px; margin-top: var(--ds-4);
+  color: var(--terminal-ink-soft); font-size: 12.5px; cursor: pointer; }
+.lr__check input { accent-color: var(--terminal-primary); width: 15px; height: 15px; }
+@media (max-width: 420px) { .lr__meios { grid-template-columns: repeat(2, 1fr); } }

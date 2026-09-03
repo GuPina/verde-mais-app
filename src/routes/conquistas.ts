@@ -7,6 +7,62 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const conquistas = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+/**
+ * Conquistas de patrimônio material e do ritmo do Desafio 52.
+ *
+ * Vive aqui como função porque as duas verificações (a rota /verificar e o
+ * verificarConquistasParaUsuario do /reprocessar) precisam exatamente das
+ * mesmas regras — e conquista que só dispara num dos dois caminhos é a
+ * conquista que o usuário nunca entende por que não ganhou.
+ *
+ * Devolve o total de bens (líquido do financiamento vinculado) para quem
+ * chama somar ao patrimônio: antes dos bens existirem, quem financiou um
+ * apartamento tinha patrimônio líquido negativo no app — a dívida entrava, o
+ * bem que ela comprou não.
+ */
+async function conquistasPatrimonio(
+  db: D1Database, userId: number, ganhar: (codigo: string) => Promise<void>,
+): Promise<number> {
+  let liquidoBens = 0
+  try {
+    const bens = await db.prepare(
+      `SELECT b.tipo, b.valor_aquisicao, b.valor_atual,
+              COALESCE((SELECT f.saldo_devedor FROM financiamentos f
+                        WHERE f.id = b.financiamento_id AND f.user_id = b.user_id
+                          AND f.status = 'ativo'), 0) as saldo
+       FROM bens_patrimoniais b
+       WHERE b.user_id = ? AND b.ativo = 1`
+    ).bind(userId).all()
+    const lista = (bens.results as any[]) || []
+    if (lista.length >= 1) await ganhar('primeiro_bem')
+    if (new Set(lista.map(b => b.tipo)).size >= 3) await ganhar('bens_3_tipos')
+    if (lista.some(b => Number(b.valor_atual) > Number(b.valor_aquisicao))) await ganhar('bem_valorizado')
+    if (lista.some(b => Number(b.saldo) <= 0 && Number(b.valor_atual) >= 10000)) await ganhar('bem_livre')
+    for (const b of lista) liquidoBens += Number(b.valor_atual || 0) - Number(b.saldo || 0)
+  } catch {
+    // Base ainda sem a migration 0005 — o resto das conquistas não pode cair por isso.
+  }
+
+  try {
+    const ano = new Date().getFullYear()
+    const w = await db.prepare(
+      `SELECT week_number, status FROM weekly_challenges WHERE user_id = ? AND year = ?`
+    ).bind(userId, ano).all()
+    const semanas = (w.results as any[]) || []
+    // A semana ISO corrente, do mesmo jeito que a tela calcula.
+    const agora = new Date()
+    const ini = new Date(agora.getFullYear(), 0, 1)
+    const semanaAtual = Math.ceil((((agora.getTime() - ini.getTime()) / 86400000) + ini.getDay() + 1) / 7)
+    const vencidas = semanas.filter(x => x.week_number <= semanaAtual)
+    const guardadas = vencidas.filter(x => x.status === 'completed')
+    // Um trimestre é o mínimo para "aderência total" significar alguma coisa.
+    if (vencidas.length >= 13 && guardadas.length === vencidas.length) await ganhar('desafio_em_dia')
+  } catch { }
+
+  return Math.round(liquidoBens * 100) / 100
+}
+
+
 // GET /api/conquistas — Todas as conquistas (ganhas + disponíveis + progresso parcial)
 conquistas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -245,8 +301,10 @@ conquistas.post('/verificar', requireAuth, async (c) => {
   const totalFinanc = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(saldo_devedor),0) as total FROM financiamentos WHERE user_id=? AND status='ativo'`
   ).bind(user.id).first() as any
-  const patrimonioLiq = valorAtual - (totalDividas?.total || 0) - (totalFinanc?.total || 0)
+  const bensLiquidos = await conquistasPatrimonio(c.env.DB, user.id, ganhar)
+  const patrimonioLiq = valorAtual + bensLiquidos - (totalDividas?.total || 0) - (totalFinanc?.total || 0)
   if (patrimonioLiq > 0) await ganhar('patrimonio_positivo')
+  if (patrimonioLiq >= 100000) await ganhar('patrimonio_100k')
 
   // Investiu mais que gastou no mês
   const despesasMes = await c.env.DB.prepare(
@@ -1431,7 +1489,9 @@ export async function verificarConquistasParaUsuario(
   // Patrimônio líquido
   const totalDividas = await db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM emprestimos WHERE user_id=? AND status='ativo'`).bind(user.id).first() as any
   const totalFinanc = await db.prepare(`SELECT COALESCE(SUM(saldo_devedor),0) as total FROM financiamentos WHERE user_id=? AND status='ativo'`).bind(user.id).first() as any
-  const patrimonioLiq = valorAtual - (totalDividas?.total || 0) - (totalFinanc?.total || 0)
+  const bensLiquidos = await conquistasPatrimonio(db, user.id, ganhar)
+  const patrimonioLiq = valorAtual + bensLiquidos - (totalDividas?.total || 0) - (totalFinanc?.total || 0)
+  if (patrimonioLiq >= 100000) await ganhar('patrimonio_100k')
   if (patrimonioLiq > 0) await ganhar('patrimonio_positivo')
   if (patrimonioLiq >= 500000) await ganhar('patrimonio_500k')
 
