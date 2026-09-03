@@ -314,7 +314,6 @@
 .re-hero__nums span:last-child { color: var(--terminal-ink-soft); }
 .re-hero__pill { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
 .re-hero__pill small { color: var(--terminal-ink-soft); font-size: 12px; }
-.re-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
 /* ---- Lembretes: badges de status ---- */
 .tl-badge--late { color: var(--terminal-negative); border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.08); }
@@ -1088,3 +1087,55 @@
 .d52-tri .d52-grid { grid-template-columns: repeat(7, 1fr); }
 .d52-cell.is-late { border-color: color-mix(in srgb, var(--terminal-negative) 55%, transparent);
   background: color-mix(in srgb, var(--terminal-negative) 14%, transparent); color: var(--terminal-negative); }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Reserva de emergência (.re-* — complemento)
+   A escada: cada degrau resolve um problema diferente, então cada um é um
+   cartão próprio, não uma marca numa barra contínua.
+   ──────────────────────────────────────────────────────────────────────────── */
+.re-hero__main p strong { color: var(--terminal-ink); }
+.re-escada { margin-top: 16px; }
+.re-degraus { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.re-degrau { display: flex; flex-direction: column; gap: 7px; padding: 16px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius); background: var(--terminal-bg); }
+.re-degrau.is-ok { border-color: color-mix(in srgb, var(--terminal-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--terminal-primary) 7%, var(--terminal-bg)); }
+.re-degrau.is-now { border-color: color-mix(in srgb, var(--terminal-accent) 55%, transparent); }
+.re-degrau__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.re-degrau__mes { font: 560 22px/1 var(--terminal-font); letter-spacing: -.03em; }
+.re-degrau__mes em { font-style: normal; font-size: 12px; color: var(--terminal-ink-soft); }
+.re-degrau__ok { color: var(--terminal-primary); font-size: 13px; }
+.re-degrau__tag { font: 700 9px/1 var(--terminal-mono); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--terminal-accent); border: 1px solid color-mix(in srgb, var(--terminal-accent) 40%, transparent);
+  border-radius: 999px; padding: 4px 7px; }
+.re-degrau strong { font-size: 13px; font-weight: 640; }
+.re-degrau small { color: var(--terminal-ink-soft); font-size: 11.5px; line-height: 1.45; }
+.re-degrau b { margin-top: 2px; font: 600 13px/1 var(--terminal-mono); color: var(--terminal-ink); }
+
+.re-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; margin-top: 16px; }
+@media (max-width: 900px) { .re-cols { grid-template-columns: 1fr; } }
+.re-proj { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.re-proj > div { display: flex; flex-direction: column; gap: 3px; }
+.re-proj small { font-size: 10px; color: var(--terminal-ink-soft); text-transform: uppercase;
+  letter-spacing: .07em; font-family: var(--terminal-mono); }
+.re-proj b { font: 600 17px/1 var(--terminal-mono); white-space: nowrap; }
+
+.re-sug { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.re-obj-op { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; }
+.re-obj-op__b { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 8px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm); cursor: pointer;
+  background: var(--terminal-bg); color: var(--terminal-ink); font-family: var(--terminal-font);
+  transition: border-color .16s ease, background .16s ease; }
+.re-obj-op__b:hover { border-color: #35503e; }
+.re-obj-op__b.is-on { border-color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 10%, transparent); }
+.re-obj-op__b strong { font: 560 20px/1 var(--terminal-font); }
+.re-obj-op__b small { font-size: 10px; color: var(--terminal-ink-soft); }
+.re-obj-op__b em { font-style: normal; font: 600 11px/1 var(--terminal-mono); color: var(--terminal-ink-soft); }
+.re-proj__bar { margin-top: 18px; }
+.re-proj__ends { display: flex; justify-content: space-between; gap: 10px; margin-top: 7px; }
+.re-proj__ends small { color: var(--terminal-ink-soft); font-size: 11px; }
+.re-ese { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--terminal-line);
+  display: flex; flex-direction: column; gap: 9px; }
+.re-ese__row { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.re-ese__row b { font: 600 13px/1 var(--terminal-mono); }
+.re-ese__row em { font-style: normal; font: 600 11px/1 var(--terminal-mono); color: var(--terminal-primary); }

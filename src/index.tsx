@@ -629,7 +629,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-2">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260901-2">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
-  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260902-3">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260902-4">
   <link rel="stylesheet" href="/static/terminal-ds.css?v=20260901-1">
   <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
@@ -655,7 +655,7 @@ function appShell() {
   <script src="/static/terminal-analise-cartoes.js?v=20260901-5"></script>
   <script src="/static/terminal-cartoes.js?v=20260901-1"></script>
   <script src="/static/terminal-aportes.js?v=20260829-1"></script>
-  <script src="/static/terminal-reserva.js?v=20260829-1"></script>
+  <script src="/static/terminal-reserva.js?v=20260902-1"></script>
   <script src="/static/terminal-reservas-esp.js?v=20260829-1"></script>
   <script src="/static/terminal-financiamentos.js?v=20260829-1"></script>
   <script src="/static/terminal-emprestimos.js?v=20260829-1"></script>

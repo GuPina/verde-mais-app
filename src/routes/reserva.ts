@@ -115,19 +115,36 @@ reserva.get('/', requireAuth, async (c) => {
 reserva.get('/progresso', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const r = await c.env.DB.prepare('SELECT * FROM reserva_emergencia WHERE user_id = ? LIMIT 1').bind(user.id).first() as any
-  if (!r) return c.json({ error: 'Nenhuma reserva encontrada. Crie uma primeiro.' }, 404)
+  // A reserva pode viver em duas tabelas (specialized_reserves é a nova,
+  // reserva_emergencia a legada). Antes este endpoint só olhava a legada e
+  // devolvia 404 para quem tinha a nova — a projeção simplesmente não existia
+  // para metade dos usuários.
+  const esp = await c.env.DB.prepare(
+    `SELECT * FROM specialized_reserves WHERE user_id = ? AND type = 'emergency' AND status != 'cancelled' ORDER BY created_at ASC LIMIT 1`
+  ).bind(user.id).first() as any
+  const leg = esp ? null : await c.env.DB.prepare(
+    'SELECT * FROM reserva_emergencia WHERE user_id = ? LIMIT 1'
+  ).bind(user.id).first() as any
+  if (!esp && !leg) return c.json({ error: 'Nenhuma reserva encontrada. Crie uma primeiro.' }, 404)
+
+  const r = esp
+    ? { id: esp.id, nome: esp.name, banco: esp.institution ?? null, valor_atual: Number(esp.current_amount), objetivo_meses: 6 }
+    : { id: leg.id, nome: leg.nome, banco: leg.banco ?? null, valor_atual: Number(leg.valor_atual), objetivo_meses: leg.objetivo_meses || 6 }
 
   const mediaGastos = await getMediaGastos(c.env.DB, user.id)
-  const objetivoMeses = r.objetivo_meses || 6
+  const objetivoMeses = r.objetivo_meses
   const met = calcMetricas(r.valor_atual, mediaGastos, objetivoMeses)
 
   // Buscar histórico para calcular aporte médio mensal
-  const hist = await c.env.DB.prepare(
-    `SELECT tipo, valor, data FROM reserva_historico WHERE reserva_id = ? ORDER BY data DESC LIMIT 12`
-  ).bind(r.id).all()
+  const hist = esp
+    ? await c.env.DB.prepare(
+        `SELECT type as tipo, amount as valor, date as data FROM reserve_transactions WHERE reserve_id = ? ORDER BY date DESC LIMIT 24`
+      ).bind(esp.id).all()
+    : await c.env.DB.prepare(
+        `SELECT tipo, valor, data FROM reserva_historico WHERE reserva_id = ? ORDER BY data DESC LIMIT 24`
+      ).bind(r.id).all()
 
-  const depositos = (hist.results as any[]).filter(h => h.tipo === 'deposito')
+  const depositos = (hist.results as any[]).filter(h => h.tipo === 'deposito' || h.tipo === 'deposit')
   // RE13: média MENSAL de verdade — divide pela quantidade de meses distintos, não
   // pelo número de depósitos (3 depósitos em janeiro não são "média mensal").
   const mesesDistintos = new Set(depositos.map(h => String(h.data).slice(0, 7))).size
@@ -153,7 +170,9 @@ reserva.get('/progresso', requireAuth, async (c) => {
     reserva: {
       id: r.id, nome: r.nome, banco: r.banco,
       valor_atual: r.valor_atual, objetivo_meses: objetivoMeses,
+      somente_leitura: !!esp,
     },
+    media_gastos_mensais: Math.round(mediaGastos * 100) / 100,
     meta: {
       valor_ideal: met.valorIdeal,
       faltando: met.faltando,
