@@ -16,6 +16,14 @@
      o verde do sistema" ser uma linha em vez de um find-and-replace.
      Ficam aqui, no arquivo de paleta, e não no design system: a landing
      carrega só este, e sem a declaração as bordas sumiriam lá. */
+  /* --terminal-panel nunca foi declarado, e 22 regras de terminal-screens.css
+     pedem `background: var(--terminal-panel)`. Sem a variável a declaração é
+     inválida no cálculo e o fundo cai para transparent: os cartões de KPI do
+     Diagnóstico, da Projeção, dos Relatórios, da Simulação, do Perfil, das
+     Conquistas e das Tags apareciam só com a borda, com o fundo da página
+     por dentro. É o mesmo tom da superfície — o nome é que faltava. */
+  --terminal-panel: var(--terminal-surface);
+
   --terminal-line-strong:  #35503e;   /* borda em hover */
   --terminal-line-soft:    #53665b;   /* divisória fraca sobre superfície clara */
   --terminal-primary-line: #285d3f;   /* borda de superfície verde */

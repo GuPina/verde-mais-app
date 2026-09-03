@@ -18,7 +18,7 @@
         this._d = await vm.api('GET', 'ia/insights')
         this._paint()
       } catch (e) {
-        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível gerar o diagnóstico</h2><p>${esc(e.response?.data?.error || 'Tente novamente.')}</p><button class="td-button td-button--primary" onclick="VMTerminalDiagnostico.reload()">Tentar novamente</button></div>`
+        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível gerar o diagnóstico</h2><p>${esc(e.response?.data?.error || 'Tente novamente.')}</p><button class="ds-btn ds-btn--primary" onclick="VMTerminalDiagnostico.reload()">Tentar novamente</button></div>`
       }
     },
     reload() { this.render(this._vm) },
@@ -57,7 +57,7 @@
         </section>
 
         ${alertas.length ? `
-        <article class="td-panel" style="margin-top:18px">
+        <article class="td-panel pj-sec">
           <div class="td-panel__head"><div><span class="td-eyebrow">Cruzamento de módulos</span><h2>Alertas críticos</h2></div></div>
           <div class="dg-alertas">${alertas.map(a => this._alerta(a)).join('')}</div>
         </article>` : ''}
@@ -77,9 +77,9 @@
           ${['fluxo_caixa', 'reserva_emergencia', 'dividas', 'investimentos', 'metas'].map(m => this._modCard(am[m])).filter(Boolean).join('')}
         </div>
 
-        <article class="td-panel dg-ia" style="margin-top:18px">
+        <article class="td-panel dg-ia pj-sec">
           <div class="td-panel__head"><div><span class="td-eyebrow">Consultor IA</span><h2>Insights personalizados</h2></div>
-            <button class="td-button td-button--primary" id="dg-ia-btn" onclick="VMTerminalDiagnostico.gerarIA()"><i class="fas fa-wand-magic-sparkles"></i> Gerar insights</button>
+            <button class="ds-btn ds-btn--primary" id="dg-ia-btn" onclick="VMTerminalDiagnostico.gerarIA()"><i class="fas fa-wand-magic-sparkles"></i> Gerar insights</button>
           </div>
           <div id="dg-ia-out" class="dg-ia__out"><p style="color:var(--terminal-ink-soft);font-size:13px;margin:0">A análise acima é calculada localmente e sempre está disponível. Clique em <strong>Gerar insights</strong> para uma leitura escrita pela IA.</p></div>
         </article>

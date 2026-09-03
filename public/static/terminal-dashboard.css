@@ -84,7 +84,10 @@ body.terminal-dashboard-active #chat-fab { right: 20px !important; bottom: 20px 
 .td-panel { padding: 20px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius); background: var(--terminal-surface); }
 .td-panel__head { min-height: 40px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .td-panel__head h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; font-weight: 560; }
-.td-panel__head a, .td-panel__head button { padding: 3px 0; border: 0; color: var(--terminal-primary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; text-decoration: none; }
+/* O link "ver todos" do cabeçalho é um <a> ou <button> sem chrome. Sem o
+   :not(), a regra também desmontava qualquer botão de verdade colocado ali —
+   era o que apagava o fundo do "Gerar insights" no Diagnóstico. */
+.td-panel__head a:not(.ds-btn), .td-panel__head button:not(.ds-btn) { padding: 3px 0; border: 0; color: var(--terminal-primary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; text-decoration: none; }
 .td-chart { height: 245px; }
 .td-big-number { display: block; margin: 24px 0 10px; font-size: 34px; line-height: 1; letter-spacing: -.045em; font-weight: 560; }
 .td-big-number small { margin-left: 5px; color: var(--terminal-ink-soft); font-size: 11px; letter-spacing: 0; }

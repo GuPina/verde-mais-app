@@ -408,58 +408,62 @@
 .an-card__actions{display:flex;gap:8px}
 
 /* ---- Diagnóstico 360 (dg-*) ---- */
-.dg-hero{display:flex;gap:26px;align-items:center;flex-wrap:wrap;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:22px 24px}
+.dg-hero{display:flex;gap:24px;align-items:center;flex-wrap:wrap;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:20px 24px}
 .dg-ring{flex:none}
 .dg-hero__main{flex:1;min-width:260px}
 .dg-hero__main h2{font:640 20px/1.25 var(--terminal-font);color:var(--terminal-ink);margin:4px 0 6px}
-.dg-next{color:var(--terminal-ink-soft);font-size:13px;margin:0 0 14px}
+.dg-next{color:var(--terminal-ink-soft);font-size:13px;margin:0 0 16px}
 .dg-next strong{color:var(--terminal-ink)}
 .dg-rings{display:flex;flex-direction:column;gap:8px;max-width:420px}
 .dg-mini{display:flex;align-items:center;gap:10px}
-.dg-mini__bar{flex:1;height:7px;border-radius:999px;background:var(--terminal-bg);overflow:hidden}
-.dg-mini__bar>span{display:block;height:100%;border-radius:999px}
+.dg-mini__bar{flex:1;height:6px;border-radius:999px;background:var(--terminal-line);overflow:hidden}
+.dg-mini__bar>span{display:block;height:100%;border-radius:inherit;transition:width 420ms cubic-bezier(.2,0,.2,1)}
 .dg-mini__lbl{width:110px;font-size:12px;color:var(--terminal-ink-soft)}
 .dg-mini__val{width:56px;text-align:right;font:700 12px/1 var(--terminal-mono);color:var(--terminal-ink)}
 .dg-mini__val em{color:var(--terminal-ink-soft);font-style:normal;font-weight:400}
 .dg-alertas{display:flex;flex-direction:column;gap:10px}
-.dg-alerta{display:flex;gap:12px;padding:12px 14px;background:color-mix(in srgb,var(--terminal-negative) 8%,var(--terminal-bg));border:1px solid color-mix(in srgb,var(--terminal-negative) 30%,var(--terminal-line));border-radius:var(--terminal-radius-sm)}
+.dg-alerta{display:flex;gap:12px;padding:16px;background:var(--ds-sunken);border:1px solid var(--terminal-line);border-left:3px solid var(--terminal-negative);border-radius:var(--terminal-radius-sm)}
 .dg-alerta>i{color:var(--terminal-negative);margin-top:2px}
-.dg-alerta strong{display:block;color:var(--terminal-ink);font-size:13.5px}
-.dg-alerta span{display:block;color:var(--terminal-ink-soft);font-size:12px;margin-top:2px}
+.dg-alerta strong{display:block;color:var(--terminal-ink);font-size:13px;font-weight:640}
+.dg-alerta span{display:block;color:var(--terminal-ink-soft);font-size:13px;line-height:1.5;margin-top:4px}
 .dg-alerta__acao{color:var(--terminal-primary)!important}
-.dg-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:18px}
-.dg-kpi{background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);padding:13px 15px}
-.dg-kpi__lbl{display:block;font:700 9.5px/1.3 var(--terminal-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--terminal-ink-soft);margin-bottom:7px}
-.dg-kpi__val{font:700 17px/1 var(--terminal-font);color:var(--terminal-ink)}
+/* Oito indicadores: com auto-fit a linha enchia com seis e sobravam dois
+   órfãos. Quatro por linha fecha em 4+4 em qualquer largura de desktop. */
+.dg-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
+@media (max-width:1080px){.dg-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.dg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.dg-kpi{display:flex;flex-direction:column;gap:4px;min-width:0;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);padding:16px}
+.dg-kpi__lbl{display:block;font:700 10px/1.2 var(--terminal-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--terminal-ink-soft)}
+.dg-kpi__val{font:600 clamp(17px,1.5vw,21px)/1.1 var(--terminal-font);letter-spacing:-.03em;color:var(--terminal-ink);overflow-wrap:anywhere}
 .dg-kpi__val--ok{color:var(--terminal-primary)}
 .dg-kpi__val--warn{color:var(--terminal-accent)}
 .dg-kpi__val--neg{color:var(--terminal-negative)}
-.dg-modules{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
-.dg-mod{background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);padding:14px 16px}
-.dg-mod__head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.dg-mod__head strong{color:var(--terminal-ink);font-size:13px;font-weight:600}
-.dg-mod__rec{color:var(--terminal-ink-soft);font-size:12px;margin:8px 0 0}
-.dg-ia__text{color:var(--terminal-ink);font-size:13.5px;line-height:1.6}
+.dg-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;align-items:start}
+.dg-mod{background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius-sm);padding:16px}
+.dg-mod__head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dg-mod__head strong{color:var(--terminal-ink);font-size:13px;font-weight:640;line-height:1.35}
+.dg-mod__rec{color:var(--terminal-ink-soft);font-size:13px;line-height:1.5;margin:8px 0 0}
+.dg-ia__text{color:var(--terminal-ink);font-size:13px;line-height:1.65}
 
 /* ---- Projeção (pj-*) ---- */
-.pj-hero{display:flex;gap:26px;align-items:center;flex-wrap:wrap;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:22px 24px}
+.pj-hero{display:flex;gap:24px;align-items:center;flex-wrap:wrap;background:var(--terminal-panel);border:1px solid var(--terminal-line);border-radius:var(--terminal-radius);padding:20px 24px}
 .pj-hero__main{flex:1;min-width:240px}
-.pj-big{font:700 36px/1.05 var(--terminal-font);color:var(--terminal-ink);margin:6px 0 10px}
+.pj-big{font:560 clamp(32px,3.4vw,44px)/1.02 var(--terminal-font);letter-spacing:-.045em;color:var(--terminal-ink);margin:8px 0 12px}
 .pj-big--muted{color:var(--terminal-ink-soft);opacity:.75}
 .pj-hero__tags{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.pj-conf{font:700 10px/1 var(--terminal-mono);letter-spacing:.06em;padding:5px 9px;border-radius:999px;border:1px solid var(--terminal-line);color:var(--terminal-ink-soft)}
+.pj-conf{display:inline-flex;align-items:center;gap:5px;font:700 10px/1.4 var(--terminal-mono);letter-spacing:.07em;text-transform:uppercase;padding:3px 10px;border-radius:999px;border:1px solid var(--terminal-line);color:var(--terminal-ink-soft);white-space:nowrap}
 .pj-conf--high{color:var(--terminal-primary);border-color:color-mix(in srgb,var(--terminal-primary) 40%,var(--terminal-line))}
 .pj-conf--mid{color:var(--terminal-accent);border-color:color-mix(in srgb,var(--terminal-accent) 40%,var(--terminal-line))}
 .pj-conf--low{color:var(--terminal-negative);border-color:color-mix(in srgb,var(--terminal-negative) 40%,var(--terminal-line))}
-.pj-warn{color:var(--terminal-ink-soft);font-size:12px;margin:12px 0 0;max-width:420px}
+.pj-warn{color:var(--terminal-ink-soft);font-size:13px;line-height:1.5;margin:12px 0 0;max-width:46ch}
 .pj-chart{flex:1;min-width:280px}
-.pj-chart__axis{display:flex;justify-content:space-between;margin-top:4px;font:600 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
-.pj-certos{display:flex;gap:24px;flex-wrap:wrap}
-.pj-certo__lbl{display:block;font:700 9.5px/1.3 var(--terminal-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--terminal-ink-soft);margin-bottom:5px}
-.pj-certo__val{font:700 16px/1 var(--terminal-font);color:var(--terminal-ink)}
-.pj-kpi__hint{display:block;color:var(--terminal-ink-soft);font-size:10.5px;margin-top:5px;line-height:1.35}
-.pj-insights{margin:0;padding-left:18px;color:var(--terminal-ink);font-size:13px;line-height:1.7}
-.pj-insights li{margin-bottom:4px}
+.pj-chart__axis{display:flex;justify-content:space-between;margin-top:8px;font:600 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
+.pj-certos{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+.pj-certo__lbl{display:block;font:700 10px/1.2 var(--terminal-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--terminal-ink-soft);margin-bottom:4px}
+.pj-certo__val{font:600 18px/1.05 var(--terminal-font);letter-spacing:-.02em;color:var(--terminal-ink)}
+.pj-kpi__hint{display:block;color:var(--terminal-ink-soft);font-size:11px;margin-top:4px;line-height:1.35}
+.pj-insights{margin:0;padding-left:20px;color:var(--terminal-ink);font-size:13px;line-height:1.65}
+.pj-insights li{margin-bottom:8px}
 
 /* ---- Comparativo (cm-*) ---- */
 .cm-delta{display:block;font-size:11px;margin-top:5px;font-family:var(--terminal-mono)}
@@ -712,7 +716,9 @@
 .cq-pts{font:700 11px/1 var(--terminal-mono);color:var(--terminal-accent)}
 .cq-card__body p{color:var(--terminal-ink-soft);font-size:12px;margin:5px 0 8px}
 .cq-prog{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.cq-prog .to-bar{flex:1}
+/* O cartão passou a escrever .ds-bar; sem isto a barra ficava com largura
+   zero e o progresso sumia, sobrando só o "4/5" ao lado. */
+.cq-prog .to-bar,.cq-prog .ds-bar{flex:1}
 .cq-prog small{font:700 10px/1 var(--terminal-mono);color:var(--terminal-ink-soft)}
 .cq-card__foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .cq-rar{font:700 9px/1 var(--terminal-mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 7px;border-radius:999px;border:1px solid var(--terminal-line);color:var(--terminal-ink-soft)}
@@ -1211,3 +1217,16 @@
   display: inline-flex; align-items: center; gap: 5px; }
 .cq-lock { color: var(--terminal-ink-soft); font-size: 10px; }
 .cq-done { color: var(--terminal-primary); font-size: 11px; }
+
+/* O `style="margin-top:18px"` estava repetido em cinco painéis das duas
+   telas — fora da escala e invisível para quem lê o CSS. */
+.pj-sec { margin-top: 16px; }
+.dg-kpis--seg { margin-top: 12px; }
+.pj-chart__leg { display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  color: var(--terminal-ink-soft); font-size: 11px; line-height: 1.4; }
+.pj-chart__leg i { flex: 0 0 auto; width: 16px; height: 10px; border-radius: 3px;
+  background: color-mix(in srgb, var(--terminal-primary) 22%, transparent); }
+.pj-hero__sub { color: var(--terminal-ink-soft); font-size: 13px; line-height: 1.55;
+  margin: 16px 0 0; max-width: 46ch; }
+.pj-hero__sub strong { color: var(--terminal-ink); }
+.pj-warn i { margin-right: 6px; color: var(--terminal-accent); }
