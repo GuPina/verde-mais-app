@@ -1230,7 +1230,7 @@ const VM = {
             </div>
             <div id="grp-patrimonio" class="nav-group-items">
               <a class="nav-item" id="nav-investimentos" onclick="VM.navigate('investimentos')">
-                <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Investimentos
+                <span class="nav-icon"><i class="fas fa-chart-line" style="color:#34d399;"></i></span> Invest. & Patrimônio
               </a>
               <a class="nav-item" id="nav-analise-cartoes" onclick="VM.navigate('analise-cartoes')">
                 <span class="nav-icon">📉</span> Análise de Cartões
@@ -1897,7 +1897,7 @@ const VM = {
       orcamentos: ['Orçamentos por Categoria', 'Controle proativo dos seus gastos'],
       recorrencias: ['Recorrências Automáticas', 'Despesas e receitas fixas do mês'],
       lembretes: ['Lembretes', 'Contas e vencimentos'],
-      investimentos: ['Investimentos', 'Patrimônio e rentabilidade'],
+      investimentos: ['Investimentos & Patrimônio', 'Carteira, bens materiais e dívidas'],
       reserva: ['Reserva de Emergência', 'Sua proteção financeira'],
       financiamentos: ['Financiamentos', 'Imóveis e financiamentos'],
       emprestimos: ['Empréstimos', 'Controle de dívidas'],

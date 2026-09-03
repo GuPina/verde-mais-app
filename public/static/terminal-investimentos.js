@@ -8,6 +8,7 @@
 
   window.VMTerminalInvestimentos = {
     async render(vm) {
+      if (window.VMTerminalPatrimonio?.render) return window.VMTerminalPatrimonio.render(vm)
       this._vm = vm
       const content = document.getElementById('page-content')
       if (!content) return
@@ -23,7 +24,12 @@
         content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível carregar os Investimentos</h2><p>${esc(e.response?.data?.error || 'Tente novamente.')}</p><button class="td-button td-button--primary" onclick="VM.pageInvestimentos()">Tentar novamente</button></div>`
       }
     },
-    reload() { this.render(this._vm) },
+    // A carteira agora vive dentro da tela de Patrimônio: recarregar tem que
+    // trazer o consolidado junto, senão o topo fica com número velho.
+    reload() {
+      if (window.VMTerminalPatrimonio?.render) return window.VMTerminalPatrimonio.render(this._vm)
+      this.render(this._vm)
+    },
 
     _paint() {
       const content = document.getElementById('page-content')
