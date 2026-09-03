@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+import { competenciaAno, competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { requireAuth } from './auth'
 import { exigeFeature } from './planos'
 
@@ -26,6 +26,47 @@ const SAVINGS_CATS = [
   'Investimentos', 'Poupança', 'Reserva', 'Aplicação', 'Tesouro',
   'Previdência', 'CDB', 'LCI', 'LCA', 'Fundo'
 ]
+
+/**
+ * A classificação de uma categoria em necessidade / desejo / poupança estava
+ * escrita solta dentro do GET '/'. O histórico precisa exatamente da mesma
+ * regra: duplicá-la garantiria que um dia o mês isolado e o gráfico anual
+ * discordassem sobre o mesmo gasto.
+ */
+function grupoDaCategoria(cat: string): 'needs' | 'savings' | 'wants' {
+  const c = cat.toLowerCase()
+  if (NEEDS_CATS.some(n => c.includes(n.toLowerCase()))) return 'needs'
+  if (SAVINGS_CATS.some(x => c.includes(x.toLowerCase()))) return 'savings'
+  return 'wants'
+}
+
+/**
+ * O score é a distância entre a distribuição real e a meta configurada.
+ * Devolve também as três parcelas: um número de 0 a 100 que não se explica
+ * não ajuda ninguém a saber o que mudar.
+ */
+function calcularScore(
+  income: number, pN: number, pW: number, pS: number,
+  alvoN: number, alvoW: number, alvoS: number,
+) {
+  // Necessidade tem tolerância maior que desejo: quem mora caro não muda de
+  // aluguel no mês seguinte, mas corta delivery na semana.
+  const needsScore = Math.max(0, 100 - Math.abs(pN - alvoN) * 2)
+  const wantsScore = Math.max(0, 100 - Math.abs(pW - alvoW) * 3)
+  // Poupar acima da meta nunca penaliza — é o único desvio que é bom.
+  const savingsScore = alvoS > 0
+    ? Math.max(0, Math.min(100, (pS / alvoS) * 100))
+    : (pS > 0 ? 100 : 0)
+  const score = income === 0 ? 0 : Math.round(needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4)
+  return {
+    score,
+    fatores: [
+      { chave: 'needs',   rotulo: 'Necessidades', nota: Math.round(needsScore),   peso: 30, real: Math.round(pN * 10) / 10, alvo: alvoN },
+      { chave: 'wants',   rotulo: 'Desejos',      nota: Math.round(wantsScore),   peso: 30, real: Math.round(pW * 10) / 10, alvo: alvoW },
+      { chave: 'savings', rotulo: 'Poupança',     nota: Math.round(savingsScore), peso: 40, real: Math.round(pS * 10) / 10, alvo: alvoS },
+    ],
+  }
+}
 
 // ── GET /api/regra-503020/config — Melhoria 3.2 ───────────────────────────────
 regra503020.get('/config', requireAuth, async (c) => {
@@ -188,13 +229,10 @@ regra503020.get('/', requireAuth, async (c) => {
 
   // 8. Score de aderência (0-100) com percentuais personalizados
   // Se não há receita registrada, o score é 0 (sem dados para avaliar)
-  const needsScore = Math.max(0, 100 - Math.abs(percentNeeds - PCT_NECESSIDADES) * 2)
-  const wantsScore = Math.max(0, 100 - Math.abs(percentWants - PCT_DESEJOS) * 3)
-  // Guarda contra config personalizada com poupança 0% (evita divisão por zero → score NaN)
-  const savingsScore = PCT_POUPANCA > 0
-    ? Math.max(0, Math.min(100, (percentSavings / PCT_POUPANCA) * 100))
-    : (percentSavings > 0 ? 100 : 0)
-  const score = income === 0 ? 0 : Math.round((needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4))
+  const { score, fatores: fatores_score } = calcularScore(
+    income, percentNeeds, percentWants, percentSavings,
+    PCT_NECESSIDADES, PCT_DESEJOS, PCT_POUPANCA,
+  )
 
   // 9. Recomendações
   const recommendations: string[] = []
@@ -305,6 +343,7 @@ regra503020.get('/', requireAuth, async (c) => {
       savings: Math.round(gapSavings * 100) / 100,
     },
     score,
+    fatores_score,
     recommendations,
     // Bloco 6.2: sugestões de orçamento
     sugestoes_orcamento,
@@ -313,6 +352,107 @@ regra503020.get('/', requireAuth, async (c) => {
       top_wants: topWants.map(([cat, val]) => ({ cat, val: Math.round(val * 100) / 100 })),
       investments_savings: Math.round((investments + reserves) * 100) / 100,
     }
+  })
+})
+
+// ── GET /api/regra-503020/historico?ano= ─────────────────────────────────────
+// Um mês isolado não diz se a pessoa melhorou. Este endpoint refaz a mesma
+// conta do mês a mês para o ano inteiro — em 4 consultas agrupadas, não em 12
+// rodadas do endpoint principal — para a tela mostrar a linha do score.
+regra503020.get('/historico', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ano = parseInt(c.req.query('ano') || String(new Date().getFullYear()))
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100)
+    return c.json({ error: 'Ano inválido.' }, 400)
+
+  const cfg = await c.env.DB.prepare(
+    `SELECT * FROM regra_config WHERE user_id = ? ORDER BY id DESC LIMIT 1`
+  ).bind(user.id).first() as any
+  const ALVO_N = cfg?.pct_necessidades ?? 50
+  const ALVO_W = cfg?.pct_desejos      ?? 30
+  const ALVO_S = cfg?.pct_poupanca     ?? 20
+
+  const [rec, desp, inv, res] = await Promise.all([
+    c.env.DB.prepare(`
+      SELECT strftime('%m', data) as mes, COALESCE(SUM(valor),0) as total
+      FROM receitas WHERE user_id = ? AND strftime('%Y', data) = ?
+      GROUP BY 1`).bind(user.id, String(ano)).all(),
+    c.env.DB.prepare(`
+      SELECT (${competenciaMes()}) as mes, categoria, COALESCE(SUM(valor),0) as total
+      FROM despesas
+      WHERE user_id = ? AND status = 'pago'
+        AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
+        AND (${competenciaAno()}) = ?
+      GROUP BY 1, 2`).bind(user.id, String(ano)).all(),
+    c.env.DB.prepare(`
+      SELECT strftime('%m', data_inicio) as mes, COALESCE(SUM(valor_investido),0) as total
+      FROM investimentos WHERE user_id = ? AND strftime('%Y', data_inicio) = ?
+      GROUP BY 1`).bind(user.id, String(ano)).all(),
+    c.env.DB.prepare(`
+      SELECT strftime('%m', rt.date) as mes, COALESCE(SUM(rt.amount),0) as total
+      FROM reserve_transactions rt
+      JOIN specialized_reserves r ON rt.reserve_id = r.id
+      WHERE r.user_id = ? AND rt.type = 'deposit' AND strftime('%Y', rt.date) = ?
+      GROUP BY 1`).bind(user.id, String(ano)).all(),
+  ])
+
+  const porMes = Array.from({ length: 12 }, () => ({ income: 0, needs: 0, wants: 0, savings: 0 }))
+  const idx = (m: any) => {
+    const n = parseInt(String(m ?? ''), 10)
+    return Number.isInteger(n) && n >= 1 && n <= 12 ? n - 1 : -1
+  }
+  for (const r of (rec.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].income  += parseFloat(r.total) }
+  for (const r of (inv.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].savings += parseFloat(r.total) }
+  for (const r of (res.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].savings += parseFloat(r.total) }
+  for (const r of (desp.results as any[])) {
+    const i = idx(r.mes); if (i < 0) continue
+    porMes[i][grupoDaCategoria(String(r.categoria || ''))] += parseFloat(r.total)
+  }
+
+  const meses = porMes.map((m, i) => {
+    const pN = m.income > 0 ? (m.needs   / m.income) * 100 : 0
+    const pW = m.income > 0 ? (m.wants   / m.income) * 100 : 0
+    const pS = m.income > 0 ? (m.savings / m.income) * 100 : 0
+    const { score } = calcularScore(m.income, pN, pW, pS, ALVO_N, ALVO_W, ALVO_S)
+    return {
+      mes: i + 1,
+      income: Math.round(m.income * 100) / 100,
+      needs: Math.round(m.needs * 100) / 100,
+      wants: Math.round(m.wants * 100) / 100,
+      savings: Math.round(m.savings * 100) / 100,
+      pct_needs: Math.round(pN * 10) / 10,
+      pct_wants: Math.round(pW * 10) / 10,
+      pct_savings: Math.round(pS * 10) / 10,
+      score,
+      // Sem receita no mês o score é 0 por falta de dado, não por desequilíbrio.
+      sem_dados: m.income <= 0,
+    }
+  })
+
+  const comDados = meses.filter(m => !m.sem_dados)
+  const media = comDados.length ? Math.round(comDados.reduce((s, m) => s + m.score, 0) / comDados.length) : 0
+  const melhor = comDados.length ? comDados.reduce((a, b) => (b.score > a.score ? b : a)) : null
+  const pior   = comDados.length ? comDados.reduce((a, b) => (b.score < a.score ? b : a)) : null
+  // Tendência: os três últimos meses com dado contra os três anteriores.
+  const ult = comDados.slice(-3), ant = comDados.slice(-6, -3)
+  const mediaDe = (arr: typeof comDados) => arr.length ? arr.reduce((s, m) => s + m.score, 0) / arr.length : 0
+  const tendencia = ant.length && ult.length ? Math.round(mediaDe(ult) - mediaDe(ant)) : 0
+
+  return c.json({
+    ano,
+    alvo: { needs: ALVO_N, wants: ALVO_W, savings: ALVO_S },
+    meses,
+    resumo: {
+      media,
+      meses_com_dados: comDados.length,
+      melhor_mes: melhor ? { mes: melhor.mes, score: melhor.score } : null,
+      pior_mes: pior ? { mes: pior.mes, score: pior.score } : null,
+      tendencia,
+      // Poupou o suficiente em quantos meses — a métrica que o usuário
+      // realmente persegue.
+      meses_na_meta_poupanca: comDados.filter(m => m.pct_savings >= ALVO_S).length,
+    },
+    anos_disponiveis: [ano - 1, ano, ano + 1],
   })
 })
 
