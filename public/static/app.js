@@ -11391,6 +11391,7 @@ const VM = {
 
   // ============== CARTÕES ==============
   async pageCartoes() {
+    if (window.VMTerminalCartoes?.render) return window.VMTerminalCartoes.render(this)
     this._faturaAutoAberta = false  // reset para auto-abrir fatura ao entrar na página
     document.getElementById('page-content').innerHTML = `
       <div class="tf-screen tf-screen--cartoes">

@@ -911,3 +911,42 @@
 .ac-pont-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font: 600 11px/1.3 var(--terminal-font); border: 1px solid; }
 .ac-pont-badge--ok { color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 12%, transparent); border-color: color-mix(in srgb, var(--terminal-primary) 40%, transparent); }
 .ac-pont-badge--warn { color: var(--terminal-accent); background: color-mix(in srgb, var(--terminal-accent) 12%, transparent); border-color: color-mix(in srgb, var(--terminal-accent) 40%, transparent); }
+
+/* ============ Cartões & Faturas (ct-*) ============ */
+.ct-rail { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.ct-tile { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px;
+  padding: 18px 20px; text-align: left; cursor: pointer;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-lg);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--cc) 24%, var(--terminal-surface)), var(--terminal-surface));
+  color: var(--terminal-ink); transition: transform .14s ease, border-color .14s ease; }
+.ct-tile::before { content:""; position:absolute; inset:0 0 auto; height:3px; background: var(--cc); }
+.ct-tile:hover { transform: translateY(-2px); }
+.ct-tile.is-on { border-color: color-mix(in srgb, var(--cc) 60%, var(--terminal-line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--cc) 40%, transparent); }
+.ct-tile__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.ct-tile__nome { font: 650 14px/1.2 var(--terminal-font); }
+.ct-tile__fecha { font: 700 9.5px/1 var(--terminal-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--terminal-ink-soft); }
+.ct-tile__val { font: 600 27px/1.05 var(--terminal-font); letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.ct-tile__sub { font-size: 11px; color: var(--terminal-ink-soft); }
+.ct-tile__bar { margin-top: 8px; }
+
+.ct-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .75fr); gap: 16px; align-items: start; }
+@media (max-width: 1020px) { .ct-grid { grid-template-columns: 1fr; } }
+.ct-side { display: flex; flex-direction: column; gap: 14px; }
+.ct-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ct-totais { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px 0 16px; margin-bottom: 4px; border-top: 1px solid var(--terminal-line); border-bottom: 1px solid var(--terminal-line); }
+.ct-totais > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ct-table { min-width: 560px; }
+.ct-data { color: var(--terminal-ink-soft); font: 600 11px/1 var(--terminal-mono); text-transform: uppercase; white-space: nowrap; }
+.ct-desc { font-weight: 650; }
+.ct-parc { color: var(--terminal-ink); white-space: nowrap; }
+
+.ct-donut { position: relative; display: grid; place-items: center; margin: 12px 0 6px; }
+.ct-donut__c { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.ct-donut__c strong { font: 600 17px/1 var(--terminal-font); font-variant-numeric: tabular-nums; }
+.ct-donut__c small { font-size: 10px; color: var(--terminal-ink-soft); margin-top: 3px; }
+.ct-legend { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ct-legend li { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 9px; font-size: 12px; }
+.ct-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.ct-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--terminal-ink); }
+.ct-legend b { color: var(--terminal-ink-soft); font-size: 11px; font-weight: 600; }
+.ct-legend em { font-style: normal; font-size: 11.5px; color: var(--terminal-ink); }
