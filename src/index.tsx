@@ -623,7 +623,7 @@ function appShell() {
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-  <link rel="stylesheet" href="/static/app.css?v=20260317-1">
+  <link rel="stylesheet" href="/static/app.css?v=20260901-1">
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-2">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260901-2">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
@@ -674,7 +674,7 @@ function appShell() {
   <script src="/static/terminal-importacao.js?v=20260831-3"></script>
   <script src="/static/terminal-assistente.js?v=20260831-3"></script>
   <script src="/static/terminal-anim.js?v=20260901-1"></script>
-  <script src="/static/app.js?v=20260901-2"></script>
+  <script src="/static/app.js?v=20260901-3"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

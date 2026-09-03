@@ -1273,3 +1273,19 @@ a[onclick] {
     min-height: 44px !important;
   }
 }
+
+/* ── Sidebar recolhível no desktop ──────────────────────────────────────────
+   O hamburger só alternava `.sidebar.open`, que existe apenas no @media de
+   mobile — no desktop o clique não tinha nenhuma regra para aplicar. Aqui está
+   o estado recolhido, com especificidade acima do override do tema terminal. */
+@media (min-width: 769px) {
+  .sidebar { transition: transform .28s cubic-bezier(.4,0,.2,1); }
+  .main-content { transition: margin-left .28s cubic-bezier(.4,0,.2,1), max-width .28s cubic-bezier(.4,0,.2,1); }
+
+  body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
+  body.sidebar-collapsed .main-content { margin-left: 0; }
+  body.sidebar-collapsed.terminal-dashboard-active .main-content { margin-left: 0; max-width: 100vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .main-content { transition: none !important; }
+}

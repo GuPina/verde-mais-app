@@ -1348,7 +1348,7 @@ const VM = {
         <div class="main-content">
           <header class="topbar">
             <div style="display:flex;align-items:center;gap:16px;">
-              <button onclick="document.getElementById('sidebar').classList.toggle('open')" 
+              <button onclick="VM.toggleSidebar()" aria-label="Recolher menu" title="Recolher menu"
                 style="background:none;border:none;color:#888;font-size:1.1rem;cursor:pointer;" id="menu-btn">
                 <i class="fas fa-bars"></i>
               </button>
@@ -1480,21 +1480,54 @@ const VM = {
     if (menuBtn) {
       menuBtn.onclick = () => VM.toggleSidebar()
     }
+    this._restaurarSidebar()
   },
 
-  // BLOCO 9: Controle da sidebar mobile
+  // Controle da sidebar.
+  // No mobile ela desliza por cima, com overlay. No desktop ela RECOLHE — antes
+  // o hamburger só alternava a classe `.open`, que existe apenas dentro do
+  // @media (max-width:768px): no desktop o clique não fazia absolutamente nada.
+  _ehMobile() {
+    return window.matchMedia && window.matchMedia('(max-width: 768px)').matches
+  },
+
   toggleSidebar() {
     const sidebar = document.getElementById('sidebar')
-    const overlay = document.getElementById('sidebar-overlay')
     if (!sidebar) return
-    const isOpen = sidebar.classList.contains('open')
-    if (isOpen) {
+
+    if (!this._ehMobile()) {
+      const recolhida = document.body.classList.toggle('sidebar-collapsed')
+      try { localStorage.setItem('vm_sidebar_recolhida', recolhida ? '1' : '0') } catch (_) {}
+      this._sincronizarBotaoSidebar()
+      return
+    }
+
+    const overlay = document.getElementById('sidebar-overlay')
+    if (sidebar.classList.contains('open')) {
       this.closeSidebar()
     } else {
       sidebar.classList.add('open')
       if (overlay) overlay.classList.add('visible')
       document.body.style.overflow = 'hidden'
     }
+  },
+
+  /** Restaura o estado recolhido salvo e acerta o rótulo do botão. */
+  _restaurarSidebar() {
+    try {
+      if (localStorage.getItem('vm_sidebar_recolhida') === '1' && !this._ehMobile()) {
+        document.body.classList.add('sidebar-collapsed')
+      }
+    } catch (_) {}
+    this._sincronizarBotaoSidebar()
+  },
+
+  _sincronizarBotaoSidebar() {
+    const btn = document.getElementById('menu-btn')
+    if (!btn) return
+    const recolhida = document.body.classList.contains('sidebar-collapsed')
+    btn.setAttribute('aria-expanded', recolhida ? 'false' : 'true')
+    btn.setAttribute('title', recolhida ? 'Mostrar menu' : 'Recolher menu')
   },
 
   closeSidebar() {
@@ -3788,7 +3821,7 @@ const VM = {
             <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
             <select id="filtro-cat-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               <option value="">Todas</option>
-              ${['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas','Assinaturas','Pets','Beleza','Tecnologia','Viagem','Academia','Serviços','Presentes','Outros'].map(c => `<option value="${c}" ${c === catD ? 'selected' : ''}>${c}</option>`).join('')}
+              ${VM._CATS_DESPESA.map(c => `<option value="${c}" ${c === catD ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
           <!-- Filtro por Cartão -->
@@ -3941,6 +3974,50 @@ const VM = {
     } catch(e) {}
   },
 
+  // Categorias de despesa do seletor. A lista fixa antiga não cobria tudo que o
+  // backend normaliza (Utilidades, Pessoal, Empréstimo, Fatura Cartão,
+  // Investimento) — e atribuir a um <select> um valor sem <option> equivalente
+  // o zera em silêncio, que era o motivo de "alguns filtros não funcionarem".
+  _CATS_DESPESA: ['Alimentação','Transporte','Saúde','Educação','Lazer','Moradia','Roupas',
+    'Assinaturas','Streaming','Utilidades','Pessoal','Pets','Beleza','Tecnologia','Viagem',
+    'Academia','Serviços','Presentes','Empréstimo','Fatura Cartão','Investimento','Outros'],
+
+  /** Garante que `valor` exista como <option> antes de selecioná-lo. */
+  _garantirOpcaoCategoria(sel, valor) {
+    if (!sel) return
+    if (!valor) { sel.value = ''; return }
+    const existe = Array.from(sel.options).some(o => o.value === valor)
+    if (!existe) {
+      const opt = document.createElement('option')
+      opt.value = valor; opt.textContent = valor
+      sel.appendChild(opt)
+    }
+    sel.value = valor
+  },
+
+  /** Filtra a lista de despesas por uma categoria vinda dos gráficos/atalhos. */
+  filtrarDespesasPorCategoria(categoria) {
+    this._garantirOpcaoCategoria(document.getElementById('filtro-cat-d'), categoria)
+    this.carregarDespesas()
+  },
+
+  /** Junta ao seletor as categorias que existem de fato nos dados do usuário. */
+  _sincronizarCategoriasDesp(breakdown) {
+    const sel = document.getElementById('filtro-cat-d')
+    if (!sel || !Array.isArray(breakdown)) return
+    const atual = sel.value
+    const existentes = new Set(Array.from(sel.options).map(o => o.value))
+    breakdown.forEach(b => {
+      const c = b && b.categoria
+      if (c && !existentes.has(c)) {
+        const opt = document.createElement('option')
+        opt.value = c; opt.textContent = c
+        sel.appendChild(opt); existentes.add(c)
+      }
+    })
+    if (atual) sel.value = atual
+  },
+
   _limparFiltrosDespesas() {
     const now = new Date()
     const el = (id) => document.getElementById(id)
@@ -4070,6 +4147,7 @@ const VM = {
 
       // ── Gráfico de categorias ─────────────────────────────────────────────
       const catBD   = data.categorias_breakdown || []
+      this._sincronizarCategoriasDesp(catBD)
       const grafEl  = document.getElementById('despesas-graficos')
       const catColors = {
         'Alimentação':'#ff6b6b','Transporte':'#74b9ff','Saúde':'#2FBF71','Educação':'#a29bfe',
@@ -4108,7 +4186,7 @@ const VM = {
             const pctTotal = totalCat > 0 ? Math.round((c.total / totalCat) * 100) : 0
             return `
             <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background 0.15s;"
-              onclick="document.getElementById('filtro-cat-d').value='${c.categoria}';VM.carregarDespesas()"
+              onclick="VM.filtrarDespesasPorCategoria('${String(c.categoria).replace(/'/g, "\\'")}')"
               onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
               <div style="width:8px;height:8px;border-radius:50%;background:${cor};flex-shrink:0;"></div>
               <div style="width:100px;font-size:0.78rem;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.categoria}</div>
@@ -7159,7 +7237,7 @@ const VM = {
       const selCat  = document.getElementById('filtro-cat-d')
       if (selMes) selMes.value = mes
       if (selAno) selAno.value = ano
-      if (selCat) selCat.value = categoria
+      if (selCat) this._garantirOpcaoCategoria(selCat, categoria)
       this.carregarDespesas()
     }, 350)
   },
