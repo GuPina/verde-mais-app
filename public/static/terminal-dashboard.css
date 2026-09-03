@@ -833,3 +833,36 @@ body.terminal-dashboard-active #modal-container [style*="border-radius:20px"][st
 .td-enc-val { font-family: var(--terminal-mono); font-weight: 700; white-space: nowrap; color: var(--terminal-ink); }
 .td-enc-table tfoot td { padding: 12px 14px; border-top: 2px solid var(--terminal-line); font-weight: 700; color: var(--terminal-ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .td-enc-table tfoot td.td-enc-val { color: var(--terminal-primary); }
+
+/* ── Ritmo do mês ─────────────────────────────────────────────────────────
+   O calendário de calor precisa de células quadradas e de um degradê que
+   não apague os dias medianos — a escala é raiz quadrada, no JS. */
+.td-ritmo-section { margin-bottom: 18px; }
+.td-ritmo__topo { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px;
+  padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--terminal-line); }
+.td-ritmo__topo > div { display: flex; flex-direction: column; gap: 3px; }
+.td-ritmo__topo small { font: 700 10px/1 var(--terminal-mono); letter-spacing: .07em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); }
+.td-ritmo__topo b { font: 600 18px/1 var(--terminal-mono); letter-spacing: -.02em; white-space: nowrap; }
+
+/* Sem largura máxima, sete colunas com aspect-ratio 1 num painel largo viram
+   quadrados enormes que dominam o dashboard inteiro. */
+.td-ritmo__corpo { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 860px) { .td-ritmo__corpo { grid-template-columns: 1fr; } }
+.td-ritmo__lado { display: flex; flex-direction: column; gap: 10px; }
+.td-cal__cab, .td-cal__grade { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.td-cal__cab { margin-bottom: 6px; }
+.td-cal__cab span { text-align: center; font: 700 9px/1 var(--terminal-mono);
+  letter-spacing: .08em; color: var(--terminal-ink-soft); }
+.td-cal__vaga { aspect-ratio: 1; }
+.td-cal__d { position: relative; aspect-ratio: 1; display: grid; place-items: center;
+  border: 1px solid var(--terminal-line); border-radius: 7px; background: var(--terminal-bg); }
+.td-cal__d em { font-style: normal; font: 600 10px/1 var(--terminal-mono);
+  color: var(--terminal-ink); opacity: .82; }
+.td-cal__d.is-futuro { opacity: .3; }
+.td-cal__d.is-hoje { outline: 2px solid var(--terminal-accent); outline-offset: -1px; }
+.td-cal__legenda { display: flex; align-items: center; gap: 5px; margin-top: 12px;
+  color: var(--terminal-ink-soft); font-size: 11px; flex-wrap: wrap; }
+.td-cal__legenda i { width: 13px; height: 13px; border-radius: 4px; border: 1px solid var(--terminal-line); }
+.td-cal__legenda em { margin-left: auto; font-style: normal; font-family: var(--terminal-mono); font-size: 11px; }
+@media (max-width: 520px) { .td-cal__d em { font-size: 9px; } }

@@ -229,6 +229,73 @@ dashboard.get('/', requireAuth, async (c) => {
   const metaReservasEsp = parseFloat((evolucaoBatch[0].results?.[0] as any)?.meta || 0)
   const progressoReservas = metaReservasEsp > 0 ? Math.round((totalReservasEsp / metaReservasEsp) * 100) : 0
 
+  // ── Ritmo do mês ───────────────────────────────────────────────────────────
+  // Fechar o mês no vermelho quase nunca é uma compra grande: é o acumulado de
+  // um ritmo que ninguém percebeu a tempo. Estes dois vetores (gasto por dia
+  // deste mês e do anterior) deixam a tela responder "no dia 12 eu já gastei
+  // mais do que no dia 12 do mês passado?" — que é a pergunta que dá tempo de
+  // corrigir, diferente do total no dia 31.
+  const [diasAtualR, diasAntR] = await c.env.DB.batch([
+    c.env.DB.prepare(`
+      SELECT CAST(strftime('%d', ${competenciaData()}) AS INTEGER) as dia,
+             COALESCE(SUM(valor), 0) as total
+      FROM despesas
+      WHERE user_id = ? ${filtroDespesaDoMes()}
+      GROUP BY 1 ORDER BY 1
+    `).bind(user.id, mes, ano),
+    c.env.DB.prepare(`
+      SELECT CAST(strftime('%d', ${competenciaData()}) AS INTEGER) as dia,
+             COALESCE(SUM(valor), 0) as total
+      FROM despesas
+      WHERE user_id = ? ${filtroDespesaDoMes()}
+      GROUP BY 1 ORDER BY 1
+    `).bind(user.id, mesAnt, anoAnt),
+  ])
+
+  const diasNoMes = new Date(parseInt(ano), parseInt(mes), 0).getDate()
+  const porDia = (rows: any[], n: number) => {
+    const v = new Array(n).fill(0)
+    for (const r of (rows || [])) {
+      const d = Number(r.dia)
+      // strftime pode devolver dia fora da faixa se a competência cair noutro
+      // mês por data_pagamento — descartar é melhor que estourar o vetor.
+      if (d >= 1 && d <= n) v[d - 1] = Math.round(Number(r.total) * 100) / 100
+    }
+    return v
+  }
+  const diasAtual = porDia(diasAtualR.results as any[], diasNoMes)
+  const diasAnterior = porDia(diasAntR.results as any[], new Date(parseInt(anoAnt), parseInt(mesAnt), 0).getDate())
+
+  const hoje = new Date()
+  const ehMesCorrente = hoje.getFullYear() === parseInt(ano) && (hoje.getMonth() + 1) === parseInt(mes)
+  const diaCorte = ehMesCorrente ? hoje.getDate() : diasNoMes
+  const acumAte = (v: number[], d: number) => v.slice(0, d).reduce((a, b) => a + b, 0)
+  const gastoAteHoje = Math.round(acumAte(diasAtual, diaCorte) * 100) / 100
+  const gastoAntMesmoDia = Math.round(acumAte(diasAnterior, Math.min(diaCorte, diasAnterior.length)) * 100) / 100
+
+  const ritmo_mes = {
+    dias_no_mes: diasNoMes,
+    dia_corte: diaCorte,
+    // Dia da semana em que o mês começa (0 = domingo), para a grade do calendário.
+    primeiro_dia_semana: new Date(parseInt(ano), parseInt(mes) - 1, 1).getDay(),
+    dias: diasAtual,
+    dias_anterior: diasAnterior,
+    gasto_ate_hoje: gastoAteHoje,
+    gasto_anterior_mesmo_dia: gastoAntMesmoDia,
+    variacao_pct: gastoAntMesmoDia > 0
+      ? Math.round(((gastoAteHoje - gastoAntMesmoDia) / gastoAntMesmoDia) * 1000) / 10
+      : null,
+    media_diaria: diaCorte > 0 ? Math.round((gastoAteHoje / diaCorte) * 100) / 100 : 0,
+    // Projeção linear: o ritmo até aqui aplicado aos dias que faltam.
+    projecao_fim_mes: diaCorte > 0 ? Math.round((gastoAteHoje / diaCorte) * diasNoMes * 100) / 100 : 0,
+    maior_dia: (() => {
+      let idx = -1, max = 0
+      diasAtual.forEach((v, i) => { if (v > max) { max = v; idx = i } })
+      return idx >= 0 ? { dia: idx + 1, valor: Math.round(max * 100) / 100 } : null
+    })(),
+    dias_sem_gasto: diasAtual.slice(0, diaCorte).filter(v => v <= 0).length,
+  }
+
   const evolucao = evolucaoMeses.map((item, i) => {
     const rec  = Math.round(((evolucaoBatch[1 + i * 2].results?.[0] as any)?.total || 0) * 100) / 100
     const desp = Math.round(((evolucaoBatch[2 + i * 2].results?.[0] as any)?.total || 0) * 100) / 100
@@ -653,7 +720,8 @@ dashboard.get('/', requireAuth, async (c) => {
         : 0
     },
     evolucao,
-    evolucao_6meses: evolucao,  // B3-fix: alias para compatibilidade com frontend
+    evolucao_6meses: evolucao,
+    ritmo_mes,  // B3-fix: alias para compatibilidade com frontend
     categorias_despesas: categoriasDespesas.results,
     categorias_receitas: categoriasReceitas.results,
     ultimas_transacoes: ultimasTransacoes.results,

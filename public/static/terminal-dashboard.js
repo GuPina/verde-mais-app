@@ -206,6 +206,96 @@
     </article>`
   }
 
+  /**
+   * Ritmo do mês.
+   *
+   * Fechar o mês no vermelho quase nunca é uma compra grande: é o acumulado
+   * de um ritmo que ninguém percebeu a tempo. O calendário mostra onde o
+   * dinheiro sai (dias claros pesam mais), e a comparação com o mesmo dia do
+   * mês passado é a única que dá tempo de corrigir — o total do dia 31 já é
+   * história.
+   */
+  const ritmoPanel = (data) => {
+    const r = data.ritmo_mes
+    if (!r || !Array.isArray(r.dias)) return ''
+    const dias = r.dias, corte = Number(r.dia_corte) || dias.length
+    const gasto = Number(r.gasto_ate_hoje) || 0
+    const antes = Number(r.gasto_anterior_mesmo_dia) || 0
+    const varPct = r.variacao_pct
+    const pior = Math.max(...dias, 0)
+
+    // Escala do calor: a raiz suaviza o dia atípico que, em escala linear,
+    // apagaria todos os outros dias.
+    const calor = (v) => (pior <= 0 || v <= 0 ? 0 : Math.sqrt(v / pior))
+
+    const DS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
+    const vazios = Number(r.primeiro_dia_semana) || 0
+    const celulas = []
+    for (let i = 0; i < vazios; i++) celulas.push('<span class="td-cal__vaga"></span>')
+    dias.forEach((v, i) => {
+      const dia = i + 1
+      const futuro = dia > corte
+      const k = calor(v)
+      const estilo = futuro
+        ? ''
+        : v > 0
+          ? `background:color-mix(in srgb, var(--terminal-negative) ${Math.round(12 + k * 76)}%, var(--terminal-bg));`
+          : 'background:color-mix(in srgb, var(--terminal-primary) 10%, var(--terminal-bg));'
+      celulas.push(`<span class="td-cal__d ${futuro ? 'is-futuro' : ''} ${dia === corte ? 'is-hoje' : ''}" style="${estilo}"
+        title="Dia ${dia}${futuro ? ' — ainda não chegou' : v > 0 ? `: ${money(v)}` : ': sem gasto'}"><em>${dia}</em></span>`)
+    })
+
+    const tom = varPct === null ? 'info' : varPct > 8 ? 'neg' : varPct < -8 ? 'ok' : 'info'
+    const frase = varPct === null
+      ? `Sem gasto no mesmo período do mês passado para comparar.`
+      : varPct > 0
+        ? `<strong>${Math.abs(varPct).toFixed(0)}% acima</strong> do mesmo dia do mês passado (${money(antes)}).`
+        : varPct < 0
+          ? `<strong>${Math.abs(varPct).toFixed(0)}% abaixo</strong> do mesmo dia do mês passado (${money(antes)}).`
+          : `No mesmo ritmo do mês passado (${money(antes)}).`
+
+    return `<article class="td-panel td-ritmo">
+      <div class="td-panel__head">
+        <div><span class="td-eyebrow">Ritmo do mês</span><h2>Onde seu dinheiro sai, dia a dia</h2></div>
+        <span class="td-chip ${tom === 'neg' ? 'is-danger' : ''}">dia ${corte} de ${r.dias_no_mes}</span>
+      </div>
+
+      <div class="td-ritmo__topo">
+        <div><small>Gasto até aqui</small><b>${money(gasto)}</b></div>
+        <div><small>Média por dia</small><b>${money(r.media_diaria)}</b></div>
+        <div><small>Projeção do mês</small><b>${money(r.projecao_fim_mes)}</b></div>
+        <div><small>Dias sem gastar</small><b>${r.dias_sem_gasto}</b></div>
+      </div>
+
+      <div class="td-ritmo__corpo">
+        <div class="td-cal">
+          <div class="td-cal__cab">${DS.map(d => `<span>${d}</span>`).join('')}</div>
+          <div class="td-cal__grade">${celulas.join('')}</div>
+          <div class="td-cal__legenda">
+            <span>menos</span>
+            ${[.15, .35, .55, .75, .95].map(k => `<i style="background:color-mix(in srgb, var(--terminal-negative) ${Math.round(12 + k * 76)}%, var(--terminal-bg))"></i>`).join('')}
+            <span>mais</span>
+          </div>
+        </div>
+
+        <div class="td-ritmo__lado">
+          <div class="ds-note ds-note--${tom}">
+            <i class="fas ${tom === 'neg' ? 'fa-arrow-trend-up' : tom === 'ok' ? 'fa-arrow-trend-down' : 'fa-circle-info'} ds-note__ico"></i>
+            <div>No dia ${corte} você já gastou ${money(gasto)} — ${frase}</div>
+          </div>
+          ${r.maior_dia ? `<div class="ds-note ds-note--info">
+            <i class="fas fa-calendar-day ds-note__ico"></i>
+            <div>O maior gasto do mês caiu no <strong>dia ${r.maior_dia.dia}</strong>: ${money(r.maior_dia.valor)}, ${(r.maior_dia.valor / Math.max(1, r.media_diaria)).toFixed(1).replace('.', ',')}× a sua média diária.</div>
+          </div>` : ''}
+          ${r.dias_sem_gasto > 0 ? `<div class="ds-note ds-note--ok">
+            <i class="fas fa-leaf ds-note__ico"></i>
+            <div><strong>${r.dias_sem_gasto} ${r.dias_sem_gasto === 1 ? 'dia sem gastar nada' : 'dias sem gastar nada'}</strong> até aqui. Dia sem gasto é o hábito mais fácil de repetir — e o que mais muda o total no fim do mês.</div>
+          </div>` : ''}
+        </div>
+      </div>
+    </article>`
+  }
+
   const metricsStrip = (resumo, data) => {
     const r = resumo || {}
     const tiles = []
@@ -298,6 +388,10 @@
             <section class="td-analysis-grid">
               ${scorePanel(data)}
               ${cardsPanel(data.cartoes)}
+            </section>
+
+            <section class="td-ritmo-section">
+              ${ritmoPanel(data)}
             </section>
 
             <section class="td-encerra-section">
