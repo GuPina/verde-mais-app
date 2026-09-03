@@ -237,14 +237,14 @@ dashboard.get('/', requireAuth, async (c) => {
   // corrigir, diferente do total no dia 31.
   const [diasAtualR, diasAntR] = await c.env.DB.batch([
     c.env.DB.prepare(`
-      SELECT CAST(strftime('%d', ${competenciaData()}) AS INTEGER) as dia,
+      SELECT CAST(NULLIF(strftime('%d', ${competenciaData()}), '') AS INTEGER) as dia,
              COALESCE(SUM(valor), 0) as total
       FROM despesas
       WHERE user_id = ? ${filtroDespesaDoMes()}
       GROUP BY 1 ORDER BY 1
     `).bind(user.id, mes, ano),
     c.env.DB.prepare(`
-      SELECT CAST(strftime('%d', ${competenciaData()}) AS INTEGER) as dia,
+      SELECT CAST(NULLIF(strftime('%d', ${competenciaData()}), '') AS INTEGER) as dia,
              COALESCE(SUM(valor), 0) as total
       FROM despesas
       WHERE user_id = ? ${filtroDespesaDoMes()}
