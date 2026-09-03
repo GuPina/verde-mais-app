@@ -34,7 +34,7 @@
 .to-options--compact { display: flex; flex-wrap: wrap; }
 .to-options--compact .to-option { min-width: 58px; flex: 1; justify-content: center; }
 .to-option { min-height: 44px; padding: 11px 13px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,.1); border-radius: var(--terminal-radius-sm); color: var(--terminal-ink); background: transparent; cursor: pointer; text-align: left; font-size: 11px; transition: border-color .15s, background .15s, color .15s; }
-.to-option:hover { border-color: #35503e !important; background: rgba(61,220,132,.04) !important; }
+.to-option:hover { border-color: var(--terminal-line-strong) !important; background: rgba(61,220,132,.04) !important; }
 .to-option i { width: 16px; color: var(--terminal-ink-soft); text-align: center; }
 .to-form-grid { margin-bottom: 24px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .to-field { display: grid; }
@@ -48,7 +48,7 @@
 .terminal-onboarding--final { display: block; }
 .to-final { width: min(100% - 36px, 760px); min-height: 100vh; margin: 0 auto; padding: 42px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .to-final > .terminal-logo { position: absolute; top: 34px; left: max(22px, calc((100vw - 1180px) / 2)); }
-.to-final__mark { width: 64px; height: 64px; margin-bottom: 24px; display: grid; place-items: center; border: 1px solid #285d3f; border-radius: 50%; color: var(--terminal-primary); background: var(--terminal-primary-soft); font-size: 24px; }
+.to-final__mark { width: 64px; height: 64px; margin-bottom: 24px; display: grid; place-items: center; border: 1px solid var(--terminal-primary-line); border-radius: 50%; color: var(--terminal-primary); background: var(--terminal-primary-soft); font-size: 24px; }
 .to-final > .to-eyebrow { color: var(--terminal-primary); opacity: 1; }
 .to-final h1 { margin: 12px 0 0; font-size: clamp(44px, 6vw, 72px); line-height: 1; letter-spacing: -.055em; font-weight: 560; }
 .to-final h1 em { color: var(--terminal-primary); font-style: italic; }

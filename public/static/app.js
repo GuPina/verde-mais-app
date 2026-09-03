@@ -181,33 +181,37 @@ const VM = {
    */
   vmConfirm(mensagem, { titulo = 'Confirmar ação', corBotao = '#FF6B6B', textoBotao = 'Confirmar', icone = '⚠️' } = {}) {
     return new Promise((resolve) => {
-      const id = 'vm-confirm-' + Date.now()
       const destrutiva = String(corBotao).toUpperCase().startsWith('#FF') || String(corBotao).toUpperCase().startsWith('#EF')
       const overlay = document.createElement('div')
-      overlay.id = id
+      // Sem id: o `vm-confirm-<timestamp>` que este método usava é alvo de oito
+      // regras `!important` no bridge de modais legados (terminal-dashboard.css).
+      // Enquanto o id existisse, o diálogo novo continuaria sendo repintado com
+      // o gradiente e a borda do modal antigo — os elementos são referenciados
+      // direto, que é mais simples de qualquer forma.
       overlay.className = 'vm-dialog'
       overlay.innerHTML = `
-        <div class="vm-dialog__box" role="alertdialog" aria-modal="true" aria-labelledby="${id}-t">
+        <div class="vm-dialog__box" role="alertdialog" aria-modal="true">
           <div class="vm-dialog__ico ${destrutiva ? 'is-neg' : 'is-ok'}">${icone}</div>
-          <div id="${id}-t" class="vm-dialog__title">${titulo}</div>
+          <div class="vm-dialog__title">${titulo}</div>
           <div class="vm-dialog__msg">${mensagem}</div>
           <div class="vm-dialog__acoes">
-            <button id="${id}-cancel" class="ds-btn" style="flex:1">Cancelar</button>
-            <button id="${id}-ok" class="ds-btn ${destrutiva ? 'ds-btn--danger' : 'ds-btn--primary'}" style="flex:1">${textoBotao}</button>
+            <button class="ds-btn" style="flex:1" data-vm="cancel">Cancelar</button>
+            <button class="ds-btn ${destrutiva ? 'ds-btn--danger' : 'ds-btn--primary'}" style="flex:1" data-vm="ok">${textoBotao}</button>
           </div>
         </div>`
       document.body.appendChild(overlay)
       const close = (val) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(val) }
-      // Sem isto, Esc fechava o modal por trás do diálogo em vez do diálogo.
+      // Sem capturar aqui, Esc fecharia o modal por trás do diálogo, não o diálogo.
       const onKey = (e) => {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false) }
         if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true) }
       }
       document.addEventListener('keydown', onKey, true)
-      document.getElementById(`${id}-ok`).onclick = () => close(true)
-      document.getElementById(`${id}-cancel`).onclick = () => close(false)
+      const btnOk = overlay.querySelector('[data-vm="ok"]')
+      overlay.querySelector('[data-vm="cancel"]').onclick = () => close(false)
+      btnOk.onclick = () => close(true)
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false) })
-      setTimeout(() => document.getElementById(`${id}-ok`)?.focus(), 30)
+      setTimeout(() => btnOk.focus(), 30)
     })
   },
 

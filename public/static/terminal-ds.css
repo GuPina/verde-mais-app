@@ -19,6 +19,7 @@
   /* Tom informativo (o único que faltava na paleta) */
   --terminal-info: #6EA8FE;
 
+
   /* Superfícies derivadas */
   --ds-panel: var(--terminal-surface);
   --ds-sunken: var(--terminal-bg);
@@ -55,7 +56,7 @@
   transition: transform 120ms cubic-bezier(.2,0,.2,1), background-color 140ms ease,
               border-color 140ms ease, color 140ms ease;
 }
-.ds-btn:hover { transform: translateY(-1px); border-color: #35503e; }
+.ds-btn:hover { transform: translateY(-1px); border-color: var(--terminal-line-strong); }
 .ds-btn:active { transform: scale(.965) translateY(0); }
 .ds-btn:focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 2px; }
 .ds-btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
@@ -74,7 +75,7 @@
                border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
                background: transparent; color: var(--terminal-ink-soft); cursor: pointer;
                transition: color 140ms ease, border-color 140ms ease, transform 120ms ease; }
-.ds-icon-btn:hover { color: var(--terminal-primary); border-color: #35503e; }
+.ds-icon-btn:hover { color: var(--terminal-primary); border-color: var(--terminal-line-strong); }
 .ds-icon-btn:active { transform: scale(.94); }
 
 /* ══════════ Pills / tags ══════════ */
@@ -168,7 +169,7 @@
   transition: transform 120ms cubic-bezier(.2,0,.2,1), background-color 140ms ease,
               border-color 140ms ease, color 140ms ease;
 }
-.td-button:hover { transform: translateY(-1px); border-color: #35503e; }
+.td-button:hover { transform: translateY(-1px); border-color: var(--terminal-line-strong); }
 .td-button:active { transform: scale(.965) translateY(0); }
 .td-button:focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 2px; }
 .td-button[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
@@ -349,3 +350,103 @@
   color: var(--terminal-ink-soft); font-size: 12.5px; cursor: pointer; }
 .lr__check input { accent-color: var(--terminal-primary); width: 15px; height: 15px; }
 @media (max-width: 420px) { .lr__meios { grid-template-columns: repeat(2, 1fr); } }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Primitivas duplicadas → uma definição só
+   --------------------------------------------------------------------------
+   O dashboard nasceu antes deste arquivo e reimplementou o que ele já tem.
+   Havia quatro barras de progresso (.ds-bar, .td-progress, .td-cards__bar,
+   .td-card-row__bar, .to-bar), com alturas de 5, 6 e 7 pixels; e três
+   vocabulários para os mesmos três estados (is-ok/is-warn/is-bad no
+   dashboard, is-warn/is-neg na .ds-bar, --ok/--warn/--neg na .ds-pill).
+
+   Aqui as barras passam a compartilhar a geometria da .ds-bar e os dois
+   vocabulários de estado passam a valer nas duas. O código antigo continua
+   funcionando; o novo escreve .ds-bar.
+   ══════════════════════════════════════════════════════════════════════════ */
+.td-progress,
+.td-cards__bar,
+.td-card-row__bar,
+.to-bar {
+  display: block; height: 6px; border-radius: 999px; overflow: hidden;
+  background: var(--terminal-line);
+}
+.td-progress > span,
+.td-cards__bar > span,
+.td-card-row__bar > span,
+.to-bar > span {
+  display: block; height: 100%; border-radius: inherit;
+  background: var(--terminal-primary);
+  transition: width 420ms cubic-bezier(.2,0,.2,1);
+}
+/* is-bad é o nome do dashboard, is-neg o do design system: os dois pintam. */
+.ds-bar > span.is-bad,
+.td-progress > span.is-bad, .td-progress > span.is-neg,
+.td-cards__bar > span.is-bad, .td-cards__bar > span.is-neg,
+.td-card-row__bar > span.is-bad, .td-card-row__bar > span.is-neg,
+.to-bar > span.is-bad, .to-bar > span.is-neg { background: var(--terminal-negative); }
+.td-progress > span.is-warn,
+.td-cards__bar > span.is-warn,
+.td-card-row__bar > span.is-warn,
+.to-bar > span.is-warn { background: var(--terminal-accent); }
+
+/* Estados vazios: eram quatro implementações do mesmo bloco centrado. */
+.td-cards__empty,
+.td-score__locked {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--ds-3); padding: var(--ds-8) var(--ds-4); text-align: center;
+  color: var(--terminal-ink-soft);
+}
+.td-cards__empty i, .td-score__locked i { font-size: 24px; opacity: .5; }
+.td-cards__empty p, .td-score__locked p { margin: 0; font-size: 13px; max-width: 340px; line-height: 1.5; }
+.td-score__locked i { color: var(--terminal-accent); opacity: 1; }
+
+/* Superfícies: o .td-panel usava 22px de padding — fora da escala de 4. */
+.td-panel { padding: var(--ds-5); }
+.td-panel__head { margin-bottom: var(--ds-4); }
+
+/* Pílula: .td-chip e .ds-pill tinham raio, peso e caixa-alta iguais e
+   tamanhos diferentes. Uma medida só. */
+.td-chip { padding: 3px 10px; font: 700 10px/1.4 var(--terminal-mono); letter-spacing: .07em; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Uma voz tipográfica para todo indicador
+   --------------------------------------------------------------------------
+   O dashboard mostra números em três componentes diferentes — .td-kpi (o
+   cartão grande com variação), .td-metric (a faixa com ícone) e .ds-kpi (o
+   das telas novas). Cada um tinha o seu rótulo: 11px com .08em de tracking,
+   10px com .07em, 10px com .09em. Ninguém nota um deles isolado; lado a
+   lado, na mesma tela, a diferença é o que faz parecer dois produtos.
+
+   Layout e densidade continuam diferentes de propósito: o cartão grande é
+   para os quatro números do mês, a faixa é para navegação. O que passa a ser
+   igual é a voz — rótulo, valor e apoio.
+   ══════════════════════════════════════════════════════════════════════════ */
+.td-kpi > span:first-child,
+.td-metric__lbl,
+.td-cards__lbl,
+.ds-kpi__lbl {
+  color: var(--terminal-ink-soft);
+  font: 700 10px/1.2 var(--terminal-mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.td-kpi > strong,
+.ds-kpi__val {
+  font: 600 clamp(22px, 2vw, 28px)/1.05 var(--terminal-font);
+  letter-spacing: -.035em;
+}
+.td-metric__body strong {
+  font: 600 20px/1.05 var(--terminal-font);
+  letter-spacing: -.03em;
+}
+.td-kpi__delta,
+.td-metric__body small,
+.ds-kpi__hint {
+  font-size: 11px;
+  line-height: 1.35;
+}
+/* Os três estados, com o mesmo nome em qualquer indicador. */
+.td-kpi__delta--positive, .ds-kpi__val--ok   { color: var(--terminal-primary); }
+.td-kpi__delta--negative, .ds-kpi__val--neg  { color: var(--terminal-negative); }
+.td-kpi__delta--muted,    .ds-kpi__hint      { color: var(--terminal-ink-soft); }

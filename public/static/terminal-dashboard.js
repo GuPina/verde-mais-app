@@ -1,5 +1,28 @@
 (function () {
   const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+  /**
+   * Paleta lida dos tokens, não copiada deles.
+   *
+   * Enquanto o gráfico carregava '#3DDC84' escrito à mão, trocar o verde do
+   * sistema deixava o Chart.js para trás — a tela inteira mudava e a linha de
+   * receitas continuava na cor velha. `getComputedStyle` no :root resolve a
+   * variável de verdade, com fallback para quem chamar antes do CSS aplicar.
+   */
+  const tok = (nome, alt) => {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim()
+      return v || alt
+    } catch { return alt }
+  }
+  const T = {
+    get primary()  { return tok('--terminal-primary', '#3DDC84') },
+    get accent()   { return tok('--terminal-accent', '#F2C94C') },
+    get negative() { return tok('--terminal-negative', '#FF6B6B') },
+    get soft()     { return tok('--terminal-ink-soft', '#7A8B80') },
+    get info()     { return tok('--terminal-info', '#6EA8FE') },
+    get line()     { return tok('--terminal-line', '#1E2A22') },
+  }
+  // Série categórica: as três do sistema primeiro, depois as de apoio.
   const colors = ['#3DDC84', '#F2C94C', '#8BA397', '#6EA8FE', '#B58AF4', '#FF8C69']
 
   const esc = (value) => String(value ?? '')
@@ -47,9 +70,9 @@
         <h2 id="td-empty-title">Monte um painel que fale sobre a sua vida.</h2>
         <p>Com três registros o VerdeMais já começa a calcular saldo, ritmo de gastos e próximos passos — sem a parede de indicadores zerados.</p>
         <div class="td-onboarding__actions">
-          <button class="td-button td-button--primary" onclick="VM.modalReceita()"><i class="fas fa-plus"></i> Adicionar renda</button>
-          <button class="td-button" onclick="VM.modalDespesa()"><i class="fas fa-receipt"></i> Registrar despesa</button>
-          <a class="td-button td-button--ghost" href="/onboarding"><i class="fas fa-sliders"></i> Personalizar perfil</a>
+          <button class="ds-btn ds-btn--primary" onclick="VM.modalReceita()"><i class="fas fa-plus"></i> Adicionar renda</button>
+          <button class="ds-btn" onclick="VM.modalDespesa()"><i class="fas fa-receipt"></i> Registrar despesa</button>
+          <a class="ds-btn ds-btn--ghost" href="/onboarding"><i class="fas fa-sliders"></i> Personalizar perfil</a>
         </div>
       </div>
       <ol class="td-checklist">
@@ -112,7 +135,7 @@
     if (data.score_bloqueado || score === null || score === undefined) {
       return `<article class="td-panel td-score">
         <div class="td-panel__head"><div><span class="td-eyebrow">Saúde financeira</span><h2>Score de saúde</h2></div></div>
-        <div class="td-score__locked"><i class="fas fa-lock"></i><p>O score de saúde e o detalhamento por fator fazem parte do plano Premium.</p><button class="td-button td-button--primary" onclick="VM.upsellModal('score_saude')"><i class="fas fa-arrow-up"></i> Ver planos</button></div>
+        <div class="td-score__locked"><i class="fas fa-lock"></i><p>O score de saúde e o detalhamento por fator fazem parte do plano Premium.</p><button class="ds-btn ds-btn--primary" onclick="VM.upsellModal('score_saude')"><i class="fas fa-arrow-up"></i> Ver planos</button></div>
       </article>`
     }
     const s = Number(score)
@@ -152,13 +175,13 @@
     if (!lista.length) {
       return `<article class="td-panel td-cards">
         <div class="td-panel__head"><div><span class="td-eyebrow">Cartões</span><h2>Seus cartões</h2></div></div>
-        <div class="td-cards__empty"><i class="fas fa-credit-card"></i><p>Você ainda não cadastrou cartões. Cadastre para acompanhar fatura e limite por aqui.</p><button class="td-button td-button--primary" onclick="VM.navigate('cartoes')"><i class="fas fa-plus"></i> Adicionar cartão</button></div>
+        <div class="td-cards__empty"><i class="fas fa-credit-card"></i><p>Você ainda não cadastrou cartões. Cadastre para acompanhar fatura e limite por aqui.</p><button class="ds-btn ds-btn--primary" onclick="VM.navigate('cartoes')"><i class="fas fa-plus"></i> Adicionar cartão</button></div>
       </article>`
     }
     const usoTot = Number(cartoes.uso_pct) || 0
     const usoTone = usoTot >= 90 ? 'bad' : usoTot >= 70 ? 'warn' : 'ok'
     const rows = lista.slice(0, 4).map(k => {
-      const cor = safeColor(k.cor, '#6EA8FE')
+      const cor = safeColor(k.cor, T.info)
       const uso = Number(k.uso_pct) || 0
       const tone = uso >= 90 ? 'bad' : uso >= 70 ? 'warn' : 'ok'
       return `<button class="td-card-row" onclick="VM.navigate('cartoes')">
@@ -188,7 +211,7 @@
       return `<article class="td-panel td-encerra">${head}<div class="td-empty-row"><i class="fas fa-flag-checkered"></i><span>Nenhuma parcela de cartão encerra em ${esc(mesNome)}.</span></div></article>`
     }
     const rows = itens.map(p => {
-      const cor = safeColor(p.cartao_cor, '#6EA8FE')
+      const cor = safeColor(p.cartao_cor, T.info)
       return `<tr>
         <td class="td-enc-desc">${esc(p.descricao)}</td>
         <td class="td-enc-card"><span class="td-enc-dot" style="background:${cor}"></span>${esc(p.cartao_nome || '—')}</td>
@@ -348,8 +371,8 @@
               <p>${esc(status.help)}</p>
             </div>
             <div class="td-dashboard__header-actions">
-              <button class="td-button" onclick="VM.navigate('alertas-cartao')"><i class="far fa-bell"></i> Alertas</button>
-              <button class="td-button td-button--primary" onclick="VM.abrirLancamentoRapido()"><i class="fas fa-plus"></i> Novo lançamento</button>
+              <button class="ds-btn" onclick="VM.navigate('alertas-cartao')"><i class="far fa-bell"></i> Alertas</button>
+              <button class="ds-btn ds-btn--primary" onclick="VM.abrirLancamentoRapido()"><i class="fas fa-plus"></i> Novo lançamento</button>
             </div>
           </header>
 
@@ -439,7 +462,7 @@
 
         if (!newAccount) this.renderChart(vm, data.evolucao || [])
       } catch (error) {
-        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível carregar o Dashboard</h2><p>${esc(error.response?.data?.error || 'Tente novamente em instantes.')}</p><button class="td-button td-button--primary" onclick="VM.pageDashboard(VM._dashMes, VM._dashAno)">Tentar novamente</button></div>`
+        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível carregar o Dashboard</h2><p>${esc(error.response?.data?.error || 'Tente novamente em instantes.')}</p><button class="ds-btn ds-btn--primary" onclick="VM.pageDashboard(VM._dashMes, VM._dashAno)">Tentar novamente</button></div>`
       }
     },
 
@@ -452,14 +475,29 @@
         data: {
           labels: evolution.map(item => item.mes),
           datasets: [
-            { label: 'Receitas', data: evolution.map(item => Number(item.receitas || 0)), borderColor: '#3DDC84', backgroundColor: 'rgba(61,220,132,.08)', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#3DDC84', tension: .35, fill: true },
-            { label: 'Despesas', data: evolution.map(item => Number(item.despesas || 0)), borderColor: '#F2C94C', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#F2C94C', tension: .35 }
+            { label: 'Receitas', data: evolution.map(item => Number(item.receitas || 0)), borderColor: T.primary, backgroundColor: 'rgba(61,220,132,.08)', borderWidth: 2, pointRadius: 3, pointBackgroundColor: T.primary, tension: .35, fill: true },
+            { label: 'Despesas', data: evolution.map(item => Number(item.despesas || 0)), borderColor: T.accent, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointBackgroundColor: T.accent, tension: .35 }
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: '#7A8B80', usePointStyle: true, boxWidth: 8, font: { family: 'Inter', size: 11 } } }, tooltip: { callbacks: { label: (context) => `${context.dataset.label}: ${money(context.parsed.y)}` } } },
-          scales: { x: { ticks: { color: '#7A8B80' }, grid: { display: false } }, y: { ticks: { color: '#7A8B80', callback: value => shortMoney(value) }, grid: { color: 'rgba(122,139,128,.12)' }, beginAtZero: true } }
+          plugins: {
+            legend: { labels: { color: T.soft, usePointStyle: true, boxWidth: 8, font: { family: 'Inter', size: 11 } } },
+            tooltip: {
+              // O tooltip padrão do Chart.js é cinza-azulado e destoa de tudo.
+              backgroundColor: tok('--terminal-surface', '#111814'),
+              borderColor: T.line, borderWidth: 1, cornerRadius: 8, padding: 10,
+              titleColor: tok('--terminal-ink', '#E8F3EA'), bodyColor: T.soft,
+              titleFont: { family: 'Inter', size: 12, weight: '600' },
+              bodyFont: { family: 'JetBrains Mono', size: 11 },
+              displayColors: true, usePointStyle: true,
+              callbacks: { label: (context) => ` ${context.dataset.label}: ${money(context.parsed.y)}` },
+            },
+          },
+          scales: {
+            x: { ticks: { color: T.soft, font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false }, border: { color: T.line } },
+            y: { ticks: { color: T.soft, font: { family: 'JetBrains Mono', size: 10 }, callback: value => shortMoney(value) }, grid: { color: 'rgba(122,139,128,.12)' }, border: { display: false }, beginAtZero: true },
+          },
         }
       })
     },
@@ -484,7 +522,7 @@
       event?.stopPropagation()
       const description = this._dueDescriptions?.[Number(id)] || 'esta despesa'
       const ok = await this._vm.vmConfirm(`Marcar “${description}” como pago?`, {
-        titulo: 'Confirmar pagamento', textoBotao: 'Confirmar', corBotao: '#3DDC84', icone: '✓'
+        titulo: 'Confirmar pagamento', textoBotao: 'Confirmar', corBotao: T.primary, icone: '✓'
       })
       if (!ok) return
       try {

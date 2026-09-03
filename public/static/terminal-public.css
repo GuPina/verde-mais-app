@@ -10,6 +10,17 @@
   --terminal-negative: #FF6B6B;
   --terminal-radius-sm: 6px;
   --terminal-radius: 10px;
+  /* Bordas derivadas.
+     Estes quatro hexes apareciam soltos 23, 14, 9 e 3 vezes nos CSS — sempre
+     com o mesmo papel, nunca com o mesmo nome. Nomeá-los é o que faz "trocar
+     o verde do sistema" ser uma linha em vez de um find-and-replace.
+     Ficam aqui, no arquivo de paleta, e não no design system: a landing
+     carrega só este, e sem a declaração as bordas sumiriam lá. */
+  --terminal-line-strong:  #35503e;   /* borda em hover */
+  --terminal-line-soft:    #53665b;   /* divisória fraca sobre superfície clara */
+  --terminal-primary-line: #285d3f;   /* borda de superfície verde */
+  --terminal-accent-line:  #5d5020;   /* borda de superfície âmbar */
+  --terminal-accent-ink:   #b7aa79;   /* texto secundário sobre âmbar */
   --terminal-radius-lg: 14px;
   --terminal-font: "Inter", "Segoe UI", system-ui, sans-serif;
   --terminal-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -57,7 +68,7 @@
   transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
 }
 
-.terminal-btn:hover { border-color: #35503e; transform: translateY(-1px); }
+.terminal-btn:hover { border-color: var(--terminal-line-strong); transform: translateY(-1px); }
 .terminal-btn:focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 3px; }
 .terminal-btn--primary { color: var(--terminal-bg); background: var(--terminal-primary); border-color: var(--terminal-primary); }
 .terminal-btn--primary:hover { background: #55e397; border-color: #55e397; }
@@ -93,7 +104,7 @@
 .terminal-hero { border-bottom: 1px solid var(--terminal-line); }
 .terminal-hero__grid { min-height: 650px; display: grid; grid-template-columns: 1fr 1fr; }
 .terminal-hero__copy { padding: 76px clamp(40px, 5vw, 80px) 64px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
-.terminal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #5d5020; border-radius: 999px; color: var(--terminal-accent); background: rgba(242,201,76,.08); font: 700 11px/1 var(--terminal-mono); letter-spacing: .04em; text-transform: uppercase; }
+.terminal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--terminal-accent-line); border-radius: 999px; color: var(--terminal-accent); background: rgba(242,201,76,.08); font: 700 11px/1 var(--terminal-mono); letter-spacing: .04em; text-transform: uppercase; }
 .terminal-pill__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .terminal-hero h1 { max-width: 640px; margin: 24px 0 0; font-size: clamp(48px, 5.4vw, 76px); line-height: .98; letter-spacing: -.055em; font-weight: 560; }
 .terminal-hero h1 em { color: var(--terminal-primary); font-style: italic; }
@@ -125,12 +136,12 @@
 .terminal-section__head p { margin: 16px 0 0; color: var(--terminal-ink-soft); font-size: 15px; line-height: 1.65; }
 .terminal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .terminal-feature { min-height: 220px; padding: 22px; display: flex; flex-direction: column; gap: 18px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius); background: var(--terminal-surface); }
-.terminal-feature:hover { border-color: #35503e; }
+.terminal-feature:hover { border-color: var(--terminal-line-strong); }
 .terminal-feature__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .terminal-feature__icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: var(--terminal-radius-sm); color: var(--terminal-primary); background: var(--terminal-primary-soft); }
 .terminal-tag { padding: 4px 7px; border: 1px solid var(--terminal-line); border-radius: 999px; color: var(--terminal-ink-soft); font: 700 9px/1 var(--terminal-mono); letter-spacing: .1em; }
 .terminal-tag--premium { color: var(--terminal-primary); border-color: var(--terminal-primary-soft); }
-.terminal-tag--pro { color: var(--terminal-accent); border-color: #5d5020; }
+.terminal-tag--pro { color: var(--terminal-accent); border-color: var(--terminal-accent-line); }
 .terminal-feature h3 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 .terminal-feature p { margin: 8px 0 0; color: var(--terminal-ink-soft); font-size: 13px; line-height: 1.55; }
 

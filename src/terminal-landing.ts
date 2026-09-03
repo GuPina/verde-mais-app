@@ -12,7 +12,7 @@ export function terminalLandingPage() {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/terminal-public.css?v=20260827-1">
+  <link rel="stylesheet" href="/static/terminal-public.css?v=20260903-1">
 </head>
 <body class="terminal-home">
   <header class="terminal-nav">
