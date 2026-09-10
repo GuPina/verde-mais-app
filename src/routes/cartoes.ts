@@ -1672,10 +1672,20 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
   ).bind(user.id).all()
 
   const problemas: any[] = []
+  const importados: any[] = []
   for (const r of (linhas.results as any[]) || []) {
     if (!r.data_compra) {
       problemas.push({ ...r, tipo: 'sem_data_compra',
         explica: 'O lançamento não guarda a data da compra, então não dá para dizer em que fatura ele deveria estar.' })
+      continue
+    }
+    // Lançamento vindo de importação de fatura grava a data de VENCIMENTO no
+    // campo data_compra — a fatura importada não diz quando cada compra foi
+    // feita, só em que fatura ela caiu. Recalcular o ciclo a partir dessa data
+    // joga o lançamento para a fatura seguinte, que é o oposto do certo.
+    // O sinal é a data da compra ser idêntica ao vencimento.
+    if (String(r.data_compra).slice(0, 10) === String(r.data_vencimento || '').slice(0, 10)) {
+      importados.push({ charge_id: r.charge_id, descricao: r.descricao })
       continue
     }
     const esperado = faturaDaCompra(String(r.data_compra).slice(0, 10), r.dia_fechamento, r.dia_vencimento)
@@ -1711,80 +1721,151 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
     }
   }
 
-  // Meses em que um parcelamento pulou — o sintoma do transbordo de data.
-  const grupos: Record<string, number[]> = {}
+  // Parcelamento que pulou mês — o sintoma do transbordo de data.
+  //
+  // É um erro diferente do anterior e não se conserta recalculando a fatura:
+  // a data da PARCELA já nasceu errada (31/08 + 1 mês virava 01/10 em vez de
+  // 30/09), então recalcular o ciclo a partir dela devolve o mesmo mês errado.
+  // Só se conserta recompondo as datas a partir da primeira parcela.
+  const grupos: Record<string, any[]> = {}
   for (const r of (linhas.results as any[]) || []) {
     if (!r.purchase_group_id || !(Number(r.total_parcelas) > 1)) continue
-    const k = r.purchase_group_id
-    ;(grupos[k] ||= []).push(Number(r.billing_year) * 12 + Number(r.billing_month))
+    ;(grupos[r.purchase_group_id] ||= []).push(r)
   }
-  const parcelamentosComBuraco = Object.entries(grupos).flatMap(([grupo, meses]) => {
+  const parcelamentosComBuraco = Object.entries(grupos).flatMap(([grupo, itens]) => {
+    const meses = itens.map(r => Number(r.billing_year) * 12 + Number(r.billing_month))
     const ord = [...new Set(meses)].sort((a, b) => a - b)
     const buracos = ord.slice(1).filter((m, i) => m - ord[i] !== 1).length
     const duplicados = meses.length - ord.length
-    return (buracos || duplicados) ? [{ purchase_group_id: grupo, meses_pulados: buracos, parcelas_no_mesmo_mes: duplicados }] : []
+    if (!buracos && !duplicados) return []
+    const primeira = itens.slice().sort((a, b) =>
+      (Number(a.parcela_atual) || 0) - (Number(b.parcela_atual) || 0))[0]
+    return [{
+      purchase_group_id: grupo,
+      descricao: String(primeira?.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
+      cartao: primeira?.cartao_nome,
+      meses_pulados: buracos,
+      parcelas_no_mesmo_mes: duplicados,
+      parcelas: itens.length,
+    }]
   })
 
   return c.json({
     total_analisado: ((linhas.results as any[]) || []).length,
     problemas,
     total_problemas: problemas.length,
+    // Não são erro: só não dá para reconferir o ciclo a partir deles.
+    importados_ignorados: importados.length,
     parcelamentos_com_buraco: parcelamentosComBuraco,
     reparavel: problemas.filter(p => p.tipo !== 'sem_data_compra').length,
   })
 })
 
 // ─── POST /api/cartoes/reparar-faturas ───────────────────────────────────────
-// Recalcula fatura e vencimento a partir da data da compra, para os
-// lançamentos que o diagnóstico apontou. Só mexe no que está errado.
+// Conserta os dois estragos, cada um com o remédio certo — e nada além disso.
+//
+// Antes esta rota recalculava a fatura de TODO lançamento a partir da
+// data_compra. Rodada sobre uma base com faturas importadas, ela empurraria
+// dezenas de lançamentos corretos para a fatura seguinte, porque na
+// importação data_compra guarda o VENCIMENTO, não a data da compra. Agora ela
+// pula esses, e trata separado o parcelamento que pulou mês — que recalcular
+// fatura não resolve, porque a data da própria parcela nasceu errada.
 cartoes.post('/reparar-faturas', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => ({}))
-  // Sem lista explícita, repara tudo que estiver divergente.
-  const apenas: number[] | null = Array.isArray(body.charge_ids) && body.charge_ids.length
-    ? body.charge_ids.map((x: any) => parseInt(String(x), 10)).filter(Number.isInteger)
-    : null
+  const simular = body.simular === true
 
   const linhas = await c.env.DB.prepare(
     `SELECT cc.id as charge_id, cc.expense_id, cc.data_compra, cc.billing_month,
-            cc.billing_year, cc.data_vencimento,
-            ct.dia_fechamento, ct.dia_vencimento
+            cc.billing_year, cc.data_vencimento, cc.parcela_atual, cc.total_parcelas,
+            cc.purchase_group_id, ct.dia_fechamento, ct.dia_vencimento
      FROM card_charges cc
      JOIN cartoes ct ON ct.id = cc.card_id
      WHERE ct.user_id = ? AND ct.ativo = 1 AND cc.status != 'cancelado'
        AND cc.data_compra IS NOT NULL`
   ).bind(user.id).all()
+  const todas = (linhas.results as any[]) || []
 
-  let corrigidos = 0
-  for (const r of (linhas.results as any[]) || []) {
-    if (apenas && !apenas.includes(Number(r.charge_id))) continue
-    const esp = faturaDaCompra(String(r.data_compra).slice(0, 10), r.dia_fechamento, r.dia_vencimento)
-    const precisa = Number(r.billing_month) !== esp.mes
-      || Number(r.billing_year) !== esp.ano
-      || String(r.data_vencimento || '').slice(0, 10) !== esp.vencimento
-    if (!precisa && !r.expense_id) continue
+  /** Importado: data_compra é o vencimento, não serve para recalcular ciclo. */
+  const importado = (r: any) =>
+    String(r.data_compra).slice(0, 10) === String(r.data_vencimento || '').slice(0, 10)
 
+  const acoes: any[] = []
+
+  // ── Parte 1: parcelamentos com a data da parcela transbordada ─────────────
+  const grupos: Record<string, any[]> = {}
+  for (const r of todas) {
+    if (!r.purchase_group_id || !(Number(r.total_parcelas) > 1) || importado(r)) continue
+    ;(grupos[r.purchase_group_id] ||= []).push(r)
+  }
+  for (const itens of Object.values(grupos)) {
+    const ord = itens.slice().sort((a, b) => (Number(a.parcela_atual) || 0) - (Number(b.parcela_atual) || 0))
+    const primeira = ord[0]
+    if (!primeira) continue
+    const origem = String(primeira.data_compra).slice(0, 10)
+    const nPrimeira = Number(primeira.parcela_atual) || 1
+    for (const r of ord) {
+      // A data correta de cada parcela é a da primeira mais N meses, com o
+      // clamp — que é exatamente o que somarMeses() faz.
+      const esperada = somarMeses(origem, (Number(r.parcela_atual) || 1) - nPrimeira)
+      if (esperada !== String(r.data_compra).slice(0, 10)) {
+        const f = faturaDaCompra(esperada, r.dia_fechamento, r.dia_vencimento)
+        acoes.push({ charge_id: r.charge_id, expense_id: r.expense_id, motivo: 'data_da_parcela',
+          de: String(r.data_compra).slice(0, 10), para: esperada,
+          fatura_de: `${r.billing_month}/${r.billing_year}`, fatura_para: `${f.mes}/${f.ano}`,
+          data_compra: esperada, ...f })
+      }
+    }
+  }
+
+  // ── Parte 2: fatura fora do ciclo, com a data da compra confiável ─────────
+  const jaTratado = new Set(acoes.map(a => a.charge_id))
+  for (const r of todas) {
+    if (importado(r) || jaTratado.has(r.charge_id)) continue
+    const dc = String(r.data_compra).slice(0, 10)
+    const f = faturaDaCompra(dc, r.dia_fechamento, r.dia_vencimento)
+    const precisa = Number(r.billing_month) !== f.mes
+      || Number(r.billing_year) !== f.ano
+      || String(r.data_vencimento || '').slice(0, 10) !== f.vencimento
+    if (precisa) {
+      acoes.push({ charge_id: r.charge_id, expense_id: r.expense_id, motivo: 'fatura_fora_do_ciclo',
+        de: dc, para: dc, fatura_de: `${r.billing_month}/${r.billing_year}`,
+        fatura_para: `${f.mes}/${f.ano}`, data_compra: dc, ...f })
+    }
+  }
+
+  if (simular) {
+    return c.json({
+      success: true, simulacao: true, total: acoes.length,
+      por_motivo: {
+        data_da_parcela: acoes.filter(a => a.motivo === 'data_da_parcela').length,
+        fatura_fora_do_ciclo: acoes.filter(a => a.motivo === 'fatura_fora_do_ciclo').length,
+      },
+      ignorados_importados: todas.filter(importado).length,
+      acoes: acoes.slice(0, 100),
+    })
+  }
+
+  for (const a of acoes) {
     await c.env.DB.prepare(
-      `UPDATE card_charges SET billing_month = ?, billing_year = ?, data_vencimento = ?
-       WHERE id = ?`
-    ).bind(esp.mes, esp.ano, esp.vencimento, r.charge_id).run()
-
-    if (r.expense_id) {
-      // Para despesa de cartão, `data` é o vencimento da fatura — é o que faz
-      // ela aparecer no mês em que é paga.
+      `UPDATE card_charges SET data_compra = ?, billing_month = ?, billing_year = ?,
+       data_vencimento = ? WHERE id = ?`
+    ).bind(a.data_compra, a.mes, a.ano, a.vencimento, a.charge_id).run()
+    if (a.expense_id) {
+      // Para despesa de cartão, `data` é o vencimento da fatura.
       await c.env.DB.prepare(
         `UPDATE despesas SET billing_month = ?, billing_year = ?, vencimento = ?, data = ?
          WHERE id = ? AND user_id = ?`
-      ).bind(esp.mes, esp.ano, esp.vencimento, esp.vencimento, r.expense_id, user.id).run()
+      ).bind(a.mes, a.ano, a.vencimento, a.vencimento, a.expense_id, user.id).run()
     }
-    if (precisa) corrigidos++
   }
 
   return c.json({
     success: true,
-    corrigidos,
-    message: corrigidos
-      ? `${corrigidos} lançamento(s) recolocado(s) na fatura certa.`
+    corrigidos: acoes.length,
+    ignorados_importados: todas.filter(importado).length,
+    message: acoes.length
+      ? `${acoes.length} lançamento(s) recolocado(s) na fatura certa.`
       : 'Nenhum lançamento estava fora da fatura correta.',
   })
 })

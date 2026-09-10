@@ -163,7 +163,7 @@
           <span class="ct-diag__ico is-warn"><i class="fas fa-triangle-exclamation"></i></span>
           <div>
             <strong>${probs.length} lançamento${probs.length === 1 ? '' : 's'} fora da fatura correta</strong>
-            <small>De ${d.total_analisado} conferidos. A data da compra é a fonte da verdade: a fatura sai dela e do dia de fechamento do cartão.</small>
+            <small>De ${d.total_analisado} conferidos.${d.importados_ignorados ? ` ${d.importados_ignorados} lançamentos de fatura importada foram deixados de fora — neles a data da compra não é confiável.` : ''}</small>
           </div>
         </div>
 
@@ -194,12 +194,49 @@
       </div>`)
     },
 
+    /**
+     * Simula antes de escrever.
+     *
+     * Mexer em fatura é mexer em dinheiro no lugar errado, e a versão
+     * anterior desta rota — que recalculava tudo a partir da data da compra —
+     * teria empurrado dezenas de lançamentos importados corretos para a
+     * fatura seguinte. Agora a pessoa vê linha a linha o que vai mudar antes
+     * de confirmar.
+     */
     async reparar() {
       const vm = this._vm
-      const ok = await vm.vmConfirm(
-        'Recalcular a fatura e o vencimento de cada compra a partir da <strong>data em que ela foi feita</strong>?<br><br>Valor, descrição, categoria e status de pagamento não mudam.',
-        { titulo: 'Recolocar na fatura certa', textoBotao: 'Recalcular', corBotao: '#3DDC84', icone: '🔧' })
-      if (!ok) return
+      const prev = await vm.api('POST', 'cartoes/reparar-faturas', { simular: true })
+        .catch(e => ({ error: e.response?.data?.error }))
+      if (prev?.error) return vm.toast(prev.error, 'error')
+      const acoes = prev.acoes || []
+      if (!acoes.length) {
+        return vm.toast('Nada a corrigir — todos os lançamentos já estão na fatura certa.', 'info')
+      }
+      const linhas = acoes.map(a => `<tr>
+        <td><strong>${esc(a.desc || a.descricao || '')}</strong><br><small class="ds-muted">${a.motivo === 'data_da_parcela' ? 'a data desta parcela pulou um mês' : 'fora do ciclo do cartão'}</small></td>
+        <td class="ds-mono">${esc(a.de)} → <span style="color:var(--terminal-primary)">${esc(a.para)}</span></td>
+        <td class="ds-mono">${esc(a.fatura_de)} → <span style="color:var(--terminal-primary)">${esc(a.fatura_para)}</span></td>
+      </tr>`).join('')
+
+      vm.showModal(`<div class="ct-diag">
+        <div class="ct-diag__head">
+          <span class="ct-diag__ico is-warn"><i class="fas fa-wrench"></i></span>
+          <div><strong>${acoes.length} lançamento${acoes.length === 1 ? '' : 's'} será${acoes.length === 1 ? '' : 'ão'} corrigido${acoes.length === 1 ? '' : 's'}</strong>
+            <small>${prev.ignorados_importados || 0} lançamentos vindos de importação de fatura ficam como estão — neles a data da compra não é confiável, e recalcular jogaria a compra para a fatura seguinte.</small></div>
+        </div>
+        <div class="ds-tablewrap ct-diag__tabela"><table class="ds-table">
+          <thead><tr><th>Lançamento</th><th>Data da parcela</th><th>Fatura</th></tr></thead>
+          <tbody>${linhas}</tbody></table></div>
+        <div class="ct-diag__acoes">
+          <button class="ds-btn ds-btn--primary" style="flex:1" onclick="VMTerminalCartoes._reparoConfirmado()"><i class="fas fa-check"></i> Confirmar correção</button>
+          <button class="ds-btn" onclick="VM.closeModal()">Cancelar</button>
+        </div>
+        <p class="ds-micro" style="margin:10px 0 0">Valor, descrição, categoria e status de pagamento não mudam.</p>
+      </div>`)
+    },
+
+    async _reparoConfirmado() {
+      const vm = this._vm
       const r = await vm.api('POST', 'cartoes/reparar-faturas', {}).catch(e => ({ error: e.response?.data?.error }))
       if (r?.error) return vm.toast(r.error, 'error')
       vm.closeModal()
