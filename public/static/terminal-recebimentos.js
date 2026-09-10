@@ -171,7 +171,7 @@
     },
     async receber(recId, parcelaId, valor) {
       const vm = this._vm
-      const txt = window.prompt(`Valor recebido desta parcela (previsto ${money(valor)}):`, String(valor))
+      const txt = await window.VM.vmPrompt('Se recebeu valor diferente do previsto, ajuste aqui.', { titulo: 'Registrar recebimento', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', valor: String(valor), icone: '💰', textoBotao: 'Registrar', dica: `Previsto: ${money(valor)}` })
       if (txt === null) return
       const valor_real = parseFloat(txt)
       if (!(valor_real > 0)) return vm.toast('Valor inválido.', 'error')
@@ -184,7 +184,7 @@
     },
     async excluir(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Excluir o recebimento "${nome}"? As parcelas e as receitas geradas por ele também são removidas.`)) return
+      if (!await (window.VM).vmConfirm(`Excluir o recebimento "${nome}"? As parcelas e as receitas geradas por ele também são removidas.`)) return
       const r = await vm.api('DELETE', `antecipacao/recebimentos/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Recebimento removido.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao excluir.', 'error')

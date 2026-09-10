@@ -186,14 +186,14 @@
 
     async pagar(id, pagas, total) {
       const vm = this._vm
-      if (!window.confirm(`Registrar o pagamento da parcela ${Number(pagas) + 1}/${total}?`)) return
+      if (!await (window.VM).vmConfirm(`Registrar o pagamento da parcela ${Number(pagas) + 1}/${total}?`)) return
       const r = await vm.api('PATCH', `emprestimos/${id}/parcela`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast(r.message || 'Parcela paga.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao registrar pagamento.', 'error')
     },
     async amortizar(id) {
       const vm = this._vm
-      const txt = window.prompt('Valor da amortização extraordinária (R$):', '')
+      const txt = await window.VM.vmPrompt('Esse valor abate o saldo devedor e encurta o financiamento.', { titulo: 'Amortização extraordinária', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '💸', textoBotao: 'Amortizar' })
       if (txt === null) return
       const valor = parseFloat(txt)
       if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')
@@ -203,14 +203,14 @@
     },
     async quitar(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Marcar "${nome}" como quitado? Todas as parcelas pendentes serão baixadas.`)) return
+      if (!await (window.VM).vmConfirm(`Marcar "${nome}" como quitado? Todas as parcelas pendentes serão baixadas.`)) return
       const r = await vm.api('PATCH', `emprestimos/${id}/quitado`, {}).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast(r.message || 'Empréstimo quitado.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao quitar.', 'error')
     },
     async excluir(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Excluir o empréstimo "${nome}" e suas parcelas no fluxo de caixa?`)) return
+      if (!await (window.VM).vmConfirm(`Excluir o empréstimo "${nome}" e suas parcelas no fluxo de caixa?`)) return
       const r = await vm.api('DELETE', `emprestimos/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Empréstimo removido.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao excluir.', 'error')

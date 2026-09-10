@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { faturaDaCompra } from '../lib/fatura'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -13,6 +14,8 @@ const MAX_VALOR = 1_000_000_000
 const MAX_LIMIT = 10_000
 const STATUS_VALIDOS = ['pago', 'pendente', 'cancelado']
 const MEIOS_VALIDOS = ['dinheiro', 'pix', 'cartao_debito', 'cartao_credito', 'boleto', 'transferencia', 'parcelado_cartao']
+/** Os dois meios que geram fatura — o resto não encosta em card_charges. */
+const MEIOS_CARTAO = ['cartao_credito', 'parcelado_cartao']
 const TIPOS_DESPESA_VALIDOS = ['fixa', 'variavel']
 const TIPOS_LANCAMENTO_VALIDOS = ['normal', 'aporte']
 
@@ -172,6 +175,52 @@ function filtroCategoriaDespaSQL(categoria: string): string {
   return ` AND LOWER(TRIM(categoria)) = LOWER('${categoria.replace(/'/g, "''")}')`
 }
 
+// ─── GET /api/despesas/categorias-disponiveis ────────────────────────────────
+// (Existe um /categorias mais abaixo, que é o breakdown por período usado nos
+// gráficos. Este aqui é o catálogo para o formulário — nomes diferentes para
+// um não capturar a rota do outro.)
+//
+// As categorias que ESTE usuário usa, com quantas vezes e quanto somam, mais
+// as padrão que ele ainda não usou.
+//
+// A tela oferecia 22 categorias fixas e nada além disso. Quem tem "Pós-
+// Graduação", "Taxas Bancárias" ou "Compras Online" — categorias que aparecem
+// nas próprias faturas do app — era obrigado a jogar tudo em "Outros". O
+// backend sempre aceitou texto livre (normalizarCategoriaDesp devolve a
+// string quando não conhece), então só faltava a tela deixar.
+despesas.get('/categorias-disponiveis', requireAuth, async (c) => {
+  const user = c.get('user')
+  const usadas = await c.env.DB.prepare(
+    `SELECT categoria, COUNT(*) as usos, COALESCE(SUM(valor),0) as total,
+            MAX(data) as ultimo_uso
+     FROM despesas
+     WHERE user_id = ? AND categoria IS NOT NULL AND TRIM(categoria) != ''
+     GROUP BY categoria
+     ORDER BY usos DESC, total DESC`
+  ).bind(user.id).all()
+
+  const lista = ((usadas.results as any[]) || []).map(r => ({
+    nome: String(r.categoria),
+    usos: Number(r.usos) || 0,
+    total: Math.round(Number(r.total) * 100) / 100,
+    ultimo_uso: r.ultimo_uso || null,
+    propria: !CATEGORIA_ALIASES_DESP[normalizarCategoriaDesp(String(r.categoria))],
+  }))
+
+  const jaTem = new Set(lista.map(x => x.nome.toLowerCase()))
+  const sugeridas = Object.keys(CATEGORIA_ALIASES_DESP)
+    .filter(n => !jaTem.has(n.toLowerCase()))
+    .map(n => ({ nome: n, usos: 0, total: 0, ultimo_uso: null, propria: false }))
+
+  return c.json({
+    categorias: lista,
+    sugeridas,
+    // Tudo junto, na ordem em que a tela deve oferecer: o que a pessoa mais
+    // usa primeiro, o resto do catálogo depois.
+    todas: [...lista, ...sugeridas].map(x => x.nome),
+  })
+})
+
 // GET /api/despesas
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
@@ -205,7 +254,17 @@ despesas.get('/', requireAuth, async (c) => {
     return c.json({ error: 'Filtro de parcelas inválido.' }, 400)
   }
 
-  let query = 'SELECT * FROM despesas WHERE user_id = ? AND ' + filtroSemAporte()
+  // data_compra vem do charge: para despesa de cartão, `data` guarda o
+  // VENCIMENTO da fatura, e o formulário de edição precisa saber qual foi a
+  // data real da compra para poder corrigi-la sem chutar.
+  // data_compra vem do charge: para despesa de cartão, `data` guarda o
+  // VENCIMENTO da fatura, e o formulário de edição precisa saber qual foi a
+  // data real da compra para poder corrigi-la sem chutar. Subconsulta
+  // correlacionada, sem alias na tabela — os filtros abaixo (competência,
+  // tags) referenciam `despesas` pelo nome.
+  let query = `SELECT despesas.*,
+      (SELECT cc.data_compra FROM card_charges cc WHERE cc.expense_id = despesas.id LIMIT 1) as data_compra
+    FROM despesas WHERE user_id = ? AND ` + filtroSemAporte()
   const params: any[] = [user.id]
 
   if (purchase_group_id) {
@@ -443,7 +502,7 @@ despesas.post('/', requireAuth, async (c) => {
 
   // Buscar dados do cartão para calcular billing correto
   let cartaoInfo: any = null
-  const meioPagamentoCartao = ['cartao_credito', 'parcelado_cartao']
+  const meioPagamentoCartao = MEIOS_CARTAO
   if (cartaoIdNum && meioPagamentoCartao.includes(meioPagamentoNorm)) {
     cartaoInfo = await c.env.DB.prepare(
       'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
@@ -474,26 +533,10 @@ despesas.post('/', requireAuth, async (c) => {
     let dataVenc: string | null = vencimento || null
 
     if (cartaoInfo) {
-      // ── Calcular período de faturamento (mesmo algoritmo de cartoes.ts) ──────
-      const dDay = dataBase.getDate()
-      let m = dataBase.getMonth() + 1
-      let y = dataBase.getFullYear()
-      // Compra no fechamento ou após → próxima fatura
-      if (dDay >= cartaoInfo.dia_fechamento) { m++; if (m > 12) { m = 1; y++ } }
-      bMonth = m; bYear = y
-
-      // ── Calcular data de vencimento com regra bancária correta ───────────────
-      // Se dia_vencimento <= dia_fechamento, o vencimento cai no mês SEGUINTE
-      // ao período de faturamento (ex: fecha dia 25, vence dia 1 → vence no mês+1)
-      let vMonth = m
-      let vYear  = y
-      if (cartaoInfo.dia_vencimento <= cartaoInfo.dia_fechamento) {
-        vMonth++
-        if (vMonth > 12) { vMonth = 1; vYear++ }
-      }
-      const lastDay = new Date(vYear, vMonth, 0).getDate()
-      const vDay = Math.min(cartaoInfo.dia_vencimento, lastDay)
-      dataVenc = `${vYear}-${String(vMonth).padStart(2,'0')}-${String(vDay).padStart(2,'0')}`
+      // Este bloco tinha o algoritmo de cartoes.ts redigitado à mão, sem o
+      // clamp do dia de fechamento — ver src/lib/fatura.ts.
+      const f = faturaDaCompra(dataParcela, cartaoInfo.dia_fechamento, cartaoInfo.dia_vencimento)
+      bMonth = f.mes; bYear = f.ano; dataVenc = f.vencimento
     }
 
     // ── Campo 'data' da despesa ─────────────────────────────────────────────────
@@ -745,16 +788,150 @@ despesas.put('/:id', requireAuth, async (c) => {
     `UPDATE despesas SET ${updateFields.join(', ')} WHERE id=? AND user_id=?`
   ).bind(...updateVals).run()
 
-  // Sincronizar card_charges quando o valor mudou e ha cartao vinculado
-  if (despesaAtual?.cartao_id && valorEditNum !== Number(despesaAtual.valor)) {
-    const charge = await c.env.DB.prepare('SELECT * FROM card_charges WHERE expense_id=?').bind(id).first() as any
-    if (charge) {
-      const diffValor = valorEditNum - Number(despesaAtual.valor)
-      await c.env.DB.prepare('UPDATE card_charges SET valor=? WHERE expense_id=?').bind(valorEditNum, id).run()
-      // Se pendente, ajustar limite disponivel do cartao
-      if (charge.status === 'pendente') {
+  // ── Cartão: trocar de cartão, recalcular a fatura e manter o charge ────────
+  //
+  // Este bloco não existia. O update mexia em descrição, valor, categoria e
+  // status e ignorava cartao_id, billing_month, billing_year e vencimento —
+  // então:
+  //
+  //   • trocar o cartão de uma compra era impossível: o campo simplesmente
+  //     não era gravado, e a tela voltava mostrando o cartão antigo;
+  //   • mudar a data de uma compra de cartão gravava a data digitada em
+  //     `data`, mas para cartão `data` é o VENCIMENTO da fatura (é assim que
+  //     o POST grava, e é o que faz a despesa aparecer no mês em que ela
+  //     realmente é paga). A fatura antiga ficava em billing_month e o
+  //     vencimento antigo em `vencimento`. Resultado: a despesa aparecia num
+  //     mês, a fatura em outro, e a competência (que usa `vencimento` para
+  //     pendentes) marcava como atrasada uma compra que estava em dia.
+  //
+  // Agora o update refaz exatamente o que o insert faz.
+  const chargeAtual = await c.env.DB.prepare(
+    'SELECT * FROM card_charges WHERE expense_id = ?'
+  ).bind(id).first() as any
+
+  const meioFinal = meioPagEdit !== undefined ? meioPagEdit : despesaAtual?.meio_pagamento
+  const usaCartao = MEIOS_CARTAO.includes(meioFinal)
+  // cartao_id ausente no corpo = "não mexer"; null explícito = "tirar o cartão".
+  const cartaoIdEdit = body.cartao_id === undefined
+    ? (despesaAtual?.cartao_id ?? null)
+    : (body.cartao_id === null || body.cartao_id === '' ? null : parseInteiroPositivo(body.cartao_id))
+  if (body.cartao_id !== undefined && body.cartao_id !== null && body.cartao_id !== '' && !cartaoIdEdit) {
+    return c.json({ error: 'cartao_id inválido.' }, 400)
+  }
+
+  if (usaCartao && cartaoIdEdit) {
+    const cartaoEdit = await c.env.DB.prepare(
+      'SELECT * FROM cartoes WHERE id = ? AND user_id = ?'
+    ).bind(cartaoIdEdit, user.id).first() as any
+    if (!cartaoEdit) return c.json({ error: 'Cartão não encontrado.' }, 404)
+
+    // A data da compra é o que define a fatura. O formulário de edição mostra
+    // `data`, que para cartão é o vencimento — por isso a compra vem do
+    // charge, e só o `data_compra` explícito a substitui.
+    const dataCompra = normalizarData(body.data_compra) || chargeAtual?.data_compra || dataISO
+    const f = faturaDaCompra(dataCompra, cartaoEdit.dia_fechamento, cartaoEdit.dia_vencimento)
+
+    await c.env.DB.prepare(
+      `UPDATE despesas SET cartao_id = ?, billing_month = ?, billing_year = ?,
+       vencimento = ?, data = ? WHERE id = ? AND user_id = ?`
+    ).bind(cartaoIdEdit, f.mes, f.ano, f.vencimento, f.vencimento, id, user.id).run()
+
+    if (chargeAtual) {
+      await c.env.DB.prepare(
+        `UPDATE card_charges SET card_id = ?, descricao = ?, valor = ?, data_compra = ?,
+         data_vencimento = ?, billing_month = ?, billing_year = ?, status = ?
+         WHERE expense_id = ?`
+      ).bind(cartaoIdEdit, descricao, valorEditNum, dataCompra, f.vencimento,
+             f.mes, f.ano, status === 'pago' ? 'pago' : 'pendente', id).run()
+    } else {
+      // A despesa virou de cartão agora: o charge precisa nascer, senão ela
+      // some da fatura e do limite.
+      await c.env.DB.prepare(
+        `INSERT INTO card_charges (card_id, expense_id, descricao, valor, data_compra,
+         data_vencimento, billing_month, billing_year, parcela_atual, total_parcelas,
+         purchase_group_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(cartaoIdEdit, id, descricao, valorEditNum, dataCompra, f.vencimento,
+             f.mes, f.ano, despesaAtual?.parcela_atual ?? null,
+             despesaAtual?.numero_parcelas > 1 ? despesaAtual.numero_parcelas : null,
+             despesaAtual?.purchase_group_id ?? null,
+             status === 'pago' ? 'pago' : 'pendente').run()
+    }
+  } else if (chargeAtual || despesaAtual?.cartao_id) {
+    // Saiu do cartão: limpar o vínculo, senão a compra continua na fatura.
+    await c.env.DB.prepare(
+      `UPDATE despesas SET cartao_id = NULL, billing_month = NULL, billing_year = NULL
+       WHERE id = ? AND user_id = ?`
+    ).bind(id, user.id).run()
+    await c.env.DB.prepare('DELETE FROM card_charges WHERE expense_id = ?').bind(id).run()
+  } else if (chargeAtual && valorEditNum !== Number(despesaAtual?.valor)) {
+    await c.env.DB.prepare('UPDATE card_charges SET valor = ?, descricao = ? WHERE expense_id = ?')
+      .bind(valorEditNum, descricao, id).run()
+  }
+
+  // ── Alcance da edição em compra parcelada ─────────────────────────────────
+  // Editar a parcela 3 de 10 só mexia na 3. Quem corrigiu a categoria, o
+  // cartão ou a descrição tinha que repetir o mesmo ajuste nas outras nove —
+  // e na prática ninguém repete, então a compra ficava metade certa.
+  //
+  // 'uma' (padrão) preserva o comportamento antigo. 'futuras' pega desta
+  // parcela em diante; 'todas', o grupo inteiro. Valor e data NÃO se
+  // propagam: cada parcela tem o seu valor e a sua fatura, e sobrescrever
+  // isso em bloco destruiria o parcelamento.
+  const escopo = body.escopo
+  if ((escopo === 'futuras' || escopo === 'todas') && despesaAtual?.purchase_group_id) {
+    const filtro = escopo === 'futuras'
+      ? 'AND COALESCE(parcela_atual, 1) >= ?'
+      : ''
+    // A descrição das parcelas carrega o sufixo "(3/10)"; trocar o texto sem
+    // recompor o sufixo apagaria a numeração.
+    const irmas = await c.env.DB.prepare(
+      `SELECT id, parcela_atual, numero_parcelas FROM despesas
+       WHERE user_id = ? AND purchase_group_id = ? AND id != ? ${filtro}`
+    ).bind(...(escopo === 'futuras'
+      ? [user.id, despesaAtual.purchase_group_id, id, Number(despesaAtual.parcela_atual) || 1]
+      : [user.id, despesaAtual.purchase_group_id, id])).all()
+
+    const baseDesc = descricao.replace(/\s*\(\d+\/\d+\)\s*$/, '')
+    for (const irma of (irmas.results as any[]) || []) {
+      const nova = Number(irma.numero_parcelas) > 1
+        ? `${baseDesc} (${irma.parcela_atual}/${irma.numero_parcelas})`
+        : baseDesc
+      await c.env.DB.prepare(
+        'UPDATE despesas SET descricao = ?, categoria = ?, subcategoria = ? WHERE id = ? AND user_id = ?'
+      ).bind(nova, categoria, subcategoria || null, irma.id, user.id).run()
+      await c.env.DB.prepare('UPDATE card_charges SET descricao = ? WHERE expense_id = ?')
+        .bind(nova, irma.id).run()
+    }
+
+    // Trocar o cartão vale para o grupo todo: uma compra não fica metade num
+    // cartão e metade noutro. Cada parcela recalcula a SUA fatura, a partir
+    // da própria data de compra.
+    if (usaCartao && cartaoIdEdit) {
+      const cartaoG = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?')
+        .bind(cartaoIdEdit, user.id).first() as any
+      for (const irma of (irmas.results as any[]) || []) {
+        const ch = await c.env.DB.prepare('SELECT data_compra FROM card_charges WHERE expense_id = ?')
+          .bind(irma.id).first() as any
+        const dc = ch?.data_compra
+        if (!dc) continue
+        const fg = faturaDaCompra(dc, cartaoG.dia_fechamento, cartaoG.dia_vencimento)
+        await c.env.DB.prepare(
+          `UPDATE despesas SET cartao_id = ?, billing_month = ?, billing_year = ?,
+           vencimento = ?, data = ? WHERE id = ? AND user_id = ?`
+        ).bind(cartaoIdEdit, fg.mes, fg.ano, fg.vencimento, fg.vencimento, irma.id, user.id).run()
+        await c.env.DB.prepare(
+          `UPDATE card_charges SET card_id = ?, data_vencimento = ?, billing_month = ?, billing_year = ?
+           WHERE expense_id = ?`
+        ).bind(cartaoIdEdit, fg.vencimento, fg.mes, fg.ano, irma.id).run()
       }
     }
+
+    return c.json({
+      success: true,
+      message: escopo === 'todas'
+        ? `Compra atualizada — ${((irmas.results as any[]) || []).length + 1} parcelas.`
+        : `Atualizado desta parcela em diante — ${((irmas.results as any[]) || []).length + 1} parcelas.`,
+    })
   }
 
   return c.json({ success: true, message: 'Despesa atualizada!' })

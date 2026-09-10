@@ -154,7 +154,7 @@
     },
     async adiar(id, titulo) {
       const vm = this._vm
-      const txt = window.prompt(`Adiar "${titulo}" em quantos dias? (1–30)`, '3')
+      const txt = await window.VM.vmPrompt(`Adiar <strong>${esc(titulo)}</strong>.`, { titulo: 'Adiar lembrete', tipo: 'number', min: 1, max: 30, valor: '3', sufixo: 'dias', icone: '⏰', textoBotao: 'Adiar', dica: 'De 1 a 30 dias.' })
       if (txt === null) return
       const dias = parseInt(txt)
       if (!(dias >= 1 && dias <= 30)) return vm.toast('Informe de 1 a 30 dias.', 'error')

@@ -1230,3 +1230,61 @@
   margin: 16px 0 0; max-width: 46ch; }
 .pj-hero__sub strong { color: var(--terminal-ink); }
 .pj-warn i { margin-right: 6px; color: var(--terminal-accent); }
+
+/* ── Cartões: navegação de fatura e formulário ──────────────────────────── */
+.ct-nav { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px;
+  padding-bottom: 16px; border-bottom: 1px solid var(--terminal-line); }
+.ct-nav__lbl { font: 600 14px/1 var(--terminal-font); letter-spacing: -.01em; min-width: 140px; }
+.ct-nav__lbl em { font-style: normal; color: var(--terminal-ink-soft); font-family: var(--terminal-mono); font-size: 13px; }
+
+.ct-form { font-family: var(--terminal-font); color: var(--terminal-ink); }
+.ct-form__head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.ct-form__ico { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 10px; background: var(--terminal-primary); color: var(--terminal-bg); font-size: 14px; }
+.ct-form__head strong { display: block; font-size: 16px; font-weight: 640; letter-spacing: -.02em; }
+.ct-form__head small { display: block; margin-top: 3px; color: var(--terminal-ink-soft); font-size: 11.5px; line-height: 1.4; }
+
+.ct-form__tipo { display: flex; gap: 8px; }
+.ct-form__tipo-b { flex: 1; min-height: 38px; border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm); background: var(--terminal-bg);
+  color: var(--terminal-ink-soft); font: 600 12.5px/1 var(--terminal-font); cursor: pointer;
+  transition: border-color .16s ease, color .16s ease, background .16s ease; }
+.ct-form__tipo-b:hover { color: var(--terminal-ink); }
+.ct-form__tipo-b.is-on { color: var(--terminal-primary);
+  border-color: color-mix(in srgb, var(--terminal-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--terminal-primary) 10%, transparent); }
+
+.ct-form__cores { display: flex; gap: 9px; flex-wrap: wrap; }
+.ct-form__cor { width: 30px; height: 30px; border-radius: 9px; background: var(--c);
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+  transition: transform .14s ease, box-shadow .14s ease; }
+.ct-form__cor:hover { transform: translateY(-2px); }
+.ct-form__cor.is-on { border-color: var(--terminal-ink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent); }
+
+/* ── Projeção: cenários e leitura ───────────────────────────────────────── */
+.pj-cenarios { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.pj-cen { display: flex; flex-direction: column; gap: 6px; padding: 18px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius);
+  background: var(--terminal-bg); }
+.pj-cen--ok  { border-color: color-mix(in srgb, var(--terminal-primary) 35%, transparent); }
+.pj-cen--neg { border-color: color-mix(in srgb, var(--terminal-negative) 35%, transparent); }
+.pj-cen strong { font: 600 clamp(21px, 2vw, 26px)/1.05 var(--terminal-font); letter-spacing: -.035em; }
+.pj-cen p { margin: 4px 0 0; color: var(--terminal-ink-soft); font-size: 12px; line-height: 1.5; }
+
+.pj-analise { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 980px) { .pj-analise { grid-template-columns: 1fr; } }
+.pj-comp { display: flex; flex-direction: column; gap: 14px; }
+.pj-comp__row { display: grid; grid-template-columns: minmax(140px, 1.3fr) minmax(50px, 1fr) auto;
+  align-items: center; gap: 12px; }
+.pj-comp__rot strong { display: block; font-size: 13px; font-weight: 640; }
+.pj-comp__rot small { display: block; margin-top: 2px; color: var(--terminal-ink-soft);
+  font-size: 11px; line-height: 1.4; }
+.pj-comp__row b { font: 600 13px/1 var(--terminal-mono); white-space: nowrap; }
+.pj-comp__row--total { border-top: 1px solid var(--terminal-line); padding-top: 14px; }
+.pj-comp__row--total b { font-size: 16px; }
+.pj-analise__notas { display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 720px) {
+  .pj-comp__row { grid-template-columns: 1fr auto; }
+  .pj-comp__row .ds-bar { grid-column: 1 / -1; order: 3; }
+}

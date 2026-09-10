@@ -89,7 +89,7 @@
       const idx = (nome) => nome ? cab.indexOf(nome) : -1
       const mapeamento = { data: idx(col.data), descricao: idx(col.descricao), valor: idx(col.valor), categoria: idx(col.categoria) }
       if (mapeamento.valor < 0) return vm.toast('Não identifiquei a coluna de valor.', 'error')
-      if (!window.confirm(`Importar ${d.stats?.total || (d.preview || []).length} lançamento(s) como ${this._tipo}?`)) return
+      if (!await (window.VM).vmConfirm(`Importar ${d.stats?.total || (d.preview || []).length} lançamento(s) como ${this._tipo}?`)) return
       const out = document.getElementById('im-out')
       const r = await vm.api('POST', 'importacao/executar', { csv: this._csv, tipo: this._tipo, mapeamento }).catch(e => ({ error: e.response?.data?.error }))
       if (r && (r.success || r.importadas || r.total_importadas || !r.error)) {

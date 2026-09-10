@@ -73,7 +73,7 @@
     },
     async limpar() {
       const vm = this._vm
-      if (!window.confirm('Limpar todo o histórico da conversa?')) return
+      if (!await (window.VM).vmConfirm('Limpar todo o histórico da conversa?')) return
       await vm.api('DELETE', 'assistente/historico').catch(() => {})
       this._msgs = []; this._sug = SUG_INICIAIS
       vm.toast('Conversa limpa.', 'success')

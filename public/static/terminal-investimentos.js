@@ -175,7 +175,7 @@
     },
     async aportar(id, nome) {
       const vm = this._vm
-      const txt = window.prompt(`Aportar quanto em "${nome}"?`, '')
+      const txt = await vm.vmPrompt(`Aporte em <strong>${esc(nome)}</strong>.`, { titulo: 'Novo aporte', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '📈', textoBotao: 'Aportar' })
       if (txt === null) return
       const valor = parseFloat(txt)
       if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')
@@ -185,7 +185,7 @@
     },
     async resgatar(id, nome, disponivel) {
       const vm = this._vm
-      const txt = window.prompt(`Resgatar quanto de "${nome}"? (disponível: ${money(disponivel)})`, '')
+      const txt = await vm.vmPrompt(`Resgate de <strong>${esc(nome)}</strong>.`, { titulo: 'Resgatar', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '📉', textoBotao: 'Resgatar', dica: `Disponível: ${money(disponivel)}` })
       if (txt === null) return
       const valor = parseFloat(txt)
       if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')

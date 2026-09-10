@@ -167,21 +167,21 @@
     },
     async confirmar(id) {
       const vm = this._vm
-      if (!window.confirm('Confirmar esta antecipação? Ela será lançada como paga no mês atual.')) return
+      if (!await (window.VM).vmConfirm('Confirmar esta antecipação? Ela será lançada como paga no mês atual.')) return
       const r = await vm.api('PATCH', `antecipacao/${id}/status`, { status: 'antecipada' }).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Antecipação confirmada.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao confirmar.', 'error')
     },
     async cancelar(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Reverter a antecipação "${nome}"? A conta original volta ao mês de origem e o lançamento antecipado é removido.`)) return
+      if (!await (window.VM).vmConfirm(`Reverter a antecipação "${nome}"? A conta original volta ao mês de origem e o lançamento antecipado é removido.`)) return
       const r = await vm.api('PATCH', `antecipacao/${id}/status`, { status: 'cancelada' }).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Antecipação revertida.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao reverter.', 'error')
     },
     async excluir(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Excluir a antecipação "${nome}"? Se estava confirmada, os efeitos são revertidos.`)) return
+      if (!await (window.VM).vmConfirm(`Excluir a antecipação "${nome}"? Se estava confirmada, os efeitos são revertidos.`)) return
       const r = await vm.api('DELETE', `antecipacao/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Antecipação removida.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao excluir.', 'error')

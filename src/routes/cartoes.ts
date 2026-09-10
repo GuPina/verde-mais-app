@@ -5,6 +5,7 @@ import { limiteDoCartao, limitesDosCartoes } from '../lib/limite-cartao'
 const emReais = (v: number) =>
   `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 import { requireAuth } from './auth'
+import { periodoFatura, vencimentoFatura } from '../lib/fatura'
 import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings  = { DB: D1Database }
@@ -85,54 +86,16 @@ async function limiteDisponivelParaCompra(db: D1Database, cardId: number, limite
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Retorna {month, year} da FATURA onde a compra vai cair.
- * Regra bancária: compra no fechamento ou APÓS → próxima fatura.
+ * As duas funções de ciclo de fatura viviam aqui e estavam redigitadas em
+ * despesas.ts. Agora saem de src/lib/fatura.ts; os nomes antigos ficam como
+ * casca fina para não reescrever as ~20 chamadas deste arquivo.
  */
-function calcBillingPeriod(purchaseDateStr: string, closingDay: number) {
-  const d    = new Date(purchaseDateStr + 'T12:00:00')
-  let month  = d.getMonth() + 1   // 1-12
-  let year   = d.getFullYear()
-  const effectiveClosingDay = Math.min(
-    Math.max(1, Number(closingDay) || 1),
-    new Date(year, month, 0).getDate()
-  )
-  if (d.getDate() >= effectiveClosingDay) { // >= inclui o próprio dia de fechamento
-    month++
-    if (month > 12) { month = 1; year++ }
-  }
-  return { month, year }
+const calcBillingPeriod = (dataCompra: string, diaFechamento: number) => {
+  const { mes, ano } = periodoFatura(dataCompra, diaFechamento)
+  return { month: mes, year: ano }
 }
-
-/**
- * Retorna a data de vencimento da fatura (dia_vencimento do cartão).
- *
- * Regra bancária: o vencimento ocorre APÓS o fechamento.
- * • Se dueDay > closingDay  → vencimento no mesmo mês da fatura
- *   Ex: fechamento 25, vencimento 28, ciclo março → vence 28/03
- * • Se dueDay <= closingDay → vencimento no mês SEGUINTE ao da fatura
- *   Ex: fechamento 25, vencimento 1,  ciclo março → vence 01/04
- *   Ex: fechamento 25, vencimento 10, ciclo março → vence 10/04
- *
- * @param billingMonth   Mês da fatura (1-12) retornado por calcBillingPeriod
- * @param billingYear    Ano da fatura retornado por calcBillingPeriod
- * @param dueDay         Dia de vencimento configurado no cartão
- * @param closingDay     Dia de fechamento configurado no cartão
- */
-function calcDueDate(billingMonth: number, billingYear: number, dueDay: number, closingDay: number): string {
-  let month = billingMonth
-  let year  = billingYear
-
-  // Vencimento <= fechamento → vence no mês seguinte ao da fatura
-  if (dueDay <= closingDay) {
-    month++
-    if (month > 12) { month = 1; year++ }
-  }
-
-  // Cuidado: dueDay pode ser 31 em mês de 30 dias → usar último dia do mês
-  const lastDay = new Date(year, month, 0).getDate()
-  const day     = Math.min(dueDay, lastDay)
-  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-}
+const calcDueDate = (mesFatura: number, anoFatura: number, diaVenc: number, diaFech: number) =>
+  vencimentoFatura(mesFatura, anoFatura, diaVenc, diaFech)
 
 /** Gera um UUID v4 simples compatível com Cloudflare Workers */
 function uuid(): string {

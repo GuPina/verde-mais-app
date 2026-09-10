@@ -225,7 +225,7 @@
 
     async depositar(id, nome) {
       const vm = this._vm
-      const txt = window.prompt(`Depositar quanto em "${nome}"?`, '')
+      const txt = await window.VM.vmPrompt(`Depósito em <strong>${esc(nome)}</strong>.`, { titulo: 'Depositar', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '🐷', textoBotao: 'Depositar' })
       if (txt === null) return
       const valor = parseFloat(txt)
       if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')
@@ -235,7 +235,7 @@
     },
     async sacar(id, disponivel, nome) {
       const vm = this._vm
-      const txt = window.prompt(`Sacar quanto de "${nome}"? (disponível: ${money(disponivel)})`, '')
+      const txt = await window.VM.vmPrompt(`Saque de <strong>${esc(nome)}</strong>.`, { titulo: 'Sacar', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '🏧', textoBotao: 'Sacar', dica: `Disponível: ${money(disponivel)}` })
       if (txt === null) return
       const valor = parseFloat(txt)
       if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')
@@ -245,7 +245,7 @@
     },
     async excluir(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Excluir a reserva "${nome}"? O saldo vinculado a metas será devolvido.`)) return
+      if (!await (window.VM).vmConfirm(`Excluir a reserva "${nome}"? O saldo vinculado a metas será devolvido.`)) return
       const r = await vm.api('DELETE', `reservas-esp/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Reserva removida.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao excluir.', 'error')

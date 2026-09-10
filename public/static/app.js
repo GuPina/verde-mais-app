@@ -4707,6 +4707,13 @@ const VM = {
                   </div>`).join('')}
               </div>
               <input type="hidden" id="d-cat" value="${catSelecionada}">
+              <div class="d-catlivre">
+                <input list="d-cat-sugestoes" id="d-cat-input" class="form-input" placeholder="Outra categoria — digite para criar ou buscar"
+                       value="${this._attr(catSelecionada && !categoriasInfo.some(c => c.value === catSelecionada) ? catSelecionada : '')}"
+                       oninput="VM._catLivre(this.value)" autocomplete="off">
+                <datalist id="d-cat-sugestoes"></datalist>
+              </div>
+              <div id="d-cat-eco" class="d-cateco"></div>
             </div>
 
             <!-- Alerta de Orçamento em Tempo Real -->
@@ -4765,7 +4772,25 @@ const VM = {
                 ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:#888;margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
               </div>
               <div id="d-billing-info" style="display:none;margin-bottom:12px;"></div>
+              ${isEdit ? `
+                <div class="form-group">
+                  <label class="form-label">Data da compra</label>
+                  <input type="date" id="d-data-compra" class="form-input" value="${(despesa?.data_compra || '').slice(0,10)}" onchange="VM.inferirMesFaturamento(document.getElementById('d-cartao-id').value)">
+                  <div style="font-size:0.72rem;color:#888;margin-top:4px;">O campo <strong>Data</strong> acima é o vencimento da fatura. É esta data aqui — a da compra — que decide em qual fatura ela entra.</div>
+                </div>` : ''}
             </div>
+
+            ${isEdit && despesa?.purchase_group_id && Number(despesa?.numero_parcelas) > 1 ? `
+              <div class="form-group">
+                <label class="form-label">Aplicar a alteração em</label>
+                <div class="lr__meios" id="d-escopo" style="grid-template-columns:repeat(3,1fr)">
+                  <button type="button" class="lr__meio is-on" data-escopo="uma" onclick="VM._dEscopo('uma')">Só esta parcela</button>
+                  <button type="button" class="lr__meio" data-escopo="futuras" onclick="VM._dEscopo('futuras')">Esta e as próximas</button>
+                  <button type="button" class="lr__meio" data-escopo="todas" onclick="VM._dEscopo('todas')">Todas as parcelas</button>
+                </div>
+                <input type="hidden" id="d-escopo-val" value="uma">
+                <div style="font-size:0.72rem;color:#888;margin-top:6px;">Parcela ${Number(despesa.parcela_atual) || 1} de ${Number(despesa.numero_parcelas)}. Descrição, categoria, cartão e valor da parcela seguem o alcance escolhido.</div>
+              </div>` : ''}
 
             <!-- Parcelas (somente para parcelado, somente criação) -->
             ${!isEdit ? `
@@ -4909,6 +4934,21 @@ const VM = {
       setTimeout(() => VM.inferirMesFaturamento(String(despesa.cartao_id)), 100)
     }
 
+    // Sugestões de categoria: o que o usuário já usou vem primeiro, com a
+    // contagem, porque é isso que ele quer repetir na maioria das vezes.
+    this.api('GET', 'despesas/categorias-disponiveis').then(r => {
+      this._catsUsuario = r
+      const dl = document.getElementById('d-cat-sugestoes')
+      if (!dl) return
+      const usadas = (r.categorias || []).slice(0, 40)
+      const resto = (r.sugeridas || [])
+      dl.innerHTML = usadas.map(c =>
+        `<option value="${this._attr(c.nome)}">${c.usos}× · ${this.fmt(c.total)}</option>`).join('')
+        + resto.map(c => `<option value="${this._attr(c.nome)}"></option>`).join('')
+      const cur = document.getElementById('d-cat-input')?.value
+      if (cur) this._catLivre(cur)
+    }).catch(() => {})
+
     document.getElementById('despesa-form').addEventListener('submit', async (e) => {
       e.preventDefault()
       const btn = document.getElementById('d-submit')
@@ -4947,6 +4987,8 @@ const VM = {
           vencimento: document.getElementById('d-venc').value || null,
           meio_pagamento: parcelado ? 'parcelado_cartao' : meio,
           cartao_id: (meio === 'cartao_credito' || meio === 'parcelado_cartao') ? (cartaoId || null) : null,
+          data_compra: document.getElementById('d-data-compra')?.value || undefined,
+          escopo: document.getElementById('d-escopo-val')?.value || undefined,
           parcelado,
           numero_parcelas: numParcelasRestantes,
           parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes,
@@ -5015,6 +5057,10 @@ const VM = {
       if (lbl) { lbl.style.color = isThis ? cor : '#888'; lbl.style.fontWeight = isThis ? '700' : '400' }
     })
     VM.verificarOrcamentoModal()
+    const livre = document.getElementById('d-cat-input')
+    if (livre) livre.value = ''
+    const eco = document.getElementById('d-cat-eco')
+    if (eco) { eco.className = 'd-cateco'; eco.innerHTML = '' }
   },
 
   // ── Auto-categorização via IA (chamado no onBlur da Descrição) ──────────
@@ -12840,126 +12886,261 @@ const VM = {
   },
 
   // ─── CRUD CARTÃO ───────────────────────────────────────────────────────────
-  modalCartao(cartao = null) {
-    const isEdit = !!cartao
-    const bandeiras = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
-    const cores = ['#2FBF71', '#74b9ff', '#fd79a8', '#a29bfe', '#ffc400', '#ff8c42', '#ff6b6b', '#00cec9']
+  /**
+   * Cadastro e edição de cartão.
+   *
+   * A tela nova de Cartões chama `VM.modalCartao(3)` — o id do cartão em
+   * foco —, mas este método só aceitava o OBJETO do cartão. Com um número no
+   * lugar, `cartao?.nome` era undefined (o formulário abria em branco, como
+   * se fosse um cartão novo) e `cartao.id` também (o PUT ia para
+   * `cartoes/undefined`). Era isso o "editar não usa o CRUD do cartão
+   * selecionado". Agora aceita id ou objeto, e resolve o id contra a API.
+   */
+  async modalCartao(cartaoOuId = null) {
+    let cartao = cartaoOuId
+    if (typeof cartaoOuId === 'number' || (typeof cartaoOuId === 'string' && /^\d+$/.test(cartaoOuId))) {
+      const id = Number(cartaoOuId)
+      const doCache = (window.VMTerminalCartoes?._cartoes || []).find(c => Number(c.id) === id)
+      cartao = doCache || await this.api('GET', 'cartoes').then(
+        r => (r.cartoes || r.resumo || r || []).find(c => Number(c.id) === id)
+      ).catch(() => null)
+      if (!cartao) return this.toast('Cartão não encontrado.', 'error')
+    }
+    const isEdit = !!(cartao && cartao.id)
+    const st = 'width:100%;background:var(--terminal-bg);border:1px solid var(--terminal-line);color:var(--terminal-ink);border-radius:var(--terminal-radius-sm);padding:10px 12px;font-size:13px;font-family:var(--terminal-font)'
+    const lab = (t, dica) => `<label style="display:block;font:700 10px/1 var(--terminal-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--terminal-ink-soft);margin:0 0 6px">${t}${dica ? ` <span style="text-transform:none;letter-spacing:0;font-weight:500;opacity:.7">${dica}</span>` : ''}</label>`
+    const BANDEIRAS = ['visa', 'mastercard', 'elo', 'amex', 'hipercard', 'outros']
+    const CORES = ['#3DDC84', '#6EA8FE', '#B58AF4', '#F2C94C', '#FF8C69', '#EC4899', '#06B6D4', '#84CC16']
+    const corAtual = cartao?.cor || CORES[0]
 
-    document.getElementById('modal-container').innerHTML = `
-      <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-            <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💳 Novo'} Cartão</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
-          </div>
-          <form id="cartao-form">
-            <div class="form-group">
-              <label class="form-label">Nome do Cartão *</label>
-              <input type="text" id="ct-nome" class="form-input" placeholder="Ex: Nubank Roxinho" value="${cartao?.nome || ''}" required>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Bandeira *</label>
-                <select id="ct-bandeira" class="form-select">
-                  ${bandeiras.map(b => `<option value="${b}" ${cartao?.bandeira===b?'selected':''}>${b.charAt(0).toUpperCase()+b.slice(1)}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Banco *</label>
-                <input type="text" id="ct-banco" class="form-input" placeholder="Ex: Nubank" value="${cartao?.banco || ''}" required>
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Limite Total (R$) *</label>
-                <input type="number" id="ct-limite" class="form-input" step="0.01" min="0" value="${cartao?.limite_total || ''}" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">4 últimos dígitos</label>
-                <input type="text" id="ct-digitos" class="form-input" placeholder="0000" maxlength="4" value="${cartao?.ultimos_digitos || ''}">
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-              <div class="form-group">
-                <label class="form-label">Dia de Fechamento *</label>
-                <input type="number" id="ct-fecha" class="form-input" min="1" max="31" value="${cartao?.dia_fechamento || ''}" required
-                  ${isEdit ? `oninput="VM._ctAvisoFechamento(${cartao?.dia_fechamento}, ${cartao?.dia_vencimento})"` : ''}>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Dia de Vencimento *</label>
-                <input type="number" id="ct-vence" class="form-input" min="1" max="31" value="${cartao?.dia_vencimento || ''}" required
-                  ${isEdit ? `oninput="VM._ctAvisoFechamento(${cartao?.dia_fechamento}, ${cartao?.dia_vencimento})"` : ''}>
-              </div>
-            </div>
-            <!-- S-C7: aviso ao mudar dias de fechamento/vencimento -->
-            <div id="ct-aviso-dias" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(255,196,0,0.1);border:1px solid rgba(255,196,0,0.3);border-radius:8px;font-size:0.8rem;color:#ffc400;">
-              ⚠️ Alterar o dia de fechamento ou vencimento afeta apenas novas compras. Os lançamentos existentes continuarão com as datas originais.
-            </div>
-            <!-- S-C6: Apelido opcional -->
-            <div class="form-group">
-              <label class="form-label">Apelido <span style="color:#888;font-size:0.78rem;">(opcional)</span></label>
-              <input type="text" id="ct-apelido" class="form-input" placeholder='Ex: "day-to-day", "viagens", "assinaturas"' value="${cartao?.apelido || ''}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Tipo do Cartão</label>
-              <div style="display:flex;gap:10px;">
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);flex:1;justify-content:center;${cartao?.tipo_cartao !== 'PJ' ? 'background:rgba(47,191,113,0.1);border-color:rgba(47,191,113,0.4);' : ''}">
-                  <input type="radio" name="ct-tipo" value="PF" ${cartao?.tipo_cartao !== 'PJ' ? 'checked' : ''}> 👤 Pessoal (PF)
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);flex:1;justify-content:center;${cartao?.tipo_cartao === 'PJ' ? 'background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4);' : ''}">
-                  <input type="radio" name="ct-tipo" value="PJ" ${cartao?.tipo_cartao === 'PJ' ? 'checked' : ''}> 🏢 Empresarial (PJ)
-                </label>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Cor</label>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                ${cores.map(c => `
-                  <div onclick="document.getElementById('ct-cor').value='${c}';document.querySelectorAll('.ctcor').forEach(el=>el.style.border='none');this.style.border='3px solid white'"
-                    class="ctcor" style="width:30px;height:30px;background:${c};border-radius:8px;cursor:pointer;border:${(cartao?.cor||'#2FBF71')===c?'3px solid white':'none'};"></div>
-                `).join('')}
-              </div>
-              <input type="hidden" id="ct-cor" value="${cartao?.cor || '#2FBF71'}">
-            </div>
-            <div style="display:flex;gap:12px;margin-top:8px;">
-              <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
-              <button type="submit" class="btn-primary" style="flex:1;" id="ct-submit">
-                <i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}
-              </button>
-            </div>
-          </form>
+    this.showModal(`<div class="ct-form">
+      <div class="ct-form__head">
+        <span class="ct-form__ico"><i class="fas fa-credit-card"></i></span>
+        <div>
+          <strong>${isEdit ? 'Editar cartão' : 'Novo cartão'}</strong>
+          <small>${isEdit ? 'As mudanças de fechamento e vencimento valem para compras novas.' : 'Fechamento e vencimento definem em que fatura cada compra cai.'}</small>
         </div>
       </div>
-    `
 
-    document.getElementById('cartao-form').addEventListener('submit', async (e) => {
-      e.preventDefault()
-      const btn = document.getElementById('ct-submit')
-      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'
-      try {
-        const limite = parseFloat(document.getElementById('ct-limite').value)
-        const payload = {
-          nome: document.getElementById('ct-nome').value,
-          bandeira: document.getElementById('ct-bandeira').value,
-          banco: document.getElementById('ct-banco').value,
-          apelido: document.getElementById('ct-apelido')?.value || null,  // S-C6
-          tipo_cartao: document.querySelector('input[name="ct-tipo"]:checked')?.value || 'PF',
-          limite_total: limite,
-          limite_disponivel: isEdit ? cartao.limite_disponivel : limite,
-          dia_fechamento: parseInt(document.getElementById('ct-fecha').value),
-          dia_vencimento: parseInt(document.getElementById('ct-vence').value),
-          ultimos_digitos: document.getElementById('ct-digitos').value || null,
-          cor: document.getElementById('ct-cor').value
-        }
-        if (isEdit) await this.api('PUT', `cartoes/${cartao.id}`, payload)
-        else await this.api('POST', 'cartoes', payload)
-        this.toast(isEdit ? 'Cartão atualizado!' : 'Cartão adicionado! 💳')
-        this.closeModal(); this.carregarCartoes()
-      } catch (err) {
-        this.toast(err.response?.data?.error || 'Erro ao salvar', 'error')
-        btn.disabled = false; btn.innerHTML = `<i class="fas fa-save"></i> ${isEdit ? 'Salvar' : 'Adicionar'}`
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:2;min-width:180px">${lab('Nome')}<input id="ct-nome" style="${st}" value="${this._attr(cartao?.nome)}" placeholder="Ex.: Nubank Roxinho"></div>
+          <div style="flex:1;min-width:130px">${lab('Bandeira')}<select id="ct-bandeira" style="${st}">${BANDEIRAS.map(b => `<option value="${b}" ${cartao?.bandeira === b ? 'selected' : ''}>${b[0].toUpperCase() + b.slice(1)}</option>`).join('')}</select></div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">${lab('Banco')}<input id="ct-banco" style="${st}" value="${this._attr(cartao?.banco)}" placeholder="Ex.: Nubank"></div>
+          <div style="flex:1;min-width:150px">${lab('Limite total (R$)')}<input id="ct-limite" type="number" min="0" step="0.01" style="${st}" value="${cartao?.limite_total ?? ''}"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:130px">${lab('Fecha no dia')}<input id="ct-fecha" type="number" min="1" max="31" style="${st}" value="${cartao?.dia_fechamento ?? ''}" oninput="VM._ctPreviaCiclo()"></div>
+          <div style="flex:1;min-width:130px">${lab('Vence no dia')}<input id="ct-vence" type="number" min="1" max="31" style="${st}" value="${cartao?.dia_vencimento ?? ''}" oninput="VM._ctPreviaCiclo()"></div>
+          <div style="flex:1;min-width:110px">${lab('4 últimos dígitos', '(opcional)')}<input id="ct-digitos" maxlength="4" inputmode="numeric" style="${st}" value="${this._attr(cartao?.ultimos_digitos)}" placeholder="0000"></div>
+        </div>
+
+        <div id="ct-previa" class="ds-note ds-note--info" style="display:none"></div>
+
+        <div>${lab('Apelido', '(opcional)')}<input id="ct-apelido" style="${st}" value="${this._attr(cartao?.apelido)}" placeholder='Ex.: "day-to-day", "viagens"'></div>
+
+        <div>${lab('Tipo')}
+          <div class="ct-form__tipo">
+            <button type="button" class="ct-form__tipo-b ${cartao?.tipo_cartao !== 'PJ' ? 'is-on' : ''}" data-tipo="PF" onclick="VM._ctTipo('PF')">Pessoal</button>
+            <button type="button" class="ct-form__tipo-b ${cartao?.tipo_cartao === 'PJ' ? 'is-on' : ''}" data-tipo="PJ" onclick="VM._ctTipo('PJ')">Empresarial</button>
+          </div>
+          <input type="hidden" id="ct-tipo" value="${cartao?.tipo_cartao === 'PJ' ? 'PJ' : 'PF'}">
+        </div>
+
+        <div>${lab('Cor')}
+          <div class="ct-form__cores">
+            ${CORES.map(c => `<button type="button" class="ct-form__cor ${c === corAtual ? 'is-on' : ''}" style="--c:${c}" data-cor="${c}" onclick="VM._ctCor('${c}')" aria-label="Cor ${c}"></button>`).join('')}
+          </div>
+          <input type="hidden" id="ct-cor" value="${corAtual}">
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="ds-btn ds-btn--primary" style="flex:1" onclick="VM._ctSalvar(${isEdit ? Number(cartao.id) : 'null'})"><i class="fas fa-check"></i> ${isEdit ? 'Salvar' : 'Adicionar'}</button>
+          <button class="ds-btn" onclick="VM.closeModal()">Cancelar</button>
+        </div>
+        ${isEdit ? `<button class="ds-btn ds-btn--danger ds-btn--block" onclick="VM._ctExcluir(${Number(cartao.id)}, ${JSON.stringify(cartao.nome || 'este cartão')})"><i class="fas fa-trash"></i> Excluir cartão</button>` : ''}
+      </div>
+    </div>`)
+    this._ctPreviaCiclo()
+  },
+
+  /** Escapa para uso dentro de atributo HTML. */
+  _attr(v) { return String(v ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;') },
+
+  /**
+   * Entrada de um valor, no visual do sistema.
+   *
+   * Substitui window.prompt(), que abre a caixa cinza do navegador com o
+   * domínio no título — a "janela horrível". Além de destoar, ela não valida
+   * nada, não mostra saldo nem sugestão, e no celular cobre a tela inteira.
+   *
+   * Devolve a string digitada, ou null se a pessoa cancelar — mesma
+   * assinatura do prompt, para a troca ser linha a linha.
+   */
+  vmPrompt(mensagem, { titulo = 'Informar valor', valor = '', tipo = 'text', icone = '✎',
+                       textoBotao = 'Confirmar', dica = '', sufixo = '', min, max, step } = {}) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div')
+      overlay.className = 'vm-dialog'
+      const attrs = [
+        `type="${tipo}"`,
+        min !== undefined ? `min="${min}"` : '',
+        max !== undefined ? `max="${max}"` : '',
+        step !== undefined ? `step="${step}"` : '',
+        tipo === 'number' ? 'inputmode="decimal"' : '',
+      ].filter(Boolean).join(' ')
+      overlay.innerHTML = `
+        <div class="vm-dialog__box vm-dialog__box--form" role="dialog" aria-modal="true">
+          <div class="vm-dialog__ico is-ok">${icone}</div>
+          <div class="vm-dialog__title">${titulo}</div>
+          ${mensagem ? `<div class="vm-dialog__msg">${mensagem}</div>` : ''}
+          <div class="vm-dialog__campo">
+            ${sufixo ? `<span>${sufixo}</span>` : ''}
+            <input ${attrs} data-vm="in" value="${this._attr(valor)}">
+          </div>
+          ${dica ? `<div class="vm-dialog__dica">${dica}</div>` : ''}
+          <div class="vm-dialog__acoes">
+            <button class="ds-btn" style="flex:1" data-vm="cancel">Cancelar</button>
+            <button class="ds-btn ds-btn--primary" style="flex:1" data-vm="ok">${textoBotao}</button>
+          </div>
+        </div>`
+      document.body.appendChild(overlay)
+      const input = overlay.querySelector('[data-vm="in"]')
+      const close = (val) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(val) }
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null) }
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(input.value) }
       }
+      document.addEventListener('keydown', onKey, true)
+      overlay.querySelector('[data-vm="cancel"]').onclick = () => close(null)
+      overlay.querySelector('[data-vm="ok"]').onclick = () => close(input.value)
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null) })
+      setTimeout(() => { input.focus(); input.select() }, 40)
     })
+  },
+
+  /**
+   * Categoria digitada à mão.
+   *
+   * A grade de ícones cobre as 22 mais comuns e continua sendo o caminho
+   * rápido. Este campo é a saída para o resto: quem tem "Pós-Graduação" ou
+   * "Taxas Bancárias" não precisa mais jogar em "Outros". O backend já
+   * aceitava texto livre — quem limitava era a tela.
+   */
+  _catLivre(valor) {
+    const v = String(valor || '').trim()
+    const hidden = document.getElementById('d-cat')
+    const eco = document.getElementById('d-cat-eco')
+    if (v) {
+      if (hidden) hidden.value = v
+      // Tirar a seleção da grade: a categoria válida agora é a digitada.
+      document.querySelectorAll('#d-cat-grid > div').forEach(el => {
+        el.style.borderColor = 'rgba(255,255,255,0.08)'
+        el.style.background = 'rgba(255,255,255,0.03)'
+        const rot = el.querySelector('div:last-child'); if (rot) { rot.style.color = '#888'; rot.style.fontWeight = '400' }
+      })
+      const conhecida = (this._catsUsuario?.categorias || []).find(c => c.nome.toLowerCase() === v.toLowerCase())
+      if (eco) {
+        eco.innerHTML = conhecida
+          ? `<i class="fas fa-check"></i> <strong>${this._attr(conhecida.nome)}</strong> — ${conhecida.usos} lançamento${conhecida.usos === 1 ? '' : 's'}, ${this.fmt(conhecida.total)} no total.`
+          : `<i class="fas fa-plus"></i> Vai criar a categoria <strong>${this._attr(v)}</strong>.`
+        eco.className = 'd-cateco is-on' + (conhecida ? '' : ' is-nova')
+      }
+    } else if (eco) {
+      eco.className = 'd-cateco'
+      eco.innerHTML = ''
+    }
+  },
+
+  _dEscopo(v) {
+    const el = document.getElementById('d-escopo-val'); if (el) el.value = v
+    document.querySelectorAll('#d-escopo .lr__meio').forEach(b => b.classList.toggle('is-on', b.dataset.escopo === v))
+  },
+
+  _ctTipo(t) {
+    const el = document.getElementById('ct-tipo'); if (el) el.value = t
+    document.querySelectorAll('.ct-form__tipo-b').forEach(b => b.classList.toggle('is-on', b.dataset.tipo === t))
+  },
+  _ctCor(c) {
+    const el = document.getElementById('ct-cor'); if (el) el.value = c
+    document.querySelectorAll('.ct-form__cor').forEach(b => b.classList.toggle('is-on', b.dataset.cor === c))
+  },
+
+  /**
+   * Mostra, com data real, em que fatura cai uma compra de hoje. Fechamento e
+   * vencimento são os dois campos que o usuário mais erra ao cadastrar, e o
+   * efeito só aparece semanas depois, na fatura errada.
+   */
+  _ctPreviaCiclo() {
+    const el = document.getElementById('ct-previa')
+    if (!el) return
+    const fe = parseInt(document.getElementById('ct-fecha')?.value, 10)
+    const ve = parseInt(document.getElementById('ct-vence')?.value, 10)
+    if (!(fe >= 1 && fe <= 31) || !(ve >= 1 && ve <= 31)) { el.style.display = 'none'; return }
+    const MES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
+    const hoje = new Date()
+    let m = hoje.getMonth() + 1, a = hoje.getFullYear()
+    const ultimo = new Date(a, m, 0).getDate()
+    if (hoje.getDate() >= Math.min(fe, ultimo)) { m++; if (m > 12) { m = 1; a++ } }
+    let vm2 = m, va = a
+    if (ve <= fe) { vm2++; if (vm2 > 12) { vm2 = 1; va++ } }
+    const vd = Math.min(ve, new Date(va, vm2, 0).getDate())
+    el.style.display = 'flex'
+    el.innerHTML = `<i class="fas fa-calendar-check ds-note__ico"></i><div>Uma compra feita <strong>hoje</strong> entra na fatura de <strong>${MES[m - 1]}</strong>, que vence em <strong>${String(vd).padStart(2, '0')}/${String(vm2).padStart(2, '0')}/${va}</strong>.</div>`
+  },
+
+  async _ctSalvar(id) {
+    const g = (x) => document.getElementById(x)
+    const nome = g('ct-nome')?.value?.trim()
+    const banco = g('ct-banco')?.value?.trim()
+    const limite = parseFloat(g('ct-limite')?.value)
+    const fecha = parseInt(g('ct-fecha')?.value, 10)
+    const vence = parseInt(g('ct-vence')?.value, 10)
+    if (!nome) return this.toast('Informe o nome do cartão.', 'error')
+    if (!banco) return this.toast('Informe o banco.', 'error')
+    if (!(limite > 0)) return this.toast('Informe o limite total.', 'error')
+    if (!(fecha >= 1 && fecha <= 31)) return this.toast('Dia de fechamento deve ficar entre 1 e 31.', 'error')
+    if (!(vence >= 1 && vence <= 31)) return this.toast('Dia de vencimento deve ficar entre 1 e 31.', 'error')
+
+    const payload = {
+      nome, banco, limite_total: limite,
+      bandeira: g('ct-bandeira')?.value,
+      apelido: g('ct-apelido')?.value?.trim() || null,
+      tipo_cartao: g('ct-tipo')?.value || 'PF',
+      dia_fechamento: fecha, dia_vencimento: vence,
+      ultimos_digitos: g('ct-digitos')?.value?.trim() || null,
+      cor: g('ct-cor')?.value,
+    }
+    if (!id) payload.limite_disponivel = limite
+    const r = await this.api(id ? 'PUT' : 'POST', id ? `cartoes/${id}` : 'cartoes', payload)
+      .catch(e => ({ error: e.response?.data?.error }))
+    if (r?.error) return this.toast(r.error, 'error')
+    this.closeModal()
+    this.toast(id ? 'Cartão atualizado.' : 'Cartão adicionado.', 'success')
+    this._recarregarCartoes()
+  },
+
+  async _ctExcluir(id, nome) {
+    const ok = await this.vmConfirm(
+      `Arquivar <strong>${this._attr(nome)}</strong>?<br><br>As compras já lançadas continuam no seu histórico de despesas — elas só deixam de apontar para este cartão. A fatura e os alertas dele são removidos.`,
+      { titulo: 'Excluir cartão', textoBotao: 'Excluir', corBotao: '#FF6B6B', icone: '🗑️' })
+    if (!ok) return
+    const r = await this.api('DELETE', `cartoes/${id}`).catch(e => ({ error: e.response?.data?.error }))
+    if (r?.error) return this.toast(r.error, 'error')
+    this.closeModal()
+    this.toast(r?.message || 'Cartão arquivado.', 'success')
+    if (window.VMTerminalCartoes) window.VMTerminalCartoes._sel = null
+    this._recarregarCartoes()
+  },
+
+  /** A tela de cartões tem duas gerações; recarregar a que estiver aberta. */
+  _recarregarCartoes() {
+    if (this.currentPage === 'cartoes' && window.VMTerminalCartoes?.reload) window.VMTerminalCartoes.reload()
+    else if (this.carregarCartoes) this.carregarCartoes()
   },
 
   async deleteCartao(id) {

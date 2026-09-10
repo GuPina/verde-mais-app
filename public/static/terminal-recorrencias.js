@@ -223,7 +223,7 @@
       const now = new Date()
       let valor
       if (rec.valor_variavel) {
-        const txt = window.prompt(`Valor de "${rec.descricao}" para este mês:`, '')
+        const txt = await window.VM.vmPrompt(`Valor de <strong>${esc(rec.descricao)}</strong> neste mês.`, { titulo: 'Valor do mês', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '🔁', textoBotao: 'Lançar' })
         if (txt === null) return
         valor = parseFloat(txt)
         if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')

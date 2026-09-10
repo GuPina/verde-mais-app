@@ -450,3 +450,30 @@
 .td-kpi__delta--positive, .ds-kpi__val--ok   { color: var(--terminal-primary); }
 .td-kpi__delta--negative, .ds-kpi__val--neg  { color: var(--terminal-negative); }
 .td-kpi__delta--muted,    .ds-kpi__hint      { color: var(--terminal-ink-soft); }
+/* Diálogo com campo — o substituto do window.prompt. */
+.vm-dialog__box--form { text-align: left; }
+.vm-dialog__box--form .vm-dialog__ico { margin-left: 0; }
+.vm-dialog__box--form .vm-dialog__title,
+.vm-dialog__box--form .vm-dialog__msg { text-align: left; }
+.vm-dialog__box--form .vm-dialog__msg { margin-bottom: var(--ds-4); }
+.vm-dialog__campo { display: flex; align-items: center; gap: var(--ds-2); padding: 4px 12px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  background: var(--terminal-bg); }
+.vm-dialog__campo:focus-within { border-color: var(--terminal-primary); }
+.vm-dialog__campo > span { color: var(--terminal-ink-soft); font: 600 14px/1 var(--terminal-mono); }
+.vm-dialog__campo input { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: none;
+  color: var(--terminal-ink); font: 600 20px/1.2 var(--terminal-mono); letter-spacing: -.02em; }
+.vm-dialog__campo input:focus { outline: none; }
+.vm-dialog__campo input::-webkit-outer-spin-button,
+.vm-dialog__campo input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.vm-dialog__dica { margin-top: var(--ds-2); color: var(--terminal-ink-soft); font-size: 11.5px; line-height: 1.45; }
+.vm-dialog__box--form .vm-dialog__acoes { margin-top: var(--ds-5); }
+
+/* Categoria digitada à mão, no formulário de despesa. */
+.d-catlivre { margin-top: 8px; }
+.d-cateco { display: none; align-items: center; gap: 7px; margin-top: 7px;
+  font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); }
+.d-cateco.is-on { display: flex; }
+.d-cateco i { font-size: 10px; color: var(--terminal-primary); }
+.d-cateco.is-nova i { color: var(--terminal-accent); }
+.d-cateco strong { color: var(--terminal-ink); }

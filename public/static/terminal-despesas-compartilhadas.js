@@ -129,7 +129,7 @@
     },
     async excluir(id) {
       const vm = this._vm
-      if (!window.confirm('Remover esta divisão?')) return
+      if (!await (window.VM).vmConfirm('Remover esta divisão?')) return
       const r = await vm.api('DELETE', `despesas-compartilhadas/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r?.success) { vm.toast('Divisão removida.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro.', 'error')

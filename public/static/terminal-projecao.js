@@ -1,6 +1,15 @@
 (function () {
   const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
   const money = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 }).format(Number(v) || 0)
+  const MES_LONGO = { jan:'janeiro', fev:'fevereiro', mar:'março', abr:'abril', mai:'maio', jun:'junho',
+                      jul:'julho', ago:'agosto', set:'setembro', out:'outubro', nov:'novembro', dez:'dezembro' }
+  /** 'Set/2027' → 'setembro de 2027'. O eixo do gráfico cabe abreviado; frase não. */
+  const porExtenso = (lbl) => {
+    const m = String(lbl || '').match(/^([A-Za-zçÇ]{3})\/?(\d{4})?$/)
+    if (!m) return String(lbl || '')
+    const nome = MES_LONGO[m[1].toLowerCase()] || m[1]
+    return m[2] ? `${nome} de ${m[2]}` : nome
+  }
   const moneyK = (v) => { const n = Number(v) || 0; return Math.abs(n) >= 1000 ? 'R$ ' + (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k' : money(n) }
 
   window.VMTerminalProjecao = {
@@ -49,7 +58,7 @@
               <span class="pj-conf pj-conf--${baixaConf ? 'low' : conf < 70 ? 'mid' : 'high'}"
                     title="Quanto mais meses de histórico lançados, maior a confiança da projeção.">confiança ${conf}%${baixaConf ? ' · baixa' : ''}</span>
             </div>
-            <p class="pj-hero__sub">É o seu saldo acumulado em <strong>${esc(ultimoLabel)}</strong>, se o padrão dos últimos meses se mantiver. Já entram as parcelas e recorrências que você tem contratadas; não entram aportes nem resgates de investimento.</p>
+            <p class="pj-hero__sub">É o seu saldo acumulado em <strong>${esc(porExtenso(ultimoLabel))}</strong>, se o padrão dos últimos meses se mantiver. Já entram as parcelas e recorrências que você tem contratadas; não entram aportes nem resgates de investimento.</p>
             ${baixaConf ? `<p class="pj-warn"><i class="fas fa-circle-info"></i> Poucos meses de histórico — este número tem baixa confiança. Lance mais receitas e despesas para uma projeção firme.</p>` : ''}
           </div>
           <div class="pj-chart">${this._chart(proj, d.cenarios)}</div>
@@ -72,11 +81,19 @@
           </div>
         </article>` : ''}
 
-        <div class="dg-kpis dg-kpis--seg">
-          ${this._kpi('Cenário otimista (12m)', money(resumo.cenario_otimista_12m), 'ok', 'receitas +10%, despesas −5%')}
-          ${this._kpi('Cenário base (12m)', money(resumo.projecao_12m), 'neutral')}
-          ${this._kpi('Cenário pessimista (12m)', money(resumo.cenario_pessimista_12m), 'neg', 'receitas −10%, despesas +10%')}
-        </div>
+        <article class="td-panel pj-sec">
+          <div class="td-panel__head"><div><span class="td-eyebrow">Três futuros possíveis</span><h2>Onde você fecha ${esc(porExtenso(ultimoLabel))}</h2></div></div>
+          <div class="pj-cenarios">
+            ${this._cenario('Se tudo melhorar', resumo.cenario_otimista_12m, 'ok',
+              'Receitas 10% maiores e despesas 5% menores que a sua média. É o teto realista — não a sorte grande.')}
+            ${this._cenario('Se nada mudar', resumo.projecao_12m, 'base',
+              'Você mantém exatamente o padrão dos últimos meses. É o cenário mais provável, e o que a linha do gráfico desenha.')}
+            ${this._cenario('Se apertar', resumo.cenario_pessimista_12m, 'neg',
+              'Receitas 10% menores e despesas 10% maiores. Serve para responder uma pergunta só: eu aguento?')}
+          </div>
+        </article>
+
+        ${this._analise(d)}
 
         ${metas.length ? `
         <article class="td-panel pj-sec">
@@ -147,6 +164,85 @@
       </svg>
       <div class="pj-chart__axis"><span>${esc(proj[0]?.label || '')}</span><span>${esc(proj[proj.length - 1]?.label || '')}</span></div>
       ${temBanda ? `<div class="pj-chart__leg"><i></i> A faixa clara é o intervalo entre o cenário otimista e o pessimista.</div>` : ''}`
+    },
+
+    /** Um cenário, com o que ele assume dito em português. */
+    _cenario(titulo, valor, tone, explica) {
+      const v = Number(valor) || 0
+      const cor = tone === 'ok' ? 'var(--terminal-primary)' : tone === 'neg' ? 'var(--terminal-negative)' : 'var(--terminal-ink)'
+      return `<article class="pj-cen pj-cen--${tone}">
+        <span class="td-eyebrow">${esc(titulo)}</span>
+        <strong style="color:${cor}">${money(v)}</strong>
+        <p>${esc(explica)}</p>
+      </article>`
+    },
+
+    /**
+     * A leitura que faltava.
+     *
+     * A tela dava três totais e nenhuma conclusão. Aqui entram as perguntas
+     * que decidem alguma coisa: de onde sai a sobra do mês, quando o dinheiro
+     * acaba se acabar, e quanto uma mudança de hábito muda o fim do ano.
+     */
+    _analise(d) {
+      const a = d.analise
+      if (!a) return ''
+      const comp = a.composicao || []
+      const maior = Math.max(1, ...comp.map(x => Math.abs(Number(x.valor) || 0)))
+      const sobra = Number(a.sobra_mensal) || 0
+      const MES = { '01':'janeiro','02':'fevereiro','03':'março','04':'abril','05':'maio','06':'junho','07':'julho','08':'agosto','09':'setembro','10':'outubro','11':'novembro','12':'dezembro' }
+      const porExtenso = (chave) => {
+        if (!chave) return ''
+        const [ano, mes] = String(chave).split('-')
+        return `${MES[mes] || mes} de ${ano}`
+      }
+
+      const notas = []
+      if (a.zera_base) {
+        notas.push({ t: 'neg', ico: 'fa-triangle-exclamation', txt: `<strong>Mantido o padrão atual, seu saldo fica negativo em ${esc(porExtenso(a.zera_base.label))}.</strong> Não é uma previsão de catástrofe — é o que acontece se nada mudar até lá. Faltam ${money(a.ajuste_necessario)} por mês para virar o jogo.` })
+      } else if (a.zera_pessimista) {
+        notas.push({ t: 'warn', ico: 'fa-shield-halved', txt: `<strong>No cenário base você fecha no positivo; no aperto, o saldo zera em ${esc(porExtenso(a.zera_pessimista.label))}.</strong> É a margem que você tem antes de precisar mexer em alguma coisa.` })
+      } else {
+        notas.push({ t: 'ok', ico: 'fa-circle-check', txt: `<strong>Você fecha o horizonte no positivo nos três cenários.</strong> Mesmo com receita 10% menor e despesa 10% maior, a conta se sustenta.` })
+      }
+
+      if (a.pct_comprometido > 0) {
+        const alto = a.pct_comprometido >= 40
+        notas.push({ t: alto ? 'warn' : 'info', ico: 'fa-lock', txt: `<strong>${a.pct_comprometido}% da sua receita já está comprometida</strong> com recorrências e parcelas antes de você decidir qualquer coisa no mês. ${alto ? 'Acima de 40%, sobra pouca margem para imprevisto.' : 'O resto é o que você consegue realocar.'}` })
+      }
+
+      if (a.mes_alivio_parcelas) {
+        notas.push({ t: 'ok', ico: 'fa-calendar-check', txt: `<strong>O peso das parcelas cai pela metade em ${esc(porExtenso(a.mes_alivio_parcelas.chave))}</strong> — de ${money(a.mes_alivio_parcelas.pico)} para ${money(a.mes_alivio_parcelas.valor)} no mês. Essa folga já está contratada; é só não preenchê-la com parcela nova.` })
+      }
+
+      notas.push({ t: 'info', ico: 'fa-calculator', txt: `<strong>Cada R$ 100 a menos por mês viram ${money(a.impacto_100_por_mes)} em ${a.horizonte_meses} meses.</strong> É a régua para decidir se um corte vale o incômodo.` })
+
+      return `<article class="td-panel pj-sec">
+        <div class="td-panel__head"><div><span class="td-eyebrow">Leitura do cenário</span><h2>De onde sai esse número</h2></div></div>
+
+        <div class="pj-analise">
+          <div class="pj-comp">
+            ${comp.map(x => {
+              const v = Math.abs(Number(x.valor) || 0)
+              const pos = Number(x.sinal) > 0
+              return `<div class="pj-comp__row">
+                <div class="pj-comp__rot"><strong>${esc(x.rotulo)}</strong><small>${esc(x.detalhe)}</small></div>
+                <div class="ds-bar"><span class="${pos ? '' : 'is-neg'}" style="width:${(v / maior) * 100}%"></span></div>
+                <b style="color:${pos ? 'var(--terminal-primary)' : 'var(--terminal-negative)'}">${pos ? '+' : '−'}${money(v)}</b>
+              </div>`
+            }).join('')}
+            <div class="pj-comp__row pj-comp__row--total">
+              <div class="pj-comp__rot"><strong>Sobra por mês</strong><small>é o que empurra a linha do gráfico para cima</small></div>
+              <div></div>
+              <b style="color:${sobra >= 0 ? 'var(--terminal-primary)' : 'var(--terminal-negative)'}">${sobra >= 0 ? '+' : '−'}${money(Math.abs(sobra))}</b>
+            </div>
+          </div>
+
+          <div class="pj-analise__notas">
+            ${notas.slice(0, 4).map(n => `<div class="ds-note ds-note--${n.t}"><i class="fas ${n.ico} ds-note__ico"></i><div>${n.txt}</div></div>`).join('')}
+          </div>
+        </div>
+      </article>`
     },
 
     _kpi(lbl, val, tone, hint) {

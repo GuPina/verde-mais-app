@@ -80,7 +80,7 @@
     },
     async feedback(id, tipo) {
       const vm = this._vm
-      if (tipo === 'want_cancel' && !window.confirm('Marcar como "vou cancelar"? Entra no seu histórico de economia.')) return
+      if (tipo === 'want_cancel' && !await window.VM.vmConfirm('Marcar como <strong>"vou cancelar"</strong>? Entra no seu histórico de economia.', { titulo: 'Marcar assinatura', textoBotao: 'Marcar', corBotao: '#3DDC84', icone: '✂️' })) return
       const r = await vm.api('PATCH', `assinaturas-fantasma/${id}/feedback`, { feedback: tipo }).catch(e => ({ error: e.response?.data?.error }))
       if (r && (r.success || !r.error)) {
         vm.toast(tipo === 'want_cancel' ? 'Marcada para cancelar. 💰' : tipo === 'use_regularly' ? 'Ok, mantida.' : 'Ignorada.', 'success')

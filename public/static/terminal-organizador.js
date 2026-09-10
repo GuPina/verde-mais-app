@@ -74,14 +74,14 @@
       const cat = this._cats.find(c => c.categoria === destino)
       const lista = (cat && cat.possiveis_duplicatas) || []
       if (!lista.length) return
-      if (!window.confirm(`Unificar ${lista.map(x => `"${x}"`).join(', ')} em "${destino}"? Os lançamentos passam todos para "${destino}".`)) return
+      if (!await (window.VM).vmConfirm(`Unificar ${lista.map(x => `"${x}"`).join(', ')} em "${destino}"? Os lançamentos passam todos para "${destino}".`)) return
       const r = await vm.api('POST', 'organizador/mesclar', { categorias_origem: lista, categoria_destino: destino }).catch(e => ({ error: e.response?.data?.error }))
       if (r && (r.success || r.message)) { vm.toast('Categorias unificadas.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao unificar.', 'error')
     },
     async renomear(atual) {
       const vm = this._vm
-      const novo = window.prompt(`Renomear a categoria "${atual}" para:`, atual)
+      const novo = await window.VM.vmPrompt(`Todos os lançamentos em <strong>${esc(atual)}</strong> passam para o novo nome.`, { titulo: 'Renomear categoria', valor: atual, icone: '🏷️', textoBotao: 'Renomear' })
       if (novo === null) return
       const nome = novo.trim()
       if (!nome || nome === atual) return

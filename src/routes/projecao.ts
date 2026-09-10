@@ -384,8 +384,62 @@ projecao.get('/', requireAuth, async (c) => {
     if (meta.alerta) insights.push(meta.alerta)
   }
 
+  // ── Leitura de cenário ──────────────────────────────────────────────────────
+  // A tela mostrava três números (otimista, base, pessimista) e nenhuma
+  // conclusão. Três números sem leitura não são análise: o que decide algo é
+  // saber QUANDO o dinheiro acaba, O QUE está puxando o resultado, e QUANTO
+  // uma mudança de hábito muda o fim do ano.
+  const cruzaZero = (serie: any[]) => {
+    const i = serie.findIndex(p => Number(p.valor) < 0)
+    return i === -1 ? null : { mes_indice: i + 1, label: serie[i].label, valor: Number(serie[i].valor) }
+  }
+
+  const totalParcelasFuturas = Object.values(parcelasMap).reduce((a: number, b: any) => a + Number(b), 0)
+  const parcelaMediaMes = totalParcelasFuturas / Math.max(1, mesesParam)
+  // O mês em que o peso das parcelas cai pela metade — é a folga que já está
+  // contratada e que ninguém enxerga olhando só o saldo de hoje.
+  const mesesOrdenados = Object.keys(parcelasMap).sort()
+  const pico = mesesOrdenados.length ? Number(parcelasMap[mesesOrdenados[0]]) : 0
+  const mesAlivio = mesesOrdenados.find(k => Number(parcelasMap[k]) <= pico / 2) || null
+
+  const saidaMensal = avgDespesas + recorrenciaMensal + parcelaMediaMes
+  const entradaMensal = avgReceitas + recorrenciaReceitaMensal
+  const composicao = [
+    { rotulo: 'Receitas', valor: Math.round(entradaMensal * 100) / 100, sinal: 1,
+      detalhe: recorrenciaReceitaMensal > 0 ? 'média dos últimos meses + recorrentes' : 'média dos últimos meses' },
+    { rotulo: 'Despesa variável', valor: Math.round(avgDespesas * 100) / 100, sinal: -1,
+      detalhe: 'mercado, lazer, imprevistos — a parte que dá para mexer' },
+    { rotulo: 'Recorrências', valor: Math.round(recorrenciaMensal * 100) / 100, sinal: -1,
+      detalhe: 'assinaturas e contas fixas já contratadas' },
+    { rotulo: 'Parcelas', valor: Math.round(parcelaMediaMes * 100) / 100, sinal: -1,
+      detalhe: `${Math.round(totalParcelasFuturas)} reais espalhados em ${mesesParam} meses` },
+  ]
+
+  const sobra = entradaMensal - saidaMensal
+  const analise = {
+    composicao,
+    sobra_mensal: Math.round(sobra * 100) / 100,
+    // Peso de cada saída sobre a receita: é onde a conta aperta.
+    pct_comprometido: entradaMensal > 0
+      ? Math.round(((recorrenciaMensal + parcelaMediaMes) / entradaMensal) * 1000) / 10 : 0,
+    pct_variavel: entradaMensal > 0 ? Math.round((avgDespesas / entradaMensal) * 1000) / 10 : 0,
+    // Quando cada cenário vira negativo, se virar.
+    zera_base: cruzaZero(projecoes),
+    zera_pessimista: cruzaZero(cenarioPessimista),
+    // Sensibilidade: quanto muda o fim do horizonte para cada R$ 100/mês.
+    impacto_100_por_mes: Math.round(100 * mesesParam * 100) / 100,
+    mes_alivio_parcelas: mesAlivio
+      ? { chave: mesAlivio, valor: Math.round(Number(parcelasMap[mesAlivio]) * 100) / 100, pico: Math.round(pico * 100) / 100 }
+      : null,
+    // Quanto separar por mês para fechar o horizonte no positivo, se hoje
+    // ele fecha negativo.
+    ajuste_necessario: sobra < 0 ? Math.round(Math.abs(sobra) * 100) / 100 : 0,
+    horizonte_meses: mesesParam,
+  }
+
   return c.json({
     historico: meses,
+    analise,
     projecoes,
     // S-P3: cenários otimista / pessimista
     cenarios: {

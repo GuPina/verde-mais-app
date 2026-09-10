@@ -108,6 +108,30 @@
       }
     },
 
+    /** O mês da fatura vive no módulo, não na URL: navegar é repintar. */
+    mudarMes(delta) {
+      let m = (this._mes || 1) + delta, a = this._ano
+      if (m < 1) { m = 12; a-- }
+      if (m > 12) { m = 1; a++ }
+      this._mes = m; this._ano = a
+      // O cabeçalho da tela mostra o mês; a régua superior é do mês corrente
+      // e não muda. Só o painel da fatura recarrega.
+      const eyebrow = document.querySelector('.ct .ds-eyebrow')
+      if (eyebrow) eyebrow.textContent = `${MESES[m-1]} · ${a}`
+      if (this._sel) this.abrirFatura(this._sel)
+    },
+    irParaHoje() {
+      const h = new Date()
+      this._mes = h.getMonth() + 1; this._ano = h.getFullYear()
+      const eyebrow = document.querySelector('.ct .ds-eyebrow')
+      if (eyebrow) eyebrow.textContent = `${MESES[this._mes-1]} · ${this._ano}`
+      if (this._sel) this.abrirFatura(this._sel)
+    },
+    _ehMesCorrente() {
+      const h = new Date()
+      return this._mes === h.getMonth() + 1 && this._ano === h.getFullYear()
+    },
+
     _pintarFatura(d) {
       const el = document.getElementById('ct-fatura')
       if (!el) return
@@ -125,8 +149,16 @@
             <button class="ds-btn ds-btn--sm" onclick="VM.modalSplitCompra&&VM.modalSplitCompra(${Number(c.id)})"><i class="fas fa-scissors"></i> Parcelar</button>
             <button class="ds-btn ds-btn--sm" onclick="VM.modalLimitesCategoria&&VM.modalLimitesCategoria(${Number(c.id)})"><i class="fas fa-sliders"></i> Limites</button>
             <button class="ds-icon-btn" title="Editar cartão" onclick="VM.modalCartao(${Number(c.id)})"><i class="fas fa-pen"></i></button>
+            <button class="ds-icon-btn" title="Excluir cartão" onclick="VM._ctExcluir(${Number(c.id)}, ${JSON.stringify(c.apelido || c.nome || 'este cartão')})"><i class="fas fa-trash"></i></button>
           </div>
         </div>
+
+        <nav class="ct-nav" aria-label="Navegar entre faturas">
+          <button class="ds-icon-btn" title="Fatura anterior" onclick="VMTerminalCartoes.mudarMes(-1)"><i class="fas fa-chevron-left"></i></button>
+          <span class="ct-nav__lbl">${esc(MESES[(this._mes||1)-1])} <em>${this._ano}</em></span>
+          <button class="ds-icon-btn" title="Próxima fatura" onclick="VMTerminalCartoes.mudarMes(1)"><i class="fas fa-chevron-right"></i></button>
+          ${this._ehMesCorrente() ? '' : '<button class="ds-btn ds-btn--sm ds-btn--ghost" onclick="VMTerminalCartoes.irParaHoje()">Fatura atual</button>'}
+        </nav>
 
         <div class="ct-totais">
           <div><span class="ds-kpi__lbl">Total da fatura</span><strong class="ds-kpi__val">${money(f.total)}</strong></div>

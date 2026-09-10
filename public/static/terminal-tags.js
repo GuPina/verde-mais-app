@@ -105,7 +105,7 @@
     },
     async excluir(id, nome) {
       const vm = this._vm
-      if (!window.confirm(`Excluir a tag "${nome}"? Ela sai de todos os lançamentos marcados.`)) return
+      if (!await (window.VM).vmConfirm(`Excluir a tag "${nome}"? Ela sai de todos os lançamentos marcados.`)) return
       const r = await vm.api('DELETE', `tags/${id}`).catch(e => ({ error: e.response?.data?.error }))
       if (r && (r.success || r.message)) { vm.toast('Tag removida.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao excluir.', 'error')
