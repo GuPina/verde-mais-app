@@ -46,6 +46,44 @@ type Bindings = { DB: D1Database; ADMIN_PASSWORD?: string }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// ── Erro não tratado: 500 mudo é 500 que ninguém conserta ────────────────────
+//
+// Não existia `onError`. Qualquer exceção dentro de uma rota virava um 500 com
+// corpo vazio: o usuário via "Internal Server Error" no console, o log do
+// servidor não dizia qual rota nem qual payload, e a única forma de investigar
+// era tentar reproduzir às cegas — o que, para um erro intermitente (reinício
+// de deploy, pool do banco fechando), não reproduz.
+//
+// Agora todo 500 sai com um código curto que aparece nos dois lados: na tela
+// para o usuário citar, e no log do Render para eu procurar. O código é só
+// tempo + aleatório; não carrega nada do payload, que pode ter valor, cartão
+// ou descrição pessoal.
+app.onError((err, c) => {
+  // 401/403/404 lançados de propósito continuam sendo o que são.
+  const status = (err as any)?.status
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    return c.json({ error: (err as any)?.message || 'Requisição inválida.' }, status as 400)
+  }
+
+  const ref = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
+  // O `user` só existe quando o requireAuth chegou a rodar; se a exceção veio
+  // antes disso, não existe contexto nenhum — daí o try.
+  let usuario: any = '-'
+  try { usuario = (c as any).get('user')?.id ?? '-' } catch { /* sem contexto */ }
+
+  console.error(
+    `[500 ${ref}] ${c.req.method} ${new URL(c.req.url).pathname} user=${usuario}\n` +
+    `        ${(err as any)?.name || 'Error'}: ${(err as any)?.message || String(err)}\n` +
+    ((err as any)?.stack ? String((err as any).stack).split('\n').slice(1, 6).map(l => '        ' + l.trim()).join('\n') : '')
+  )
+
+  return c.json({
+    error: 'Algo quebrou do nosso lado ao processar esta ação. Nada foi cobrado nem alterado por essa falha.',
+    referencia: ref,
+    dica: `Se acontecer de novo, me mande o código ${ref} — é por ele que o erro é encontrado no log.`,
+  }, 500)
+})
+
 // CORS
 app.use('/api/*', cors({
   origin: '*',
@@ -679,7 +717,7 @@ function appShell() {
   <script src="/static/terminal-importacao.js?v=20260909-1"></script>
   <script src="/static/terminal-assistente.js?v=20260909-1"></script>
   <script src="/static/terminal-anim.js?v=20260901-1"></script>
-  <script src="/static/app.js?v=20260910-2"></script>
+  <script src="/static/app.js?v=20260910-3"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

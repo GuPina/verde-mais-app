@@ -294,6 +294,18 @@ const VM = {
         this.upsellModal(feature, msg)
         throw e
       }
+      // ── Erro do servidor: carregar o codigo junto ─────────────────────────
+      // Cada tela mostra `data.error` no toast e descarta o resto. O servidor
+      // agora devolve uma `referencia` em todo 500, que e o que permite achar
+      // o erro no log — e ela se perdia aqui. Colar o codigo na propria
+      // mensagem faz ele chegar ao usuario por todos os caminhos de uma vez,
+      // sem precisar mexer em nenhuma tela.
+      if (e.response?.status >= 500) {
+        const ref = e.response?.data?.referencia
+        const base = e.response?.data?.error || 'O servidor nao conseguiu completar esta acao.'
+        if (e.response.data) e.response.data.error = ref ? `${base} (codigo ${ref})` : base
+        console.error('[VerdeMais] falha do servidor', ref ? 'codigo=' + ref : '', e.config?.method)
+      }
       throw e
     })
   },
