@@ -73,3 +73,36 @@ export function faturaDaCompra(
   const { mes, ano } = periodoFatura(dataCompra, diaFechamento)
   return { mes, ano, vencimento: vencimentoFatura(mes, ano, diaVencimento, diaFechamento) }
 }
+
+/**
+ * Soma meses a uma data preservando o dia — travando no último dia do mês
+ * quando o destino é mais curto.
+ *
+ * `d.setMonth(d.getMonth() + n)` é a forma óbvia e está errada para todo dia
+ * 29, 30 ou 31. O JavaScript não trunca: ele transborda. 31/08 + 1 mês vira
+ * 31/09, que não existe, e o motor "conserta" para 01/10.
+ *
+ * Numa compra parcelada isso é destrutivo. Comprando em 31/08 em 6x, as
+ * parcelas caíam em:
+ *
+ *     ago · out · out · dez · dez · jan
+ *
+ * Setembro e novembro simplesmente não recebiam parcela, outubro e dezembro
+ * recebiam duas, e a fatura de cada uma era calculada a partir dessa data
+ * errada. É o "a primeira mensalidade não aparece em setembro".
+ *
+ * Com o clamp: ago · set · out · nov · dez · jan. Um mês curto no meio
+ * (fevereiro) puxa a parcela para o dia 28, e as seguintes voltam ao dia
+ * original — que é como qualquer banco faz.
+ */
+export function somarMeses(dataISO: string, meses: number): string {
+  const base = new Date(dataISO + 'T12:00:00')
+  const diaOriginal = base.getDate()
+  const alvo = new Date(base.getFullYear(), base.getMonth() + meses, 1, 12, 0, 0)
+  const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate()
+  alvo.setDate(Math.min(diaOriginal, ultimo))
+  const a = alvo.getFullYear()
+  const m = String(alvo.getMonth() + 1).padStart(2, '0')
+  const d = String(alvo.getDate()).padStart(2, '0')
+  return `${a}-${m}-${d}`
+}

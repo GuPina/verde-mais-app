@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
-import { faturaDaCompra } from '../lib/fatura'
+import { faturaDaCompra, somarMeses } from '../lib/fatura'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -518,9 +518,9 @@ despesas.post('/', requireAuth, async (c) => {
 
   const parcelaInicialLabel = totalParcelasLabel - totalParcelas + 1
   for (let i = 0; i < totalParcelas; i++) {
-    const dataBase = new Date(dataISO + 'T12:00:00')
-    dataBase.setMonth(dataBase.getMonth() + i)
-    const dataParcela = dataBase.toISOString().split('T')[0]
+    // setMonth() transborda em dia 29/30/31 e pulava um mês inteiro —
+    // ver somarMeses() em src/lib/fatura.ts.
+    const dataParcela = somarMeses(dataISO, i)
     const parcelaAtualLabel = parcelaInicialLabel + i
     // A última parcela absorve a diferença do arredondamento.
     const valorDestaParcela = (i === totalParcelas - 1)

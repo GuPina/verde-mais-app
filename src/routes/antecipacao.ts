@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
+import { somarMeses } from '../lib/fatura'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -579,12 +580,11 @@ antecipacao.post('/recebimentos', requireAuth, async (c) => {
   // Criar parcelas automaticamente (mensalmente)
   const batch = []
   for (let i = 0; i < nParcelas; i++) {
-    const dataParcela = new Date(dataInicio)
-    dataParcela.setMonth(dataParcela.getMonth() + i)
+    const dataParcela = somarMeses(String(dataInicio).slice(0, 10), i)
     batch.push(c.env.DB.prepare(
       `INSERT INTO recebimentos_parcelas (recebimento_id, user_id, numero_parcela, valor, data_prevista)
        VALUES (?, ?, ?, ?, ?)`
-    ).bind(recId, user.id, i + 1, vParcela, dataParcela.toISOString().split('T')[0]))
+    ).bind(recId, user.id, i + 1, vParcela, dataParcela))
   }
   if (batch.length > 0) await c.env.DB.batch(batch)
 

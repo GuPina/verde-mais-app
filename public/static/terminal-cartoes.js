@@ -50,6 +50,7 @@
           <div class="td-dashboard__header-actions">
             <button class="ds-btn ds-btn--sm" onclick="VM.modalGerenciarCompras()"><i class="fas fa-layer-group"></i> Compras parceladas</button>
             <button class="ds-btn ds-btn--sm" onclick="VM.modalLancarCompraAnterior()"><i class="fas fa-history"></i> Compra anterior</button>
+            <button class="ds-btn ds-btn--sm" onclick="VMTerminalCartoes.diagnostico()"><i class="fas fa-stethoscope"></i> Conferir faturas</button>
             <button class="ds-btn ds-btn--primary" onclick="VM.modalCartao()"><i class="fas fa-plus"></i> Novo cartão</button>
           </div>
         </header>
@@ -130,6 +131,80 @@
     _ehMesCorrente() {
       const h = new Date()
       return this._mes === h.getMonth() + 1 && this._ano === h.getFullYear()
+    },
+
+    /**
+     * Confere se cada compra está na fatura que o ciclo do cartão manda.
+     *
+     * Dois bugs corrigidos deixaram dados errados para trás: o update de
+     * despesa não recalculava a fatura ao mudar data ou cartão, e o gerador
+     * de parcelas transbordava o dia em compras feitas nos dias 29, 30 e 31.
+     * Corrigir o código não conserta o que já está gravado — esta tela mostra
+     * o que ficou torto e oferece o reparo.
+     */
+    async diagnostico() {
+      const vm = this._vm
+      vm.showModal('<div class="td-loading"><span></span><span></span><span></span></div>')
+      const d = await vm.api('GET', 'cartoes/diagnostico').catch(e => ({ error: e.response?.data?.error }))
+      if (d?.error) { vm.closeModal(); return vm.toast(d.error, 'error') }
+
+      const probs = d.problemas || []
+      const buracos = d.parcelamentos_com_buraco || []
+      if (!probs.length && !buracos.length) {
+        return vm.showModal(`<div class="ct-diag">
+          <div class="ct-diag__head"><span class="ct-diag__ico is-ok"><i class="fas fa-circle-check"></i></span>
+            <div><strong>Está tudo no lugar</strong><small>${d.total_analisado} lançamentos conferidos contra o ciclo de cada cartão.</small></div></div>
+          <button class="ds-btn ds-btn--block" onclick="VM.closeModal()">Fechar</button>
+        </div>`)
+      }
+
+      vm.showModal(`<div class="ct-diag">
+        <div class="ct-diag__head">
+          <span class="ct-diag__ico is-warn"><i class="fas fa-triangle-exclamation"></i></span>
+          <div>
+            <strong>${probs.length} lançamento${probs.length === 1 ? '' : 's'} fora da fatura correta</strong>
+            <small>De ${d.total_analisado} conferidos. A data da compra é a fonte da verdade: a fatura sai dela e do dia de fechamento do cartão.</small>
+          </div>
+        </div>
+
+        ${buracos.length ? `<div class="ds-note ds-note--warn" style="margin-bottom:14px">
+          <i class="fas fa-calendar-xmark ds-note__ico"></i>
+          <div><strong>${buracos.length} parcelamento(s) com mês pulado.</strong> Compra feita em dia 29, 30 ou 31 pulava um mês e colocava duas parcelas no seguinte. É por isso que uma mensalidade pode não aparecer no mês esperado.</div>
+        </div>` : ''}
+
+        <div class="ds-tablewrap ct-diag__tabela"><table class="ds-table">
+          <thead><tr><th>Lançamento</th><th>Comprado em</th><th>Está na fatura</th><th>Deveria estar</th></tr></thead>
+          <tbody>${probs.slice(0, 60).map(p => `<tr>
+            <td><strong>${esc(String(p.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''))}</strong>
+                ${p.parcela ? `<span class="ds-pill">${esc(p.parcela)}</span>` : ''}
+                <br><small class="ds-muted">${esc(p.cartao || '')} · ${money(p.valor)}</small>
+                <br><small class="ds-muted">${esc(p.explica || '')}</small></td>
+            <td class="ds-mono">${esc(String(p.data_compra || '').split('-').reverse().join('/'))}</td>
+            <td class="ds-mono" style="color:var(--terminal-negative)">${esc(p.gravado?.fatura || '—')}</td>
+            <td class="ds-mono" style="color:var(--terminal-primary)">${esc(p.correto?.fatura || '—')}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+        ${probs.length > 60 ? `<p class="ds-micro" style="margin:10px 0 0">Mostrando 60 de ${probs.length}. O reparo vale para todos.</p>` : ''}
+
+        <div class="ct-diag__acoes">
+          <button class="ds-btn ds-btn--primary" style="flex:1" onclick="VMTerminalCartoes.reparar()"><i class="fas fa-wrench"></i> Recolocar na fatura certa (${d.reparavel})</button>
+          <button class="ds-btn" onclick="VM.closeModal()">Agora não</button>
+        </div>
+        <p class="ds-micro" style="margin:10px 0 0">O reparo recalcula fatura e vencimento a partir da data da compra. Não muda valor, descrição, categoria nem o que já está pago.</p>
+      </div>`)
+    },
+
+    async reparar() {
+      const vm = this._vm
+      const ok = await vm.vmConfirm(
+        'Recalcular a fatura e o vencimento de cada compra a partir da <strong>data em que ela foi feita</strong>?<br><br>Valor, descrição, categoria e status de pagamento não mudam.',
+        { titulo: 'Recolocar na fatura certa', textoBotao: 'Recalcular', corBotao: '#3DDC84', icone: '🔧' })
+      if (!ok) return
+      const r = await vm.api('POST', 'cartoes/reparar-faturas', {}).catch(e => ({ error: e.response?.data?.error }))
+      if (r?.error) return vm.toast(r.error, 'error')
+      vm.closeModal()
+      vm.toast(r?.message || 'Faturas recalculadas.', 'success')
+      this.reload()
     },
 
     _pintarFatura(d) {

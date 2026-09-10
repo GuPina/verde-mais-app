@@ -1288,3 +1288,19 @@
   .pj-comp__row { grid-template-columns: 1fr auto; }
   .pj-comp__row .ds-bar { grid-column: 1 / -1; order: 3; }
 }
+
+/* ── Conferência de faturas ─────────────────────────────────────────────── */
+.ct-diag { font-family: var(--terminal-font); color: var(--terminal-ink); }
+.ct-diag__head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+.ct-diag__ico { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 10px; font-size: 14px; }
+.ct-diag__ico.is-ok { background: color-mix(in srgb, var(--terminal-primary) 15%, transparent); color: var(--terminal-primary); }
+.ct-diag__ico.is-warn { background: color-mix(in srgb, var(--terminal-accent) 15%, transparent); color: var(--terminal-accent); }
+.ct-diag__head strong { display: block; font-size: 16px; font-weight: 640; letter-spacing: -.02em; }
+.ct-diag__head small { display: block; margin-top: 4px; color: var(--terminal-ink-soft); font-size: 12px; line-height: 1.45; }
+.ct-diag__tabela { max-height: 46vh; overflow-y: auto; border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm); }
+.ct-diag__tabela .ds-table td { vertical-align: top; }
+.ct-diag__tabela .ds-pill { margin-left: 6px; }
+.ct-diag__acoes { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.ds-muted { color: var(--terminal-ink-soft); }
