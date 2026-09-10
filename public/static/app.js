@@ -215,6 +215,39 @@ const VM = {
     })
   },
 
+  /**
+   * Diálogo de leitura: um botão, sem decisão. Existia vmConfirm (duas
+   * escolhas) e vmPrompt (digitar algo), e quem só precisava EXPLICAR uma
+   * coisa caía no `alert()` do navegador — a janela cinza do sistema, fora do
+   * design, que não aceita formatação e trava a página. Explicação longa em
+   * alert() é explicação que ninguém lê.
+   */
+  vmInfo(conteudo, { titulo = 'Entenda', icone = 'ℹ️', textoBotao = 'Fechar', largura = '620px' } = {}) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div')
+      overlay.className = 'vm-dialog'
+      overlay.innerHTML = `
+        <div class="vm-dialog__box vm-dialog__box--texto" role="dialog" aria-modal="true" style="max-width:${largura}">
+          <div class="vm-dialog__ico is-ok">${icone}</div>
+          <div class="vm-dialog__title">${titulo}</div>
+          <div class="vm-dialog__msg vm-dialog__msg--longo">${conteudo}</div>
+          <div class="vm-dialog__acoes">
+            <button class="ds-btn ds-btn--primary" style="flex:1" data-vm="ok">${textoBotao}</button>
+          </div>
+        </div>`
+      document.body.appendChild(overlay)
+      const close = () => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(true) }
+      const onKey = (e) => {
+        if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close() }
+      }
+      document.addEventListener('keydown', onKey, true)
+      const btn = overlay.querySelector('[data-vm="ok"]')
+      btn.onclick = close
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+      setTimeout(() => btn.focus(), 30)
+    })
+  },
+
   api(method, endpoint, data) {
     // Cache front-end para endpoints públicos pesados (CDI e cotações)
     const CACHE_ENDPOINTS = { 'cdi/atual': 10 * 60 * 1000, 'investimentos/cotacoes': 15 * 60 * 1000 }

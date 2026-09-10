@@ -477,3 +477,13 @@
 .d-cateco i { font-size: 10px; color: var(--terminal-primary); }
 .d-cateco.is-nova i { color: var(--terminal-accent); }
 .d-cateco strong { color: var(--terminal-ink); }
+
+/* Diálogo só de leitura (vmInfo): texto longo alinhado à esquerda, porque
+   parágrafo centralizado não se lê. */
+.vm-dialog__box--texto { text-align: left; }
+.vm-dialog__box--texto .vm-dialog__ico,
+.vm-dialog__box--texto .vm-dialog__title { text-align: center; }
+.vm-dialog__msg--longo { text-align: left; max-height: 62vh; overflow-y: auto; line-height: 1.65; }
+.vm-dialog__msg--longo .ds-table { margin: var(--ds-4) 0 0; }
+.vm-dialog__msg--longo .ds-table th,
+.vm-dialog__msg--longo .ds-table td { padding: 7px var(--ds-3); border-bottom: 1px solid var(--terminal-line); }

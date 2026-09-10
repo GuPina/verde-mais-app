@@ -1304,3 +1304,42 @@
 .ct-diag__tabela .ds-pill { margin-left: 6px; }
 .ct-diag__acoes { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 .ds-muted { color: var(--terminal-ink-soft); }
+
+/* ── Projeção: camada explicativa ────────────────────────────────────────────
+   A tela dava números certos que ninguém sabia ler. Estes blocos existem para
+   dizer, em português, o que cada número significa — e para sumir de vista
+   quando o usuário já sabe. */
+.pj-conf { cursor: pointer; background: transparent; }
+.pj-conf:hover { border-color: currentColor; }
+.pj-conf i { font-size: 10px; opacity: .75; }
+
+.pj-conf__box { margin-top: var(--ds-4); text-align: left; }
+.pj-conf__mais { display: inline-block; margin-left: 6px; padding: 0; border: 0; background: none;
+  color: var(--terminal-primary); font: inherit; font-weight: 700; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
+
+.pj-comoler__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--ds-5); padding: var(--ds-2) 0 var(--ds-4); }
+.pj-comoler__item strong { display: block; font-size: 13px; color: var(--terminal-ink); margin-bottom: 4px; }
+.pj-comoler__item p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--terminal-ink-soft); }
+
+.pj-gloss { border-top: 1px solid var(--terminal-line); padding-top: var(--ds-4); }
+.pj-gloss dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--ds-3) var(--ds-5); margin: var(--ds-3) 0 0; }
+.pj-gloss dt { font: 700 11px/1.4 var(--terminal-mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--terminal-ink); }
+.pj-gloss dd { margin: 3px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--terminal-ink-soft); }
+
+.pj-glosslink { margin: var(--ds-4) 0 0; }
+
+.pj-modal__intro { margin: 0 0 var(--ds-4); line-height: 1.65; }
+.pj-modal__tab th { width: 46%; text-align: left; font-weight: 600; color: var(--terminal-ink-soft);
+  vertical-align: top; }
+.pj-modal__tab td { text-align: right; color: var(--terminal-ink); font-family: var(--terminal-mono); }
+.pj-modal__rodape { margin: var(--ds-4) 0 0; font-size: 12px; line-height: 1.6;
+  color: var(--terminal-ink-soft); }
+
+@media (max-width: 560px) {
+  .pj-modal__tab th, .pj-modal__tab td { display: block; width: auto; text-align: left; }
+  .pj-modal__tab td { padding-top: 0; }
+}

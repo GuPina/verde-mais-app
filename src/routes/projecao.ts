@@ -27,10 +27,20 @@ projecao.get('/', requireAuth, async (c) => {
   const anoAtual = hoje.getFullYear()
   const mesAtual = hoje.getMonth() + 1
 
-  // ── Últimos 6 meses de receitas e despesas ──────────────────────────────────
-  const meses: Array<{ mes: number; ano: number; label: string; receitas: number; despesas: number; saldo: number; despesas_deterministicas: number; despesas_variaveis: number }> = []
+  // ── Histórico: 12 meses fechados + o mês corrente ───────────────────────────
+  //
+  // O mês em andamento NÃO pode entrar em média nenhuma. No dia 10, a receita
+  // do mês ainda não caiu inteira, mas as parcelas com vencimento no mês já
+  // estão todas lançadas — então o mês corrente sempre parece um mês de renda
+  // baixa e despesa alta. Entrando na média, ele empurra a receita projetada
+  // para baixo e a despesa para cima todo santo mês, de forma sistemática.
+  //
+  // Ele continua no array (a tela mostra o mês em curso), mas marcado com
+  // `parcial: true`, e todo cálculo daqui para baixo usa só os fechados.
+  const JANELA_MESES = 12
+  const meses: Array<{ mes: number; ano: number; label: string; receitas: number; despesas: number; saldo: number; despesas_deterministicas: number; despesas_variaveis: number; parcial: boolean }> = []
 
-  for (let i = 5; i >= 0; i--) {
+  for (let i = JANELA_MESES; i >= 0; i--) {
     let m = mesAtual - i
     let a = anoAtual
     if (m <= 0) { m += 12; a -= 1 }
@@ -64,6 +74,7 @@ projecao.get('/', requireAuth, async (c) => {
 
     meses.push({
       mes: m, ano: a, label: `${mesesNames[m-1]}/${a}`,
+      parcial: i === 0,
       receitas: r, despesas: d, saldo: r - d,
       despesas_deterministicas: Math.round(det * 100) / 100,
       despesas_variaveis: Math.round(Math.max(0, d - det) * 100) / 100,
@@ -135,46 +146,88 @@ projecao.get('/', requireAuth, async (c) => {
   const recorrenciaReceitaMensal = parseFloat(recorrenciasReceita?.total_mensal || 0) // PJ3
   const lembretesTotal = parseFloat(lembretesValor?.total || 0)
 
-  // ── Cálculo de tendência (regressão linear simples) ─────────────────────────
-  const saldos = meses.map(m => m.saldo)
-  const n = saldos.length
-  const sumX = (n * (n - 1)) / 2
-  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6
-  const sumY = saldos.reduce((a, b) => a + b, 0)
-  const sumXY = saldos.reduce((acc, val, i) => acc + i * val, 0)
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
+  // ── Janela de cálculo: só meses fechados e representativos ──────────────────
+  //
+  // Um mês só vale como observação se tiver os DOIS lados lançados. Mês com
+  // despesa e receita zerada — recorrência lançada retroativamente, importação
+  // parcial — não é um mês ruim, é um mês sem dado, e entrava na conta como
+  // prejuízo integral, afundando média e confiança.
+  const mesesFechados = meses.filter(m => !m.parcial)
+  let mesesComDados = mesesFechados.filter(m => m.receitas > 0 && m.despesas > 0)
+  if (mesesComDados.length < 2) mesesComDados = mesesFechados.filter(m => m.receitas > 0 || m.despesas > 0)
 
-  // Média ponderada (meses mais recentes têm mais peso)
-  const pesos = [1, 1, 1.5, 2, 2.5, 3]
-  const totalPeso = pesos.reduce((a, b) => a + b, 0)
-  const mediaPonderada = saldos.reduce((acc, val, i) => acc + val * pesos[i], 0) / totalPeso
-
-  // Variância para calcular confiança
-  // Usar apenas meses com dados reais para o cálculo (evita zeros inflacionarem a variância)
-  const mesesComDados = meses.filter(m => m.receitas > 0 || m.despesas > 0)
-  const temDados = mesesComDados.length > 0
-  const qtdMesesReais = mesesComDados.length
-
-  let confianca: number
-  if (!temDados) {
-    confianca = 10
-  } else if (qtdMesesReais >= 5) {
-    // Calcular variância apenas sobre os saldos dos meses com dados
-    const saldosMesesReais = mesesComDados.map(m => m.saldo)
-    const mediaReal = saldosMesesReais.reduce((a, b) => a + b, 0) / qtdMesesReais
-    const varReal = saldosMesesReais.reduce((acc, val) => acc + Math.pow(val - mediaReal, 2), 0) / qtdMesesReais
-    const desReal = Math.sqrt(varReal)
-    const cvReal = mediaReal !== 0 ? Math.abs(desReal / mediaReal) : 0.5
-    confianca = Math.max(45, Math.min(95, Math.round((1 - Math.min(cvReal, 1)) * 95)))
-  } else if (qtdMesesReais >= 3) {
-    // 3–4 meses de dados: confiança moderada (40–65)
-    confianca = 40 + (qtdMesesReais - 3) * 12
-  } else if (qtdMesesReais >= 1) {
-    // 1–2 meses: confiança baixa mas funcional
-    confianca = 25 + (qtdMesesReais - 1) * 10
-  } else {
-    confianca = 15
+  const mediana = (arr: number[]) => {
+    if (!arr.length) return 0
+    const o = [...arr].sort((x, y) => x - y)
+    const meio = Math.floor(o.length / 2)
+    return o.length % 2 ? o[meio] : (o[meio - 1] + o[meio]) / 2
   }
+  const medRec = mediana(mesesComDados.map(m => m.receitas))
+  const medDesp = mediana(mesesComDados.map(m => m.despesas))
+
+  // Mês atípico: dobro da mediana, ou menos de 40% dela. Um 13º, uma rescisão,
+  // um saldo inicial importado — nada disso descreve o mês típico de ninguém.
+  // Média e desvio-padrão são reféns de um único ponto extremo: um mês desses
+  // sozinho distorce a projeção e zera a confiança. Sai da média, mas volta na
+  // resposta com o motivo, para a tela poder dizer QUAL mês saiu e POR QUÊ —
+  // que é a diferença entre um número explicado e um número arbitrário.
+  const motivoAtipico = (m: { receitas: number; despesas: number }) => {
+    if (mesesComDados.length < 4) return null
+    if (medRec > 0 && m.receitas > medRec * 2) return 'receita muito acima do seu normal'
+    if (medRec > 0 && m.receitas < medRec * 0.4) return 'receita muito abaixo do seu normal'
+    if (medDesp > 0 && m.despesas > medDesp * 2) return 'despesa muito acima do seu normal'
+    return null
+  }
+  const mesesAtipicos = mesesComDados
+    .map(m => ({ m, motivo: motivoAtipico(m) }))
+    .filter(x => x.motivo)
+    .map(x => ({
+      label: x.m.label,
+      receitas: Math.round(x.m.receitas * 100) / 100,
+      despesas: Math.round(x.m.despesas * 100) / 100,
+      motivo: x.motivo as string,
+    }))
+  const rotulosAtipicos = new Set(mesesAtipicos.map(x => x.label))
+  const semAtipicos = mesesComDados.filter(m => !rotulosAtipicos.has(m.label))
+  // Tirar atípicos só compensa se ainda sobrar amostra.
+  const baseFinal = semAtipicos.length >= 3 ? semAtipicos : mesesComDados
+
+  // Peso linear: o mês mais recente pesa 3× o mais antigo da janela. Doze meses
+  // de histórico é informação boa demais para descartar, mas o mês passado
+  // descreve a vida de hoje melhor do que o de um ano atrás.
+  const pesosBase = baseFinal.map((_, i) => baseFinal.length > 1 ? 1 + (2 * i) / (baseFinal.length - 1) : 1)
+  const somaPesos = pesosBase.reduce((a, b) => a + b, 0) || 1
+  const mediaPesada = (vals: number[]) => vals.reduce((acc, v, i) => acc + v * pesosBase[i], 0) / somaPesos
+
+  const saldos = baseFinal.map(m => m.saldo)
+  const mediaPonderada = saldos.length ? mediaPesada(saldos) : 0
+
+  // ── Confiança ──────────────────────────────────────────────────────────────
+  //
+  // A fórmula antiga dividia o desvio-padrão dos saldos pela MÉDIA dos saldos.
+  // Só que a média do saldo mensal de quem fecha o mês no zero a zero é... zero
+  // — e dividir por um número perto de zero explode. Com os dados reais de um
+  // usuário: desvio R$ 1.158 sobre média R$ 66 dava coeficiente 17,4, e a conta
+  // (1 − min(cv,1)) × 95 dava ZERO, salvo por um piso de 45. Ou seja: o número
+  // exibido não media nada, era o piso. Quem tinha 6 meses lançados e quem
+  // tinha 2 anos viam o mesmo 45%.
+  //
+  // Agora a dispersão é normalizada pela RECEITA, que é uma régua estável e
+  // interpretável: "seu resultado oscila X% da sua renda". E a confiança é o
+  // produto de duas coisas que o usuário entende — quanto histórico existe, e
+  // quão repetido é o padrão.
+  const receitaRef = baseFinal.length ? mediaPesada(baseFinal.map(m => m.receitas)) : 0
+  const desvioSaldo = saldos.length
+    ? Math.sqrt(saldos.reduce((acc, v, i) => acc + pesosBase[i] * Math.pow(v - mediaPonderada, 2), 0) / somaPesos)
+    : 0
+  // Oscilar 60% da renda de um mês para o outro = padrão nenhum.
+  const LIMITE_VOLATILIDADE = 0.6
+  const volatilidade = receitaRef > 0 ? desvioSaldo / receitaRef : 1
+  const fatorAmostra = Math.min(1, baseFinal.length / 6)
+  const fatorEstabilidade = Math.max(0, Math.min(1, 1 - volatilidade / LIMITE_VOLATILIDADE))
+  const confianca = baseFinal.length === 0
+    ? 0
+    : Math.max(5, Math.round(100 * fatorAmostra * fatorEstabilidade))
 
   // PJ1: a "tendência" e a "projeção" precisam vir da MESMA fonte. Antes a
   // tendência era uma regressão sobre os 6 meses do histórico (incluindo os
@@ -185,21 +238,29 @@ projecao.get('/', requireAuth, async (c) => {
   let tendencia: 'positive' | 'negative' | 'stable' = 'stable'
   let deltaMensalProjetado = 0
 
-  // Saldo acumulado dos últimos 6 meses (é a base da projeção — NÃO é o saldo
-  // em conta; ver `saldo_atual_desc` na resposta). PJ4.
-  const saldoAtual = saldos.reduce((a, b) => a + b, 0)
+  // ── Ponto de partida da linha projetada ────────────────────────────────────
+  //
+  // Era a soma dos resultados dos últimos 6 meses. Esse número não é o saldo
+  // da conta de ninguém, não é patrimônio e não é dívida — é a soma de seis
+  // sobras mensais, que muda de sentido conforme a janela. Um usuário lia
+  // "Ponto de partida: R$ 399" e entendia que tinha R$ 399 no banco.
+  //
+  // A linha agora parte de ZERO e responde a única pergunta que ela sabe
+  // responder de verdade: quanto você ACUMULA (ou consome) daqui para a
+  // frente, mês a mês. O resultado dos meses fechados continua na resposta,
+  // como contexto, com nome próprio.
+  const saldoAtual = 0
+  const resultado6mFechados = mesesFechados.slice(-6).reduce((acc, m) => acc + m.saldo, 0)
 
   // ── Projeções com dados determinísticos ───────────────────────────────────
   const INFLACAO_MENSAL = 0.003
   const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
   const projecoes: Array<{ mes: number; ano: number; label: string; valor: number; receitas: number; despesas: number; deterministica: number; tem_dados_reais: boolean }> = []
   
-  // Ignorar meses sem dados ao calcular médias (B10 fix)
-  const mesesComReceita = meses.filter(m => m.receitas > 0)
-  const mesesComDespesa = meses.filter(m => m.despesas > 0)
-  const avgReceitas = mesesComReceita.length > 0
-    ? mesesComReceita.reduce((a, m) => a + m.receitas, 0) / mesesComReceita.length
-    : 0
+  // As médias saem da mesma base limpa que alimenta a confiança: meses
+  // fechados, com os dois lados lançados, sem os atípicos, com o mês recente
+  // pesando mais. Antes eram os 6 meses crus, mês corrente incluído.
+  const avgReceitas = baseFinal.length > 0 ? mediaPesada(baseFinal.map(m => m.receitas)) : 0
   // ── Contagem dupla (corrigida) ──────────────────────────────────────────
   // Antes: despesa projetada = média histórica TOTAL + recorrências + parcelas
   // futuras. Só que a média histórica já continha as parcelas e recorrências
@@ -215,9 +276,7 @@ projecao.get('/', requireAuth, async (c) => {
   // é contratado — parcelas e recorrências — entra uma vez só, pelo valor real
   // de cada mês futuro. Onde há certeza, usa-se o número exato; onde não há,
   // a média.
-  const avgDespesas = mesesComDespesa.length > 0
-    ? mesesComDespesa.reduce((a, m) => a + m.despesas_variaveis, 0) / mesesComDespesa.length
-    : 0
+  const avgDespesas = baseFinal.length > 0 ? mediaPesada(baseFinal.map(m => m.despesas_variaveis)) : 0
 
   let saldoAcum = saldoAtual
   for (let i = 1; i <= mesesParam; i++) {
@@ -267,11 +326,19 @@ projecao.get('/', requireAuth, async (c) => {
 
   if (avgReceitas === 0 && avgDespesas === 0) {
     insights.push(`📥 Comece lançando suas receitas e despesas para obter uma projeção precisa do seu futuro financeiro.`)
-  } else if (avgDespesas > avgReceitas) {
-    insights.push(`🚨 Suas despesas (R$ ${avgDespesas.toFixed(0)}/mês) superam as receitas (R$ ${avgReceitas.toFixed(0)}/mês). Crie um orçamento por categoria para controlar.`)
   } else {
-    const txPoupanca = avgReceitas > 0 ? ((avgReceitas - avgDespesas) / avgReceitas * 100).toFixed(1) : '0.0'
-    insights.push(`💰 Taxa de poupança atual: ${txPoupanca}% das receitas. ${parseFloat(txPoupanca) >= 20 ? 'Excelente!' : 'Tente chegar em 20%.'}`)
+    // Comparar receita com a média VARIÁVEL subestimava a saída em duas
+    // camadas inteiras (recorrências e parcelas) — a tela dizia "sobra 60%"
+    // para quem não fecha o mês. A saída aqui é a saída completa.
+    const saidaTotalMes = avgDespesas + recorrenciaMensal
+      + (Object.values(parcelasMap).reduce((a, b) => a + b, 0) / Math.max(1, mesesParam))
+    const entradaTotalMes = avgReceitas + recorrenciaReceitaMensal
+    if (saidaTotalMes > entradaTotalMes) {
+      insights.push(`🚨 Sai mais do que entra: R$ ${saidaTotalMes.toFixed(0)}/mês contra R$ ${entradaTotalMes.toFixed(0)}/mês de receita. A diferença é coberta por saldo anterior — enquanto durar.`)
+    } else {
+      const txPoupanca = entradaTotalMes > 0 ? ((entradaTotalMes - saidaTotalMes) / entradaTotalMes * 100).toFixed(1) : '0.0'
+      insights.push(`💰 Você guarda ${txPoupanca}% do que recebe, já pagando tudo. ${parseFloat(txPoupanca) >= 20 ? 'Está acima dos 20% que se costuma recomendar.' : 'A referência usual é 20% — a distância até lá é o seu próximo alvo.'}`)
+    }
   }
 
   // Melhoria 2.3: alertas de despesas determinísticas
@@ -437,8 +504,62 @@ projecao.get('/', requireAuth, async (c) => {
     horizonte_meses: mesesParam,
   }
 
+  // ── Camada explicativa ─────────────────────────────────────────────────────
+  //
+  // A tela mostrava números corretos que ninguém sabia ler. "Confiança 45%",
+  // "ponto de partida R$ 399", "despesa variável" — cada um desses exige um
+  // parágrafo de contexto que não estava em lugar nenhum, e sem o contexto o
+  // usuário ou ignora o número ou tira dele a conclusão errada. O texto é
+  // gerado aqui, junto do cálculo, porque quem sabe o que o número significa
+  // é quem acabou de fazê-lo.
+  const brl = (v: number) => 'R$ ' + (Math.round(Number(v) || 0)).toLocaleString('pt-BR')
+
+  const fraseConfianca = (() => {
+    if (baseFinal.length === 0) {
+      return 'Ainda não há nenhum mês fechado com receita e despesa lançadas. Sem isso não dá para projetar nada — a linha acima é só a soma do que já está contratado.'
+    }
+    const partes: string[] = []
+    partes.push(`A projeção olhou ${baseFinal.length} ${baseFinal.length === 1 ? 'mês fechado' : 'meses fechados'} (${baseFinal[0].label} a ${baseFinal[baseFinal.length - 1].label}).`)
+    if (baseFinal.length < 6) {
+      partes.push(`Com menos de 6 meses a amostra ainda é curta, e isso sozinho já limita a confiança a ${fatorAmostra * 100}%.`)
+    } else {
+      partes.push('Isso é histórico suficiente — a amostra não é o problema.')
+    }
+    partes.push(`O que pesa é a oscilação: seu resultado mensal varia cerca de ${brl(desvioSaldo)} para cima ou para baixo, o que dá ${Math.round(volatilidade * 100)}% da sua renda média de ${brl(receitaRef)}.`)
+    if (volatilidade < 0.15) partes.push('Seus meses se parecem muito entre si, então dá para confiar bastante na projeção.')
+    else if (volatilidade < 0.3) partes.push('É uma variação normal para quem tem renda variável ou gasto sazonal: a projeção serve para decidir, mas não para o centavo.')
+    else partes.push('Meses muito diferentes entre si tornam qualquer média fraca — trate os números como ordem de grandeza, não como previsão.')
+    if (mesesAtipicos.length) {
+      const nomes = mesesAtipicos.map(x => `${x.label} (${x.motivo})`).join(', ')
+      partes.push(`${mesesAtipicos.length === 1 ? 'Um mês ficou de fora' : `${mesesAtipicos.length} meses ficaram de fora`} da média por fugir demais do seu padrão: ${nomes}. Sem essa exclusão, um único mês fora da curva distorceria todo o resto.`)
+    }
+    if (meses.find(m => m.parcial)) {
+      partes.push(`O mês em curso (${meses.find(m => m.parcial)!.label}) também não entra: ele ainda não terminou, e contá-lo faria a receita parecer menor e a despesa maior do que são.`)
+    }
+    return partes.join(' ')
+  })()
+
+  const explicacoes = {
+    confianca: fraseConfianca,
+    como_ler: [
+      { titulo: 'A linha do gráfico', texto: 'Ela começa em zero e mostra quanto dinheiro sobra ou falta, somado mês a mês, a partir de hoje. Subindo, você acumula; descendo, você consome.' },
+      { titulo: 'Por que ela não é o seu saldo no banco', texto: 'O sistema não conhece o saldo da sua conta. Ele conhece o que entra e o que sai. A projeção mede a diferença entre os dois ao longo do tempo — some o seu saldo de hoje por fora, se quiser o número absoluto.' },
+      { titulo: 'O que já é certo e o que é chute', texto: 'Parcelas e recorrências entram pelo valor exato de cada mês: são contas que já existem. Mercado, lazer e imprevisto entram pela sua média: são estimativa. Quanto maior o peso do certo, mais firme a projeção.' },
+      { titulo: 'Os três cenários', texto: 'O do meio é o seu padrão repetido. O de cima supõe ganhar 10% a mais e gastar 5% a menos; o de baixo, ganhar 10% a menos e gastar 10% a mais. Não são previsões — são as bordas dentro das quais sua vida provavelmente cabe.' },
+    ],
+    glossario: [
+      { termo: 'Despesa variável', texto: 'O que muda de mês para mês e você consegue mexer: mercado, restaurante, combustível, lazer. Não inclui parcela nem assinatura.' },
+      { termo: 'Recorrência', texto: 'Conta que se repete todo mês por prazo indefinido: aluguel, escola, streaming, plano de saúde.' },
+      { termo: 'Parcela', texto: 'Compra passada que você ainda está pagando. Já está contratada, então a projeção usa o valor exato de cada mês, não uma média.' },
+      { termo: 'Comprometido', texto: 'Quanto da sua renda já tem destino antes de você decidir qualquer coisa no mês. Acima de 40% sobra pouca margem para imprevisto.' },
+      { termo: 'Sobra por mês', texto: 'Receita menos tudo: variável, recorrências e a média das parcelas. É esse número, positivo ou negativo, que inclina a linha do gráfico.' },
+      { termo: 'Confiança', texto: 'O quanto os seus meses se parecem entre si, combinado com quanto histórico existe. Não é a chance de o número acontecer — é o quanto vale a pena levá-lo a sério.' },
+    ],
+  }
+
   return c.json({
     historico: meses,
+    explicacoes,
     analise,
     projecoes,
     // S-P3: cenários otimista / pessimista
@@ -465,14 +586,24 @@ projecao.get('/', requireAuth, async (c) => {
     media_despesas: Math.round(avgDespesas * 100) / 100,
     media_despesas_variaveis: Math.round(avgDespesas * 100) / 100,
     media_despesas_total_historica: Math.round(
-      (mesesComDespesa.length > 0
-        ? mesesComDespesa.reduce((a, m) => a + m.despesas, 0) / mesesComDespesa.length
-        : 0) * 100) / 100,
-    saldo_atual: Math.round(saldoAtual * 100) / 100,
-    // PJ4: deixa explícito que o ponto de partida é a soma dos resultados dos
-    // últimos 6 meses, não o saldo em conta do usuário.
-    saldo_atual_desc: 'Soma do resultado líquido dos últimos 6 meses (ponto de partida da projeção)',
+      (baseFinal.length > 0 ? mediaPesada(baseFinal.map(m => m.despesas)) : 0) * 100) / 100,
+    saldo_atual: 0,
+    saldo_atual_desc: 'A linha começa do zero: ela mostra quanto você acumula a partir de hoje, não quanto você tem no banco.',
+    resultado_6m_fechados: Math.round(resultado6mFechados * 100) / 100,
     confianca,
+    confianca_detalhe: {
+      nivel: confianca >= 70 ? 'alta' : confianca >= 40 ? 'média' : 'baixa',
+      meses_usados: baseFinal.length,
+      meses_labels: baseFinal.map(m => m.label),
+      janela_maxima: JANELA_MESES,
+      mes_corrente_ignorado: meses.find(m => m.parcial)?.label || null,
+      meses_atipicos: mesesAtipicos,
+      oscilacao_mensal: Math.round(desvioSaldo * 100) / 100,
+      receita_referencia: Math.round(receitaRef * 100) / 100,
+      oscilacao_pct_renda: Math.round(volatilidade * 1000) / 10,
+      fator_amostra: Math.round(fatorAmostra * 100),
+      fator_estabilidade: Math.round(fatorEstabilidade * 100),
+    },
     insights,
     // S-P1: horizonte configurável
     horizonte_meses: mesesParam,

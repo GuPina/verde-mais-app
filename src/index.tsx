@@ -629,8 +629,8 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260903-2">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260903-1">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
-  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260910-1">
-  <link rel="stylesheet" href="/static/terminal-ds.css?v=20260909-1">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260910-2">
+  <link rel="stylesheet" href="/static/terminal-ds.css?v=20260910-2">
   <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
 <body>
@@ -662,7 +662,7 @@ function appShell() {
   <script src="/static/terminal-antecipacao.js?v=20260909-1"></script>
   <script src="/static/terminal-recebimentos.js?v=20260909-1"></script>
   <script src="/static/terminal-diagnostico.js?v=20260903-1"></script>
-  <script src="/static/terminal-projecao.js?v=20260909-2"></script>
+  <script src="/static/terminal-projecao.js?v=20260910-2"></script>
   <script src="/static/terminal-comparativo.js?v=20260831-1"></script>
   <script src="/static/terminal-relatorios.js?v=20260831-7"></script>
   <script src="/static/terminal-simulacao.js?v=20260831-1"></script>
@@ -679,7 +679,7 @@ function appShell() {
   <script src="/static/terminal-importacao.js?v=20260909-1"></script>
   <script src="/static/terminal-assistente.js?v=20260909-1"></script>
   <script src="/static/terminal-anim.js?v=20260901-1"></script>
-  <script src="/static/app.js?v=20260910-1"></script>
+  <script src="/static/app.js?v=20260910-2"></script>
   <script>
     // Registrar Service Worker para notificações push
     if ('serviceWorker' in navigator) {

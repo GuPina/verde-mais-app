@@ -39,7 +39,9 @@
       const proj = d.projecoes || []
       const resumo = d.resumo || {}
       const conf = Number(d.confianca) || 0
-      const baixaConf = conf < 40
+      const cd = d.confianca_detalhe || {}
+      const nivel = cd.nivel || (conf >= 70 ? 'alta' : conf >= 40 ? 'média' : 'baixa')
+      const baixaConf = nivel === 'baixa'
       const proj12 = Number(resumo.projecao_12m ?? (proj[proj.length - 1]?.valor)) || 0
       const tend = d.tendencia
       const tendLbl = tend === 'positive' ? '📈 Tendência de alta' : tend === 'negative' ? '📉 Tendência de queda' : '📊 Estável'
@@ -55,21 +57,30 @@
             <div class="pj-big ${baixaConf ? 'pj-big--muted' : ''}">${money(proj12)}</div>
             <div class="pj-hero__tags">
               <span class="to-status to-status--${tendCls}">${tendLbl}</span>
-              <span class="pj-conf pj-conf--${baixaConf ? 'low' : conf < 70 ? 'mid' : 'high'}"
-                    title="Quanto mais meses de histórico lançados, maior a confiança da projeção.">confiança ${conf}%${baixaConf ? ' · baixa' : ''}</span>
+              <button type="button" class="pj-conf pj-conf--${nivel === 'baixa' ? 'low' : nivel === 'média' ? 'mid' : 'high'}"
+                      onclick="VMTerminalProjecao.explicarConfianca()">
+                confiança ${conf}% · ${esc(nivel)} <i class="fas fa-circle-question"></i>
+              </button>
             </div>
-            <p class="pj-hero__sub">É o seu saldo acumulado em <strong>${esc(porExtenso(ultimoLabel))}</strong>, se o padrão dos últimos meses se mantiver. Já entram as parcelas e recorrências que você tem contratadas; não entram aportes nem resgates de investimento.</p>
-            ${baixaConf ? `<p class="pj-warn"><i class="fas fa-circle-info"></i> Poucos meses de histórico — este número tem baixa confiança. Lance mais receitas e despesas para uma projeção firme.</p>` : ''}
+            <p class="pj-hero__sub">Se os próximos meses se parecerem com os últimos, é isso que você terá <strong>acumulado</strong> até ${esc(porExtenso(ultimoLabel))} — somando o que sobra e descontando o que falta, mês a mês. <em>Não é o saldo da sua conta:</em> a linha começa do zero e conta só o que entra e sai daqui para a frente.</p>
+            ${this._confBanner(d)}
           </div>
           <div class="pj-chart">${this._chart(proj, d.cenarios)}</div>
         </section>
 
         <div class="dg-kpis">
-          ${this._kpi('Sobra média/mês', money(d.media_mensal), Number(d.media_mensal) >= 0 ? 'ok' : 'neg', 'já descontando parcelas e recorrências contratadas')}
-          ${this._kpi('Receita média/mês', money(d.media_receitas), 'ok')}
-          ${this._kpi('Despesa variável/mês', money(d.media_despesas), 'warn', 'só mercado, lazer e imprevistos')}
-          ${this._kpi('Ponto de partida', moneyK(d.saldo_atual), Number(d.saldo_atual) >= 0 ? 'ok' : 'neg', d.saldo_atual_desc || 'soma dos últimos 6 meses')}
+          ${this._kpi('Sobra por mês', money(d.media_mensal), Number(d.media_mensal) >= 0 ? 'ok' : 'neg',
+            Number(d.media_mensal) >= 0
+              ? 'o que resta depois de pagar tudo, inclusive parcelas e assinaturas'
+              : 'falta esse tanto todo mês depois de pagar tudo — é o que puxa a linha para baixo')}
+          ${this._kpi('Entra por mês', money(d.media_receitas), 'ok', 'média das suas receitas nos meses fechados, mais o que é fixo')}
+          ${this._kpi('Sai sem estar contratado', money(d.media_despesas), 'warn', 'mercado, lazer, imprevisto — a parte que depende de você')}
+          ${this._kpi('Já comprometido', `${(Number(d.analise?.pct_comprometido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`,
+            (Number(d.analise?.pct_comprometido) || 0) >= 40 ? 'neg' : 'ok',
+            'da sua renda já tem dono antes de o mês começar: parcelas e recorrências')}
         </div>
+
+        ${this._comoLer(d)}
 
         ${(Number(dc.recorrencias_mensais) > 0 || Number(dc.total_parcelas_futuras) > 0) ? `
         <article class="td-panel pj-sec">
@@ -108,6 +119,85 @@
         </article>` : ''}
       `)
     },
+
+    /**
+     * A confiança era um número solto com um title= genérico — e, pior, era um
+     * número que muitas vezes não media nada (a fórmula antiga travava no piso
+     * de 45% para qualquer um cujo saldo médio ficasse perto de zero, que é
+     * justamente quem mais precisa da projeção). Agora ela vem com os
+     * componentes, e a tela diz em português de onde saiu.
+     */
+    _confBanner(d) {
+      const cd = d.confianca_detalhe || {}
+      const txt = d.explicacoes?.confianca
+      if (!txt) return ''
+      const nivel = cd.nivel || 'média'
+      const tom = nivel === 'alta' ? 'ok' : nivel === 'baixa' ? 'neg' : 'warn'
+      return `<div class="ds-note ds-note--${tom} pj-conf__box">
+        <i class="fas fa-circle-info ds-note__ico"></i>
+        <div>
+          <strong>Confiança ${Number(d.confianca) || 0}% — ${esc(nivel)}.</strong> ${esc(txt)}
+          <button type="button" class="pj-conf__mais" onclick="VMTerminalProjecao.explicarConfianca()">Ver a conta inteira</button>
+        </div>
+      </div>`
+    },
+
+    /** O detalhamento completo, sob demanda — a conta inteira, sem fórmula. */
+    explicarConfianca() {
+      const d = this._d || {}
+      const cd = d.confianca_detalhe || {}
+      const linhas = []
+      linhas.push(['Meses usados no cálculo', `${cd.meses_usados || 0} de até ${cd.janela_maxima || 12}`])
+      if ((cd.meses_labels || []).length) linhas.push(['Quais', cd.meses_labels.join(', ')])
+      if (cd.mes_corrente_ignorado) linhas.push(['Mês em curso (fora)', `${cd.mes_corrente_ignorado} — ainda não terminou`])
+      ;(cd.meses_atipicos || []).forEach(m => linhas.push(['Mês atípico (fora)', `${m.label} — ${m.motivo}`]))
+      linhas.push(['Sua renda média', money(cd.receita_referencia)])
+      linhas.push(['Quanto o resultado oscila', `${money(cd.oscilacao_mensal)} por mês, para mais ou para menos`])
+      linhas.push(['Isso equivale a', `${(Number(cd.oscilacao_pct_renda) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da sua renda`])
+      linhas.push(['Nota por histórico', `${cd.fator_amostra || 0}%`])
+      linhas.push(['Nota por regularidade', `${cd.fator_estabilidade || 0}%`])
+      linhas.push(['Confiança final', `${d.confianca || 0}% (as duas notas multiplicadas)`])
+
+      const corpo = `
+        <p class="pj-modal__intro">${esc(d.explicacoes?.confianca || '')}</p>
+        <table class="ds-table pj-modal__tab"><tbody>
+          ${linhas.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${typeof v === 'string' ? esc(v) : v}</td></tr>`).join('')}
+        </tbody></table>
+        <p class="pj-modal__rodape">Confiança <strong>não</strong> é a chance de o número acontecer. É o quanto os seus meses se parecem entre si — ou seja, o quanto vale a pena levar a projeção a sério na hora de decidir.</p>`
+
+      if (window.VM?.vmInfo) return void window.VM.vmInfo(corpo, { titulo: 'De onde vem a confiança', icone: '🎯' })
+      alert(String(d.explicacoes?.confianca || '').replace(/<[^>]+>/g, ''))
+    },
+
+    /** Bloco "como ler esta tela" — some depois que o usuário fecha. */
+    _comoLer(d) {
+      const ex = d.explicacoes
+      if (!ex || !(ex.como_ler || []).length) return ''
+      if (localStorage.getItem('vm_pj_comoler') === 'off') return this._glossarioLink()
+      return `<article class="td-panel pj-sec pj-comoler" id="pj-comoler">
+        <div class="td-panel__head">
+          <div><span class="td-eyebrow">Primeira vez por aqui?</span><h2>Como ler esta tela</h2></div>
+          <button class="ds-btn ds-btn--ghost" onclick="VMTerminalProjecao.fecharComoLer()">Entendi, pode esconder</button>
+        </div>
+        <div class="pj-comoler__grid">
+          ${ex.como_ler.map(x => `<div class="pj-comoler__item"><strong>${esc(x.titulo)}</strong><p>${esc(x.texto)}</p></div>`).join('')}
+        </div>
+        ${this._glossario(d)}
+      </article>`
+    },
+    _glossarioLink() {
+      return `<p class="pj-glosslink"><button type="button" class="ds-btn ds-btn--ghost" onclick="VMTerminalProjecao.abrirComoLer()"><i class="fas fa-book-open"></i> Como ler esta tela</button></p>`
+    },
+    _glossario(d) {
+      const g = d.explicacoes?.glossario || []
+      if (!g.length) return ''
+      return `<div class="pj-gloss">
+        <span class="td-eyebrow">As palavras da tela</span>
+        <dl>${g.map(x => `<div><dt>${esc(x.termo)}</dt><dd>${esc(x.texto)}</dd></div>`).join('')}</dl>
+      </div>`
+    },
+    fecharComoLer() { try { localStorage.setItem('vm_pj_comoler', 'off') } catch (e) {} this._paint() },
+    abrirComoLer() { try { localStorage.removeItem('vm_pj_comoler') } catch (e) {} this._paint() },
 
     /**
      * O gráfico usava `preserveAspectRatio="none"` com largura fluida: o
@@ -191,7 +281,8 @@
       const maior = Math.max(1, ...comp.map(x => Math.abs(Number(x.valor) || 0)))
       const sobra = Number(a.sobra_mensal) || 0
       const MES = { '01':'janeiro','02':'fevereiro','03':'março','04':'abril','05':'maio','06':'junho','07':'julho','08':'agosto','09':'setembro','10':'outubro','11':'novembro','12':'dezembro' }
-      const porExtenso = (chave) => {
+      // "2026-10" → "outubro de 2026" (chave do mapa de parcelas)
+      const chavePorExtenso = (chave) => {
         if (!chave) return ''
         const [ano, mes] = String(chave).split('-')
         return `${MES[mes] || mes} de ${ano}`
@@ -199,7 +290,10 @@
 
       const notas = []
       if (a.zera_base) {
-        notas.push({ t: 'neg', ico: 'fa-triangle-exclamation', txt: `<strong>Mantido o padrão atual, seu saldo fica negativo em ${esc(porExtenso(a.zera_base.label))}.</strong> Não é uma previsão de catástrofe — é o que acontece se nada mudar até lá. Faltam ${money(a.ajuste_necessario)} por mês para virar o jogo.` })
+        const falta = Number(a.ajuste_necessario) || 0
+        notas.push({ t: 'neg', ico: 'fa-triangle-exclamation', txt: falta > 0
+          ? `<strong>Mantido o padrão atual, seu saldo fica negativo em ${esc(porExtenso(a.zera_base.label))}.</strong> Não é uma previsão de catástrofe — é o que acontece se nada mudar até lá. Faltam ${money(falta)} por mês para virar o jogo.`
+          : `<strong>Você passa por um vale negativo em ${esc(porExtenso(a.zera_base.label))} e depois se recupera.</strong> No mês a mês você fecha no azul; o buraco vem das parcelas concentradas no começo do período. É travessia, não desequilíbrio — mas até lá o caixa precisa aguentar ${money(Math.abs(Number(a.zera_base.valor) || 0))}.` })
       } else if (a.zera_pessimista) {
         notas.push({ t: 'warn', ico: 'fa-shield-halved', txt: `<strong>No cenário base você fecha no positivo; no aperto, o saldo zera em ${esc(porExtenso(a.zera_pessimista.label))}.</strong> É a margem que você tem antes de precisar mexer em alguma coisa.` })
       } else {
@@ -208,11 +302,11 @@
 
       if (a.pct_comprometido > 0) {
         const alto = a.pct_comprometido >= 40
-        notas.push({ t: alto ? 'warn' : 'info', ico: 'fa-lock', txt: `<strong>${a.pct_comprometido}% da sua receita já está comprometida</strong> com recorrências e parcelas antes de você decidir qualquer coisa no mês. ${alto ? 'Acima de 40%, sobra pouca margem para imprevisto.' : 'O resto é o que você consegue realocar.'}` })
+        notas.push({ t: alto ? 'warn' : 'info', ico: 'fa-lock', txt: `<strong>${Number(a.pct_comprometido).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da sua receita já está comprometida</strong> com recorrências e parcelas antes de você decidir qualquer coisa no mês. ${alto ? 'Acima de 40%, sobra pouca margem para imprevisto.' : 'O resto é o que você consegue realocar.'}` })
       }
 
       if (a.mes_alivio_parcelas) {
-        notas.push({ t: 'ok', ico: 'fa-calendar-check', txt: `<strong>O peso das parcelas cai pela metade em ${esc(porExtenso(a.mes_alivio_parcelas.chave))}</strong> — de ${money(a.mes_alivio_parcelas.pico)} para ${money(a.mes_alivio_parcelas.valor)} no mês. Essa folga já está contratada; é só não preenchê-la com parcela nova.` })
+        notas.push({ t: 'ok', ico: 'fa-calendar-check', txt: `<strong>O peso das parcelas cai pela metade em ${esc(chavePorExtenso(a.mes_alivio_parcelas.chave))}</strong> — de ${money(a.mes_alivio_parcelas.pico)} para ${money(a.mes_alivio_parcelas.valor)} no mês. Essa folga já está contratada; é só não preenchê-la com parcela nova.` })
       }
 
       notas.push({ t: 'info', ico: 'fa-calculator', txt: `<strong>Cada R$ 100 a menos por mês viram ${money(a.impacto_100_por_mes)} em ${a.horizonte_meses} meses.</strong> É a régua para decidir se um corte vale o incômodo.` })
