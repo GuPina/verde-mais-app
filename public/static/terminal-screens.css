@@ -1343,3 +1343,47 @@
   .pj-modal__tab th, .pj-modal__tab td { display: block; width: auto; text-align: left; }
   .pj-modal__tab td { padding-top: 0; }
 }
+
+/* ── Formulário padrão do terminal ───────────────────────────────────────────
+   O .ct-form já tinha cabeçalho e seletores, mas cada tela desenhava os campos
+   com style="" inline — 40 linhas de CSS repetidas por arquivo, que envelhecem
+   em ritmos diferentes. Aqui ficam os campos de verdade. */
+.ct-form__grid { display: flex; flex-direction: column; gap: var(--ds-4);
+  max-height: 62vh; overflow-y: auto; padding-right: 4px; }
+.ct-form__linha { display: flex; gap: var(--ds-3); flex-wrap: wrap; }
+.ct-form__linha > .ct-form__campo { flex: 1 1 150px; min-width: 0; }
+.ct-form__campo { display: block; }
+.ct-form__lbl { display: block; font: 700 10px/1 var(--terminal-mono); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); margin-bottom: 6px; }
+.ct-form__in { width: 100%; background: var(--terminal-bg); border: 1px solid var(--terminal-line);
+  color: var(--terminal-ink); border-radius: var(--terminal-radius-sm); padding: 10px 12px;
+  font-size: 13px; font-family: var(--terminal-font); transition: border-color .16s ease; }
+.ct-form__in:focus { outline: none; border-color: color-mix(in srgb, var(--terminal-primary) 60%, transparent); }
+.ct-form__dica { display: block; margin-top: 5px; color: var(--terminal-ink-soft);
+  font-size: 11px; line-height: 1.45; }
+.ct-form__acoes { display: flex; gap: var(--ds-3); margin-top: var(--ds-5); }
+.ct-form__acoes .ds-btn { flex: 1; }
+
+/* ── Empréstimos ─────────────────────────────────────────────────────────── */
+.fe-aviso { margin: var(--ds-4) 0; text-align: left; }
+.fe-aviso__acoes { margin-top: var(--ds-3); }
+
+.fe-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--ds-3) var(--ds-4); margin: var(--ds-4) 0 0;
+  padding-top: var(--ds-4); border-top: 1px solid var(--terminal-line); }
+.fe-nums dt { font: 700 9.5px/1.3 var(--terminal-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); }
+.fe-nums dd { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; color: var(--terminal-ink); }
+
+.fe-card__actions { display: flex; flex-wrap: wrap; gap: var(--ds-2); margin-top: var(--ds-4); }
+.fe-card__meta { display: flex; align-items: center; justify-content: space-between;
+  gap: var(--ds-3); margin-top: var(--ds-3); }
+.fe-card__meta small { color: var(--terminal-ink-soft); font-size: 11.5px; }
+
+.fe-previa { margin: 0; text-align: left; font-size: 12px; line-height: 1.55; }
+.fe-form { min-width: min(520px, 92vw); }
+
+@media (max-width: 560px) {
+  .ct-form__linha { flex-direction: column; gap: var(--ds-4); }
+  .fe-card__actions .ds-btn { flex: 1 1 auto; }
+}

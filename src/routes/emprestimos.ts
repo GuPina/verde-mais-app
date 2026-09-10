@@ -133,12 +133,50 @@ emprestimos.get('/', requireAuth, async (c) => {
     'SELECT * FROM emprestimos WHERE user_id = ? ORDER BY data_criacao DESC'
   ).bind(user.id).all()
 
+  // ── Conciliação com o fluxo de caixa ──────────────────────────────────────
+  //
+  // Existem DOIS livros para a mesma dívida: a linha em `emprestimos`
+  // (parcelas_pagas) e as despesas que o cadastro gerou. Quem paga pelo botão
+  // do empréstimo atualiza os dois; quem dá baixa pela tela de Despesas — que
+  // é o caminho natural, porque é lá que a parcela aparece todo mês —
+  // atualiza só um. Os dois divergem em silêncio e o usuário vê um saldo que
+  // não corresponde ao que ele pagou.
+  //
+  // Não dá para "consertar" isso escolhendo um lado por conta própria: o
+  // contrato pode estar certo (baixa a mais nas despesas) ou as despesas podem
+  // estar certas (baixa que nunca chegou no contrato). O que o sistema pode
+  // fazer é PARAR DE CALAR: contar os dois e mostrar a diferença.
+  const baixas = await c.env.DB.prepare(
+    `SELECT observacoes, COUNT(*) as pagas FROM despesas
+     WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pago'
+       AND observacoes LIKE '%Empréstimo automático #%'
+       AND descricao NOT LIKE '%Amortiza%'
+     GROUP BY observacoes`
+  ).bind(user.id).all()
+
+  const pagasPorEmprestimo: Record<number, number> = {}
+  for (const row of ((baixas.results as any[]) || [])) {
+    const m = String(row.observacoes || '').match(/Empréstimo automático #(\d+)/)
+    if (!m) continue
+    const empId = Number(m[1])
+    pagasPorEmprestimo[empId] = (pagasPorEmprestimo[empId] || 0) + Number(row.pagas || 0)
+  }
+
   const list = (result.results as any[]).map(e => {
-    const percPago = e.numero_parcelas > 0 ? Math.round((e.parcelas_pagas / e.numero_parcelas) * 100) : 0
-    const totalPagar = e.valor_parcela * e.numero_parcelas
-    const totalJuros = totalPagar - e.valor_original
-    const custo_efetivo = e.valor_original > 0 ? ((totalJuros / e.valor_original) * 100) : 0
-    return { ...e, perc_pago: percPago, total_a_pagar: totalPagar, total_juros: totalJuros, custo_efetivo_total: Math.round(custo_efetivo * 100) / 100 }
+    const num = numerosEmprestimo(e)
+    const baixadas = pagasPorEmprestimo[Number(e.id)] || 0
+    return {
+      ...e,
+      ...num,
+      conciliacao: {
+        parcelas_no_contrato: num.parcelas_pagas,
+        parcelas_baixadas_nas_despesas: baixadas,
+        divergencia: baixadas - num.parcelas_pagas,
+        aviso: baixadas !== num.parcelas_pagas
+          ? `O contrato registra ${num.parcelas_pagas} parcela${num.parcelas_pagas === 1 ? '' : 's'} paga${num.parcelas_pagas === 1 ? '' : 's'}, mas ${baixadas} já ${baixadas === 1 ? 'foi baixada' : 'foram baixadas'} na tela de Despesas. Baixar a parcela por lá não atualiza o contrato — é essa a origem da diferença.`
+          : null,
+      },
+    }
   })
 
   const totalSaldo = list.reduce((s, e) => s + (e.status === 'ativo' ? e.saldo_devedor : 0), 0)
@@ -157,18 +195,7 @@ emprestimos.get('/:id', requireAuth, async (c) => {
   ).bind(id, user.id).first() as any
   if (!e) return c.json({ error: 'Empréstimo não encontrado' }, 404)
 
-  const percPago = e.numero_parcelas > 0 ? Math.round((e.parcelas_pagas / e.numero_parcelas) * 100) : 0
-  const totalPagar = e.valor_parcela * e.numero_parcelas
-  const totalJuros = totalPagar - e.valor_original
-  const custo_efetivo = e.valor_original > 0 ? ((totalJuros / e.valor_original) * 100) : 0
-
-  return c.json({
-    ...e,
-    perc_pago: percPago,
-    total_a_pagar: totalPagar,
-    total_juros: totalJuros,
-    custo_efetivo_total: Math.round(custo_efetivo * 100) / 100
-  })
+  return c.json({ ...e, ...numerosEmprestimo(e) })
 })
 
 // POST /api/emprestimos
@@ -227,7 +254,10 @@ emprestimos.post('/', requireAuth, async (c) => {
   if (saldoFoiInformado && Number(saldoInformado) >= 0) {
     saldoDevedor = parseFloat(saldoInformado)
   } else {
-    saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
+    // Modelo de caixa: falta pagar o que falta de parcela. Antes vinha da
+    // Price sobre valor_original, que só faz sentido se valor_original for o
+    // principal — e quase todo mundo digita ali o total do contrato.
+    saldoDevedor = Math.round((parseInt(numero_parcelas) - parcelasPagasN) * parseFloat(valor_parcela) * 100) / 100
   }
 
   const dataInicio = parseDataSegura(data_inicio) || new Date(data_inicio)  // EMP19: ancora ao meio-dia
@@ -351,13 +381,28 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   const taxaA = (Math.pow(1 + taxaM, 12) - 1) * 100
   const parcelasPagasN = parseInt(parcelas_pagas)
 
-  // Mesma regra: se informou saldo atual, usa; senão, calcula
+  // ── Salvar a edição NÃO pode reescrever a dívida ──────────────────────────
+  //
+  // Este bloco recalculava o saldo pela Price toda vez que a tela de edição
+  // era salva, mesmo sem o usuário tocar em nada relacionado. Quem tinha
+  // pagado parcelas pelo botão via o saldo saltar para outro valor só por ter
+  // corrigido o nome do credor. Agora só há duas origens: o que o usuário
+  // informou, ou o modelo de caixa — e a amortização extraordinária já feita
+  // é preservada, senão editar o contrato devolveria a dívida já abatida.
+  const anterior = await c.env.DB.prepare(
+    'SELECT numero_parcelas, parcelas_pagas, valor_parcela, saldo_devedor FROM emprestimos WHERE id=? AND user_id=?'
+  ).bind(id, user.id).first() as any
+  const amortizadoAntes = anterior
+    ? Math.max(0, Math.round(((Math.max(0, Number(anterior.numero_parcelas) - Number(anterior.parcelas_pagas)) * Number(anterior.valor_parcela)) - Number(anterior.saldo_devedor)) * 100) / 100)
+    : 0
+
   let saldoDevedor: number
   const saldoFoiInformadoPut = saldoInformado !== undefined && saldoInformado !== null && saldoInformado !== ''
   if (saldoFoiInformadoPut && Number(saldoInformado) >= 0) {
     saldoDevedor = parseFloat(saldoInformado)
   } else {
-    saldoDevedor = calcSaldo(parseFloat(valor_original), taxaM, parseInt(numero_parcelas), parcelasPagasN)
+    const restantesPut = Math.max(0, parseInt(numero_parcelas) - parcelasPagasN)
+    saldoDevedor = Math.max(0, Math.round((restantesPut * parseFloat(valor_parcela) - amortizadoAntes) * 100) / 100)
   }
 
   const valorPago = parseFloat(valor_parcela) * parcelasPagasN
@@ -376,9 +421,13 @@ emprestimos.put('/:id', requireAuth, async (c) => {
   // Sincronizar valor das despesas pendentes vinculadas a este empréstimo
   // (caso o valor_parcela tenha mudado na edição)
   await c.env.DB.prepare(
-    `UPDATE despesas SET valor = ?, descricao = REPLACE(descricao, SUBSTR(descricao, INSTR(descricao, '(')), '') || '(' || CAST(parcela_atual AS TEXT) || '/' || ? || ')'
+    // "(2/24.0)" — o número de parcelas chegava aqui como numérico e o
+    // CAST para texto trazia a casa decimal junto. Ambos os lados agora são
+    // inteiros explícitos: o da esquerda pelo CAST duplo, o da direita porque
+    // vai como string já formada.
+    `UPDATE despesas SET valor = ?, descricao = REPLACE(descricao, SUBSTR(descricao, INSTR(descricao, '(')), '') || '(' || CAST(CAST(parcela_atual AS INTEGER) AS TEXT) || '/' || ? || ')'
      WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pendente' AND observacoes LIKE ?`
-  ).bind(parseFloat(valor_parcela), parseInt(numero_parcelas), user.id, `%Empréstimo automático #${id} %`).run()
+  ).bind(parseFloat(valor_parcela), String(parseInt(numero_parcelas)), user.id, `%Empréstimo automático #${id} %`).run()
 
   return c.json({ success: true, saldo_devedor: saldoDevedor, saldo_origem: saldoFoiInformadoPut ? 'informado' : 'calculado', message: 'Empréstimo atualizado!' })
 })
@@ -397,21 +446,22 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
     return c.json({ error: 'Empréstimo já quitado — não há parcelas a pagar.' }, 400)
 
   const novasParcelas = emp.parcelas_pagas + 1
-  const taxaM = emp.taxa_juros_mensal / 100
 
-  // CÁLCULO CORRETO: juros do mês sobre saldo_devedor atual, depois amortiza
-  const jurosMes = Math.round(emp.saldo_devedor * taxaM * 100) / 100
-  const amortizacao = Math.round((emp.valor_parcela - jurosMes) * 100) / 100
-
-  // EMP17: parcela que não cobre os juros aumentaria a dívida — bloquear
-  if (amortizacao <= 0)
-    return c.json({ error: `A parcela (R$ ${Number(emp.valor_parcela).toFixed(2)}) não cobre nem os juros deste mês (R$ ${jurosMes.toFixed(2)}). Pagá-la aumentaria a dívida — revise o valor da parcela ou a taxa.` }, 422)
-
-  const novoSaldo = Math.max(0, Math.round((emp.saldo_devedor - amortizacao) * 100) / 100)
-
-  // EMP13/EMP23: valor_pago acumula o DESEMBOLSO real (a parcela paga, que inclui juros),
-  // não a diferença de saldo (que ignora os juros pagos)
-  const novoValorPago = Math.round((Number(emp.valor_pago || 0) + Number(emp.valor_parcela)) * 100) / 100
+  // ── Pagar parcela abate a parcela inteira ─────────────────────────────────
+  //
+  // Antes: juros do mês sobre o saldo, e só a diferença abatia. Isso trata
+  // valor_original como principal e cobra juros POR CIMA de um valor que, na
+  // prática, o usuário digita já com os juros dentro — o contrato do usuário
+  // real tinha 24 × 936,36 = exatamente o "valor tomado", isto é, juros zero,
+  // e mesmo assim a rotina cobrava 2,5% ao mês sobre o saldo.
+  //
+  // No modelo de caixa a conta é a que qualquer pessoa faz de cabeça: você
+  // pagou uma parcela, falta uma parcela a menos. O juro do contrato aparece
+  // separado, em `juros_embutidos`, e não é cobrado duas vezes.
+  const saldoAntes = Number(emp.saldo_devedor) || 0
+  const parcelaVal = Number(emp.valor_parcela) || 0
+  const novoSaldo = Math.max(0, Math.round((saldoAntes - parcelaVal) * 100) / 100)
+  const novoValorPago = Math.round((Number(emp.valor_pago || 0) + parcelaVal) * 100) / 100
   const status = novasParcelas >= emp.numero_parcelas ? 'quitado' : 'ativo'
 
   await c.env.DB.prepare('UPDATE emprestimos SET parcelas_pagas=?, saldo_devedor=?, valor_pago=?, status=? WHERE id=? AND user_id=?').bind(novasParcelas, novoSaldo, novoValorPago, status, id, user.id).run()
@@ -436,14 +486,79 @@ emprestimos.patch('/:id/parcela', requireAuth, async (c) => {
     if ((aindaTemDividas?.total || 0) === 0) await verificarConquista(c.env.DB, user.id, 'sem_dividas_total')
   }
 
-  return c.json({ 
-    success: true, 
-    parcelas_pagas: novasParcelas, 
-    saldo_devedor: novoSaldo, 
-    juros_pagos: Math.round(jurosMes * 100) / 100,
-    amortizacao: Math.round(amortizacao * 100) / 100,
-    status, 
-    message: status === 'quitado' ? '🎉 Empréstimo quitado!' : `Parcela ${novasParcelas}/${emp.numero_parcelas} paga! Saldo: R$ ${novoSaldo.toFixed(2)}` 
+  return c.json({
+    success: true,
+    parcelas_pagas: novasParcelas,
+    saldo_devedor: novoSaldo,
+    amortizacao: Math.round(parcelaVal * 100) / 100,
+    status,
+    message: status === 'quitado'
+      ? '🎉 Empréstimo quitado!'
+      : `Parcela ${novasParcelas}/${Math.round(Number(emp.numero_parcelas))} paga. Falta pagar R$ ${novoSaldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
+  })
+})
+
+// PATCH /api/emprestimos/:id/conciliar — alinhar o contrato ao que foi pago
+//
+// Os dois livros divergem porque dar baixa na parcela pela tela de Despesas —
+// que é onde ela aparece todo mês, e portanto o caminho natural — não mexe no
+// contrato. Sem uma saída, o usuário fica olhando um saldo que sabe estar
+// errado e não tem como corrigir a não ser clicando "pagar parcela" várias
+// vezes, o que lança pagamento em cima de pagamento.
+//
+// Aqui ele diz quantas parcelas pagou de fato, ou aceita a contagem das
+// despesas, e o contrato se ajusta a isso. A amortização extraordinária já
+// feita é preservada.
+emprestimos.patch('/:id/conciliar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
+  const emp = await c.env.DB.prepare('SELECT * FROM emprestimos WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!emp) return c.json({ error: 'Empréstimo não encontrado' }, 404)
+
+  let corpo: any = {}
+  try { corpo = await c.req.json() } catch { corpo = {} }
+
+  const n = Math.max(0, Math.round(Number(emp.numero_parcelas) || 0))
+  const parcela = Number(emp.valor_parcela) || 0
+
+  // Quantas parcelas deste empréstimo já estão baixadas no fluxo de caixa.
+  const baixa = await c.env.DB.prepare(
+    `SELECT COUNT(*) as pagas FROM despesas
+     WHERE user_id = ? AND categoria = 'Empréstimo' AND status = 'pago'
+       AND observacoes LIKE ? AND descricao NOT LIKE '%Amortiza%'`
+  ).bind(user.id, `%Empréstimo automático #${id} %`).first() as any
+
+  const doInformado = corpo.parcelas_pagas !== undefined && corpo.parcelas_pagas !== null && corpo.parcelas_pagas !== ''
+  const alvoBruto = doInformado ? Number(corpo.parcelas_pagas) : Number(baixa?.pagas || 0)
+  if (!Number.isFinite(alvoBruto) || alvoBruto < 0) return c.json({ error: 'Número de parcelas pagas inválido.' }, 400)
+  const alvo = Math.min(n, Math.round(alvoBruto))
+
+  // Amortização extraordinária já aplicada: é a diferença entre o que as
+  // parcelas restantes somam e o saldo gravado. Se não preservar, conciliar
+  // devolveria ao usuário uma dívida que ele já abateu.
+  const restantesAntes = Math.max(0, n - (Number(emp.parcelas_pagas) || 0))
+  const amortizado = Math.max(0, Math.round((restantesAntes * parcela - Number(emp.saldo_devedor)) * 100) / 100)
+
+  const novoSaldo = Math.max(0, Math.round(((n - alvo) * parcela - amortizado) * 100) / 100)
+  const novoPago = Math.round(alvo * parcela * 100) / 100
+  const status = (alvo >= n || novoSaldo <= 0) ? 'quitado' : 'ativo'
+
+  await c.env.DB.prepare(
+    'UPDATE emprestimos SET parcelas_pagas=?, saldo_devedor=?, valor_pago=?, status=? WHERE id=? AND user_id=?'
+  ).bind(alvo, novoSaldo, novoPago, status, id, user.id).run()
+
+  if (status === 'quitado') await verificarConquista(c.env.DB, user.id, 'sem_dividas')
+
+  return c.json({
+    success: true,
+    parcelas_pagas: alvo,
+    parcelas_pagas_antes: Number(emp.parcelas_pagas) || 0,
+    origem: doInformado ? 'informado' : 'despesas',
+    saldo_devedor: novoSaldo,
+    amortizacao_preservada: amortizado,
+    status,
+    message: `Contrato conciliado: ${alvo} de ${n} parcelas pagas. Falta pagar R$ ${novoSaldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`,
   })
 })
 
@@ -599,14 +714,85 @@ function parseDataSegura(str: string): Date | null {
 }
 
 /**
- * calcSaldo: usado apenas quando o usuário NÃO informa o saldo_devedor_atual.
- * Calcula o saldo devedor com base na fórmula Price.
+ * ── Um saldo, um dono ────────────────────────────────────────────────────────
+ *
+ * O saldo devedor tinha TRÊS donos e três respostas diferentes para a mesma
+ * dívida:
+ *
+ *   1. calcSaldo(), fórmula Price, tratando valor_original como PRINCIPAL —
+ *      usado no POST e, pior, no PUT, que sobrescrevia o saldo toda vez que o
+ *      usuário abria e salvava a edição;
+ *   2. PATCH /parcela, que calculava juros sobre o saldo e amortizava o resto;
+ *   3. a tela, que exibia `valor_original − saldo_devedor` como "já pago"
+ *      enquanto o card mostrava `valor_pago`, que é outra conta.
+ *
+ * Nos dados reais de um usuário isso produzia, na MESMA tela: "R$ 5.173,40 de
+ * R$ 22.472,64" pagos no topo, "23% quitado" ao lado, "5/24 pagas" no card
+ * (= R$ 4.681,80) e "21%" vindo da API. Quatro números, quatro contas.
+ *
+ * Agora existe um modelo só, e é o de CAIXA: saldo devedor é quanto ainda vai
+ * sair do bolso. Some o que você paga, nada mais. É o único número que o
+ * usuário consegue conferir contra o extrato do banco.
+ *
+ * O juro não sumiu — ele aparece separado, como `juros_embutidos`, que é o que
+ * o contrato cobra a mais do que foi tomado. E `valor_quitacao_hoje` responde
+ * a outra pergunta, também legítima: quanto o banco aceitaria hoje para
+ * encerrar o contrato (valor presente das parcelas que faltam).
  */
-function calcSaldo(valorOriginal: number, taxaMensal: number, numParcelas: number, parcelasPagas: number): number {
-  if (taxaMensal === 0) return Math.max(0, valorOriginal * (1 - parcelasPagas / numParcelas))
-  const fator = Math.pow(1 + taxaMensal, numParcelas)
-  const fatorPago = Math.pow(1 + taxaMensal, parcelasPagas)
-  return Math.max(0, Math.round(valorOriginal * (fator - fatorPago) / (fator - 1) * 100) / 100)
+function numerosEmprestimo(e: any) {
+  const cent = (v: number) => Math.round((Number(v) || 0) * 100) / 100
+  const n = Math.max(0, Math.round(Number(e.numero_parcelas) || 0))
+  const pagas = Math.min(n, Math.max(0, Math.round(Number(e.parcelas_pagas) || 0)))
+  const parcela = cent(e.valor_parcela)
+  const restantes = Math.max(0, n - pagas)
+  const tomado = cent(e.valor_original)
+  const taxa = Number(e.taxa_juros_mensal) || 0
+
+  const total_a_pagar = cent(parcela * n)
+  const ja_pago = cent(parcela * pagas)
+  // O saldo gravado é a verdade sobre o caixa: ele já desconta amortização
+  // extraordinária, que não reduz o número de parcelas. Só cai para a conta
+  // teórica quando a coluna está vazia ou incoerente (dívida antiga, importada).
+  const previsto = cent(parcela * restantes)
+  const gravado = Number(e.saldo_devedor)
+  const saldoOk = Number.isFinite(gravado) && gravado >= 0 && gravado <= total_a_pagar + 0.01
+  const falta_pagar = saldoOk ? cent(gravado) : previsto
+  // A diferença entre o que falta e (restantes × parcela) é exatamente o que
+  // já foi amortizado por fora das parcelas.
+  const amortizado_extra = cent(Math.max(0, previsto - falta_pagar))
+
+  const juros_embutidos = cent(Math.max(0, total_a_pagar - tomado))
+
+  let valor_quitacao_hoje: number | null = null
+  if (taxa > 0 && juros_embutidos > 0.01 && restantes > 0) {
+    const i = taxa / 100
+    valor_quitacao_hoje = cent(parcela * (1 - Math.pow(1 + i, -restantes)) / i)
+  }
+
+  // Taxa cadastrada mas parcelas que não cobrem nem o valor tomado: o usuário
+  // digitou o TOTAL do contrato no campo "valor tomado". Os dois números não
+  // podem estar certos ao mesmo tempo, e calar sobre isso é como o sistema
+  // vinha exibindo "2,5% a.m." ao lado de "R$ 0,00 de juros".
+  const dados_contraditorios = taxa > 0 && tomado > 0 && juros_embutidos <= 0.01
+
+  return {
+    parcelas_pagas: pagas,
+    parcelas_restantes: restantes,
+    perc_pago: n > 0 ? Math.round((pagas / n) * 100) : 0,
+    total_a_pagar,
+    valor_pago: ja_pago,
+    saldo_devedor: falta_pagar,
+    falta_pagar,
+    amortizado_extra,
+    juros_embutidos,
+    total_juros: juros_embutidos,
+    custo_efetivo_total: tomado > 0 ? cent((juros_embutidos / tomado) * 100) : 0,
+    valor_quitacao_hoje,
+    dados_contraditorios,
+    aviso_dados: dados_contraditorios
+      ? `Este contrato tem ${taxa.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% a.m. de juros cadastrado, mas as ${n} parcelas somam exatamente o valor informado como tomado — ou seja, juros zero. Provavelmente o campo "valor tomado" recebeu o total do contrato. Corrija o valor tomado para o que caiu na sua conta, ou zere a taxa.`
+      : null,
+  }
 }
 
 async function verificarConquista(db: D1Database, userId: number, codigo: string) {

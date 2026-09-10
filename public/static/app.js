@@ -23645,6 +23645,22 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   },
 }
 
+// ── VM precisa existir em window, e não só no escopo do script ──────────────
+//
+// `const VM = {...}` cria um binding léxico global: `VM` resolve em handler
+// inline (onclick="VM.navigate(...)") e em qualquer script depois deste, mas
+// `window.VM` fica UNDEFINED. Quinze telas do terminal chamam `window.VM.*`
+// para abrir os diálogos do design system — vmConfirm, vmPrompt, vmInfo — e
+// todas estouravam com "Cannot read properties of undefined" no primeiro
+// clique. Em Empréstimos isso matou pagar parcela, amortizar, quitar e
+// excluir: quatro dos seis botões do cartão, sem nenhuma mensagem na tela,
+// porque a exceção morria dentro do handler.
+//
+// Uma linha conserta as quinze telas de uma vez; trocar `window.VM` por `VM`
+// em cada arquivo consertaria os casos de hoje e deixaria a armadilha armada
+// para a próxima tela.
+window.VM = VM
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
   VM.init()
