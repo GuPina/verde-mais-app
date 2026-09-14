@@ -624,3 +624,170 @@ function fmt(v: number): string {
 function fmtSinal(v: number): string {
   return (v < 0 ? '−' : '') + fmt(v)
 }
+
+// ─── Para onde o dinheiro está indo ──────────────────────────────────────────
+
+export interface FatiaGasto {
+  nome: string
+  total: number
+  /** Média por mês da janela — é ela que se compara com a renda mensal. */
+  media: number
+  lancamentos: number
+  /** Fatia do total gasto na janela. */
+  pct: number
+  /** Quanto desta fatia já é parcela ou recorrência (contratado, não hábito). */
+  contratado: number
+}
+
+export interface Gastos {
+  meses: number
+  periodo: string
+  total: number
+  media_mensal: number
+  categorias: FatiaGasto[]
+  tags: FatiaGasto[]
+  /** Gasto sem nenhuma etiqueta: o pedaço que nenhuma pergunta alcança. */
+  sem_tag: { total: number; pct: number; lancamentos: number }
+  /**
+   * Nomes de categoria que são o mesmo assunto escrito de dois jeitos
+   * ("Financiamento" e "Financiamentos"). Enquanto existirem, toda soma por
+   * categoria está partida ao meio e nenhum ranking é verdade.
+   */
+  duplicadas: Array<{ nomes: Array<{ nome: string; total: number }>; total: number }>
+  /** Concentração: quanto das três maiores categorias sobre o total. */
+  top3_pct: number
+}
+
+/**
+ * O que o retrato e o plano não contam: em que o dinheiro foi parar.
+ *
+ * Duas leituras da mesma janela de meses fechados, porque respondem a
+ * perguntas diferentes:
+ *
+ *   CATEGORIA — obrigatória, exclusiva, uma por despesa. Soma fecha com o
+ *     total. É o mapa oficial do gasto.
+ *   TAG — opcional, múltipla. A mesma despesa pode levar duas etiquetas, então
+ *     a soma das tags NÃO fecha com o total e não deve ser lida como fatia de
+ *     um bolo. Serve para atravessar o mapa oficial: "quanto custou a mudança",
+ *     "quanto custou o carro" — perguntas que nenhuma categoria responde.
+ *
+ * Mês corrente fica de fora pela mesma razão de todo o resto deste arquivo:
+ * no dia 14 as parcelas já estão lançadas e o mercado do mês ainda não.
+ */
+export async function gastos(
+  db: D1Database, userId: number, janela: JanelaHistorica,
+): Promise<Gastos> {
+  const chaves = janela.meses.map(m => `${m.ano}-${String(m.mes).padStart(2, '0')}`)
+  const vazio: Gastos = {
+    meses: 0, periodo: '', total: 0, media_mensal: 0, categorias: [], tags: [],
+    sem_tag: { total: 0, pct: 0, lancamentos: 0 }, duplicadas: [], top3_pct: 0,
+  }
+  if (!chaves.length) return vazio
+
+  const ph = chaves.map(() => '?').join(',')
+  const escopo = `d.user_id = ? AND d.status IN ('pago','pendente')
+    AND ${filtroSemAporte('d')} AND ${filtroNaoCancelada('d')}
+    AND (strftime('%Y-%m', ${competenciaData('d')})) IN (${ph})`
+
+  const cats = await db.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(d.categoria), ''), 'Sem categoria') as nome,
+            COALESCE(SUM(d.valor), 0) as total,
+            COUNT(*) as n,
+            COALESCE(SUM(CASE WHEN d.parcelado = 1 OR COALESCE(d.numero_parcelas,1) > 1
+                                OR d.recorrencia_id IS NOT NULL THEN d.valor ELSE 0 END), 0) as contratado
+     FROM despesas d
+     WHERE ${escopo}
+     GROUP BY COALESCE(NULLIF(TRIM(d.categoria), ''), 'Sem categoria')
+     ORDER BY total DESC`
+  ).bind(userId, ...chaves).all()
+
+  const linhasCat = ((cats.results as any[]) || [])
+  const total = cent(linhasCat.reduce((s, r) => s + Number(r.total || 0), 0))
+  const nMeses = chaves.length
+
+  const fatia = (nome: string, t: number, n: number, contratado: number): FatiaGasto => ({
+    nome, total: cent(t), media: cent(t / nMeses), lancamentos: Number(n) || 0,
+    pct: total > 0 ? Math.round((t / total) * 1000) / 10 : 0,
+    contratado: cent(contratado),
+  })
+
+  const categorias = linhasCat.map(r =>
+    fatia(String(r.nome), Number(r.total || 0), Number(r.n || 0), Number(r.contratado || 0)))
+
+  // Tags: sem tabela, sem bloco. A ausência não é erro — a maioria dos usuários
+  // nunca etiquetou nada, e a tela precisa continuar de pé.
+  let tags: FatiaGasto[] = []
+  let semTag = { total: 0, pct: 0, lancamentos: 0 }
+  try {
+    const tg = await db.prepare(
+      `SELECT t.nome as nome,
+              COALESCE(SUM(d.valor), 0) as total,
+              COUNT(*) as n,
+              COALESCE(SUM(CASE WHEN d.parcelado = 1 OR COALESCE(d.numero_parcelas,1) > 1
+                                  OR d.recorrencia_id IS NOT NULL THEN d.valor ELSE 0 END), 0) as contratado
+       FROM despesas d
+       JOIN despesa_tags dt ON dt.despesa_id = d.id
+       JOIN tags t ON t.id = dt.tag_id
+       WHERE ${escopo}
+       GROUP BY t.nome
+       ORDER BY total DESC`
+    ).bind(userId, ...chaves).all()
+    tags = ((tg.results as any[]) || []).map(r =>
+      fatia(String(r.nome), Number(r.total || 0), Number(r.n || 0), Number(r.contratado || 0)))
+
+    const st = await db.prepare(
+      `SELECT COALESCE(SUM(d.valor), 0) as total, COUNT(*) as n
+       FROM despesas d
+       WHERE ${escopo}
+         AND NOT EXISTS (SELECT 1 FROM despesa_tags dt WHERE dt.despesa_id = d.id)`
+    ).bind(userId, ...chaves).first() as any
+    const stTotal = cent(st?.total)
+    semTag = {
+      total: stTotal, lancamentos: Number(st?.n || 0),
+      pct: total > 0 ? Math.round((stTotal / total) * 1000) / 10 : 0,
+    }
+  } catch (e) {
+    tags = []
+  }
+
+  // ── Nomes que são o mesmo assunto ─────────────────────────────────────────
+  // Sem acento, sem caixa, sem plural: "Financiamento" e "Financiamentos"
+  // caem na mesma chave. Não juntamos os valores por conta própria — só
+  // apontamos, porque quem decide se são a mesma coisa é o dono da conta.
+  const raiz = (s: string) => s
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .map(p => p.replace(/(oes|aes|ns|s)$/, ''))
+    .join(' ')
+
+  const grupos = new Map<string, Array<{ nome: string; total: number }>>()
+  for (const c of categorias) {
+    const k = raiz(c.nome)
+    if (!k) continue
+    if (!grupos.has(k)) grupos.set(k, [])
+    grupos.get(k)!.push({ nome: c.nome, total: c.total })
+  }
+  const duplicadas = [...grupos.values()]
+    .filter(g => g.length > 1)
+    .map(g => ({ nomes: g.sort((a, b) => b.total - a.total), total: cent(g.reduce((s, x) => s + x.total, 0)) }))
+    .sort((a, b) => b.total - a.total)
+
+  const top3 = categorias.slice(0, 3).reduce((s, c) => s + c.total, 0)
+
+  return {
+    meses: nMeses,
+    periodo: janela.meses.length
+      ? `${janela.meses[0].label} a ${janela.meses[janela.meses.length - 1].label}`
+      : '',
+    total,
+    media_mensal: cent(total / nMeses),
+    categorias,
+    tags,
+    sem_tag: semTag,
+    duplicadas,
+    top3_pct: total > 0 ? Math.round((top3 / total) * 1000) / 10 : 0,
+  }
+}

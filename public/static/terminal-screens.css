@@ -1538,3 +1538,42 @@
   .pj-ev { grid-template-columns: 74px 10px minmax(0, 1fr); row-gap: 6px; }
   .pj-ev__val { grid-column: 3; justify-self: start; }
 }
+
+/* ── Projeção · Para onde o dinheiro está indo ─────────────────────────────
+   O toggle Categorias/Tags vive no cabeçalho do painel, não acima das barras:
+   ele troca a leitura inteira (denominador, rótulo e rodapé), não ordena uma
+   lista. Quem lê precisa ver que mudou de pergunta, não de ordenação. */
+.pj-gs__toggle { display: flex; gap: 7px; flex-shrink: 0; }
+/* O cabeçalho do painel desmonta qualquer <button> que não seja .ds-btn (é o
+   estilo do "ver todos"). Esta regra precisa de três classes para vencer
+   aquele seletor — senão o toggle chega aqui sem borda e sem fundo. */
+.td-panel__head .pj-gs__toggle .pj-sim__b { flex: 0 0 auto; padding: 8px 14px;
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  background: var(--terminal-bg); color: var(--terminal-ink-soft);
+  font: 600 12px/1 var(--terminal-font); cursor: pointer; }
+.td-panel__head .pj-gs__toggle .pj-sim__b.is-on { color: var(--terminal-primary);
+  border-color: var(--terminal-primary-line); background: rgba(61,220,132,.1); }
+.pj-gs__barras { margin-top: var(--ds-4); }
+/* A faixa clara é o pedaço já contratado da categoria — parcela ou
+   recorrência. Fica POR CIMA da barra cheia, ancorada à esquerda, para dizer
+   "desta fatia, esta parte não responde a decisão deste mês". */
+.pj-barra__trilho { position: relative; }
+.pj-barra__fixo { position: absolute; left: 0; top: 0; height: 100%;
+  border-radius: 3px 0 0 3px;
+  background: repeating-linear-gradient(135deg,
+    rgba(0,0,0,.42) 0 3px, rgba(0,0,0,0) 3px 7px); }
+.pj-gs__resto { display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--ds-3); padding-top: var(--ds-3); margin-top: 2px;
+  border-top: 1px dashed var(--terminal-line); font-size: 12.5px;
+  color: var(--terminal-ink-soft); }
+.pj-gs__resto b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--terminal-ink); }
+
+/* "não fecha" precisa ser tão visível quanto um prazo bom — é a leitura que
+   mais muda uma decisão. */
+.pj-sim__res b.is-bad { color: var(--terminal-negative); }
+
+@media (max-width: 860px) {
+  .pj-gs__toggle { width: 100%; margin-top: var(--ds-3); }
+  .td-panel__head .pj-gs__toggle .pj-sim__b { flex: 1; }
+  .td-panel__head { flex-wrap: wrap; }
+}

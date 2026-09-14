@@ -3,7 +3,7 @@ import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada
 import {
   janelaHistorica, renda as calcRenda, dividas as calcDividas, prestacoes as calcPrestacoes,
   comprometimento as calcComprometimento, patrimonio as calcPatrimonio, reserva as calcReserva,
-  score as calcScore,
+  score as calcScore, gastos as calcGastos,
 } from '../lib/metricas'
 import { requireAuth } from './auth'
 
@@ -644,11 +644,19 @@ projecao.get('/', requireAuth, async (c) => {
     nota: 'Os 30% são uma referência, não uma regra. O que decide é quanto sobra em reais depois das prestações.',
   }
 
+  // ── Para onde o dinheiro está indo ────────────────────────────────────────
+  // O retrato diz quanto sobra; o plano, como sair da dívida. Faltava a
+  // pergunta que vem antes das duas: em que o dinheiro foi parar. Categoria
+  // (o mapa oficial, fecha com o total) e tag (o corte transversal, não fecha
+  // — a mesma despesa pode ter duas).
+  const gastosJanela = await calcGastos(c.env.DB, user.id, janela)
+
   return c.json({
     historico: meses,
     explicacoes,
     // ── O retrato, novo ──────────────────────────────────────────────────────
     balanco,
+    gastos: gastosJanela,
     endividamento,
     plano_quitacao,
     calendario: eventos,

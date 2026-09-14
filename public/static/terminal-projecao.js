@@ -21,7 +21,7 @@
       document.body.classList.add('terminal-dashboard-active')
       content.innerHTML = '<div class="td-loading"><span></span><span></span><span></span></div>'
       try {
-        const d = await vm.api('GET', `projecao?meses=12${this._extra ? '&extra=' + this._extra : ''}`)
+        const d = await vm.api('GET', 'projecao?meses=12')
         if (d && d.upgrade) return void (content.innerHTML = this._shell(this._upsell(d)))
         this._d = d
         this._paint()
@@ -42,14 +42,23 @@
         ${this._indice()}
         ${this._comoLer(d)}
         <div id="pj-retrato">${this._retrato(d, b)}</div>
+        <div id="pj-gastos">${this._gastos(d)}</div>
         <div id="pj-dividas">${this._endividamento(d)}</div>
         <div id="pj-plano">${this._plano(d)}</div>
         <div id="pj-futuro">${this._futuro(d)}</div>
       `)
+      // O plano nasce com os alvos vazios: quem os preenche é a simulação do
+      // cliente, a mesma que roda a cada tecla. Uma função, um resultado.
+      this._planoLive()
     },
 
     _indice() {
-      const alvos = [['pj-retrato', 'Retrato'], ['pj-dividas', 'Dívidas'], ['pj-plano', 'Plano'], ['pj-futuro', 'Futuro']]
+      // Sem gasto categorizado na janela, a seção não é renderizada — o atalho
+      // para ela também não pode existir, senão leva a lugar nenhum.
+      const temGastos = !!(this._d?.gastos?.categorias?.length)
+      const alvos = [['pj-retrato', 'Retrato'],
+        ...(temGastos ? [['pj-gastos', 'Gastos']] : []),
+        ['pj-dividas', 'Dívidas'], ['pj-plano', 'Plano'], ['pj-futuro', 'Futuro']]
       return `<nav class="pj-indice">
         <span class="pj-indice__lbl">Ir para</span>
         ${alvos.map(([id, nome]) => `<button type="button" class="pj-indice__b" onclick="VMTerminalProjecao.irPara('${id}')">${nome}</button>`).join('')}
@@ -218,14 +227,160 @@
       return `O peso está em <b>${esc(maior.nome)}</b>: ${p}% de tudo que você paga em prestação. É ali que uma decisão sua muda o número.`
     },
 
+    // ── Para onde o dinheiro está indo ───────────────────────────────────────
+    //
+    // Duas leituras da mesma janela, porque respondem a coisas diferentes:
+    // categoria é o mapa oficial (obrigatória, uma por despesa, a soma fecha
+    // com o total); tag é o corte transversal (opcional, múltipla, a soma NÃO
+    // fecha e não é fatia de bolo). Misturar as duas na mesma barra seria
+    // mentir sobre o denominador — por isso o botão troca a leitura inteira,
+    // rótulo, nota de rodapé e tudo.
+    _gastos(d) {
+      const g = d.gastos
+      if (!g || !g.categorias || !g.categorias.length) return ''
+      const modo = this._modoGasto || 'categorias'
+      const lista = modo === 'tags' ? (g.tags || []) : g.categorias
+      const rendaM = Number(d.balanco?.renda?.mensal) || 0
+
+      const cabeca = `<div class="td-panel__head">
+        <div><span class="td-eyebrow">Em que foi parar</span>
+          <h2>Para onde o dinheiro está indo</h2></div>
+        <div class="pj-gs__toggle">
+          <button type="button" class="pj-sim__b ${modo === 'categorias' ? 'is-on' : ''}"
+                  onclick="VMTerminalProjecao.mudarModoGasto('categorias')">Categorias</button>
+          <button type="button" class="pj-sim__b ${modo === 'tags' ? 'is-on' : ''}"
+                  onclick="VMTerminalProjecao.mudarModoGasto('tags')">Tags</button>
+        </div>
+      </div>`
+
+      if (modo === 'tags' && !lista.length) {
+        return `<article class="td-panel pj-sec">
+          ${cabeca}
+          <div class="ds-note ds-note--info pj-nota">
+            <i class="fas fa-tag ds-note__ico"></i>
+            <div><b>Você ainda não etiquetou nenhuma despesa.</b> A categoria responde
+              “que tipo de gasto é este”. A tag responde outra pergunta, que categoria
+              nenhuma alcança: <i>quanto custou a mudança</i>, <i>quanto custou o carro</i>,
+              <i>quanto foi de viagem</i> — atravessando categorias diferentes.
+              Marque algumas despesas com a mesma etiqueta e o total aparece aqui.</div>
+          </div>
+        </article>`
+      }
+
+      const maior = Math.max(...lista.map(x => Number(x.total) || 0), 1)
+      const visiveis = lista.slice(0, 8)
+      const resto = lista.slice(8)
+      const restoTotal = resto.reduce((s, x) => s + (Number(x.total) || 0), 0)
+
+      const barra = (x) => {
+        const t = Number(x.total) || 0
+        const contratado = Number(x.contratado) || 0
+        const pctContratado = t > 0 ? (contratado / t) * 100 : 0
+        return `<div>
+          <div class="pj-barra__top">
+            <span>${esc(x.nome)} <span class="pj-fraco">· ${x.lancamentos} ${x.lancamentos === 1 ? 'lançamento' : 'lançamentos'}</span></span>
+            <b>${money(x.media)}<span class="pj-fraco">/mês</span> · ${pct(x.pct)}</b>
+          </div>
+          <div class="pj-barra__trilho" title="${esc(x.nome)}: ${money(t)} em ${g.meses} meses">
+            <span style="width:${(t / maior) * 100}%;background:var(--terminal-accent)"></span>
+            ${pctContratado >= 8 ? `<span class="pj-barra__fixo" style="width:${(t / maior) * pctContratado}%"></span>` : ''}
+          </div>
+        </div>`
+      }
+
+      const dup = (g.duplicadas || [])[0]
+
+      return `<article class="td-panel pj-sec">
+        ${cabeca}
+        <p class="pj-fonte">${esc(g.periodo)} · ${g.meses} ${g.meses === 1 ? 'mês fechado' : 'meses fechados'} ·
+          ${money(g.media_mensal)} por mês em média${rendaM > 0 ? `, ou ${pct((g.media_mensal / rendaM) * 100)} do que entra` : ''}.
+          O mês em curso fica de fora: ele ainda não terminou.</p>
+
+        ${modo === 'categorias' && dup ? `<div class="ds-note ds-note--warn pj-nota">
+          <i class="fas fa-triangle-exclamation ds-note__ico"></i>
+          <div><b>${dup.nomes.map(n => `“${esc(n.nome)}”`).join(' e ')} são o mesmo assunto escrito de dois jeitos.</b>
+            Enquanto forem duas categorias, esse gasto aparece partido —
+            ${dup.nomes.map(n => money(n.total)).join(' de um lado, ')} do outro, quando na verdade é
+            ${money(dup.total)}. Junte as duas em Despesas e este ranking passa a valer.</div>
+        </div>` : ''}
+
+        <div class="pj-barras pj-gs__barras">
+          ${visiveis.map(barra).join('')}
+          ${resto.length ? `<div class="pj-gs__resto">
+            <span>+ ${resto.length} ${modo === 'tags' ? (resto.length === 1 ? 'outra etiqueta' : 'outras etiquetas') : (resto.length === 1 ? 'outra categoria' : 'outras categorias')}</span>
+            <b>${money(restoTotal / g.meses)}<span class="pj-fraco">/mês</span></b>
+          </div>` : ''}
+        </div>
+
+        ${modo === 'categorias'
+          ? `<p class="pj-nota-txt">As três maiores categorias levam <b>${pct(g.top3_pct)}</b> de tudo que sai.
+              A faixa clara dentro da barra é a parte já contratada — parcela ou recorrência — que não muda
+              com decisão deste mês.${g.categorias.some(c => c.nome === 'Sem categoria')
+                ? ' Há gasto sem categoria: enquanto existir, o ranking está incompleto.' : ''}</p>`
+          : `<p class="pj-nota-txt">Etiqueta não é fatia de bolo: a mesma despesa pode levar duas, então
+              estes valores se sobrepõem e <b>não somam o total</b>. Leia cada linha sozinha —
+              “quanto custou isto”, não “que porcentagem do meu dinheiro é isto”.
+              ${(g.sem_tag && g.sem_tag.pct > 0) ? `Hoje ${pct(g.sem_tag.pct)} do gasto não tem etiqueta nenhuma.` : ''}</p>`}
+      </article>`
+    },
+
+    mudarModoGasto(m) {
+      this._modoGasto = m
+      const alvo = document.getElementById('pj-gastos')
+      if (alvo) alvo.innerHTML = this._gastos(this._d)
+    },
+
     // ── Plano de quitação ────────────────────────────────────────────────────
+    //
+    // A simulação roda AQUI, no navegador, a cada tecla. É aritmética sobre uma
+    // lista que já veio no payload — não há nada para perguntar ao servidor, e
+    // fazer a viagem só para refazer a mesma conta obrigava o usuário a apertar
+    // Enter e ainda tirava o cursor do campo. O campo agora nunca é
+    // re-renderizado: só os três pedaços que dependem dele.
+    _simular(dividas, ordem, extra) {
+      const r2 = (v) => Math.round(v * 100) / 100
+      const fila = (dividas || []).map(a => ({
+        nome: a.nome, saldo: Number(a.saldo) || 0,
+        parcela: Number(a.parcela) || 0, taxa: Number(a.taxa) || 0,
+      }))
+      fila.sort((a, b) => ordem === 'neve' ? a.saldo - b.saldo : (b.taxa - a.taxa) || (a.saldo - b.saldo))
+      let mes = 0, juros = 0, pago = 0
+      let rolo = Math.max(0, Number(extra) || 0)
+      const quitacoes = []
+      const TETO = 600
+      while (fila.some(f => f.saldo > 0.01) && mes < TETO) {
+        mes++
+        let sobra = rolo
+        for (const f of fila) {
+          if (f.saldo <= 0.01) continue
+          const j = r2(f.saldo * (f.taxa / 100))
+          juros += j
+          let pagamento = f.parcela
+          if (sobra > 0) { pagamento += sobra; sobra = 0 }
+          const devido = f.saldo + j
+          const efetivo = Math.min(pagamento, devido)
+          pago += efetivo
+          f.saldo = r2(devido - efetivo)
+          if (f.saldo <= 0.01) {
+            f.saldo = 0
+            quitacoes.push({ nome: f.nome, mes })
+            rolo += f.parcela   // a parcela de quem terminou passa para o próximo
+          }
+        }
+      }
+      return {
+        meses: mes, juros: r2(juros), total_pago: r2(pago), quitacoes,
+        // Quem RECEBE o esforço extra — não quem termina primeiro, que costuma
+        // ser outro por causa do rolo da parcela.
+        alvo: fila.length ? fila[0].nome : null,
+        estourou: mes >= TETO,
+      }
+    },
+
     _plano(d) {
       const p = d.plano_quitacao || {}
       if (!p.bola_de_neve) return ''
-      const est = this._estrategia || 'neve'
-      const sim = est === 'neve' ? p.bola_de_neve : p.avalanche
-      const sem = p.sem_esforco_extra
-      const divs = (p.dividas || []).slice().sort((a, b) => est === 'neve' ? a.saldo - b.saldo : (b.taxa - a.taxa) || (a.saldo - b.saldo))
+      const extra = Number(this._extra) || 0
 
       return `<article class="td-panel pj-sec">
         <div class="td-panel__head"><div><span class="td-eyebrow">Como sair</span>
@@ -237,60 +392,125 @@
             <div class="pj-sim__campo">
               <span>R$</span>
               <input id="pj-extra" type="number" min="0" step="50" inputmode="decimal"
-                     value="${Number(p.extra) || 0}" onchange="VMTerminalProjecao.mudarExtra(this.value)">
+                     value="${extra || ''}" placeholder="0"
+                     oninput="VMTerminalProjecao.mudarExtra(this.value)">
             </div>
             <div class="pj-sim__toggle">
-              <button type="button" class="pj-sim__b ${est === 'neve' ? 'is-on' : ''}" onclick="VMTerminalProjecao.mudarEstrategia('neve')">Bola de neve</button>
-              <button type="button" class="pj-sim__b ${est === 'avalanche' ? 'is-on' : ''}" onclick="VMTerminalProjecao.mudarEstrategia('avalanche')">Avalanche</button>
+              <button type="button" id="pj-b-neve" class="pj-sim__b" onclick="VMTerminalProjecao.mudarEstrategia('neve')">Bola de neve</button>
+              <button type="button" id="pj-b-aval" class="pj-sim__b" onclick="VMTerminalProjecao.mudarEstrategia('avalanche')">Avalanche</button>
             </div>
-            <p class="pj-nota-txt">${est === 'neve'
-              ? 'Ataca o menor saldo primeiro: a primeira vitória vem rápido.'
-              : 'Ataca o maior juro primeiro: paga menos juro no total.'}</p>
+            <p class="pj-nota-txt" id="pj-plano-modo"></p>
           </div>
-          <div class="pj-sim__res">
-            <div><span>Livre da dívida de consumo</span><b class="is-ok">${sim.meses} ${sim.meses === 1 ? 'mês' : 'meses'}</b></div>
-            ${sem && sem.meses !== sim.meses ? `<div><span>Sem o esforço extra</span><b>${sem.meses} meses</b></div>` : ''}
-            ${sim.juros > 0 ? `<div><span>Juros até o fim</span><b>${money(sim.juros)}</b></div>` : ''}
-            <div><span>Folga liberada quando acabar</span><b class="is-ok">${money(p.parcela_alvo)}/mês</b></div>
-          </div>
+          <div class="pj-sim__res" id="pj-plano-res"></div>
         </div>
 
-        ${p.concordam ? `<div class="ds-note ds-note--ok pj-nota">
-          <i class="fas fa-circle-check ds-note__ico"></i>
-          <div><b>As duas estratégias apontam para o mesmo lugar.</b> ${esc(p.alvo_neve || '')} é ao mesmo
-            tempo o menor saldo e o maior juro — atacar essa dívida primeiro não tem contrapartida.</div>
-        </div>` : `<div class="ds-note ds-note--info pj-nota">
-          <i class="fas fa-circle-info ds-note__ico"></i>
-          <div>A bola de neve ataca <b>${esc(p.alvo_neve || '—')}</b>; a avalanche, <b>${esc(p.alvo_avalanche || '—')}</b>.
-            A diferença de juros entre os dois caminhos é ${money(Math.abs((p.bola_de_neve?.juros || 0) - (p.avalanche?.juros || 0)))}.</div>
-        </div>`}
+        <div id="pj-plano-nota"></div>
 
         <div class="ds-tablewrap">
           <table class="ds-table">
             <thead><tr><th>Dívida</th><th class="pj-tar">Saldo</th><th class="pj-tar">Juro a.m.</th>
               <th class="pj-tar">Parcela</th><th class="pj-tar">Quita em</th></tr></thead>
-            <tbody>
-              ${divs.map((x, i) => {
-                const q = (sim.quitacoes || []).find(k => k.nome === x.nome)
-                return `<tr>
-                  <td><span class="pj-ordem">${i + 1}</span>${esc(x.nome)}</td>
-                  <td class="pj-tar">${money(x.saldo)}</td>
-                  <td class="pj-tar">${pct(x.taxa, 2)}</td>
-                  <td class="pj-tar">${money(x.parcela)}</td>
-                  <td class="pj-tar">${q ? `mês ${q.mes}` : '—'}</td>
-                </tr>`
-              }).join('')}
-            </tbody>
+            <tbody id="pj-plano-tb"></tbody>
           </table>
         </div>
       </article>`
     },
 
-    mudarEstrategia(e) { this._estrategia = e; this._paint() },
+    /**
+     * Recalcula e reescreve SÓ o que depende do valor digitado. O <input> não
+     * é tocado — é isso que preserva o cursor, a seleção e o que a pessoa está
+     * no meio de digitar.
+     */
+    _planoLive() {
+      const d = this._d
+      if (!d) return
+      const p = d.plano_quitacao || {}
+      if (!p.bola_de_neve) return
+      const alvoRes = document.getElementById('pj-plano-res')
+      if (!alvoRes) return
+
+      const est = this._estrategia || 'neve'
+      const extra = Number(this._extra) || 0
+      const lista = p.dividas || []
+
+      const sim = this._simular(lista, est, extra)
+      const outra = this._simular(lista, est === 'neve' ? 'avalanche' : 'neve', extra)
+      const sem = this._simular(lista, est, 0)
+      const neve = est === 'neve' ? sim : outra
+      const aval = est === 'neve' ? outra : sim
+      const concordam = !!(neve.alvo && neve.alvo === aval.alvo)
+
+      const nunca = sim.estourou
+      const prazo = nunca
+        ? '<b class="is-bad">não fecha</b>'
+        : `<b class="is-ok">${sim.meses} ${sim.meses === 1 ? 'mês' : 'meses'}</b>`
+      const economia = sem.meses - sim.meses
+
+      alvoRes.innerHTML = `
+        <div><span>Livre da dívida de consumo</span>${prazo}</div>
+        ${(!nunca && extra > 0 && economia > 0)
+          ? `<div><span>Sem esses ${money(extra)}/mês</span><b>${sem.meses} meses <span class="pj-fraco">(${economia} a mais)</span></b></div>`
+          : ''}
+        ${sim.juros > 0 ? `<div><span>Juros até o fim</span><b>${money(sim.juros)}</b></div>` : ''}
+        <div><span>Folga liberada quando acabar</span><b class="is-ok">${money(p.parcela_alvo)}/mês</b></div>`
+
+      const modo = document.getElementById('pj-plano-modo')
+      if (modo) modo.innerHTML = est === 'neve'
+        ? 'Ataca o menor saldo primeiro: a primeira vitória vem rápido.'
+        : 'Ataca o maior juro primeiro: paga menos juro no total.'
+
+      const bn = document.getElementById('pj-b-neve'), ba = document.getElementById('pj-b-aval')
+      if (bn) bn.classList.toggle('is-on', est === 'neve')
+      if (ba) ba.classList.toggle('is-on', est === 'avalanche')
+
+      const nota = document.getElementById('pj-plano-nota')
+      if (nota) {
+        nota.innerHTML = nunca
+          ? `<div class="ds-note ds-note--warn pj-nota">
+              <i class="fas fa-triangle-exclamation ds-note__ico"></i>
+              <div><b>Nesse ritmo a dívida não fecha.</b> O juro do mês come a parcela antes de o
+                saldo cair. É o caso em que qualquer valor a mais aqui em cima muda o desfecho —
+                experimente.</div>
+            </div>`
+          : concordam
+          ? `<div class="ds-note ds-note--ok pj-nota">
+              <i class="fas fa-circle-check ds-note__ico"></i>
+              <div><b>As duas estratégias apontam para o mesmo lugar.</b> ${esc(neve.alvo || '')} é ao
+                mesmo tempo o menor saldo e o maior juro — atacar essa dívida primeiro não tem
+                contrapartida.</div>
+            </div>`
+          : `<div class="ds-note ds-note--info pj-nota">
+              <i class="fas fa-circle-info ds-note__ico"></i>
+              <div>A bola de neve ataca <b>${esc(neve.alvo || '—')}</b>; a avalanche,
+                <b>${esc(aval.alvo || '—')}</b>. A diferença de juros entre os dois caminhos é
+                ${money(Math.abs(neve.juros - aval.juros))}.</div>
+            </div>`
+      }
+
+      const tb = document.getElementById('pj-plano-tb')
+      if (tb) {
+        const divs = lista.slice().sort((a, b) => est === 'neve'
+          ? a.saldo - b.saldo : (b.taxa - a.taxa) || (a.saldo - b.saldo))
+        tb.innerHTML = divs.map((x, i) => {
+          const q = (sim.quitacoes || []).find(k => k.nome === x.nome)
+          return `<tr>
+            <td><span class="pj-ordem">${i + 1}</span>${esc(x.nome)}</td>
+            <td class="pj-tar">${money(x.saldo)}</td>
+            <td class="pj-tar">${pct(x.taxa, 2)}</td>
+            <td class="pj-tar">${money(x.parcela)}</td>
+            <td class="pj-tar">${q ? `mês ${q.mes}` : '—'}</td>
+          </tr>`
+        }).join('')
+      }
+    },
+
+    mudarEstrategia(e) { this._estrategia = e; this._planoLive() },
+
+    /** A cada tecla. Sem ida ao servidor, sem repintar a tela, sem perder o cursor. */
     mudarExtra(v) {
       const n = Math.max(0, parseFloat(v) || 0)
       this._extra = n
-      this.reload()
+      this._planoLive()
     },
 
     // ── 4 · Para onde isso vai ───────────────────────────────────────────────
