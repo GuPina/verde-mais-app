@@ -106,3 +106,64 @@ export function somarMeses(dataISO: string, meses: number): string {
   const d = String(alvo.getDate()).padStart(2, '0')
   return `${a}-${m}-${d}`
 }
+
+/**
+ * A fatura da parcela N de uma compra parcelada.
+ *
+ * ── O DEFEITO QUE ISTO CORRIGE ──────────────────────────────────────────────
+ *
+ * Todos os geradores de parcela do app faziam a mesma coisa:
+ *
+ *     faturaDaCompra(somarMeses(dataCompra, i), fechamento, vencimento)
+ *
+ * — ou seja, cada parcela recalculava a PRÓPRIA fatura, do zero, a partir da
+ * própria data. Parece equivalente a "uma parcela por fatura" e não é, porque
+ * as duas funções envolvidas fazem clamp em momentos diferentes:
+ *
+ *   • somarMeses trava a DATA no último dia do mês curto (28/01 + 1 = 28/02),
+ *   • periodoFatura trava o DIA DE FECHAMENTO no último dia daquele mês.
+ *
+ * Quando os dois clamps se cruzam, duas parcelas consecutivas caem na mesma
+ * fatura — e o mês seguinte fica sem parcela nenhuma. Exemplo real, varrido
+ * sobre todas as combinações de dia de compra × dia de fechamento:
+ *
+ *     compra 28/01/2025, cartão fecha dia 29
+ *     parcela 14 → 28/02/2026 · fechamento travado em 28 · 28 >= 28 → mar/2026
+ *     parcela 15 → 28/03/2026 · fechamento 29        · 28 <  29 → mar/2026
+ *
+ * Duas parcelas em março, zero em abril. Na tela: "tenho duas compras iguais
+ * no mesmo mês". Acontece em faturas de março, maio, julho, outubro e
+ * dezembro — sempre o mês seguinte a um mês curto.
+ *
+ * ── A REGRA CERTA ───────────────────────────────────────────────────────────
+ *
+ * Uma compra em 12x aparece em 12 faturas CONSECUTIVAS. Sempre. É assim em
+ * qualquer banco, e é o que o usuário espera: parcela 1 na fatura X, parcela 2
+ * na X+1, sem exceção.
+ *
+ * Então a fatura da parcela não se recalcula: ela se conta. A compra define a
+ * primeira fatura; a parcela N entra N meses depois daquela. O clamp de data
+ * continua existindo para a data da parcela — que é informação real e vai para
+ * `card_charges.data_compra` —, mas deixou de mandar na fatura.
+ *
+ * Isto também imuniza a série contra uma mudança no ciclo do cartão: se o dia
+ * de fechamento muda no meio de um parcelamento, as parcelas continuam uma por
+ * fatura, em vez de se empilharem na emenda entre o ciclo velho e o novo.
+ */
+export function faturaDaParcela(
+  dataCompra: string, diaFechamento: number, diaVencimento: number, indice: number,
+): { mes: number; ano: number; vencimento: string; data_parcela: string } {
+  const base = periodoFatura(dataCompra, diaFechamento)
+
+  let mes = base.mes + Math.max(0, Math.trunc(Number(indice) || 0))
+  let ano = base.ano + Math.floor((mes - 1) / 12)
+  mes = ((mes - 1) % 12) + 1
+
+  return {
+    mes, ano,
+    vencimento: vencimentoFatura(mes, ano, diaVencimento, diaFechamento),
+    // A data da parcela continua sendo a data real deslocada, com clamp: é ela
+    // que o extrato mostra e que o usuário reconhece.
+    data_parcela: somarMeses(dataCompra, Math.max(0, Math.trunc(Number(indice) || 0))),
+  }
+}

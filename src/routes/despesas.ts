@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
-import { faturaDaCompra, somarMeses } from '../lib/fatura'
+import { faturaDaCompra, faturaDaParcela, somarMeses } from '../lib/fatura'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -518,9 +518,14 @@ despesas.post('/', requireAuth, async (c) => {
 
   const parcelaInicialLabel = totalParcelasLabel - totalParcelas + 1
   for (let i = 0; i < totalParcelas; i++) {
-    // setMonth() transborda em dia 29/30/31 e pulava um mês inteiro —
-    // ver somarMeses() em src/lib/fatura.ts.
-    const dataParcela = somarMeses(dataISO, i)
+    // A fatura desta parcela SEGUE A SÉRIE: parcela N entra N faturas depois
+    // da primeira. Recalcular a fatura a partir da data deslocada empilhava
+    // duas parcelas na mesma fatura e deixava o mês seguinte vazio — ver
+    // faturaDaParcela() em src/lib/fatura.ts.
+    const fParcela = cartaoInfo
+      ? faturaDaParcela(dataISO, cartaoInfo.dia_fechamento, cartaoInfo.dia_vencimento, i)
+      : null
+    const dataParcela = fParcela ? fParcela.data_parcela : somarMeses(dataISO, i)
     const parcelaAtualLabel = parcelaInicialLabel + i
     // A última parcela absorve a diferença do arredondamento.
     const valorDestaParcela = (i === totalParcelas - 1)
@@ -532,11 +537,8 @@ despesas.post('/', requireAuth, async (c) => {
     let bYear:  number | null = null
     let dataVenc: string | null = vencimento || null
 
-    if (cartaoInfo) {
-      // Este bloco tinha o algoritmo de cartoes.ts redigitado à mão, sem o
-      // clamp do dia de fechamento — ver src/lib/fatura.ts.
-      const f = faturaDaCompra(dataParcela, cartaoInfo.dia_fechamento, cartaoInfo.dia_vencimento)
-      bMonth = f.mes; bYear = f.ano; dataVenc = f.vencimento
+    if (fParcela) {
+      bMonth = fParcela.mes; bYear = fParcela.ano; dataVenc = fParcela.vencimento
     }
 
     // ── Campo 'data' da despesa ─────────────────────────────────────────────────

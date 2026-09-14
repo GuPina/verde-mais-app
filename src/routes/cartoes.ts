@@ -5,7 +5,7 @@ import { limiteDoCartao, limitesDosCartoes } from '../lib/limite-cartao'
 const emReais = (v: number) =>
   `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 import { requireAuth } from './auth'
-import { faturaDaCompra, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
+import { faturaDaCompra, faturaDaParcela, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
 import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings  = { DB: D1Database }
@@ -792,13 +792,13 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
   const despesaIds:  number[] = []
 
   for (let i = 1; i <= nparcelas; i++) {
-    // Data da compra desta parcela: mês i-1 após a data original
-    // setMonth() transborda em dia 29/30/31 — ver somarMeses().
-    const parcelaDateStr = somarMeses(dataValidada.value, i - 1)
-
-    // Período de faturamento calculado pelo fechamento do cartão
-    const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+    // A fatura da parcela SEGUE A SÉRIE — ela não se recalcula a partir
+    // da data deslocada. Recalcular empilhava duas parcelas na mesma
+    // fatura e deixava o mês seguinte vazio; ver faturaDaParcela().
+    const fp = faturaDaParcela(dataValidada.value, cartao.dia_fechamento, cartao.dia_vencimento, i - 1)
+    const parcelaDateStr = fp.data_parcela
+    const bMonth = fp.mes, bYear = fp.ano
+    const dataVenc = fp.vencimento
     const descParcela = nparcelas > 1 ? `${descricaoValidada.value} (${i}/${nparcelas})` : descricaoValidada.value
 
     // CORREÇÃO: campo 'data' deve ser dataVenc (data de vencimento da fatura),
@@ -905,11 +905,13 @@ cartoes.post('/:id/compra-retroativa', requireAuth, async (c) => {
   // - Parcelas passadas (já pagas): status='pago', sem afetar limite
   // - Parcelas restantes: status='pendente', afetam limite
   for (let i = 1; i <= nparcelas; i++) {
-    // setMonth() transborda em dia 29/30/31 — ver somarMeses().
-    const parcelaDateStr = somarMeses(dataValidada.value, i - 1)
-
-    const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc    = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+    // A fatura da parcela SEGUE A SÉRIE — não se recalcula a partir da data
+    // deslocada. Recalcular empilhava duas parcelas na mesma fatura e
+    // deixava o mês seguinte vazio; ver faturaDaParcela().
+    const fp = faturaDaParcela(dataValidada.value, cartao.dia_fechamento, cartao.dia_vencimento, i - 1)
+    const parcelaDateStr = fp.data_parcela
+    const bMonth = fp.mes, bYear = fp.ano
+    const dataVenc    = fp.vencimento
     const isPaid      = i <= jaPagas
     const statusParcela = isPaid ? 'pago' : 'pendente'
     const descParcela = `${descricaoValidada.value} (${i}/${nparcelas})`
@@ -1363,10 +1365,13 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
   const ids: number[] = []
 
   for (let i = 1; i <= nparcelas; i++) {
-    // setMonth() transborda em dia 29/30/31 — ver somarMeses().
-    const parcelaDateStr = somarMeses(dataValidada.value, i - 1)
-    const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+    // A fatura da parcela SEGUE A SÉRIE — não se recalcula a partir da
+    // data deslocada. Recalcular empilhava duas parcelas na mesma fatura
+    // e deixava o mês seguinte vazio; ver faturaDaParcela().
+    const fp = faturaDaParcela(dataValidada.value, cartao.dia_fechamento, cartao.dia_vencimento, i - 1)
+    const parcelaDateStr = fp.data_parcela
+    const bMonth = fp.mes, bYear = fp.ano
+    const dataVenc = fp.vencimento
     const desc     = nparcelas > 1 ? `${descricaoValidada.value} (${i}/${nparcelas})` : descricaoValidada.value
 
     const dr = await c.env.DB.prepare(
@@ -1443,10 +1448,13 @@ cartoes.post('/:id/lancamentos-retroativos', requireAuth, async (c) => {
   const ids: number[] = []
 
   for (let i = 1; i <= nparcelas; i++) {
-    // setMonth() transborda em dia 29/30/31 — ver somarMeses().
-    const parcelaDateStr = somarMeses(dataValidada.value, i - 1)
-    const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-    const dataVenc   = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+    // A fatura da parcela SEGUE A SÉRIE — não se recalcula a partir da data
+    // deslocada. Recalcular empilhava duas parcelas na mesma fatura e
+    // deixava o mês seguinte vazio; ver faturaDaParcela().
+    const fp = faturaDaParcela(dataValidada.value, cartao.dia_fechamento, cartao.dia_vencimento, i - 1)
+    const parcelaDateStr = fp.data_parcela
+    const bMonth = fp.mes, bYear = fp.ano
+    const dataVenc   = fp.vencimento
     const isPaid     = i <= jaPagas
     const desc       = `${descricaoValidada.value} (${i}/${nparcelas})`
 
@@ -1805,15 +1813,26 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
     const origem = String(primeira.data_compra).slice(0, 10)
     const nPrimeira = Number(primeira.parcela_atual) || 1
     for (const r of ord) {
-      // A data correta de cada parcela é a da primeira mais N meses, com o
-      // clamp — que é exatamente o que somarMeses() faz.
-      const esperada = somarMeses(origem, (Number(r.parcela_atual) || 1) - nPrimeira)
-      if (esperada !== String(r.data_compra).slice(0, 10)) {
-        const f = faturaDaCompra(esperada, r.dia_fechamento, r.dia_vencimento)
-        acoes.push({ charge_id: r.charge_id, expense_id: r.expense_id, motivo: 'data_da_parcela',
-          de: String(r.data_compra).slice(0, 10), para: esperada,
+      // A parcela N pertence à fatura N meses depois da primeira — e a data
+      // dela é a da primeira mais N meses, com clamp. As duas coisas saem de
+      // faturaDaParcela(), que é a mesma função que os geradores usam.
+      //
+      // Este laço só olhava a DATA e recalculava a fatura a partir dela. Era
+      // por isso que ele não consertava — e podia até criar — o caso de duas
+      // parcelas na mesma fatura: se a data já estava certa, ele não mexia na
+      // fatura errada.
+      const k = (Number(r.parcela_atual) || 1) - nPrimeira
+      const f = faturaDaParcela(origem, r.dia_fechamento, r.dia_vencimento, k)
+      const dataErrada = f.data_parcela !== String(r.data_compra).slice(0, 10)
+      const faturaErrada = Number(r.billing_month) !== f.mes
+        || Number(r.billing_year) !== f.ano
+        || String(r.data_vencimento || '').slice(0, 10) !== f.vencimento
+      if (dataErrada || faturaErrada) {
+        acoes.push({ charge_id: r.charge_id, expense_id: r.expense_id,
+          motivo: dataErrada ? 'data_da_parcela' : 'parcela_na_fatura_errada',
+          de: String(r.data_compra).slice(0, 10), para: f.data_parcela,
           fatura_de: `${r.billing_month}/${r.billing_year}`, fatura_para: `${f.mes}/${f.ano}`,
-          data_compra: esperada, ...f })
+          data_compra: f.data_parcela, mes: f.mes, ano: f.ano, vencimento: f.vencimento })
       }
     }
   }
@@ -1839,6 +1858,7 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
       success: true, simulacao: true, total: acoes.length,
       por_motivo: {
         data_da_parcela: acoes.filter(a => a.motivo === 'data_da_parcela').length,
+        parcela_na_fatura_errada: acoes.filter(a => a.motivo === 'parcela_na_fatura_errada').length,
         fatura_fora_do_ciclo: acoes.filter(a => a.motivo === 'fatura_fora_do_ciclo').length,
       },
       ignorados_importados: todas.filter(importado).length,
@@ -1867,6 +1887,159 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
     message: acoes.length
       ? `${acoes.length} lançamento(s) recolocado(s) na fatura certa.`
       : 'Nenhum lançamento estava fora da fatura correta.',
+  })
+})
+
+// ─── GET /api/cartoes/duplicatas ─────────────────────────────────────────────
+//
+// "Tenho duas compras iguais no mês de abril de 27, mas é a mesma compra."
+//
+// Era a única forma de descobrir isto: o usuário abrir a fatura e reparar. Não
+// havia relatório, não havia alerta, e o banco não tem constraint que impeça —
+// `card_charges` tem só PK e CHECKs, e seis lugares diferentes do código
+// inserem parcela. Este endpoint é o olho que faltava.
+//
+// Ele NÃO apaga nada. Separa em dois casos porque a correção é oposta:
+//
+//   EMPILHADA  duas parcelas seguidas da mesma compra na mesma fatura (6/12 e
+//              7/12 em abril). Nenhuma linha sobra — uma está no mês errado.
+//              Conserta-se recolocando, e `reparar-faturas` faz isso.
+//
+//   EM DOBRO   a mesma parcela gravada duas vezes (6/12 e 6/12). Aí uma linha
+//              é lixo de verdade: duplo clique no salvar, reimportação de CSV,
+//              lançamento repetido. Só sai com confirmação de quem lançou.
+cartoes.get('/duplicatas', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const r = await c.env.DB.prepare(
+    `SELECT cc.id as charge_id, cc.expense_id, cc.card_id, cc.descricao, cc.valor,
+            cc.data_compra, cc.data_vencimento, cc.billing_month, cc.billing_year,
+            cc.parcela_atual, cc.total_parcelas, cc.purchase_group_id, cc.status,
+            ct.nome as cartao, ct.dia_fechamento, ct.dia_vencimento
+     FROM card_charges cc
+     JOIN cartoes ct ON ct.id = cc.card_id
+     WHERE ct.user_id = ? AND cc.status != 'cancelado'
+     ORDER BY cc.billing_year, cc.billing_month, cc.id`
+  ).bind(user.id).all()
+  const todas = ((r.results as any[]) || [])
+
+  const fatura = (x: any) => `${x.billing_year}-${String(x.billing_month).padStart(2, '0')}`
+
+  // `reparar-faturas` ignora de propósito o que veio de importação: nessas
+  // linhas `data_compra` é o vencimento, não a compra, e recalcular o ciclo a
+  // partir dela daria lixo. Mas então o botão "recolocar na fatura certa" não
+  // faria nada — e botão que não faz nada é pior que botão que não existe.
+  // Por isso cada caso diz se o reparo alcança.
+  const importado = (x: any) =>
+    String(x.data_compra || '').slice(0, 10) === String(x.data_vencimento || '').slice(0, 10)
+
+  const empilhadas: any[] = []
+  const emDobro: any[] = []
+
+  // ── Empilhadas: mesmo grupo de compra, mesma fatura ───────────────────────
+  const porGrupoFatura = new Map<string, any[]>()
+  for (const x of todas) {
+    if (!x.purchase_group_id || !(Number(x.total_parcelas) > 1)) continue
+    const k = `${x.purchase_group_id}|${fatura(x)}`
+    if (!porGrupoFatura.has(k)) porGrupoFatura.set(k, [])
+    porGrupoFatura.get(k)!.push(x)
+  }
+  for (const itens of porGrupoFatura.values()) {
+    if (itens.length < 2) continue
+    const parcelas = itens.map(x => Number(x.parcela_atual) || 0)
+    const mesmaParcela = new Set(parcelas).size < parcelas.length
+    const alvo = mesmaParcela ? emDobro : empilhadas
+    alvo.push({
+      tipo: mesmaParcela ? 'em_dobro' : 'empilhada',
+      cartao: itens[0].cartao,
+      fatura: `${itens[0].billing_month}/${itens[0].billing_year}`,
+      descricao: String(itens[0].descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
+      valor_total: Math.round(itens.reduce((s, x) => s + (Number(x.valor) || 0), 0) * 100) / 100,
+      reparo_alcanca: !itens.some(importado),
+      parcelas: itens.map(x => ({
+        charge_id: x.charge_id, expense_id: x.expense_id,
+        rotulo: `${x.parcela_atual}/${x.total_parcelas}`,
+        valor: Number(x.valor) || 0,
+        data_compra: String(x.data_compra || '').slice(0, 10),
+      })),
+    })
+  }
+
+  // ── Em dobro: linhas gêmeas sem grupo em comum ────────────────────────────
+  // Mesmo cartão, mesma descrição, mesmo valor, mesma fatura, grupos
+  // diferentes (ou nenhum). É a assinatura de um lançamento repetido.
+  const porGemea = new Map<string, any[]>()
+  for (const x of todas) {
+    const k = [x.card_id, String(x.descricao || '').trim().toLowerCase(),
+               Number(x.valor).toFixed(2), fatura(x)].join('|')
+    if (!porGemea.has(k)) porGemea.set(k, [])
+    porGemea.get(k)!.push(x)
+  }
+  for (const itens of porGemea.values()) {
+    if (itens.length < 2) continue
+    const grupos = new Set(itens.map(x => x.purchase_group_id || ''))
+    // Se todas são do mesmo grupo, o caso já foi classificado acima.
+    if (grupos.size === 1 && itens[0].purchase_group_id) continue
+    emDobro.push({
+      tipo: 'em_dobro', cartao: itens[0].cartao,
+      fatura: `${itens[0].billing_month}/${itens[0].billing_year}`,
+      descricao: itens[0].descricao,
+      valor_total: Math.round(itens.reduce((s, x) => s + (Number(x.valor) || 0), 0) * 100) / 100,
+      parcelas: itens.map(x => ({
+        charge_id: x.charge_id, expense_id: x.expense_id,
+        rotulo: Number(x.total_parcelas) > 1 ? `${x.parcela_atual}/${x.total_parcelas}` : 'à vista',
+        valor: Number(x.valor) || 0,
+        data_compra: String(x.data_compra || '').slice(0, 10),
+      })),
+    })
+  }
+
+  // ── Buracos: mês sem parcela no meio de um parcelamento ───────────────────
+  // O outro lado da mesma moeda. Quando duas parcelas se empilham, um mês fica
+  // vazio — e esse é mais difícil de notar, porque falta em vez de sobrar.
+  const porGrupo = new Map<string, any[]>()
+  for (const x of todas) {
+    if (!x.purchase_group_id || !(Number(x.total_parcelas) > 1)) continue
+    if (!porGrupo.has(x.purchase_group_id)) porGrupo.set(x.purchase_group_id, [])
+    porGrupo.get(x.purchase_group_id)!.push(x)
+  }
+  const buracos: any[] = []
+  for (const itens of porGrupo.values()) {
+    const meses = [...new Set(itens.map(x => Number(x.billing_year) * 12 + Number(x.billing_month)))]
+      .sort((a, b) => a - b)
+    const faltando: string[] = []
+    for (let i = 1; i < meses.length; i++) {
+      for (let m = meses[i - 1] + 1; m < meses[i]; m++) {
+        faltando.push(`${((m - 1) % 12) + 1}/${Math.floor((m - 1) / 12)}`)
+      }
+    }
+    if (faltando.length) {
+      buracos.push({
+        reparo_alcanca: !itens.some(importado),
+        cartao: itens[0].cartao,
+        descricao: String(itens[0].descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
+        parcelas: itens.length, total_parcelas: Number(itens[0].total_parcelas) || 0,
+        faturas_sem_parcela: faltando,
+      })
+    }
+  }
+
+  return c.json({
+    ok: true,
+    total: empilhadas.length + emDobro.length,
+    empilhadas, em_dobro: emDobro, buracos,
+    // O que fazer com cada caso, escrito aqui para a tela não ter que saber.
+    como_resolver: {
+      empilhada: 'Nenhuma linha sobra: uma das parcelas está na fatura errada. ' +
+        'O reparo de faturas recoloca todas na ordem, uma por mês.',
+      em_dobro: 'Uma das linhas é um lançamento repetido e precisa ser excluída. ' +
+        'Confira as duas antes — o VerdeMais não apaga lançamento sozinho.',
+      buraco: 'Um mês ficou sem parcela. É o outro lado do empilhamento, e o mesmo ' +
+        'reparo de faturas resolve.',
+      importado: 'Este veio de importação: a data guardada é a do vencimento, não a da ' +
+        'compra, então não dá para recalcular o ciclo a partir dela sem inventar. ' +
+        'Corrija a parcela pela tela de Despesas.',
+    },
   })
 })
 
@@ -2300,10 +2473,13 @@ cartoes.post('/split-compra', requireAuth, async (c) => {
     const chargeIds: number[] = []
 
     for (let i = 1; i <= numParcelas; i++) {
-      const parcelaDateStr = somarMeses(data_compra, i - 1)
-
-      const { month: bMonth, year: bYear } = calcBillingPeriod(parcelaDateStr, cartao.dia_fechamento)
-      const dataVenc = calcDueDate(bMonth, bYear, cartao.dia_vencimento, cartao.dia_fechamento)
+      // A fatura da parcela SEGUE A SÉRIE — não se recalcula a partir da
+      // data deslocada. Recalcular empilhava duas parcelas na mesma fatura
+      // e deixava o mês seguinte vazio; ver faturaDaParcela().
+      const fp = faturaDaParcela(data_compra, cartao.dia_fechamento, cartao.dia_vencimento, i - 1)
+      const parcelaDateStr = fp.data_parcela
+      const bMonth = fp.mes, bYear = fp.ano
+      const dataVenc = fp.vencimento
       const descParcela = numParcelas > 1
         ? `${descricao} ${sufixo} (${i}/${numParcelas})`
         : `${descricao} ${sufixo}`

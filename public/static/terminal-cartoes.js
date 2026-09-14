@@ -55,6 +55,11 @@
           </div>
         </header>
 
+        <!-- Duas parcelas da mesma compra na mesma fatura, ou um lançamento em
+             dobro. Só aparece quando existe: era a única coisa que o usuário
+             tinha que descobrir sozinho abrindo a fatura e reparando. -->
+        <div id="ct-duplicatas"></div>
+
         ${cs.length ? `<section class="ct-rail">${cs.map((c,i)=>this._tile(c,i)).join('')}</section>` : `
           <div class="ds-card ds-empty"><i class="fas fa-credit-card"></i>
             <p>Você ainda não tem cartões cadastrados. Cadastre um para acompanhar fatura, limite e parcelas.</p>
@@ -69,6 +74,9 @@
           </aside>
         </section>` : ''}
       </div>`
+
+      // Sem await: o aviso é um extra e não deve atrasar a fatura.
+      this._duplicatas()
     },
 
     /** Cartão da régua superior — cor do cartão, fatura, fechamento e uso. */
@@ -142,6 +150,87 @@
      * Corrigir o código não conserta o que já está gravado — esta tela mostra
      * o que ficou torto e oferece o reparo.
      */
+    /**
+     * O aviso de fatura com parcela repetida.
+     *
+     * Nasce vazio e some sozinho. Separa os dois casos porque a correção é
+     * oposta: parcela empilhada se RECOLOCA (nenhuma linha sobra), lançamento
+     * em dobro se EXCLUI — e esse segundo nunca sem o usuário conferir, porque
+     * apagar lançamento por conta própria é o tipo de ajuda que ninguém pede.
+     */
+    async _duplicatas() {
+      const el = document.getElementById('ct-duplicatas')
+      if (!el) return
+      try {
+        const d = await this._vm.api('GET', 'cartoes/duplicatas')
+        this._dup = d
+        const emp = d.empilhadas || [], dob = d.em_dobro || [], bur = d.buracos || []
+        if (!emp.length && !dob.length && !bur.length) { el.innerHTML = ''; return }
+
+        const linha = (x) => `<li><b>${esc(x.descricao)}</b> · fatura ${esc(x.fatura)} ·
+          ${esc(x.cartao)} — ${x.parcelas.map(p => `${esc(p.rotulo)} (${money(p.valor)})`).join(' e ')}</li>`
+
+        el.innerHTML = `<div class="ct-dup">
+          <i class="fas fa-clone ct-dup__ico"></i>
+          <div class="ct-dup__corpo">
+            <strong>${emp.length + dob.length + bur.length === 1
+              ? 'Encontrei uma fatura com problema'
+              : `Encontrei ${emp.length + dob.length + bur.length} faturas com problema`}</strong>
+
+            ${emp.length ? `<div class="ct-dup__bloco">
+              <span class="ct-dup__tag">parcela na fatura errada</span>
+              <ul>${emp.map(x => linha(x) + (x.reparo_alcanca === false
+                ? `<li class="ct-dup__fora">${esc(d.como_resolver?.importado || '')}</li>` : '')).join('')}</ul>
+              <p>${esc(d.como_resolver?.empilhada || '')}</p>
+              ${emp.some(x => x.reparo_alcanca !== false) ? `
+                <button class="ds-btn ds-btn--sm ds-btn--primary" onclick="VMTerminalCartoes.corrigirFaturas()">
+                  Recolocar na fatura certa</button>` : ''}
+            </div>` : ''}
+
+            ${bur.length ? `<div class="ct-dup__bloco">
+              <span class="ct-dup__tag">mês sem parcela</span>
+              <ul>${bur.map(x => `<li><b>${esc(x.descricao)}</b> · ${esc(x.cartao)} —
+                ${x.parcelas} de ${x.total_parcelas} parcelas lançadas, sem nada em
+                ${x.faturas_sem_parcela.map(f => esc(f)).join(', ')}</li>`).join('')}</ul>
+              <p>${esc(d.como_resolver?.buraco || '')}</p>
+              ${(emp.length || !bur.some(x => x.reparo_alcanca !== false)) ? '' : `
+                <button class="ds-btn ds-btn--sm ds-btn--primary" onclick="VMTerminalCartoes.corrigirFaturas()">
+                  Recolocar na fatura certa</button>`}
+            </div>` : ''}
+
+            ${dob.length ? `<div class="ct-dup__bloco">
+              <span class="ct-dup__tag is-neg">lançamento em dobro</span>
+              <ul>${dob.map(linha).join('')}</ul>
+              <p>${esc(d.como_resolver?.em_dobro || '')}</p>
+              <button class="ds-btn ds-btn--sm" onclick="VM.modalGerenciarCompras()">Abrir compras parceladas</button>
+            </div>` : ''}
+          </div>
+        </div>`
+      } catch (e) {
+        el.innerHTML = ''
+      }
+    },
+
+    async corrigirFaturas() {
+      const vm = this._vm
+      // Simula primeiro: o número de lançamentos afetados tem que caber na
+      // pergunta, senão "corrigir" é um botão que se aperta no escuro.
+      const sim = await vm.api('POST', 'cartoes/reparar-faturas', { simular: true })
+        .catch(e => ({ error: e.response?.data?.error }))
+      if (!sim || sim.error) return vm.toast(sim?.error || 'Não foi possível conferir.', 'error')
+      if (!sim.total) return vm.toast('Nenhum lançamento está fora da fatura certa.', 'success')
+
+      const ok = await window.VM.vmConfirm(
+        `Recolocar <strong>${sim.total}</strong> ${sim.total === 1 ? 'lançamento' : 'lançamentos'} ` +
+        `na fatura certa? Nenhum lançamento é criado nem excluído — eles só mudam de mês.`)
+      if (!ok) return
+
+      const r = await vm.api('POST', 'cartoes/reparar-faturas', {})
+        .catch(e => ({ error: e.response?.data?.error }))
+      if (r && r.success) { vm.toast(r.message || 'Faturas corrigidas.', 'success'); this.reload() }
+      else vm.toast(r?.error || 'Erro ao corrigir.', 'error')
+    },
+
     async diagnostico() {
       const vm = this._vm
       vm.showModal('<div class="td-loading"><span></span><span></span><span></span></div>')

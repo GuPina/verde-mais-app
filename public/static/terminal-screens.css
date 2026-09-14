@@ -1851,3 +1851,35 @@
 
 /* A explicação de onde sai o alvo da reserva. */
 .re-base { margin-bottom: var(--ds-4); }
+
+/* ── Cartões · parcela repetida na fatura ──────────────────────────────────
+   Nasce vazio e só aparece quando há o que dizer. Amarelo e não vermelho: o
+   caso mais comum é uma parcela no mês errado, que não perde dinheiro nenhum
+   — vermelho aqui seria alarme desproporcional, e alarme desproporcional é
+   como se ensina alguém a ignorar avisos. */
+.ct-dup { display: flex; gap: var(--ds-4); margin-bottom: var(--ds-5);
+  padding: var(--ds-5); border: 1px solid color-mix(in srgb, var(--terminal-accent) 40%, transparent);
+  border-left-width: 3px; border-radius: var(--terminal-radius);
+  background: color-mix(in srgb, var(--terminal-accent) 6%, transparent); }
+.ct-dup__ico { flex: none; color: var(--terminal-accent); font-size: 16px; margin-top: 2px; }
+.ct-dup__corpo { min-width: 0; flex: 1; }
+.ct-dup__corpo > strong { display: block; font-size: 15px; font-weight: 650;
+  letter-spacing: -.012em; }
+.ct-dup__bloco { margin-top: var(--ds-4); padding-top: var(--ds-4);
+  border-top: 1px solid var(--terminal-line); }
+.ct-dup__bloco:first-of-type { border-top: 0; padding-top: 0; }
+.ct-dup__tag { display: inline-block; font: 700 9.5px/1 var(--terminal-mono);
+  letter-spacing: .09em; text-transform: uppercase; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--terminal-accent-line); color: var(--terminal-accent);
+  background: color-mix(in srgb, var(--terminal-accent) 10%, transparent); }
+.ct-dup__tag.is-neg { color: var(--terminal-negative); background: color-mix(in srgb, var(--terminal-negative) 10%, transparent);
+  border-color: color-mix(in srgb, var(--terminal-negative) 45%, transparent); }
+.ct-dup ul { margin: var(--ds-3) 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7;
+  color: var(--terminal-ink-soft); }
+.ct-dup ul b { color: var(--terminal-ink); font-weight: 600; }
+.ct-dup__bloco p { margin: var(--ds-3) 0 var(--ds-3); font-size: 12.5px; line-height: 1.6;
+  color: var(--terminal-ink-soft); max-width: 74ch; }
+/* O caso que o botão não alcança precisa dizer isso na própria linha, senão
+   a pessoa aperta e conclui que o app não funciona. */
+.ct-dup__fora { list-style: none; margin-left: -18px; margin-top: 4px;
+  font-size: 12px; font-style: italic; opacity: .85; }
