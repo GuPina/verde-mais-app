@@ -12,9 +12,20 @@
  *   POST /api/organizador/remover-tags-lote → remove uma tag de despesas de um filtro
  *   POST /api/organizador/sugerir-ia        → pede à IA sugestões de merges/tags para as categorias bagunçadas
  *   GET  /api/organizador/preview           → preview de quantas despesas serão afetadas por uma operação
+ *
+ * A fila de decisões (a Central nova):
+ *   GET  /api/organizador/decisoes            → o que decidir, ordenado por dinheiro
+ *   GET  /api/organizador/resumo              → o aviso no contexto, para outras telas
+ *   GET  /api/organizador/identidades         → as "coisas de verdade" por trás das descrições
+ *   POST /api/organizador/decisoes/aplicar    → aplica uma decisão, guardando o antes
+ *   POST /api/organizador/decisoes/dispensar  → "depois" (30 dias) ou "são coisas diferentes"
+ *   POST /api/organizador/desfazer            → volta uma ação aplicada, até 30 dias depois
  */
 
 import { Hono } from 'hono'
+import { filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+import { VOCABULARIO } from '../lib/identidade'
+import { montarFila, agruparIdentidades, type DespesaCrua } from '../lib/fila-decisoes'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
@@ -143,8 +154,12 @@ router.post('/renomear', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => ({})) as any
 
-  const origem: string = (body?.categoria_origem || '').trim()
-  const destino: string = (body?.categoria_destino || '').trim()
+  // O cliente antigo mandava `categoria_antiga`/`categoria_nova`, que esta rota
+  // nunca leu: renomear devolvia 400 desde sempre e o lápis da Central
+  // simplesmente não funcionava. Aceitar as duas grafias conserta o que está
+  // em produção sem depender de o navegador do usuário recarregar o JS.
+  const origem: string = (body?.categoria_origem || body?.categoria_antiga || body?.nome_antigo || '').trim()
+  const destino: string = (body?.categoria_destino || body?.categoria_nova || body?.nome_novo || '').trim()
 
   if (!origem) return c.json({ error: 'Informe a categoria de origem.' }, 400)
   if (!destino) return c.json({ error: 'Informe o novo nome da categoria.' }, 400)
@@ -443,5 +458,386 @@ Categorias para analisar:`
     })
   }
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A FILA DE DECISÕES
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A Central antiga listava categorias e esperava que o usuário descobrisse o
+// que juntar. Estes endpoints invertem isso: o sistema audita, ordena por
+// quanto dinheiro cada decisão destrava, e pergunta uma coisa por vez.
+//
+// Nada aqui aplica nada sozinho. `GET /decisoes` é leitura pura — não escreve
+// uma linha, nem sequer cria as identidades que calcula. A identidade só nasce
+// quando o usuário DECIDE algo sobre ela, porque é a decisão que vale a pena
+// guardar; o agrupamento o sistema refaz em milissegundos a qualquer hora.
+
+/** Colunas que a fila precisa. Nada além disto sai do banco. */
+const COLUNAS_FILA = `id, descricao, categoria, valor, data, status, observacoes, recorrencia_id`
+
+/** Só o que é gasto de verdade: aporte é transferência de patrimônio. */
+const ESCOPO_FILA = `user_id = ? AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}`
+
+async function carregarDespesas(db: D1Database, userId: number): Promise<DespesaCrua[]> {
+  const r = await db.prepare(
+    `SELECT ${COLUNAS_FILA} FROM despesas WHERE ${ESCOPO_FILA} ORDER BY id`
+  ).bind(userId).all()
+  return ((r.results as any[]) || []).map(d => ({
+    id: Number(d.id),
+    descricao: d.descricao ?? null,
+    categoria: d.categoria ?? null,
+    valor: Number(d.valor) || 0,
+    data: d.data ?? null,
+    status: d.status ?? null,
+    observacoes: d.observacoes ?? null,
+    recorrencia_id: d.recorrencia_id ?? null,
+  }))
+}
+
+/**
+ * O que o usuário já mandou embora. "Depois" volta em 30 dias; "são coisas
+ * diferentes" não volta nunca. Repetir a mesma pergunta todo mês é como um app
+ * perde a confiança de quem usa.
+ */
+async function dispensadas(db: D1Database, userId: number): Promise<Set<string>> {
+  try {
+    const r = await db.prepare(
+      `SELECT decisao_id, motivo, ate FROM organizador_dispensas WHERE user_id = ?`
+    ).bind(userId).all()
+    const hoje = new Date().toISOString().slice(0, 10)
+    const fora = new Set<string>()
+    for (const d of ((r.results as any[]) || [])) {
+      if (d.motivo === 'recusada') { fora.add(String(d.decisao_id)); continue }
+      if (!d.ate || String(d.ate) > hoje) fora.add(String(d.decisao_id))
+    }
+    return fora
+  } catch {
+    // Migration ainda não aplicada: a fila funciona, só não lembra dispensas.
+    return new Set()
+  }
+}
+
+// ── GET /api/organizador/decisoes ───────────────────────────────────────────
+router.get('/decisoes', requireAuth, async (c) => {
+  const user = c.get('user')
+  const desp = await carregarDespesas(c.env.DB, user.id)
+  const fila = montarFila(desp, { dispensadas: await dispensadas(c.env.DB, user.id) })
+
+  // O histórico de desfazer entra junto: quem acabou de aplicar algo precisa
+  // ver o botão de voltar sem trocar de tela.
+  let acoes: any[] = []
+  try {
+    const r = await c.env.DB.prepare(
+      `SELECT id, tipo, resumo, afetados, criado_em FROM organizador_acoes
+       WHERE user_id = ? AND desfeito_em IS NULL
+       ORDER BY id DESC LIMIT 5`
+    ).bind(user.id).all()
+    acoes = ((r.results as any[]) || [])
+  } catch { acoes = [] }
+
+  return c.json({ ...fila, acoes, vocabulario: VOCABULARIO })
+})
+
+// ── GET /api/organizador/resumo ─────────────────────────────────────────────
+// O aviso no contexto. Barato de propósito: outras telas chamam isto no load,
+// e uma Central cara faria a tela de Despesas ficar lenta por causa de um
+// aviso que na maioria das contas nem aparece.
+//
+// Com ?mes=&ano=, devolve só os conflitos que tocam AQUELE mês — é a diferença
+// entre "você tem 7 pendências em algum lugar" e "o total que você está
+// olhando agora está errado por causa disto".
+router.get('/resumo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const mes = c.req.query('mes')
+  const ano = c.req.query('ano')
+
+  const desp = await carregarDespesas(c.env.DB, user.id)
+  const fila = montarFila(desp, {
+    dispensadas: await dispensadas(c.env.DB, user.id),
+    limite: 200,
+    sem_parecidas: true,
+  })
+
+  let relevantes = fila.decisoes
+  if (mes && ano) {
+    const prefixo = `${ano}-${String(mes).padStart(2, '0')}`
+    const doMes = new Set(desp.filter(d => String(d.data || '').startsWith(prefixo)).map(d => d.id))
+    relevantes = fila.decisoes.filter(d => {
+      const ids = (d.alvo as any)?.ids as number[] | undefined
+      return !!ids?.some(i => doMes.has(i))
+    })
+  }
+
+  // Só o que faz o número de HOJE estar errado merece interromper outra tela.
+  // Vocabulário e parecidas são arrumação: ficam para quem abrir a Central.
+  const urgentes = relevantes.filter(d => d.tipo === 'conflito' || d.tipo === 'duplicata')
+
+  return c.json({
+    pendentes: fila.resumo.pendentes,
+    no_contexto: relevantes.length,
+    urgentes: urgentes.length,
+    lancamentos_afetados: fila.resumo.lancamentos_afetados,
+    valor_afetado: fila.resumo.valor_afetado,
+    // As três primeiras, com o texto pronto — a tela que exibe o aviso não
+    // deve ter que saber montar frase sobre conflito de categoria.
+    destaques: urgentes.slice(0, 3).map(d => ({
+      id: d.id, tipo: d.tipo, titulo: d.titulo, selo: d.selo,
+      lancamentos: d.lancamentos, valor: d.valor,
+    })),
+  })
+})
+
+// ── GET /api/organizador/identidades ────────────────────────────────────────
+router.get('/identidades', requireAuth, async (c) => {
+  const user = c.get('user')
+  const desp = await carregarDespesas(c.env.DB, user.id)
+  const ids = agruparIdentidades(desp)
+  const limite = Math.min(500, Math.max(1, Number(c.req.query('limite')) || 200))
+  return c.json({
+    total: ids.length,
+    descricoes: new Set(desp.map(d => String(d.descricao || '').trim())).size,
+    despesas: desp.length,
+    identidades: ids.slice(0, limite).map(g => ({
+      chave: g.chave, nome: g.nome, lancamentos: g.lancamentos, total: g.total,
+      valor_tipico: g.valor_tipico, primeira: g.primeira, ultima: g.ultima,
+      vinculo: g.vinculo, categorias: [...g.categorias.entries()].map(([nome, n]) => ({ nome, n })),
+    })),
+  })
+})
+
+// ── POST /api/organizador/decisoes/aplicar ──────────────────────────────────
+//
+// O contrato: o cliente devolve o `alvo` que recebeu, intacto, mais a escolha.
+// O servidor NÃO confia nos ids que vieram — ele os recalcula a partir da
+// chave. Um cliente desatualizado (ou um usuário com duas abas abertas) teria
+// ids de uma fila velha, e escrever em cima deles mudaria lançamento que não
+// está mais no grupo.
+router.post('/decisoes/aplicar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as any
+  const tipo = String(body?.tipo || '')
+  const escolha = String(body?.escolha || '').trim()
+  const alvo = body?.alvo || {}
+  const decisaoId = String(body?.decisao_id || '')
+
+  if (!tipo) return c.json({ error: 'Informe o tipo da decisão.' }, 400)
+
+  const desp = await carregarDespesas(c.env.DB, user.id)
+
+  /** Quais lançamentos esta decisão realmente toca, recalculado agora. */
+  let alvoIds: number[] = []
+  let resumo = ''
+
+  if (tipo === 'conflito' || tipo === 'sem_dono') {
+    const chave = String(alvo?.chave || '')
+    if (!chave) return c.json({ error: 'Decisão sem identidade.' }, 400)
+    if (!escolha) return c.json({ error: 'Escolha uma categoria.' }, 400)
+    if (escolha.length > 40) return c.json({ error: 'Nome de categoria muito longo (máx 40).' }, 400)
+    const grupo = agruparIdentidades(desp).find(g => g.chave === chave)
+    if (!grupo) return c.json({ error: 'Essa identidade não existe mais — a fila mudou.' }, 409)
+    alvoIds = grupo.ids
+    resumo = `"${grupo.nome}" → ${escolha}`
+  } else if (tipo === 'duplicata') {
+    const nomes: string[] = Array.isArray(alvo?.nomes) ? alvo.nomes.map(String) : []
+    if (nomes.length < 2) return c.json({ error: 'Decisão sem categorias.' }, 400)
+    if (!escolha) return c.json({ error: 'Escolha o nome que fica.' }, 400)
+    alvoIds = desp.filter(d => nomes.includes(String(d.categoria || '').trim()) &&
+                               String(d.categoria || '').trim() !== escolha).map(d => d.id)
+    resumo = `${nomes.filter(n => n !== escolha).map(n => `"${n}"`).join(', ')} → "${escolha}"`
+  } else if (tipo === 'vocabulario') {
+    // Lote: aceita a lista de pares que o cliente confirmou, mas só aplica os
+    // que ainda batem com o que existe no banco.
+    const pares: Array<{ de: string; para: string }> = Array.isArray(alvo?.pares)
+      ? alvo.pares.filter((p: any) => p?.de && p?.para).map((p: any) => ({ de: String(p.de), para: String(p.para) }))
+      : []
+    if (!pares.length) return c.json({ error: 'Nenhuma categoria selecionada.' }, 400)
+    const mapa = new Map(pares.map(p => [p.de, p.para]))
+    alvoIds = desp.filter(d => mapa.has(String(d.categoria || '').trim())).map(d => d.id)
+    resumo = `${pares.length} ${pares.length === 1 ? 'categoria renomeada' : 'categorias renomeadas'}`
+    // Aplicação par a par, e não uma só: cada categoria vai para um destino.
+    const antes = desp.filter(d => mapa.has(String(d.categoria || '').trim()))
+      .map(d => ({ id: d.id, categoria: d.categoria }))
+    for (const p of pares) {
+      await c.env.DB.prepare(`UPDATE despesas SET categoria = ? WHERE user_id = ? AND categoria = ?`)
+        .bind(p.para, user.id, p.de).run()
+    }
+    const acaoId = await registrarAcao(c.env.DB, user.id, tipo, resumo, antes)
+    return c.json({ ok: true, afetadas: antes.length, resumo, acao_id: acaoId, mensagem: `${antes.length} lançamentos atualizados.` })
+  } else if (tipo === 'parecidas') {
+    const chaves: string[] = Array.isArray(alvo?.chaves) ? alvo.chaves.map(String) : []
+    if (chaves.length < 2) return c.json({ error: 'Decisão sem identidades.' }, 400)
+    // Fase 1: juntar duas identidades significa gravar que uma aponta para a
+    // outra. Nenhuma despesa muda de categoria por causa disto — o efeito
+    // aparece no agrupamento, não no dado.
+    const grupos = agruparIdentidades(desp)
+    const mestre = grupos.find(g => g.nome === escolha) || grupos.find(g => g.chave === chaves[0])
+    if (!mestre) return c.json({ error: 'Identidade não encontrada — a fila mudou.' }, 409)
+    for (const ch of chaves) {
+      if (ch === mestre.chave) continue
+      const g = grupos.find(x => x.chave === ch)
+      await upsertIdentidade(c.env.DB, user.id, ch, g?.nome || ch, null, mestre.chave)
+    }
+    await upsertIdentidade(c.env.DB, user.id, mestre.chave, mestre.nome, null, null)
+    const acaoId = await registrarAcao(c.env.DB, user.id, tipo, `"${mestre.nome}" agora agrupa ${chaves.length} nomes`, [])
+    return c.json({ ok: true, afetadas: 0, resumo: `"${mestre.nome}" agora agrupa ${chaves.length} nomes`, acao_id: acaoId, mensagem: 'Identidades unidas.' })
+  } else {
+    return c.json({ error: `Tipo de decisão desconhecido: ${tipo}` }, 400)
+  }
+
+  if (!alvoIds.length) {
+    return c.json({ ok: true, afetadas: 0, mensagem: 'Nada a mudar — já estava assim.' })
+  }
+  if (alvoIds.length > LIMITE_LOTE) {
+    return c.json({ error: `Esta decisão afeta ${alvoIds.length} lançamentos, acima do limite de ${LIMITE_LOTE} de uma vez.` }, 400)
+  }
+
+  // O ANTES, linha a linha. É o que torna o desfazer confiável: voltar não é
+  // inverter a operação, é reescrever o que estava lá.
+  const porId = new Map(desp.map(d => [d.id, d]))
+  const antes = alvoIds.map(i => ({ id: i, categoria: porId.get(i)?.categoria ?? null }))
+
+  await atualizarCategorias(c.env.DB, user.id, alvoIds, escolha)
+
+  // Grava a decisão na identidade: é o que faz valer também para o que o
+  // usuário lançar amanhã, que é a promessa de "arrume uma vez".
+  if (tipo === 'conflito' || tipo === 'sem_dono') {
+    await upsertIdentidade(c.env.DB, user.id, String(alvo.chave), String(alvo.nome || alvo.chave), escolha, null)
+  }
+
+  const acaoId = await registrarAcao(c.env.DB, user.id, tipo, resumo, antes)
+  if (decisaoId) await limparDispensa(c.env.DB, user.id, decisaoId)
+
+  return c.json({
+    ok: true, afetadas: alvoIds.length, resumo, acao_id: acaoId,
+    mensagem: `${alvoIds.length} ${alvoIds.length === 1 ? 'lançamento atualizado' : 'lançamentos atualizados'}.`,
+  })
+})
+
+// ── POST /api/organizador/decisoes/dispensar ────────────────────────────────
+// "Depois" (volta em 30 dias) e "são coisas diferentes" (não volta).
+router.post('/decisoes/dispensar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as any
+  const decisaoId = String(body?.decisao_id || '').slice(0, 300)
+  const motivo = body?.motivo === 'recusada' ? 'recusada' : 'adiada'
+  if (!decisaoId) return c.json({ error: 'Informe a decisão.' }, 400)
+
+  const ate = motivo === 'adiada'
+    ? new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10)
+    : null
+
+  await c.env.DB.prepare(
+    `INSERT INTO organizador_dispensas (user_id, decisao_id, motivo, ate)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (user_id, decisao_id) DO UPDATE SET motivo = ?, ate = ?`
+  ).bind(user.id, decisaoId, motivo, ate, motivo, ate).run()
+
+  return c.json({
+    ok: true,
+    mensagem: motivo === 'adiada' ? 'Volto a perguntar em 30 dias.' : 'Não pergunto mais sobre isso.',
+  })
+})
+
+// ── POST /api/organizador/desfazer ──────────────────────────────────────────
+router.post('/desfazer', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as any
+  const acaoId = Number(body?.acao_id)
+  if (!acaoId) return c.json({ error: 'Informe a ação.' }, 400)
+
+  const acao = await c.env.DB.prepare(
+    `SELECT id, tipo, resumo, antes, criado_em, desfeito_em FROM organizador_acoes
+     WHERE id = ? AND user_id = ?`
+  ).bind(acaoId, user.id).first() as any
+
+  if (!acao) return c.json({ error: 'Ação não encontrada.' }, 404)
+  if (acao.desfeito_em) return c.json({ error: 'Esta ação já foi desfeita.' }, 409)
+
+  const limite = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)
+  if (String(acao.criado_em || '').slice(0, 10) < limite) {
+    return c.json({ error: 'O prazo de 30 dias para desfazer esta ação já passou.' }, 409)
+  }
+
+  let antes: Array<{ id: number; categoria: string | null }> = []
+  try { antes = JSON.parse(String(acao.antes || '[]')) } catch { antes = [] }
+
+  let voltaram = 0
+  for (const a of antes) {
+    const r = await c.env.DB.prepare(
+      `UPDATE despesas SET categoria = ? WHERE id = ? AND user_id = ?`
+    ).bind(a.categoria, a.id, user.id).run()
+    voltaram += r.meta?.changes || 0
+  }
+
+  await c.env.DB.prepare(
+    `UPDATE organizador_acoes SET desfeito_em = ? WHERE id = ? AND user_id = ?`
+  ).bind(new Date().toISOString().slice(0, 19).replace('T', ' '), acaoId, user.id).run()
+
+  return c.json({ ok: true, voltaram, mensagem: `${voltaram} lançamentos voltaram ao que eram.` })
+})
+
+// ── Auxiliares de escrita ───────────────────────────────────────────────────
+
+/** Teto por operação. Acima disso, algo está errado na detecção, não no dado. */
+const LIMITE_LOTE = 2000
+
+/**
+ * UPDATE em lote com IN(...). Em fatias, porque uma lista de 2.000 marcadores
+ * numa query só é o tipo de coisa que funciona em teste e estoura em produção.
+ */
+async function atualizarCategorias(db: D1Database, userId: number, ids: number[], categoria: string) {
+  const FATIA = 200
+  for (let i = 0; i < ids.length; i += FATIA) {
+    const pedaco = ids.slice(i, i + FATIA)
+    const ph = pedaco.map(() => '?').join(',')
+    await db.prepare(
+      `UPDATE despesas SET categoria = ? WHERE user_id = ? AND id IN (${ph})`
+    ).bind(categoria, userId, ...pedaco).run()
+  }
+}
+
+async function upsertIdentidade(
+  db: D1Database, userId: number, chave: string, nome: string,
+  categoria: string | null, chaveMestre: string | null,
+) {
+  try {
+    await db.prepare(
+      `INSERT INTO identidades (user_id, chave, nome, categoria, origem, confirmada, chave_mestre)
+       VALUES (?, ?, ?, ?, 'usuario', 1, ?)
+       ON CONFLICT (user_id, chave) DO UPDATE SET
+         nome = ?, categoria = COALESCE(?, identidades.categoria),
+         origem = 'usuario', confirmada = 1, chave_mestre = ?,
+         updated_at = to_char((now() AT TIME ZONE 'UTC'),'YYYY-MM-DD HH24:MI:SS')`
+    ).bind(userId, chave, nome, categoria, chaveMestre, nome, categoria, chaveMestre).run()
+  } catch (e) {
+    // A identidade é memória da decisão, não a decisão. Se a tabela ainda não
+    // existe, as despesas já foram corrigidas e isso é o que importa agora.
+    console.warn('[organizador] identidade não gravada:', (e as any)?.message)
+  }
+}
+
+/** Guarda o antes. Sem isto, "aplicar aos 63" é uma aposta irreversível. */
+async function registrarAcao(
+  db: D1Database, userId: number, tipo: string, resumo: string,
+  antes: Array<{ id: number; categoria: string | null }>,
+): Promise<number | null> {
+  try {
+    const r = await db.prepare(
+      `INSERT INTO organizador_acoes (user_id, tipo, resumo, afetados, antes)
+       VALUES (?, ?, ?, ?, ?) RETURNING id`
+    ).bind(userId, tipo, resumo, antes.length, JSON.stringify(antes.slice(0, LIMITE_LOTE))).first() as any
+    return r?.id ? Number(r.id) : null
+  } catch (e) {
+    console.warn('[organizador] ação não registrada:', (e as any)?.message)
+    return null
+  }
+}
+
+async function limparDispensa(db: D1Database, userId: number, decisaoId: string) {
+  try {
+    await db.prepare(`DELETE FROM organizador_dispensas WHERE user_id = ? AND decisao_id = ?`)
+      .bind(userId, decisaoId).run()
+  } catch { /* tabela ainda não existe */ }
+}
 
 export default router

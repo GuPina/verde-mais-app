@@ -36,6 +36,7 @@
  */
 
 import { competenciaData, filtroNaoCancelada, filtroSemAporte } from './competencia'
+import { raizCategoria } from './identidade'
 
 const cent = (v: number) => Math.round((Number(v) || 0) * 100) / 100
 
@@ -754,18 +755,14 @@ export async function gastos(
   // Sem acento, sem caixa, sem plural: "Financiamento" e "Financiamentos"
   // caem na mesma chave. Não juntamos os valores por conta própria — só
   // apontamos, porque quem decide se são a mesma coisa é o dono da conta.
-  const raiz = (s: string) => s
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .map(p => p.replace(/(oes|aes|ns|s)$/, ''))
-    .join(' ')
-
+  //
+  // A régua vem de identidade.ts, a mesma que a Central de Organização usa
+  // para montar a fila de decisões. Se as duas telas discordassem sobre o que
+  // é "o mesmo nome", a Projeção acusaria um conflito que a Central não sabe
+  // resolver — e o botão de resolver não levaria a lugar nenhum.
   const grupos = new Map<string, Array<{ nome: string; total: number }>>()
   for (const c of categorias) {
-    const k = raiz(c.nome)
+    const k = raizCategoria(c.nome)
     if (!k) continue
     if (!grupos.has(k)) grupos.set(k, [])
     grupos.get(k)!.push({ nome: c.nome, total: c.total })

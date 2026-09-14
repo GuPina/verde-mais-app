@@ -1577,3 +1577,121 @@
   .td-panel__head .pj-gs__toggle .pj-sim__b { flex: 1; }
   .td-panel__head { flex-wrap: wrap; }
 }
+
+/* ── Central de Organização · a fila de decisões ───────────────────────────
+   A tela antiga era uma tabela de 48 linhas com um lápis em cada. Esta é uma
+   pilha de perguntas: o cartão do topo é o único destacado, porque a ordem
+   importa — resolver 63 lançamentos de R$ 9.162 antes de dois de R$ 12 é a
+   diferença entre cinco minutos bem gastos e uma tarde. */
+.og-retrato { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius);
+  background: var(--terminal-panel); overflow: hidden; margin-bottom: var(--ds-5); }
+.og-stat { padding: var(--ds-4) var(--ds-5); border-right: 1px solid var(--terminal-line); }
+.og-stat:last-child { border-right: 0; }
+.og-stat__lbl { display: block; font: 700 9.5px/1.3 var(--terminal-mono); letter-spacing: .09em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); }
+.og-stat__val { display: block; margin-top: 6px; font-size: 26px; font-weight: 700;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.og-stat__val.is-ok   { color: var(--terminal-primary); }
+.og-stat__val.is-warn { color: var(--terminal-accent); }
+.og-stat__val.is-neg  { color: var(--terminal-negative); }
+.og-stat small { display: block; margin-top: 4px; color: var(--terminal-ink-soft);
+  font-size: 11px; line-height: 1.4; }
+
+.og-undo { align-items: center; margin-bottom: var(--ds-4); }
+.og-undo > div { flex: 1; min-width: 0; }
+
+.og-fila { display: flex; flex-direction: column; gap: var(--ds-4); }
+
+.og-card { background: var(--terminal-panel); border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius); padding: var(--ds-5); }
+/* Só o primeiro. Destacar vários é não destacar nenhum. */
+.og-card.is-foco { border-color: var(--terminal-accent-line, #5d5020);
+  background: color-mix(in srgb, var(--terminal-accent) 5%, var(--terminal-panel)); }
+.og-card__top { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--ds-4); flex-wrap: wrap; }
+.og-card__id { min-width: 0; }
+.og-card__id strong { display: block; font-size: 15.5px; font-weight: 650; letter-spacing: -.012em;
+  overflow-wrap: anywhere; }
+.og-card__id small { display: block; margin-top: 3px; color: var(--terminal-ink-soft);
+  font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.og-card__perg { margin: var(--ds-4) 0 0; padding-top: var(--ds-4);
+  border-top: 1px solid var(--terminal-line); color: var(--terminal-ink-soft);
+  font-size: 13.5px; line-height: 1.6; }
+.og-card__perg b { color: var(--terminal-ink); font-weight: 600; }
+
+.og-pill { flex: none; display: inline-flex; align-items: center; padding: 5px 9px;
+  border-radius: 999px; border: 1px solid var(--terminal-line);
+  font: 700 10px/1 var(--terminal-mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--terminal-ink-soft); white-space: nowrap; }
+.og-pill--neg  { color: var(--terminal-negative); border-color: color-mix(in srgb, var(--terminal-negative) 45%, transparent); background: color-mix(in srgb, var(--terminal-negative) 9%, transparent); }
+.og-pill--warn { color: var(--terminal-accent);   border-color: color-mix(in srgb, var(--terminal-accent) 45%, transparent);   background: color-mix(in srgb, var(--terminal-accent) 8%, transparent); }
+.og-pill--info { color: var(--terminal-info);     border-color: color-mix(in srgb, var(--terminal-info) 45%, transparent);     background: color-mix(in srgb, var(--terminal-info) 8%, transparent); }
+
+.og-escolhas { display: flex; gap: 8px; flex-wrap: wrap; margin-top: var(--ds-4); }
+.og-esc { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px;
+  border-radius: var(--terminal-radius-sm); border: 1px solid var(--terminal-line);
+  background: var(--terminal-bg); color: var(--terminal-ink);
+  font: 500 12.5px/1 var(--terminal-font); cursor: pointer; }
+.og-esc:hover { border-color: var(--terminal-line-strong); }
+.og-esc.is-on { border-color: var(--terminal-primary-line); font-weight: 650;
+  color: var(--terminal-primary); background: rgba(61,220,132,.1); }
+.og-esc span { color: var(--terminal-ink-soft); font: 600 10.5px/1 var(--terminal-mono); }
+.og-esc.is-on span { color: var(--terminal-primary); }
+
+.og-vocab { display: flex; flex-direction: column; gap: 2px; margin-top: var(--ds-4);
+  border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-sm);
+  overflow: hidden; }
+.og-par { display: grid; grid-template-columns: auto minmax(0,1fr) auto minmax(0,1fr) auto;
+  gap: 10px; align-items: center; padding: 10px 13px; background: var(--terminal-bg);
+  font-size: 12.5px; cursor: pointer; }
+.og-par.is-off { opacity: .4; }
+.og-par input { accent-color: var(--terminal-primary); cursor: pointer; }
+.og-par i { color: var(--terminal-ink-soft); font-size: 10px; }
+.og-par__de { color: var(--terminal-ink-soft); text-decoration: line-through;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.og-par.is-off .og-par__de { text-decoration: none; }
+.og-par__para { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.og-par__meta { color: var(--terminal-ink-soft); font: 500 10.5px/1 var(--terminal-mono);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.og-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: var(--ds-5); }
+
+.og-rodape { margin-top: var(--ds-5); }
+
+.og-vazio { text-align: center; padding: var(--ds-8) var(--ds-5); }
+.og-vazio i { font-size: 30px; color: var(--terminal-primary); }
+.og-vazio h2 { margin: var(--ds-4) 0 var(--ds-3); font-size: 20px; letter-spacing: -.025em; }
+.og-vazio p { max-width: 52ch; margin: 0 auto; color: var(--terminal-ink-soft);
+  font-size: 13.5px; line-height: 1.6; }
+.og-vazio__p2 { margin-top: var(--ds-3) !important; }
+
+/* O aviso no contexto: quando um conflito atrapalha o total que a pessoa está
+   lendo AGORA, é ali que ele importa — não num contador de menu que vira
+   paisagem em uma semana. */
+.og-aviso { display: flex; align-items: center; gap: var(--ds-3); flex-wrap: wrap;
+  margin-bottom: var(--ds-4); padding: var(--ds-4);
+  border: 1px solid color-mix(in srgb, var(--terminal-accent) 40%, transparent);
+  border-left-width: 3px; border-radius: var(--terminal-radius);
+  background: color-mix(in srgb, var(--terminal-accent) 7%, transparent);
+  font-size: 13px; line-height: 1.55; }
+.og-aviso__ico { color: var(--terminal-accent); font-size: 15px; flex: none; }
+.og-aviso__txt { flex: 1; min-width: 200px; color: var(--terminal-ink-soft); }
+.og-aviso__txt b { color: var(--terminal-ink); font-weight: 650; }
+
+@media (max-width: 860px) {
+  .og-stat { border-right: 0; border-bottom: 1px solid var(--terminal-line); }
+  .og-stat:last-child { border-bottom: 0; }
+  .og-par { grid-template-columns: auto minmax(0,1fr) auto minmax(0,1fr); }
+  .og-par__meta { grid-column: 2 / -1; }
+  .og-btns .ds-btn { flex: 1 1 auto; }
+}
+
+/* A nota de categorias duplicadas da Projeção leva direto à decisão: apontar
+   um erro sem oferecer o caminho para corrigi-lo é só reclamar. */
+.pj-gs__ir { flex: none; align-self: center; margin-left: auto; }
+@media (max-width: 860px) { .pj-gs__ir { margin-left: 0; align-self: flex-start; } }
+
+/* "42 o nome mais usado" colava os dois pedaços num bloco só. O ponto separa
+   a contagem da explicação sem gastar uma linha. */
+.og-esc span + span::before { content: '· '; opacity: .6; }

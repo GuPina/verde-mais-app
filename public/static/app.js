@@ -3941,6 +3941,11 @@ const VM = {
         </div>
       </div>
 
+      <!-- Aviso no contexto: quando um conflito de categoria torna ERRADO o
+           total que está logo abaixo. Nasce vazio e some sozinho quando não há
+           nada a dizer — ninguém precisa de um aviso permanente. -->
+      <div id="despesas-aviso-org"></div>
+
       <!-- Cards de métricas (skeleton inicial) -->
       <div id="despesas-metricas" class="tf-kpi-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
         <div class="stat-card"><div class="skeleton" style="height:60px;border-radius:8px;"></div></div>
@@ -4227,6 +4232,48 @@ const VM = {
     }).catch(() => this.toast('Erro ao exportar', 'error'))
   },
 
+  /**
+   * O aviso no contexto da Central de Organização.
+   *
+   * Um contador permanente no menu vira paisagem em uma semana. O aviso que
+   * funciona é o que aparece onde o problema atrapalha: se "Gasolina" está em
+   * três categorias e uma delas é a que você acabou de filtrar, o total logo
+   * abaixo desta linha está errado — e é ALI que isso precisa ser dito.
+   *
+   * Por isso pede só os conflitos que tocam o mês em tela, e some sozinho
+   * quando não há nenhum. Falha em silêncio de propósito: um aviso é um extra,
+   * e um extra jamais deve quebrar a tela que ele acompanha.
+   */
+  async _avisoOrganizador(mes, ano) {
+    const el = document.getElementById('despesas-aviso-org')
+    if (!el) return
+    try {
+      const qs = mes && ano ? `?mes=${encodeURIComponent(mes)}&ano=${encodeURIComponent(ano)}` : ''
+      const r = await this.api('GET', `organizador/resumo${qs}`)
+      if (!r || !r.urgentes) { el.innerHTML = ''; return }
+
+      const d = (r.destaques || [])[0]
+      const outros = Math.max(0, Number(r.urgentes) - 1)
+      const nome = d ? String(d.titulo) : 'Alguns lançamentos'
+      const quantos = d ? Number(d.lancamentos) || 0 : 0
+
+      el.innerHTML = `
+        <div class="og-aviso">
+          <i class="fas fa-triangle-exclamation og-aviso__ico"></i>
+          <div class="og-aviso__txt">
+            <b>${this.escapeHtml(nome)}</b> ${d && d.tipo === 'duplicata'
+              ? 'é o mesmo assunto escrito de dois jeitos'
+              : `está em ${this.escapeHtml(String(d?.selo || 'mais de uma categoria'))}`}${quantos ? ` — ${quantos} lançamento${quantos === 1 ? '' : 's'}` : ''}.
+            Enquanto isso durar, o total por categoria abaixo não fecha com o extrato${outros
+              ? `. Mais ${outros} conflito${outros === 1 ? '' : 's'} ${outros === 1 ? 'afeta' : 'afetam'} este mês` : ''}.
+          </div>
+          <button class="ds-btn ds-btn--sm" onclick="VM.navigate('organizador')">Resolver na Central</button>
+        </div>`
+    } catch (e) {
+      el.innerHTML = ''
+    }
+  },
+
   async carregarDespesas(pagina = 1) {
     const mesEl  = document.getElementById('filtro-mes-d')
     const mes    = mesEl ? mesEl.value : String(new Date().getMonth() + 1)
@@ -4273,6 +4320,11 @@ const VM = {
       const totalPages = Math.max(1, Math.ceil(totalCount / limit))
       const totalGeral = data.total          ?? 0
       const media      = totalCount > 0 ? totalGeral / totalCount : 0
+
+      // O aviso da Central é disparado aqui, sem `await`: ele nunca deve
+      // atrasar a lista de despesas, e se a chamada falhar a tela continua
+      // exatamente como era.
+      this._avisoOrganizador(mes, ano)
 
       // ── Cards de métricas ─────────────────────────────────────────────────
       const metEl = document.getElementById('despesas-metricas')

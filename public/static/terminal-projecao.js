@@ -301,7 +301,9 @@
           <div><b>${dup.nomes.map(n => `“${esc(n.nome)}”`).join(' e ')} são o mesmo assunto escrito de dois jeitos.</b>
             Enquanto forem duas categorias, esse gasto aparece partido —
             ${dup.nomes.map(n => money(n.total)).join(' de um lado, ')} do outro, quando na verdade é
-            ${money(dup.total)}. Junte as duas em Despesas e este ranking passa a valer.</div>
+            ${money(dup.total)}. Isto se resolve numa pergunta na Central de Organização —
+            e resolve para todos os relatórios de uma vez, não só para este.</div>
+          <button class="ds-btn ds-btn--sm pj-gs__ir" onclick="VM.navigate('organizador')">Resolver</button>
         </div>` : ''}
 
         <div class="pj-barras pj-gs__barras">
