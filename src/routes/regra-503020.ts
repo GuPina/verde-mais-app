@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { competenciaAno, competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+import { dividir, ALVO_CLASSICO, type DespesaDivisivel } from '../lib/divisao'
+import { janelaHistorica, renda as calcRenda } from '../lib/metricas'
 import { requireAuth } from './auth'
 import { exigeFeature } from './planos'
 
@@ -41,12 +43,23 @@ function grupoDaCategoria(cat: string): 'needs' | 'savings' | 'wants' {
 }
 
 /**
- * O score é a distância entre a distribuição real e a meta configurada.
- * Devolve também as três parcelas: um número de 0 a 100 que não se explica
- * não ajuda ninguém a saber o que mudar.
+ * ADERÊNCIA, não saúde.
+ *
+ * Esta tela dava nota 50 enquanto o Diagnóstico dava 17 para a mesma pessoa no
+ * mesmo dia — e o usuário, vendo os dois, não escolhia um: parava de acreditar
+ * nos dois. A causa não era a fórmula, era o rótulo: chamar de "score" duas
+ * coisas que medem perguntas diferentes.
+ *
+ * O que sai daqui é ADERÊNCIA: quão perto a sua divisão está da meta que você
+ * escolheu. É uma pergunta legítima e nenhuma outra tela responde. A nota de
+ * SAÚDE tem um dono só, a camada de métricas, e esta tela a exibe sem
+ * recalcular.
+ *
+ * Quatro fatores agora, não três: a dívida ganhou peso próprio porque é dela
+ * que sai a poupança que não existe.
  */
-function calcularScore(
-  income: number, pN: number, pW: number, pS: number,
+function calcularAderencia(
+  income: number, pN: number, pW: number, pS: number, pD: number,
   alvoN: number, alvoW: number, alvoS: number,
 ) {
   // Necessidade tem tolerância maior que desejo: quem mora caro não muda de
@@ -57,13 +70,21 @@ function calcularScore(
   const savingsScore = alvoS > 0
     ? Math.max(0, Math.min(100, (pS / alvoS) * 100))
     : (pS > 0 ? 100 : 0)
-  const score = income === 0 ? 0 : Math.round(needsScore * 0.3 + wantsScore * 0.3 + savingsScore * 0.4)
+  // Dívida não tem "meta ideal": o alvo é zero. Nota cheia sem prestação
+  // nenhuma, zero a partir de 40% da renda — que é onde a literatura e o
+  // bom senso concordam que o mês deixou de caber.
+  const debtScore = Math.max(0, Math.min(100, 100 - (pD / 40) * 100))
+
+  const score = income === 0 ? 0 : Math.round(
+    needsScore * 0.25 + wantsScore * 0.25 + savingsScore * 0.30 + debtScore * 0.20)
+
   return {
     score,
     fatores: [
-      { chave: 'needs',   rotulo: 'Necessidades', nota: Math.round(needsScore),   peso: 30, real: Math.round(pN * 10) / 10, alvo: alvoN },
-      { chave: 'wants',   rotulo: 'Desejos',      nota: Math.round(wantsScore),   peso: 30, real: Math.round(pW * 10) / 10, alvo: alvoW },
-      { chave: 'savings', rotulo: 'Poupança',     nota: Math.round(savingsScore), peso: 40, real: Math.round(pS * 10) / 10, alvo: alvoS },
+      { chave: 'needs',   rotulo: 'Necessidades', nota: Math.round(needsScore),   peso: 25, real: Math.round(pN * 10) / 10, alvo: alvoN },
+      { chave: 'wants',   rotulo: 'Desejos',      nota: Math.round(wantsScore),   peso: 25, real: Math.round(pW * 10) / 10, alvo: alvoW },
+      { chave: 'dividas', rotulo: 'Dívidas',      nota: Math.round(debtScore),    peso: 20, real: Math.round(pD * 10) / 10, alvo: 0 },
+      { chave: 'savings', rotulo: 'Poupança',     nota: Math.round(savingsScore), peso: 30, real: Math.round(pS * 10) / 10, alvo: alvoS },
     ],
   }
 }
@@ -159,28 +180,63 @@ regra503020.get('/', requireAuth, async (c) => {
     ? `Regra ${PCT_NECESSIDADES}/${PCT_DESEJOS}/${PCT_POUPANCA} (simulação)`
     : (configUsuario?.nome_personalizado || 'Regra 50/30/20')
 
-  // 1. Receitas do período
+  // ── 1. A renda ────────────────────────────────────────────────────────────
+  //
+  // A tela dizia "48,6% de necessidades, quase no ideal" para alguém cujo mês
+  // fecha no vermelho. Metade da culpa era esta: dividir tudo pela receita já
+  // lançada do mês em curso. No dia 14 caiu meia receita e as saídas todas —
+  // e o denominador do gráfico inteiro fica pela metade.
+  //
+  // Mês fechado usa a receita dele mesmo, que é fato. Mês em curso usa a renda
+  // de referência da camada (média dos meses fechados + recorrentes), e a tela
+  // diz qual das duas está usando.
   const recRow = await c.env.DB.prepare(`
     SELECT COALESCE(SUM(valor), 0) as total
     FROM receitas
     WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?
   `).bind(user.id, String(mes).padStart(2, '0'), String(ano)).first() as any
 
-  const income = parseFloat(recRow?.total || 0)
+  const receitaLancada = parseFloat(recRow?.total || 0)
 
-  // 2. Despesas pagas do período por categoria
+  const agora = new Date()
+  const mesEmCurso = Number(mes) === agora.getMonth() + 1 && Number(ano) === agora.getFullYear()
+
+  const janela = await janelaHistorica(c.env.DB, user.id, 12)
+  const rendaRef = await calcRenda(c.env.DB, user.id, janela)
+
+  const income = mesEmCurso && rendaRef.mensal > 0 ? rendaRef.mensal : receitaLancada
+  const baseRenda = mesEmCurso && rendaRef.mensal > 0 ? 'referencia' : 'lancada'
+
+  // ── 2. As despesas do período, linha a linha ──────────────────────────────
+  //
+  // Linha a linha, e não agrupadas por categoria, porque a dívida é achada
+  // pelo VÍNCULO que o sistema carimbou na despesa — e o carimbo mora na
+  // linha. Agrupar por categoria antes de classificar foi exatamente o que
+  // fez a tela perder R$ 2.692,70 de vista.
+  //
+  // E pendente conta junto com pago: a parcela que vence dia 30 é compromisso
+  // do mês, não do mês que vem. Contar só o pago fazia a divisão do dia 14
+  // parecer outra vida.
   const despResult = await c.env.DB.prepare(`
-    SELECT categoria, COALESCE(SUM(valor), 0) as total
+    SELECT id, descricao, categoria, valor, observacoes, recorrencia_id,
+           numero_parcelas, cartao_id
     FROM despesas
     WHERE user_id = ?
       ${filtroDespesaDoMes()}
-      AND status = 'pago'
-    GROUP BY categoria
+      AND status IN ('pago','pendente')
   `).bind(user.id, String(mes).padStart(2, '0'), String(ano)).all()
 
+  const linhas: DespesaDivisivel[] = ((despResult.results as any[]) || []).map(x => ({
+    id: Number(x.id), descricao: x.descricao ?? null, categoria: x.categoria ?? null,
+    valor: Number(x.valor) || 0, observacoes: x.observacoes ?? null,
+    recorrencia_id: x.recorrencia_id ?? null,
+    numero_parcelas: x.numero_parcelas ?? null, cartao_id: x.cartao_id ?? null,
+  }))
+
   const despByCat: Record<string, number> = {}
-  for (const row of (despResult.results as any[])) {
-    despByCat[row.categoria] = parseFloat(row.total)
+  for (const d of linhas) {
+    const k = String(d.categoria || '').trim() || 'Sem categoria'
+    despByCat[k] = (despByCat[k] || 0) + d.valor
   }
 
   // 3. Investimentos do período
@@ -201,26 +257,26 @@ regra503020.get('/', requireAuth, async (c) => {
   `).bind(user.id, String(mes).padStart(2, '0'), String(ano)).first() as any
   const reserves = parseFloat(resRow?.total || 0)
 
-  // 5. Classificar despesas
-  let needs = 0, wants = 0, savings = 0
+  // ── 5. As quatro fatias ───────────────────────────────────────────────────
+  //
+  // A regra antiga tinha três gavetas e mandava para "Desejos" tudo que não
+  // reconhecia — inclusive "Outros", inclusive parcela de financiamento. O que
+  // não cabia em gaveta nenhuma simplesmente não era desenhado: 36% do
+  // dinheiro (R$ 2.692,70) saía do gráfico sem deixar rastro.
+  const divisao = dividir(linhas, income)
 
-  for (const [cat, val] of Object.entries(despByCat)) {
-    if (NEEDS_CATS.some(n => cat.toLowerCase().includes(n.toLowerCase()))) {
-      needs += val
-    } else if (SAVINGS_CATS.some(s => cat.toLowerCase().includes(s.toLowerCase()))) {
-      savings += val
-    } else {
-      wants += val
-    }
-  }
+  const needs = divisao.necessidades
+  const wants = divisao.desejos
+  const debts = divisao.dividas
+  const naoClassificado = divisao.nao_classificado
+  // Investimentos e depósitos em reserva são poupança mesmo sem virar despesa.
+  const savings = Math.round((divisao.poupanca + investments + reserves) * 100) / 100
 
-  // Investimentos e reservas vão para savings
-  savings += investments + reserves
-
-  // 6. Calcular percentuais
   const percentNeeds = income > 0 ? (needs / income) * 100 : 0
   const percentWants = income > 0 ? (wants / income) * 100 : 0
+  const percentDebts = income > 0 ? (debts / income) * 100 : 0
   const percentSavings = income > 0 ? (savings / income) * 100 : 0
+  const percentNC = income > 0 ? (naoClassificado / income) * 100 : 0
 
   // 7. Gaps usando config personalizada (negativo = acima do ideal)
   const gapNeeds = income * (PCT_NECESSIDADES / 100) - needs
@@ -229,8 +285,8 @@ regra503020.get('/', requireAuth, async (c) => {
 
   // 8. Score de aderência (0-100) com percentuais personalizados
   // Se não há receita registrada, o score é 0 (sem dados para avaliar)
-  const { score, fatores: fatores_score } = calcularScore(
-    income, percentNeeds, percentWants, percentSavings,
+  const { score, fatores: fatores_score } = calcularAderencia(
+    income, percentNeeds, percentWants, percentSavings, percentDebts,
     PCT_NECESSIDADES, PCT_DESEJOS, PCT_POUPANCA,
   )
 
@@ -250,7 +306,17 @@ regra503020.get('/', requireAuth, async (c) => {
       recommendations.push(`🎮 Lazer/Desejos estão R$ ${Math.abs(gapWants).toFixed(0)} acima do ideal (${PCT_DESEJOS}%). Revise assinaturas e delivery.`)
     }
 
-    if (gapSavings < -150) {
+    // A dívida ganhou voz. Antes ela não aparecia nem no gráfico nem aqui — e
+    // dizer "guarde mais" a quem tem 32% da renda em prestação é conselho que
+    // ignora o motivo de não sobrar nada.
+    if (percentDebts > 30) {
+      recommendations.push(`💳 ${percentDebts.toFixed(0)}% da renda vai em dívida. É daqui que sai a poupança que não existe — o plano de quitação da Projeção mostra em quanto tempo isso acaba.`)
+    }
+    if (percentNC > 3) {
+      recommendations.push(`🗂️ ${percentNC.toFixed(0)}% do gasto (R$ ${naoClassificado.toFixed(0)}) o sistema não soube classificar. A Central de Organização resolve isso numas poucas perguntas.`)
+    }
+
+    if (gapSavings < -150 && percentDebts <= 30) {
       recommendations.push(`💰 Poupança abaixo do ideal (${PCT_POUPANCA}%). Tente guardar mais R$ ${Math.abs(gapSavings).toFixed(0)}/mês.`)
     } else if (percentSavings >= PCT_POUPANCA) {
       recommendations.push(`🎉 Você poupa ${percentSavings.toFixed(0)}% da renda — ${percentSavings >= PCT_POUPANCA * 1.5 ? 'acima do esperado! Patrimônio crescendo rápido.' : 'dentro da meta recomendada!'}`)
@@ -276,46 +342,17 @@ regra503020.get('/', requireAuth, async (c) => {
     .filter(([cat]) => WANTS_CATS.some(w => cat.toLowerCase().includes(w.toLowerCase())))
     .sort(([, a], [, b]) => b - a).slice(0, 5)
 
-  // ── BLOCO 6.2: Integração Regra 50/30/20 → Orçamentos ─────────────────────
-  // Sugerir orçamentos para categorias que estão acima do ideal
-  const sugestoes_orcamento: Array<{ categoria: string; limite_sugerido: number; gasto_atual: number; motivo: string }> = []
-  if (income > 0) {
-    // Se necessidades > 50%: sugerir orçamentos para categorias de necessidades acima de 10%
-    for (const [cat, val] of topNeeds.slice(0, 3)) {
-      const pctCat = (val / income) * 100
-      if (pctCat > 10) {
-        // Checar se já tem orçamento para essa categoria no mês
-        const orcExist = await c.env.DB.prepare(
-          `SELECT id FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?`
-        ).bind(user.id, cat, mes, ano).first()
-        if (!orcExist) {
-          sugestoes_orcamento.push({
-            categoria: cat,
-            limite_sugerido: Math.round(income * 0.10),
-            gasto_atual: Math.round(val * 100) / 100,
-            motivo: `${cat} representa ${pctCat.toFixed(0)}% da renda — acima do ideal`
-          })
-        }
-      }
-    }
-    // Se desejos > 30%: sugerir orçamento para categorias de desejos
-    for (const [cat, val] of topWants.slice(0, 2)) {
-      const pctCat = (val / income) * 100
-      if (pctCat > 8) {
-        const orcExist = await c.env.DB.prepare(
-          `SELECT id FROM orcamentos WHERE user_id = ? AND categoria = ? AND mes = ? AND ano = ?`
-        ).bind(user.id, cat, mes, ano).first()
-        if (!orcExist) {
-          sugestoes_orcamento.push({
-            categoria: cat,
-            limite_sugerido: Math.round(income * 0.08),
-            gasto_atual: Math.round(val * 100) / 100,
-            motivo: `${cat} representa ${pctCat.toFixed(0)}% da renda — considere definir um orçamento`
-          })
-        }
-      }
-    }
-  }
+  // ── Sugestão de orçamento: não mora mais aqui ─────────────────────────────
+  //
+  // Esta tela sugeria limitar Transporte em R$ 544 (10% da renda do mês
+  // incompleto). A regra da tela de Orçamentos, olhando 7 meses fechados,
+  // sugeria R$ 450 para a mesma categoria na mesma semana. Duas sugestões
+  // diferentes para a mesma coisa é pior que nenhuma: o usuário não sabe qual
+  // obedecer e conclui, com razão, que o app está chutando.
+  //
+  // Fronteira: a 50/30/20 MOSTRA A DIVISÃO; quem propõe limite é Orçamentos,
+  // com a faixa real dos meses fechados. Uma pergunta, um dono.
+  const sugestoes_orcamento: Array<never> = []
 
   return c.json({
     mes, ano, income,
@@ -330,8 +367,31 @@ regra503020.get('/', requireAuth, async (c) => {
     current: {
       needs:   { amount: Math.round(needs * 100) / 100,   percentage: Math.round(percentNeeds * 10) / 10 },
       wants:   { amount: Math.round(wants * 100) / 100,   percentage: Math.round(percentWants * 10) / 10 },
+      // A quarta gaveta. O ideal clássico não tem uma, e é por isso que ele
+      // não descreve a vida de quem tem dívida — que é quase todo mundo.
+      dividas: { amount: Math.round(debts * 100) / 100,   percentage: Math.round(percentDebts * 10) / 10 },
       savings: { amount: Math.round(savings * 100) / 100, percentage: Math.round(percentSavings * 10) / 10 },
+      // O que o sistema não soube ler. Aparece na tela com o convite a
+      // resolver, em vez de ser chamado de supérfluo como antes.
+      nao_classificado: { amount: Math.round(naoClassificado * 100) / 100, percentage: Math.round(percentNC * 10) / 10 },
     },
+    // A conferência que a tela precisa poder fazer em voz alta: a soma das
+    // fatias tem que bater com a despesa do mês. Quando não bate, é bug —
+    // e antes não batia por R$ 2.692,70 sem ninguém notar.
+    confere: {
+      soma_das_fatias: Math.round((needs + wants + debts + divisao.poupanca + naoClassificado) * 100) / 100,
+      despesa_do_mes: Math.round(divisao.total * 100) / 100,
+    },
+    // De onde veio o denominador. Sem isto, a pessoa não tem como saber que
+    // está olhando uma projeção do mês em curso, não o fato consumado.
+    base_renda: {
+      tipo: baseRenda,
+      lancada: Math.round(receitaLancada * 100) / 100,
+      referencia: Math.round(rendaRef.mensal * 100) / 100,
+      meses_base: rendaRef.meses_base,
+      mes_em_curso: mesEmCurso,
+    },
+    detalhe_fatias: divisao.detalhe,
     ideal: {
       needs:   Math.round(income * (PCT_NECESSIDADES / 100) * 100) / 100,
       wants:   Math.round(income * (PCT_DESEJOS      / 100) * 100) / 100,
@@ -342,7 +402,11 @@ regra503020.get('/', requireAuth, async (c) => {
       wants:   Math.round(gapWants   * 100) / 100,
       savings: Math.round(gapSavings * 100) / 100,
     },
+    // `score` fica com o nome antigo para não quebrar quem já lê, mas o que
+    // ele mede tem nome próprio agora: ADERÊNCIA à divisão que você escolheu.
+    // A nota de SAÚDE tem um dono só — a camada — e não é calculada aqui.
     score,
+    aderencia: score,
     fatores_score,
     recommendations,
     // Bloco 6.2: sugestões de orçamento
@@ -413,7 +477,7 @@ regra503020.get('/historico', requireAuth, async (c) => {
     const pN = m.income > 0 ? (m.needs   / m.income) * 100 : 0
     const pW = m.income > 0 ? (m.wants   / m.income) * 100 : 0
     const pS = m.income > 0 ? (m.savings / m.income) * 100 : 0
-    const { score } = calcularScore(m.income, pN, pW, pS, ALVO_N, ALVO_W, ALVO_S)
+    const { score } = calcularAderencia(m.income, pN, pW, pS, 0, ALVO_N, ALVO_W, ALVO_S)
     return {
       mes: i + 1,
       income: Math.round(m.income * 100) / 100,

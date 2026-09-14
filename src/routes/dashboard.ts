@@ -1,4 +1,10 @@
 import { Hono } from 'hono'
+import {
+  janelaHistorica, renda as calcRenda, dividas as calcDividas,
+  prestacoes as calcPrestacoes, comprometimento as calcComprometimento,
+  patrimonio as calcPatrimonio, reserva as calcReserva, baseDeReserva,
+  score as calcScore,
+} from '../lib/metricas'
 import { requireAuth } from './auth'
 import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
 import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroDespesaDoAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -311,70 +317,53 @@ dashboard.get('/', requireAuth, async (c) => {
   const faturaCartaoMes = faturaCartoesMes?.total || 0
   const totalParcelaMensal = parcelasEmpFin + faturaCartaoMes
 
-  // ===== SCORE DE SAÚDE FINANCEIRA com fatores detalhados =====
-  let score = 50
-  const fatoresScore: { tipo: 'positivo' | 'negativo' | 'neutro'; descricao: string; pontos: number }[] = []
+  // ═══ SCORE DE SAÚDE FINANCEIRA ═══════════════════════════════════════════
+  //
+  // Esta tela tinha a sua própria matemática: começava em 50 e ia somando e
+  // subtraindo bônus (+20 se poupa bem, +10 se investe, +5 se tem meta, −25 se
+  // a dívida aperta). Dava 15. O Diagnóstico 360°, no mesmo minuto e para a
+  // mesma pessoa, dava 17. A tela 50/30/20 dava 50.
+  //
+  // Três notas para a mesma pessoa no mesmo dia. Quando três telas discordam,
+  // o usuário não escolhe uma — ele para de acreditar em todas.
+  //
+  // A nota agora tem um dono só. Este bloco não calcula mais nada: pede o
+  // número à camada de métricas, que é a mesma que a Projeção e o Diagnóstico
+  // consultam. Os "fatores" viram os cinco pilares, com o peso de cada um à
+  // vista, em vez de uma lista de bônus cujo total ninguém conseguia conferir.
+  //
+  // E a nota parou de depender do dia do mês: todos os pilares leem meses
+  // FECHADOS. A versão antiga usava o mês corrente, então declarava crise todo
+  // dia 14 e se desmentia no dia 30.
+  const janelaScore = await janelaHistorica(c.env.DB, user.id, 12)
+  const rendaScore = await calcRenda(c.env.DB, user.id, janelaScore)
+  const divsScore = await calcDividas(c.env.DB, user.id)
+  const prestScore = await calcPrestacoes(c.env.DB, user.id)
+  const patrScore = await calcPatrimonio(c.env.DB, user.id, divsScore.total)
+  const baseRes = await baseDeReserva(c.env.DB, user.id, janelaScore)
+  const resScore = calcReserva(patrScore.reserva, janelaScore, 6, baseRes)
+  const compScore = calcComprometimento(prestScore.total, rendaScore.mensal)
 
-  if (totalReceitas > 0) {
-    const taxaPoupanca = (saldoLiquido / totalReceitas) * 100
-    const comprometimento = (totalParcelaMensal / totalReceitas) * 100
+  const scoreSaude = calcScore({
+    reserva: resScore,
+    comprometimento: compScore,
+    sobra_proximo_mes: Math.round((rendaScore.mensal - prestScore.total -
+      (janelaScore.base.length
+        ? janelaScore.base.reduce((a, m) => a + m.despesas_variaveis, 0) / janelaScore.base.length
+        : 0)) * 100) / 100,
+    renda: rendaScore.mensal,
+    patrimonio: patrScore,
+    janela: janelaScore,
+  })
 
-    // Fator: taxa de poupança
-    if (taxaPoupanca >= 20) {
-      score += 20
-      fatoresScore.push({ tipo: 'positivo', descricao: `Taxa de poupança excelente (${taxaPoupanca.toFixed(1)}%)`, pontos: 20 })
-    } else if (taxaPoupanca >= 10) {
-      score += 10
-      fatoresScore.push({ tipo: 'positivo', descricao: `Boa taxa de poupança (${taxaPoupanca.toFixed(1)}%)`, pontos: 10 })
-    } else if (taxaPoupanca >= 0) {
-      fatoresScore.push({ tipo: 'neutro', descricao: `Taxa de poupança baixa (${taxaPoupanca.toFixed(1)}%) — tente poupar ao menos 10%`, pontos: 0 })
-    } else {
-      score -= 20
-      fatoresScore.push({ tipo: 'negativo', descricao: `Gastos maiores que receitas (${Math.abs(taxaPoupanca).toFixed(1)}% no vermelho)`, pontos: -20 })
-    }
-
-    // Fator: saldo positivo
-    if (saldoLiquido > 0) {
-      score += 5
-      fatoresScore.push({ tipo: 'positivo', descricao: 'Saldo do mês no positivo', pontos: 5 })
-    }
-
-    // Fator: investimentos
-    if (totalInvest > 0) {
-      score += 10
-      fatoresScore.push({ tipo: 'positivo', descricao: 'Você está investindo seu dinheiro', pontos: 10 })
-    } else {
-      fatoresScore.push({ tipo: 'neutro', descricao: 'Nenhum investimento cadastrado — comece com a Caixinha CDI', pontos: 0 })
-    }
-
-    // Fator: metas
-    if ((metasAtivas as any)?.count > 0) {
-      score += 5
-      fatoresScore.push({ tipo: 'positivo', descricao: `${(metasAtivas as any).count} meta(s) ativa(s) — você está planejando o futuro`, pontos: 5 })
-    } else {
-      fatoresScore.push({ tipo: 'neutro', descricao: 'Nenhuma meta financeira cadastrada', pontos: 0 })
-    }
-
-    // Fator: comprometimento de dívidas (empréstimos + financiamentos + fatura de cartão)
-    if (comprometimento > 50) {
-      score -= 25
-      fatoresScore.push({ tipo: 'negativo', descricao: `Comprometimento crítico: dívidas consomem ${comprometimento.toFixed(0)}% da renda (limite saudável: 30%)`, pontos: -25 })
-    } else if (comprometimento > 30) {
-      score -= 15
-      fatoresScore.push({ tipo: 'negativo', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda (limite saudável: 30%)`, pontos: -15 })
-    } else if (comprometimento > 20) {
-      score -= 8
-      fatoresScore.push({ tipo: 'negativo', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda — atenção`, pontos: -8 })
-    } else if (comprometimento > 0) {
-      fatoresScore.push({ tipo: 'neutro', descricao: `Dívidas comprometem ${comprometimento.toFixed(0)}% da renda — dentro do limite`, pontos: 0 })
-    } else if (totalDevedor === 0) {
-      score += 10
-      fatoresScore.push({ tipo: 'positivo', descricao: 'Sem dívidas ativas — excelente!', pontos: 10 })
-    }
-  } else {
-    fatoresScore.push({ tipo: 'neutro', descricao: 'Cadastre receitas para calcular seu score completo', pontos: 0 })
-  }
-  score = Math.min(100, Math.max(0, score))
+  const score = scoreSaude.total
+  // O formato antigo de `fatores` continua saindo, para o front não quebrar —
+  // mas alimentado pelos pilares, que é o que agora existe de verdade.
+  const fatoresScore = scoreSaude.pilares.map(p => ({
+    tipo: (p.nota >= 60 ? 'positivo' : p.nota > 0 ? 'neutro' : 'negativo') as 'positivo' | 'negativo' | 'neutro',
+    descricao: `${p.nome}: ${p.valor} — ${p.explicacao}`,
+    pontos: p.pontos,
+  }))
 
   const lim = getLimites(user.plano)
 
@@ -484,12 +473,15 @@ dashboard.get('/', requireAuth, async (c) => {
   // ══════════════════════════════════════════════════════════════════════
   const classificacao = await classificarObrigacoesTemporais(c.env.DB, user.id, totalReceitas)
 
-  // Corrigir o comprometimento para usar APENAS obrigações ativas
-  // (sobrepõe o parcelasEmpFin calculado sem classificação temporal)
+  // O comprometimento também tinha régua própria aqui: prestações ativas
+  // divididas pela receita JÁ LANÇADA do mês corrente. No dia 14 o denominador
+  // está pela metade, e o painel mostrava um percentual que dobrava de manhã e
+  // caía à noite — sem que nada na vida da pessoa tivesse mudado.
+  //
+  // Agora vem da camada, sobre a renda de referência dos meses fechados. É o
+  // mesmo 60,4% que a Projeção e o Diagnóstico exibem.
   const parcelasAtivasClassificadas = classificacao.resumo.total_parcelas_ativas
-  const comprometimentoAjustado     = totalReceitas > 0
-    ? Math.round((parcelasAtivasClassificadas / totalReceitas) * 100)
-    : 0
+  const comprometimentoAjustado     = Math.round(compScore)
 
   // ══════════════════════════════════════════════════════════════════════
   // FASE 1.2 — Alerta categoria "Outros" > 15% da renda
@@ -660,6 +652,11 @@ dashboard.get('/', requireAuth, async (c) => {
     score_saude_obj: lim.score_saude
       ? { score, fatores: fatoresScore }
       : { score: null, fatores: [] },
+    // A nota inteira, como a camada a devolve: os cinco pilares com peso e
+    // pontos. É o mesmo objeto que o Diagnóstico abre — o Dashboard mostra o
+    // termômetro, o Diagnóstico mostra de onde vêm os pontos, e os dois leem
+    // daqui. Não há como um dizer 15 e o outro 17.
+    score_detalhe: lim.score_saude ? scoreSaude : null,
     plano: user.plano,
     limites: {
       // B5-fix: Infinity não é serializável em JSON — converter para -1 (sem limite)

@@ -12,6 +12,7 @@ import emprestimosRoutes from './routes/emprestimos'
 import lembretesRoutes from './routes/lembretes'
 import conquistasRoutes from './routes/conquistas'
 import iaRoutes from './routes/ia'
+import diagnosticoRoutes from './routes/diagnostico'
 import perfilRoutes from './routes/perfil'
 import reservaRoutes from './routes/reserva'
 import adminRoutes from './routes/admin'
@@ -104,6 +105,7 @@ app.route('/api/emprestimos', emprestimosRoutes)
 app.route('/api/lembretes', lembretesRoutes)
 app.route('/api/conquistas', conquistasRoutes)
 app.route('/api/ia', iaRoutes)
+app.route('/api/diagnostico', diagnosticoRoutes)
 app.route('/api/perfil', perfilRoutes)
 app.route('/api/reserva', reservaRoutes)
 app.route('/api/orcamentos', orcamentosRoutes)
@@ -667,7 +669,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260903-2">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260903-1">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
-  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260914-3">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260914-4">
   <link rel="stylesheet" href="/static/terminal-ds.css?v=20260910-2">
   <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
@@ -699,12 +701,12 @@ function appShell() {
   <script src="/static/terminal-emprestimos.js?v=20260910-4"></script>
   <script src="/static/terminal-antecipacao.js?v=20260909-1"></script>
   <script src="/static/terminal-recebimentos.js?v=20260909-1"></script>
-  <script src="/static/terminal-diagnostico.js?v=20260903-1"></script>
+  <script src="/static/terminal-diagnostico.js?v=20260914-4"></script>
   <script src="/static/terminal-projecao.js?v=20260914-3"></script>
   <script src="/static/terminal-comparativo.js?v=20260831-1"></script>
   <script src="/static/terminal-relatorios.js?v=20260831-7"></script>
   <script src="/static/terminal-simulacao.js?v=20260831-1"></script>
-  <script src="/static/terminal-regra.js?v=20260902-1"></script>
+  <script src="/static/terminal-regra.js?v=20260914-4"></script>
   <script src="/static/terminal-amortizacao.js?v=20260831-1"></script>
   <script src="/static/terminal-perfil.js?v=20260831-2"></script>
   <script src="/static/terminal-alertas-cartao.js?v=20260831-2"></script>

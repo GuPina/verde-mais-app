@@ -37,6 +37,7 @@
 
 import { competenciaData, filtroNaoCancelada, filtroSemAporte } from './competencia'
 import { raizCategoria } from './identidade'
+import { gastoEssencial, type DespesaDivisivel } from './divisao'
 
 const cent = (v: number) => Math.round((Number(v) || 0) * 100) / 100
 
@@ -497,25 +498,92 @@ export async function patrimonio(
 
 // ─── 5. Reserva ──────────────────────────────────────────────────────────────
 
+export interface BaseDeReserva {
+  /** Só necessidades: é isto que a reserva precisa cobrir. */
+  essencial: number
+  /** Todo o fluxo de saída, para a tela poder mostrar a diferença. */
+  total: number
+  meses: number
+}
+
 export interface Reserva {
   atual: number
+  /** O gasto que a reserva cobre — ESSENCIAL, não todo o fluxo de saída. */
   gasto_medio: number
+  /** Todo o fluxo de saída, exibido ao lado para o usuário ver a diferença. */
+  gasto_total: number
   meses_cobertos: number
   alvo_meses: number
   alvo_valor: number
+  /** O alvo se a régua fosse todo o gasto — o cenário confortável. */
+  alvo_confortavel: number
   falta: number
 }
 
-/** Usa o MESMO gasto médio que a projeção usa. Antes eram duas contas. */
-export function reserva(atual: number, janela: JanelaHistorica, alvoMeses = 6): Reserva {
-  const gasto = mediaPesada(janela.base.map(m => m.despesas))
+/**
+ * Quanto custa um mês da sua vida, em duas leituras.
+ *
+ * Havia duas contas divergentes no app: a camada somava todo o fluxo de saída
+ * (R$ 7.665,80) e a tela de Reserva somava uma lista fixa de categorias
+ * "essenciais" escrita no código (R$ 3.932,98). Seis meses de reserva davam
+ * R$ 45.995 numa e R$ 23.598 na outra — dois alvos para a mesma pessoa.
+ *
+ * A régua agora é uma: o gasto ESSENCIAL, classificado pela mesma função que
+ * desenha as quatro fatias da 50/30/20. Reserva existe para o mês em que a
+ * renda falta, e nesse mês você corta streaming, não aluguel. E a lista de
+ * essenciais deixa de ser uma constante do código para virar uma classificação
+ * que o usuário pode corrigir por identidade.
+ */
+export async function baseDeReserva(
+  db: D1Database, userId: number, janela: JanelaHistorica,
+): Promise<BaseDeReserva> {
+  const chaves = janela.base.map(m => `${m.ano}-${String(m.mes).padStart(2, '0')}`)
+  if (!chaves.length) return { essencial: 0, total: 0, meses: 0 }
+  const ph = chaves.map(() => '?').join(',')
+
+  const r = await db.prepare(
+    `SELECT d.id, d.descricao, d.categoria, d.valor, d.observacoes, d.recorrencia_id,
+            d.numero_parcelas, d.cartao_id
+     FROM despesas d
+     WHERE d.user_id = ? AND d.status IN ('pago','pendente')
+       AND ${filtroSemAporte('d')} AND ${filtroNaoCancelada('d')}
+       AND (strftime('%Y-%m', ${competenciaData('d')})) IN (${ph})`
+  ).bind(userId, ...chaves).all()
+
+  const linhas = ((r.results as any[]) || []).map((x): DespesaDivisivel => ({
+    id: Number(x.id), descricao: x.descricao ?? null, categoria: x.categoria ?? null,
+    valor: Number(x.valor) || 0, observacoes: x.observacoes ?? null,
+    recorrencia_id: x.recorrencia_id ?? null,
+    numero_parcelas: x.numero_parcelas ?? null, cartao_id: x.cartao_id ?? null,
+  }))
+
+  const meses = chaves.length
+  const total = cent(linhas.reduce((s, d) => s + d.valor, 0) / meses)
+  return { essencial: cent(gastoEssencial(linhas) / meses), total, meses }
+}
+
+/**
+ * A reserva contra o gasto essencial.
+ *
+ * `base` pode vir null quando o chamador não quis pagar a consulta extra — aí
+ * cai para a média de TODO o gasto, que é conservadora demais mas nunca
+ * otimista. Errar para o lado de pedir reserva demais é aceitável; errar para
+ * o lado de dizer "você está coberto" não é.
+ */
+export function reserva(
+  atual: number, janela: JanelaHistorica, alvoMeses = 6, base?: BaseDeReserva | null,
+): Reserva {
+  const totalMedio = mediaPesada(janela.base.map(m => m.despesas))
+  const gasto = base && base.essencial > 0 ? base.essencial : totalMedio
   const alvo = cent(gasto * alvoMeses)
   return {
     atual: cent(atual),
     gasto_medio: cent(gasto),
+    gasto_total: cent(base?.total || totalMedio),
     meses_cobertos: gasto > 0 ? Math.round((atual / gasto) * 10) / 10 : 0,
     alvo_meses: alvoMeses,
     alvo_valor: alvo,
+    alvo_confortavel: cent((base?.total || totalMedio) * alvoMeses),
     falta: cent(Math.max(0, alvo - atual)),
   }
 }
@@ -787,4 +855,162 @@ export async function gastos(
     duplicadas,
     top3_pct: total > 0 ? Math.round((top3 / total) * 1000) / 10 : 0,
   }
+}
+
+// ─── 7. Recomendações: cada ação com o preço em pontos ───────────────────────
+
+export interface Recomendacao {
+  chave: string
+  acao: string
+  /** Quanto dinheiro a ação exige. 0 quando não custa dinheiro, só tempo. */
+  custa: number
+  /** Quantos pontos ela devolve da nota. */
+  devolve: number
+  nota_depois: number
+  pilar: string
+  /** Quando a ação não move a nota, a tela precisa DIZER isso, não escondê-la. */
+  nota: string | null
+  /** Linha que compara ORDEM entre duas ações, não uma ação isolada. */
+  ordem?: boolean
+}
+
+/** Entradas do score, isoladas para poder simular um cenário alternativo. */
+interface EntradaScore {
+  reserva: Reserva
+  comprometimento: number
+  sobra_proximo_mes: number
+  renda: number
+  patrimonio: Patrimonio
+  janela: JanelaHistorica
+}
+
+/**
+ * O que cada decisão devolve da nota.
+ *
+ * "Melhore sua saúde financeira" é conselho de biscoito da sorte. A única
+ * recomendação que vale alguma coisa é a que diz quanto custa e quanto rende —
+ * e, quando não rende nada, que diz isso em voz alta.
+ *
+ * Cada linha é o MESMO score recalculado sobre um cenário alternativo, não uma
+ * estimativa à parte. Se a fórmula do score mudar amanhã, estes números mudam
+ * junto; não há como as duas coisas divergirem.
+ *
+ * A honestidade que isto compra: depois de zerar o cartão, quitar o empréstimo
+ * costuma devolver ZERO ponto — porque o comprometimento já caiu abaixo de 30%
+ * e o pilar está no teto. O score mede saúde, não mérito, e a tela precisa
+ * admitir isso. Senão alguém otimiza o número em vez do dinheiro.
+ */
+export function recomendacoes(dados: EntradaScore & {
+  /** Saldos por tipo, para saber o que há para quitar. */
+  dividas: Dividas
+  prestacoes: Prestacoes
+}): Recomendacao[] {
+  const base = score(dados)
+  if (!base.disponivel) return []
+
+  const fora: Recomendacao[] = []
+  const alvoMeses = dados.reserva.alvo_meses || 6
+  const gastoEss = dados.reserva.gasto_medio
+
+  const simular = (mudanca: Partial<EntradaScore>) =>
+    score({ ...dados, ...mudanca })
+
+  // ── Reserva: 1 e 3 meses ──────────────────────────────────────────────────
+  for (const meses of [1, 3]) {
+    const precisa = cent(gastoEss * meses)
+    if (gastoEss <= 0 || dados.reserva.atual >= precisa) continue
+    const custa = cent(precisa - dados.reserva.atual)
+    const nova = simular({
+      reserva: { ...dados.reserva, atual: precisa, meses_cobertos: meses,
+                 falta: cent(Math.max(0, dados.reserva.alvo_valor - precisa)) },
+      patrimonio: { ...dados.patrimonio, reserva: precisa },
+    })
+    fora.push({
+      chave: `reserva_${meses}m`,
+      acao: `Montar ${meses} ${meses === 1 ? 'mês' : 'meses'} de reserva`,
+      custa, devolve: Math.round((nova.total - base.total) * 10) / 10,
+      nota_depois: nova.total, pilar: 'Fôlego',
+      nota: meses === alvoMeses ? null : `${meses} de ${alvoMeses} meses do alvo.`,
+    })
+  }
+
+  // ── Dívidas: zerar cada tipo, e depois a ORDEM entre elas ────────────────
+  const porTipo: Array<{ chave: string; rotulo: string; saldo: number; parcela: number }> = [
+    { chave: 'cartao', rotulo: 'os parcelamentos do cartão',
+      saldo: dados.dividas.cartoes, parcela: dados.prestacoes.cartao_parcelado },
+    { chave: 'emprestimo', rotulo: 'o empréstimo',
+      saldo: dados.dividas.emprestimos,
+      parcela: dados.prestacoes.detalhe
+        .filter(d => d.origem === 'emprestimo').reduce((s, d) => s + d.valor, 0) },
+  ].filter(x => x.saldo > 0 && x.parcela > 0)
+
+  for (const alvo of porTipo) {
+    const prestDepois = cent(Math.max(0, dados.prestacoes.total - alvo.parcela))
+    const nova = simular({
+      comprometimento: comprometimento(prestDepois, dados.renda),
+      sobra_proximo_mes: cent(dados.sobra_proximo_mes + alvo.parcela),
+      patrimonio: { ...dados.patrimonio, liquido: cent(dados.patrimonio.liquido + alvo.saldo) },
+    })
+    const devolve = Math.round((nova.total - base.total) * 10) / 10
+    fora.push({
+      chave: `quitar_${alvo.chave}`,
+      acao: `Zerar ${alvo.rotulo}`,
+      custa: alvo.saldo, devolve, nota_depois: nova.total, pilar: 'Endividamento',
+      nota: devolve <= 0
+        ? 'Sozinha, esta não move a nota — o pilar já estaria onde dá para chegar.'
+        : `Libera ${fmt(alvo.parcela)} por mês.`,
+    })
+  }
+
+  // ── A ordem entre as duas dívidas ─────────────────────────────────────────
+  //
+  // Esta é a linha mais importante da tabela, e é a que só aparece porque as
+  // duas anteriores foram calculadas de forma independente: aqui a segunda
+  // dívida é quitada DEPOIS da primeira, e costuma devolver ZERO.
+  //
+  // O motivo é que o comprometimento já caiu abaixo de 30% e o pilar está no
+  // teto — não há mais ponto para ganhar ali. Isso é o score sendo honesto
+  // sobre o próprio limite: ele mede saúde, não mérito. Esconder esta linha
+  // deixaria o usuário otimizando o número em vez do dinheiro.
+  if (porTipo.length >= 2) {
+    const ordenadas = porTipo
+      .map(t => ({ t, r: fora.find(f => f.chave === `quitar_${t.chave}`) }))
+      .filter(x => !!x.r)
+      .sort((a, b) => (b.r!.devolve - a.r!.devolve))
+    const primeira = ordenadas[0]?.t
+    const segunda = ordenadas[1]?.t
+    if (primeira && segunda) {
+      const prestSemAmbas = cent(Math.max(0, dados.prestacoes.total - primeira.parcela - segunda.parcela))
+      const prestSemPrimeira = cent(Math.max(0, dados.prestacoes.total - primeira.parcela))
+      const depoisDaPrimeira = score({
+        ...dados,
+        comprometimento: comprometimento(prestSemPrimeira, dados.renda),
+        sobra_proximo_mes: cent(dados.sobra_proximo_mes + primeira.parcela),
+        patrimonio: { ...dados.patrimonio, liquido: cent(dados.patrimonio.liquido + primeira.saldo) },
+      })
+      const ambas = score({
+        ...dados,
+        comprometimento: comprometimento(prestSemAmbas, dados.renda),
+        sobra_proximo_mes: cent(dados.sobra_proximo_mes + primeira.parcela + segunda.parcela),
+        patrimonio: { ...dados.patrimonio,
+          liquido: cent(dados.patrimonio.liquido + primeira.saldo + segunda.saldo) },
+      })
+      const devolve = Math.round((ambas.total - depoisDaPrimeira.total) * 10) / 10
+      fora.push({
+        chave: `quitar_${segunda.chave}_depois`,
+        acao: `Zerar ${segunda.rotulo} DEPOIS de zerar ${primeira.rotulo}`,
+        custa: segunda.saldo, devolve, nota_depois: ambas.total, pilar: 'Endividamento',
+        nota: devolve <= 0
+          ? 'Nesta ordem, não move a nota: o pilar de Endividamento já estaria no teto. ' +
+            'Continua valendo a pena pelo dinheiro — o score é que não tem mais o que premiar.'
+          : 'Feita nesta ordem, ainda rende.',
+        ordem: true,
+      })
+    }
+  }
+
+  // Ordena por pontos devolvidos, e não por valor: a pergunta é "o que rende
+  // mais", não "o que é mais caro". A linha de ordem fica sempre por último,
+  // porque ela só faz sentido lida depois das duas que ela compara.
+  return fora.sort((a, b) => (a.ordem ? 1 : 0) - (b.ordem ? 1 : 0) || b.devolve - a.devolve)
 }

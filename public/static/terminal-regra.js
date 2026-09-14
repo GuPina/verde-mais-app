@@ -54,7 +54,9 @@
           <div>
             <span class="td-eyebrow">Equilíbrio das suas finanças</span>
             <h1>Regra ${Number(r.pct_necessidades ?? 50)}/${Number(r.pct_desejos ?? 30)}/${Number(r.pct_poupanca ?? 20)}. <em>Onde cada real está indo.</em></h1>
-            <p>Necessidades, desejos e poupança — quanto você gasta em cada, quanto seria o ideal e se você vem melhorando.</p>
+            <p>Necessidades, desejos, <b>dívidas</b> e poupança — quanto você gasta em cada, quanto
+              seria o ideal e se você vem melhorando. A quarta fatia é a que faltava: sem ela,
+              36% do seu dinheiro saía do gráfico sem aparecer em lugar nenhum.</p>
           </div>
           <div class="td-dashboard__header-actions">${this._seletor()}</div>
         </header>
@@ -68,10 +70,14 @@
           ${this._topCol('Maiores desejos', d.breakdown.top_wants, 'want')}
         </div>` : ''}
 
-        ${(d.sugestoes_orcamento || []).length ? `<article class="td-panel" style="margin-top:16px">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Sugestão</span><h2>Orçamentos recomendados</h2></div></div>
-          <div class="an-list">${d.sugestoes_orcamento.map(s => `<div class="an-card"><div class="an-card__main"><strong>${esc(s.categoria)}</strong><small>${esc(s.motivo)}</small></div><div class="an-card__vals"><span class="an-card__val">${money(s.limite_sugerido)}</span><small class="an-card__eco">hoje ${money(s.gasto_atual)}</small></div></div>`).join('')}</div>
-        </article>` : ''}
+        <div class="ds-note ds-note--info rg-fronteira">
+          <i class="fas fa-ruler-combined ds-note__ico"></i>
+          <div><b>Esta tela mostra a divisão; quem define limite é a tela de Orçamentos.</b>
+            Antes as duas sugeriam — e discordavam: aqui saía "limitar Transporte em R$ 544" (10% da
+            renda do mês incompleto) enquanto Orçamentos, olhando os meses fechados, dizia R$ 450.
+            Duas sugestões para a mesma coisa é pior que nenhuma.
+            <button class="ds-btn ds-btn--sm rg-ir" onclick="VM.navigate('orcamentos')">Definir limites</button></div>
+        </div>
       </div>`
     },
 
@@ -104,13 +110,18 @@
               <circle cx="60" cy="60" r="52" fill="none" stroke="var(--terminal-line)" stroke-width="10"/>
               <circle cx="60" cy="60" r="52" fill="none" stroke="${cor}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 60 60)"/>
               <text x="60" y="58" text-anchor="middle" font-size="30" font-weight="700" fill="var(--terminal-ink)" font-family="var(--terminal-font)">${score}</text>
-              <text x="60" y="77" text-anchor="middle" font-size="9" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">DE 100</text>
+              <text x="60" y="77" text-anchor="middle" font-size="9" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">ADERÊNCIA</text>
             </svg>
           </div>
           <div class="rg-score__side">
             <span class="td-eyebrow">${esc(r.nome || 'Regra 50/30/20')}${r.personalizada ? ' · personalizada' : ''}</span>
             <h2>${titulo}</h2>
             <p>${MESES_LONGO[this._mes - 1]} de ${this._ano} · renda de ${money(d.income)}</p>
+            ${d.base_renda?.tipo === 'referencia' ? `<p class="rg-base">
+              O mês ainda está em curso, então o denominador é a sua <b>renda de referência</b>
+              (média de ${d.base_renda.meses_base} meses fechados + recorrentes), não os
+              ${money(d.base_renda.lancada)} já lançados. Dividir tudo por meia receita fazia a tela
+              dizer "quase no ideal" para um mês que fecha no vermelho.</p>` : ''}
             ${fatores.length ? `<div class="rg-fatores">
               ${fatores.map(f => {
                 const nota = Number(f.nota) || 0
@@ -120,10 +131,19 @@
                   <b style="color:${corScore(nota)}">${nota}</b>
                 </div>`
               }).join('')}
-              <p class="rg-fatores__nota">O score é a distância entre a sua distribuição real e a meta configurada. Poupar acima da meta nunca penaliza.</p>
+              <p class="rg-fatores__nota"><b>Isto é aderência, não saúde.</b> Mede quão perto a sua
+                divisão está da meta que VOCÊ escolheu — pergunta que nenhuma outra tela responde.
+                A nota de saúde financeira tem um dono só, e é o Diagnóstico.
+                Poupar acima da meta nunca penaliza; dívida não tem meta ideal, o alvo é zero.</p>
             </div>` : ''}
             <div class="rg-score__foot">
-              ${[['Renda', d.income, ''], ['Gastos', Number(cur.needs?.amount || 0) + Number(cur.wants?.amount || 0), ''], ['Guardado', cur.savings?.amount, 'ok']].map(([rot, v, tom]) =>
+              ${/* "Gastos" somava só necessidades + desejos: era literalmente o
+                    R$ 4.809,44 da auditoria, que deixava R$ 2.692,70 de fora
+                    do rodapé da mesma tela que agora os mostra no gráfico. */
+                [['Renda', d.income, ''],
+                 ['Gastos', Number(cur.needs?.amount || 0) + Number(cur.wants?.amount || 0) +
+                            Number(cur.dividas?.amount || 0) + Number(cur.nao_classificado?.amount || 0), ''],
+                 ['Guardado', cur.savings?.amount, 'ok']].map(([rot, v, tom]) =>
                 `<div><small>${rot}</small><b ${tom === 'ok' ? 'style="color:var(--terminal-primary)"' : ''}>${money(v)}</b></div>`).join('')}
             </div>
           </div>
@@ -134,8 +154,12 @@
           <div class="rg-bars">
             ${this._group('Necessidades', cur.needs, ideal.needs, r.pct_necessidades, 'need')}
             ${this._group('Desejos', cur.wants, ideal.wants, r.pct_desejos, 'want')}
+            ${this._group('Dívidas', cur.dividas, 0, 0, 'debt')}
             ${this._group('Poupança', cur.savings, ideal.savings, r.pct_poupanca, 'save')}
+            ${Number(cur.nao_classificado?.amount) > 0
+              ? this._group('Sem classificação', cur.nao_classificado, 0, 0, 'unk') : ''}
           </div>
+          ${this._confere(d)}
           <div class="rg-gaps">
             ${[['Necessidades', d.gaps?.needs, 'gasto'], ['Desejos', d.gaps?.wants, 'gasto'], ['Poupança', d.gaps?.savings, 'guardado']].map(([rot, v, tipo]) => {
               // O backend já entrega o gap com o sinal certo para cada grupo:
@@ -265,13 +289,48 @@
       const idealV = Number(ideal) || 0
       const alvo = Number(pct) || 0
       const acima = amount > idealV
-      const tone = kind === 'save' ? (perc >= alvo ? 'ok' : 'warn') : (acima ? 'neg' : 'ok')
-      const barCor = tone === 'ok' ? 'var(--terminal-primary)' : tone === 'warn' ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
+
+      // Dívida e "sem classificação" não têm alvo: o ideal das duas é zero.
+      // Marcar um alvo de 0% e depois pintar de vermelho por "estar acima"
+      // seria uma crítica automática a quem simplesmente tem financiamento.
+      // O tom aqui é informativo: a barra diz o tamanho, não dá nota.
+      const semAlvo = kind === 'debt' || kind === 'unk'
+      const tone = semAlvo ? (kind === 'unk' ? 'warn' : 'info')
+        : kind === 'save' ? (perc >= alvo ? 'ok' : 'warn')
+        : (acima ? 'neg' : 'ok')
+      const barCor = tone === 'ok' ? 'var(--terminal-primary)'
+        : tone === 'warn' ? 'var(--terminal-accent)'
+        : tone === 'info' ? 'var(--terminal-info)' : 'var(--terminal-negative)'
       const w = Math.min(100, perc)
+      const legenda = kind === 'debt' ? 'sem alvo · o ideal é zero'
+        : kind === 'unk' ? 'o sistema não soube ler'
+        : `ideal ${money(idealV)}`
       return `<div class="rg-group">
-        <div class="rg-group__top"><span class="rg-group__lbl">${esc(lbl)}</span><span class="rg-group__pct rg-group__pct--${tone}">${perc.toFixed(0)}% <em>/ ${alvo}%</em></span></div>
-        <div class="rg-track"><span class="rg-track__ideal" style="left:${Math.min(100, alvo)}%"></span><span class="rg-track__fill" style="width:${w}%;background:${barCor}"></span></div>
-        <div class="rg-group__vals"><span>${money(amount)}</span><span>ideal ${money(idealV)}</span></div>
+        <div class="rg-group__top"><span class="rg-group__lbl">${esc(lbl)}</span>
+          <span class="rg-group__pct rg-group__pct--${tone}">${perc.toFixed(0)}%${semAlvo ? '' : ` <em>/ ${alvo}%</em>`}</span></div>
+        <div class="rg-track">${semAlvo ? '' : `<span class="rg-track__ideal" style="left:${Math.min(100, alvo)}%"></span>`}<span class="rg-track__fill" style="width:${w}%;background:${barCor}"></span></div>
+        <div class="rg-group__vals"><span>${money(amount)}</span><span>${legenda}</span></div>
+      </div>`
+    },
+
+    /**
+     * A conferência em voz alta.
+     *
+     * A tela dizia "soma das três fatias: R$ 4.809,44" numa despesa real de
+     * R$ 7.502,14, e não mencionava a diferença. Agora ela soma, compara, e
+     * quando não bate diz que não bate — porque ali é bug, não é opinião.
+     */
+    _confere(d) {
+      const c = d.confere || {}
+      const soma = Number(c.soma_das_fatias) || 0
+      const real = Number(c.despesa_do_mes) || 0
+      const dif = Math.abs(soma - real)
+      const bate = dif < 0.02
+      return `<div class="rg-confere ${bate ? 'is-ok' : 'is-neg'}">
+        <i class="fas ${bate ? 'fa-equals' : 'fa-not-equal'}"></i>
+        <span>${bate
+          ? `As fatias somam ${money(soma)} — exatamente a despesa do mês. Nada fica de fora do gráfico.`
+          : `As fatias somam ${money(soma)}, mas a despesa do mês é ${money(real)}. Faltam ${money(dif)} — isso é bug, não interpretação.`}</span>
       </div>`
     },
 

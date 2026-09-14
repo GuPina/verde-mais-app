@@ -1,11 +1,32 @@
+/**
+ * Diagnóstico — a leitura dos números.
+ *
+ * A tela antiga tinha score próprio (17), KPIs do mês corrente e um veredicto
+ * "🚨 Situação Crítica" que só existia porque era dia 14. Tudo isso saiu.
+ *
+ * O que ficou é o que nenhuma outra tela faz: a MESMA nota do Dashboard,
+ * aberta — de onde vêm os pontos, para onde foram os que faltam, e o que
+ * devolve cada um. Mais os alertas de cruzamento, que são a coisa original
+ * daqui: regras que olham duas áreas ao mesmo tempo.
+ *
+ * A Projeção responde "quanto, e quando". Esta responde "e daí, o que eu
+ * faço". Não voltam a discordar porque as duas leem da mesma camada.
+ */
 (function () {
   const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
   const money = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 }).format(Number(v) || 0)
-  const pctTxt = (v) => `${Math.round(Number(v) || 0)}%`
-  const MOD = [
-    ['fluxo_caixa', 'Fluxo de caixa', 30], ['reserva', 'Reserva', 25], ['dividas', 'Dívidas', 25],
-    ['investimentos', 'Investimentos', 100], ['metas', 'Metas', 100],
-  ]
+  const moneyR = (v) => 'R$ ' + Math.abs(Math.round(Number(v) || 0)).toLocaleString('pt-BR')
+  const pct = (v, d = 1) => (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: d }) + '%'
+
+  const MES3 = { '01': 'jan', '02': 'fev', '03': 'mar', '04': 'abr', '05': 'mai', '06': 'jun',
+                 '07': 'jul', '08': 'ago', '09': 'set', '10': 'out', '11': 'nov', '12': 'dez' }
+  const mesCurto = (s) => {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})/)
+    return m ? `${MES3[m[2]]}/${m[1].slice(2)}` : String(s || '')
+  }
+
+  const TOM = { critico: 'neg', alto: 'warn', medio: 'info' }
+  const TOM_ICO = { critico: 'fa-circle-exclamation', alto: 'fa-triangle-exclamation', medio: 'fa-circle-info' }
 
   window.VMTerminalDiagnostico = {
     async render(vm) {
@@ -15,10 +36,13 @@
       document.body.classList.add('terminal-dashboard-active')
       content.innerHTML = '<div class="td-loading"><span></span><span></span><span></span></div>'
       try {
-        this._d = await vm.api('GET', 'ia/insights')
+        this._d = await vm.api('GET', 'diagnostico')
         this._paint()
       } catch (e) {
-        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível gerar o diagnóstico</h2><p>${esc(e.response?.data?.error || 'Tente novamente.')}</p><button class="ds-btn ds-btn--primary" onclick="VMTerminalDiagnostico.reload()">Tentar novamente</button></div>`
+        const err = e.response?.data
+        content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i>
+          <h2>Não foi possível gerar o diagnóstico</h2><p>${esc(err?.error || 'Tente novamente.')}</p>
+          <button class="ds-btn ds-btn--primary" onclick="VMTerminalDiagnostico.reload()">Tentar novamente</button></div>`
       }
     },
     reload() { this.render(this._vm) },
@@ -26,149 +50,249 @@
     _paint() {
       const content = document.getElementById('page-content')
       if (!content) return
-      const d = this._d
-      const score = Math.round(Number(d.resumo_executivo?.score_geral ?? d.scores?.geral) || 0)
-      const veredicto = d.resumo_executivo?.veredicto || ''
-      const proxima = d.resumo_executivo?.proxima_acao || ''
-      const k = d.kpis || {}
-      const alertas = d.alertas_criticos || []
-      const am = d.analise_modular || {}
-      const cor = score >= 70 ? 'var(--terminal-primary)' : score >= 45 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
-      const dash = 2 * Math.PI * 52
-      const off = dash * (1 - Math.min(100, Math.max(0, score)) / 100)
+      const d = this._d || {}
+      const sc = d.score || {}
+
+      if (!sc.disponivel) return void (content.innerHTML = this._shell(this._semDados(sc, d)))
 
       content.innerHTML = this._shell(`
-        <section class="dg-hero">
-          <div class="dg-ring">
-            <svg viewBox="0 0 120 120" width="132" height="132">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="var(--terminal-line)" stroke-width="10"/>
-              <circle cx="60" cy="60" r="52" fill="none" stroke="${cor}" stroke-width="10" stroke-linecap="round"
-                stroke-dasharray="${dash.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 60 60)"/>
-              <text x="60" y="58" text-anchor="middle" font-size="30" font-weight="700" fill="var(--terminal-ink)" font-family="var(--terminal-font)">${score}</text>
-              <text x="60" y="76" text-anchor="middle" font-size="10" fill="var(--terminal-ink-soft)" font-family="var(--terminal-mono)">/ 100</text>
-            </svg>
-          </div>
-          <div class="dg-hero__main">
-            <span class="td-eyebrow">Diagnóstico do mês</span>
-            <h2>${esc(veredicto)}</h2>
-            ${proxima ? `<p class="dg-next"><strong>Próxima ação:</strong> ${esc(proxima)}</p>` : ''}
-            <div class="dg-rings">${MOD.map(([key, lbl, max]) => this._miniRing(d.scores?.[key], max, lbl)).join('')}</div>
-          </div>
-        </section>
-
-        ${alertas.length ? `
-        <article class="td-panel pj-sec">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Cruzamento de módulos</span><h2>Alertas críticos</h2></div></div>
-          <div class="dg-alertas">${alertas.map(a => this._alerta(a)).join('')}</div>
-        </article>` : ''}
-
-        <div class="dg-kpis">
-          ${this._kpi('Receita do mês', money(k.receita_mes), 'ok')}
-          ${this._kpi('Despesa do mês', money(k.despesa_mes), 'neg')}
-          ${this._kpi('Saldo do mês', money(k.saldo_mes), Number(k.saldo_mes) >= 0 ? 'ok' : 'neg')}
-          ${this._kpi('Taxa de poupança', pctTxt(k.taxa_poupanca_pct), Number(k.taxa_poupanca_pct) >= 10 ? 'ok' : 'warn')}
-          ${this._kpi('Dívida total', money(k.total_dividas), 'neg')}
-          ${this._kpiPct('Comprometimento', k.comprometimento_pct, 40)}
-          ${this._kpi('Reserva', `${Number(k.reserva_meses) || 0} meses`, Number(k.reserva_meses) >= 3 ? 'ok' : 'warn')}
-          ${this._kpiPct('Uso do cartão', k.utilizacao_cartao_pct, 60)}
-        </div>
-
-        <div class="dg-modules">
-          ${['fluxo_caixa', 'reserva_emergencia', 'dividas', 'investimentos', 'metas'].map(m => this._modCard(am[m])).filter(Boolean).join('')}
-        </div>
-
-        <article class="td-panel dg-ia pj-sec">
-          <div class="td-panel__head"><div><span class="td-eyebrow">Consultor IA</span><h2>Insights personalizados</h2></div>
-            <button class="ds-btn ds-btn--primary" id="dg-ia-btn" onclick="VMTerminalDiagnostico.gerarIA()"><i class="fas fa-wand-magic-sparkles"></i> Gerar insights</button>
-          </div>
-          <div id="dg-ia-out" class="dg-ia__out"><p style="color:var(--terminal-ink-soft);font-size:13px;margin:0">A análise acima é calculada localmente e sempre está disponível. Clique em <strong>Gerar insights</strong> para uma leitura escrita pela IA.</p></div>
-        </article>
+        ${this._nota(d, sc)}
+        ${this._pilares(sc)}
+        ${this._alertas(d)}
+        ${this._recomendacoes(d, sc)}
+        ${this._rodape(d)}
       `)
     },
 
-    _miniRing(v, max, lbl) {
-      const val = Math.round(Number(v) || 0)
-      const pctv = Math.min(100, Math.round((val / (max || 100)) * 100))
-      const cor = pctv >= 66 ? 'var(--terminal-primary)' : pctv >= 33 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
-      return `<div class="dg-mini">
-        <div class="dg-mini__bar"><span style="width:${pctv}%;background:${cor}"></span></div>
-        <span class="dg-mini__lbl">${esc(lbl)}</span>
-        <span class="dg-mini__val">${val}<em>/${max}</em></span>
-      </div>`
-    },
-    _alerta(a) {
-      const t = a.titulo || a.title || a.nome || 'Alerta'
-      const m = a.mensagem || a.descricao || a.detalhe || a.texto || ''
-      const ac = a.acao || a.recomendacao || ''
-      return `<div class="dg-alerta">
-        <i class="fas fa-triangle-exclamation"></i>
-        <div><strong>${esc(t)}</strong>${m ? `<span>${esc(m)}</span>` : ''}${ac ? `<span class="dg-alerta__acao">→ ${esc(ac)}</span>` : ''}</div>
-      </div>`
-    },
-    _kpi(lbl, val, tone) {
-      return `<div class="dg-kpi">
-        <span class="dg-kpi__lbl">${esc(lbl)}</span>
-        <span class="dg-kpi__val dg-kpi__val--${tone || 'neutral'}">${val}</span>
-      </div>`
-    },
-    // DG6: percentuais acima de 100% são sinalizados como dado a revisar, não exibidos crus como leitura normal
-    _kpiPct(lbl, v, limiteBom) {
-      const n = Math.round(Number(v) || 0)
-      const suspeito = n > 100
-      const tone = suspeito ? 'neg' : n <= (limiteBom || 100) ? 'ok' : 'warn'
-      return `<div class="dg-kpi">
-        <span class="dg-kpi__lbl">${esc(lbl)}${suspeito ? ' <i class="fas fa-circle-info" title="Acima de 100% — verifique os dados"></i>' : ''}</span>
-        <span class="dg-kpi__val dg-kpi__val--${tone}">${n}%</span>
-      </div>`
-    },
-    _modCard(m) {
-      if (!m) return ''
-      const cor = m.status === 'EXCELENTE' || m.status === 'BOM' ? 'ok' : m.status === 'ATENCAO' ? 'warn' : 'neg'
-      return `<article class="dg-mod">
-        <div class="dg-mod__head">
-          <strong>${esc(m.mensagem || m.status || '')}</strong>
-          <span class="to-status to-status--${cor}">${Math.round(Number(m.score) || 0)} pts</span>
+    // ── A nota, e o que ela não é ────────────────────────────────────────────
+    _nota(d, sc) {
+      const v = d.variacao
+      const hist = d.historico || []
+      const cor = sc.total >= 60 ? 'var(--terminal-primary)'
+        : sc.total >= 35 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
+      const circ = 2 * Math.PI * 38
+
+      // A frase do topo tem que dizer o que a nota é e o que está por trás
+      // dela. "Situação crítica" sozinho não é diagnóstico, é adjetivo.
+      const melhor = [...(sc.pilares || [])].sort((a, b) => (b.pontos / b.peso) - (a.pontos / a.peso))[0]
+      const pior = [...(sc.pilares || [])].sort((a, b) => (a.pontos / a.peso) - (b.pontos / b.peso))[0]
+
+      return `<article class="td-panel dg-nota">
+        <div class="dg-nota__anel">
+          <svg viewBox="0 0 96 96" width="128" height="128" aria-label="nota ${sc.total} de 100">
+            <circle cx="48" cy="48" r="38" fill="none" stroke="var(--terminal-line)" stroke-width="10"/>
+            <circle cx="48" cy="48" r="38" fill="none" stroke="${cor}" stroke-width="10"
+                    stroke-linecap="round" stroke-dasharray="${(sc.total / 100) * circ} ${circ}"
+                    transform="rotate(-90 48 48)"/>
+            <text x="48" y="46" text-anchor="middle" font-size="26" font-weight="700"
+                  fill="var(--terminal-ink)">${sc.total}</text>
+            <text x="48" y="62" text-anchor="middle" font-size="9"
+                  font-family="var(--terminal-mono)" fill="var(--terminal-ink-soft)">/ 100</text>
+          </svg>
+          <span class="dg-nota__nivel is-${sc.nivel === 'boa' ? 'ok' : sc.nivel === 'atenção' ? 'warn' : 'neg'}">${esc(sc.nivel)}</span>
         </div>
-        ${m.recomendacao ? `<p class="dg-mod__rec">${esc(m.recomendacao)}</p>` : ''}
+        <div class="dg-nota__txt">
+          <span class="td-eyebrow">A mesma nota do painel, aberta</span>
+          <h2>${pior && melhor ? `${esc(pior.nome)} é o que mais pesa contra. ${esc(melhor.nome)} é o que está te segurando.` : 'Sua saúde financeira'}</h2>
+          <p>${this._frase(d, sc)}</p>
+          ${v ? `<div class="dg-var ${v.pontos > 0 ? 'is-ok' : 'is-neg'}">
+            <i class="fas fa-arrow-${v.pontos > 0 ? 'up' : 'down'}"></i>
+            <span><b>${v.pontos > 0 ? '+' : ''}${v.pontos} ${Math.abs(v.pontos) === 1 ? 'ponto' : 'pontos'}</b>
+              desde ${esc(mesCurto(v.desde))}${v.pilar ? ` — o que mais rende hoje é ${esc(v.pilar)}` : ''}.</span>
+          </div>` : ''}
+          ${hist.length >= 3 ? this._spark(hist) : ''}
+        </div>
       </article>`
     },
 
-    async gerarIA() {
-      const vm = this._vm
-      const out = document.getElementById('dg-ia-out')
-      const btn = document.getElementById('dg-ia-btn')
-      if (btn) { btn.disabled = true }
-      if (out) out.innerHTML = '<div class="td-loading"><span></span><span></span><span></span></div>'
-      try {
-        const r = await vm.api('POST', 'ia/insights')
-        const texto = r?.insights || r?.texto || r?.analise || (Array.isArray(r?.itens) ? r.itens.join('\n\n') : '')
-        if (out) out.innerHTML = texto
-          ? `<div class="dg-ia__text">${esc(texto).replace(/\n/g, '<br>')}</div>`
-          : '<p style="color:var(--terminal-ink-soft);font-size:13px;margin:0">A IA respondeu, mas sem conteúdo. Tente novamente em instantes.</p>'
-      } catch (e) {
-        const code = e.response?.status
-        const ec = e.response?.data?.error_code
-        let msg
-        if (code === 403) msg = 'Os insights escritos pela IA fazem parte dos planos pagos. A análise acima continua disponível para todos.'
-        else if (ec === 'IA_NOT_CONFIGURED' || code === 503) msg = '🔧 O consultor por IA ainda não está ativo neste ambiente. Todo o diagnóstico acima é calculado localmente e não depende dele.'
-        else msg = e.response?.data?.error || 'Não foi possível gerar os insights agora.'
-        if (out) out.innerHTML = `<div class="td-notice" style="margin:0"><i class="fas fa-circle-info"></i><div><span>${esc(msg)}</span></div></div>`
-      } finally {
-        if (btn) btn.disabled = false
+    _frase(d, sc) {
+      const x = d.contexto || {}
+      const partes = []
+      if (Number(x.reserva_meses) < 1) partes.push('sem reserva')
+      else partes.push(`${pct(x.reserva_meses, 1).replace('%', '')} ${Number(x.reserva_meses) === 1 ? 'mês' : 'meses'} de reserva`)
+      if (Number(x.comprometimento) > 0) partes.push(`${pct(x.comprometimento)} da renda comprometida`)
+      const rumo = (sc.pilares || []).find(p => p.chave === 'rumo')
+      const cauda = rumo && rumo.nota >= 60 ? ' — mas melhorando' : ''
+      return `${partes.join(' e ')}${cauda}. A nota olha só meses fechados: ela não muda conforme o dia do mês.`
+    },
+
+    /**
+     * Um score sem histórico é uma nota; com histórico, é um retorno.
+     *
+     * A escala é a FAIXA DOS DADOS com folga, não 0–100. Numa conta que foi de
+     * 11 a 23 pontos, o eixo fixo desenharia uma reta rente ao chão e
+     * esconderia justamente o que a linha existe para mostrar: que mudou.
+     */
+    _spark(hist) {
+      const ult = hist.slice(-12)
+      const w = 220, h = 44
+      const vals = ult.map(p => p.score)
+      const lo = Math.min(...vals), hi = Math.max(...vals)
+      const folga = Math.max(4, (hi - lo) * 0.25)
+      const min = Math.max(0, lo - folga), max = Math.min(100, hi + folga)
+      const faixa = Math.max(1, max - min)
+      const px = (i) => (i / Math.max(1, ult.length - 1)) * (w - 8) + 4
+      const py = (v) => h - 6 - ((v - min) / faixa) * (h - 12)
+      const pts = ult.map((p, i) => `${px(i).toFixed(1)},${py(p.score).toFixed(1)}`).join(' ')
+      return `<div class="dg-spark">
+        <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-label="nota nos últimos meses">
+          <polyline fill="none" stroke="var(--terminal-primary)" stroke-width="2"
+                    stroke-linejoin="round" points="${pts}"/>
+          <circle cx="${px(ult.length - 1).toFixed(1)}" cy="${py(ult[ult.length - 1].score).toFixed(1)}"
+                  r="3" fill="var(--terminal-primary)"/>
+        </svg>
+        <span>${esc(mesCurto(ult[0].mes))} → ${esc(mesCurto(ult[ult.length - 1].mes))} · ${lo} a ${hi}</span>
+      </div>`
+    },
+
+    // ── De onde vêm os pontos ────────────────────────────────────────────────
+    _pilares(sc) {
+      const p = sc.pilares || []
+      const perdidos = p.reduce((s, x) => s + (x.peso - x.pontos), 0)
+      return `<article class="td-panel dg-sec">
+        <div class="td-panel__head"><div><span class="td-eyebrow">De onde vêm os ${sc.total} pontos</span>
+          <h2>Os cinco pilares</h2></div></div>
+        <p class="dg-fonte">Cada pilar tem um peso fixo. Os ${Math.round(perdidos * 10) / 10} pontos
+          que faltam para 100 não são castigo: cada um está num lugar concreto, e a tabela mais
+          abaixo diz quanto custa ir buscá-lo.</p>
+        <div class="dg-pilares">
+          ${p.map(x => this._pilar(x)).join('')}
+        </div>
+      </article>`
+    },
+
+    _pilar(x) {
+      const cheio = x.peso > 0 ? (x.pontos / x.peso) * 100 : 0
+      const cor = cheio >= 60 ? 'var(--terminal-primary)' : cheio > 0 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
+      return `<div class="dg-pilar">
+        <div class="dg-pilar__top">
+          <strong>${esc(x.nome)}</strong>
+          <b>${x.pontos}<span>/${x.peso}</span></b>
+        </div>
+        <div class="dg-pilar__trilho"><span style="width:${Math.max(2, cheio).toFixed(0)}%;background:${cor}"></span></div>
+        <div class="dg-pilar__pe"><span>${esc(x.valor)}</span></div>
+        <p>${esc(x.explicacao)}</p>
+      </div>`
+    },
+
+    // ── Os alertas de cruzamento ─────────────────────────────────────────────
+    _alertas(d) {
+      const a = d.alertas || []
+      if (!a.length) {
+        return `<article class="td-panel dg-sec">
+          <div class="td-panel__head"><div><span class="td-eyebrow">O que atrapalha</span>
+            <h2>Nenhum conflito entre áreas</h2></div></div>
+          <p class="dg-fonte">Estas regras olham duas coisas ao mesmo tempo — investir enquanto se
+            paga juro maior, aportar sem ter reserva, assinar o que ainda não começou a sair.
+            Hoje nenhuma delas dispara para você.</p>
+        </article>`
       }
+      return `<article class="td-panel dg-sec">
+        <div class="td-panel__head"><div><span class="td-eyebrow">O que atrapalha</span>
+          <h2>${a.length} ${a.length === 1 ? 'conflito entre áreas' : 'conflitos entre áreas'}</h2></div></div>
+        <p class="dg-fonte">Cada um destes olha duas coisas ao mesmo tempo — é o que nenhuma outra
+          tela faz. Nada abaixo de ${money(d.piso_alerta)} aparece aqui: alarme vermelho sobre
+          valor irrelevante é o que faz alguém parar de ler os alertas bons.</p>
+        <div class="dg-alertas">${a.map(x => this._alerta(x)).join('')}</div>
+      </article>`
+    },
+
+    _alerta(x) {
+      const t = TOM[x.severidade] || 'info'
+      return `<div class="dg-alerta is-${t}">
+        <i class="fas ${TOM_ICO[x.severidade] || 'fa-circle-info'} dg-alerta__ico"></i>
+        <div class="dg-alerta__corpo">
+          <strong>${esc(x.titulo)}</strong>
+          <p>${esc(x.descricao)}</p>
+          <p class="dg-alerta__acao"><b>O que fazer:</b> ${esc(x.acao)}</p>
+          ${x.no_contexto ? `<span class="dg-alerta__onde">também aparece em ${esc(x.no_contexto)}</span>` : ''}
+        </div>
+      </div>`
+    },
+
+    // ── O que fazer, com o preço de cada coisa ───────────────────────────────
+    _recomendacoes(d, sc) {
+      const r = d.recomendacoes || []
+      if (!r.length) return ''
+      const semEfeito = r.filter(x => x.devolve <= 0)
+      return `<article class="td-panel dg-sec">
+        <div class="td-panel__head"><div><span class="td-eyebrow">O que fazer</span>
+          <h2>Cada ação, e o que ela devolve da nota</h2></div></div>
+        <p class="dg-fonte">"Melhore sua saúde financeira" é conselho de biscoito da sorte.
+          Cada linha abaixo é a MESMA fórmula da nota recalculada sobre o cenário em que você fez
+          aquilo — não uma estimativa à parte.</p>
+        <div class="ds-tablewrap">
+          <table class="ds-table dg-tab">
+            <thead><tr><th>Se você…</th><th class="dg-tar">Custa</th>
+              <th class="dg-tar">Devolve</th><th class="dg-tar">Nota vai a</th></tr></thead>
+            <tbody>
+              ${r.map(x => `<tr class="${x.ordem ? 'is-ordem' : ''}">
+                <td>${esc(x.acao)}${x.nota ? `<small>${esc(x.nota)}</small>` : ''}</td>
+                <td class="dg-tar">${x.custa > 0 ? money(x.custa) : '—'}</td>
+                <td class="dg-tar"><b class="${x.devolve > 0 ? 'is-ok' : 'is-mudo'}">${x.devolve > 0 ? '+' : ''}${x.devolve}</b></td>
+                <td class="dg-tar">${x.nota_depois}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${semEfeito.length ? `<div class="ds-note ds-note--info dg-nota-txt">
+          <i class="fas fa-scale-balanced ds-note__ico"></i>
+          <div><b>Olhe as linhas que devolvem zero.</b> Elas continuam valendo a pena pelo dinheiro —
+            o score é que não tem mais o que premiar naquele pilar. Ele mede saúde, não mérito, e
+            dizer isso em voz alta é o que impede alguém de otimizar o número em vez do dinheiro.</div>
+        </div>` : ''}
+      </article>`
+    },
+
+    _rodape(d) {
+      const x = d.contexto || {}
+      const at = x.atipicos || []
+      return `<article class="td-panel dg-sec dg-base">
+        <div class="td-panel__head"><div><span class="td-eyebrow">De onde saem estes números</span>
+          <h2>A régua</h2></div></div>
+        <div class="dg-grade">
+          ${this._ref('Renda de referência', money(x.renda), `média de ${x.renda_meses_base} meses fechados + recorrentes`)}
+          ${this._ref('Prestações do mês', money(x.prestacoes), `${pct(x.comprometimento)} da renda`)}
+          ${this._ref('Dívida que já sai', money(x.divida_vigente), 'cartões, empréstimos e financiamentos iniciados')}
+          ${this._ref('Dívida contratada', money(x.divida_contratada), 'assinada, ainda não começou a sair')}
+          ${this._ref('Gasto essencial', money(x.gasto_essencial), `de ${money(x.gasto_total)} que saem no total`)}
+          ${this._ref('Reserva', money(x.reserva_atual), `alvo ${money(x.reserva_alvo)} · 6 meses de essencial`)}
+        </div>
+        <p class="dg-fonte">Todos estes números vêm da mesma camada que a Projeção e o painel leem.
+          Se algum deles estiver errado, está errado nas três telas ao mesmo tempo — que é
+          exatamente o que se queria: um número, um dono.
+          ${at.length ? ` ${at.length} ${at.length === 1 ? 'mês ficou de fora por ser atípico' : 'meses ficaram de fora por serem atípicos'}: ${at.map(a => `${esc(a.label)} (${esc(a.motivo)})`).join(', ')}.` : ''}</p>
+      </article>`
+    },
+
+    _ref(lbl, val, sub) {
+      return `<div class="dg-ref"><span>${esc(lbl)}</span><b>${val}</b><small>${esc(sub)}</small></div>`
+    },
+
+    _semDados(sc, d) {
+      const n = d.contexto?.meses_fechados ?? 0
+      return `<article class="td-panel dg-vazio">
+        <i class="fas fa-seedling"></i>
+        <h2>Ainda não dá para te dar uma nota.</h2>
+        <p>${esc(sc.motivo_indisponivel || `Com ${n} meses fechados não dá para dizer o que é normal para você.`)}</p>
+        <p class="dg-vazio__p2">Isto é de propósito. Uma nota tirada de um mês e meio de dados
+          pareceria precisa e não seria — e você tomaria decisão em cima dela.</p>
+        <button class="ds-btn ds-btn--primary" onclick="VM.navigate('despesas')">Lançar o que falta</button>
+      </article>`
     },
 
     _shell(inner) {
       return `<div class="td-dashboard dg">
         <header class="td-dashboard__header">
           <div>
-            <span class="td-eyebrow">Sua saúde financeira em um raio-x</span>
-            <h1>Diagnóstico 360°. <em>Onde você está, e o próximo passo.</em></h1>
-            <p>Um score por área, os alertas que cruzam seus módulos e uma ação clara para este mês.</p>
+            <span class="td-eyebrow">E daí? O que eu faço?</span>
+            <h1>Diagnóstico. <em>A leitura dos números.</em></h1>
+            <p>A Projeção diz quanto e quando. Esta tela diz o que isso significa e o que fazer a
+              respeito — com o preço de cada decisão em pontos.</p>
           </div>
         </header>
         ${inner}
       </div>`
-    }
+    },
   }
 })()
