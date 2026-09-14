@@ -1,5 +1,10 @@
 import { Hono } from 'hono'
 import { competenciaData, competenciaMes, filtroDespesaDoMes, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+import {
+  janelaHistorica, renda as calcRenda, dividas as calcDividas, prestacoes as calcPrestacoes,
+  comprometimento as calcComprometimento, patrimonio as calcPatrimonio, reserva as calcReserva,
+  score as calcScore,
+} from '../lib/metricas'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -27,59 +32,14 @@ projecao.get('/', requireAuth, async (c) => {
   const anoAtual = hoje.getFullYear()
   const mesAtual = hoje.getMonth() + 1
 
-  // ── Histórico: 12 meses fechados + o mês corrente ───────────────────────────
-  //
-  // O mês em andamento NÃO pode entrar em média nenhuma. No dia 10, a receita
-  // do mês ainda não caiu inteira, mas as parcelas com vencimento no mês já
-  // estão todas lançadas — então o mês corrente sempre parece um mês de renda
-  // baixa e despesa alta. Entrando na média, ele empurra a receita projetada
-  // para baixo e a despesa para cima todo santo mês, de forma sistemática.
-  //
-  // Ele continua no array (a tela mostra o mês em curso), mas marcado com
-  // `parcial: true`, e todo cálculo daqui para baixo usa só os fechados.
+  // ── Histórico e métricas: leitura única, da camada ─────────────────────────
+  const janela = await janelaHistorica(c.env.DB, user.id, 12)
   const JANELA_MESES = 12
-  const meses: Array<{ mes: number; ano: number; label: string; receitas: number; despesas: number; saldo: number; despesas_deterministicas: number; despesas_variaveis: number; parcial: boolean }> = []
+  // `meses` mantém o mês corrente no fim, marcado, só para a tela poder exibi-lo
+  // — nenhum cálculo daqui para baixo o usa.
+  const meses = janela.meses.map(m => ({ ...m, parcial: false }))
+  const mesesFechados = janela.meses
 
-  for (let i = JANELA_MESES; i >= 0; i--) {
-    let m = mesAtual - i
-    let a = anoAtual
-    if (m <= 0) { m += 12; a -= 1 }
-    const mesStr = String(m).padStart(2, '0')
-
-    const rec = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM receitas
-       WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
-    ).bind(user.id, mesStr, String(a)).first() as any
-
-    const desp = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas
-       WHERE user_id = ? AND status IN ('pago','pendente')
-         ${filtroDespesaDoMes()}`
-    ).bind(user.id, mesStr, String(a)).first() as any
-
-    // Quanto DESTE total já é parcela ou recorrência. Sem isso, somar as
-    // parcelas futuras à média histórica conta o mesmo dinheiro duas vezes —
-    // ver o comentário grande na projeção, mais abaixo.
-    const detHist = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(valor), 0) as total FROM despesas
-       WHERE user_id = ? AND status IN ('pago','pendente')
-         AND (parcelado = 1 OR COALESCE(numero_parcelas,1) > 1 OR recorrencia_id IS NOT NULL)
-         ${filtroDespesaDoMes()}`
-    ).bind(user.id, mesStr, String(a)).first() as any
-
-    const r = Number(rec?.total || 0)
-    const d = Number(desp?.total || 0)
-    const det = Number(detHist?.total || 0)
-    const mesesNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-
-    meses.push({
-      mes: m, ano: a, label: `${mesesNames[m-1]}/${a}`,
-      parcial: i === 0,
-      receitas: r, despesas: d, saldo: r - d,
-      despesas_deterministicas: Math.round(det * 100) / 100,
-      despesas_variaveis: Math.round(Math.max(0, d - det) * 100) / 100,
-    })
-  }
 
   // ── Melhoria 2.3: Dados determinísticos do futuro ─────────────────────────
   // 1. Despesas parceladas com status 'pendente' nos próximos meses
@@ -146,55 +106,16 @@ projecao.get('/', requireAuth, async (c) => {
   const recorrenciaReceitaMensal = parseFloat(recorrenciasReceita?.total_mensal || 0) // PJ3
   const lembretesTotal = parseFloat(lembretesValor?.total || 0)
 
-  // ── Janela de cálculo: só meses fechados e representativos ──────────────────
+  // ── Janela, médias e confiança: tudo vem da camada de métricas ─────────────
   //
-  // Um mês só vale como observação se tiver os DOIS lados lançados. Mês com
-  // despesa e receita zerada — recorrência lançada retroativamente, importação
-  // parcial — não é um mês ruim, é um mês sem dado, e entrava na conta como
-  // prejuízo integral, afundando média e confiança.
-  const mesesFechados = meses.filter(m => !m.parcial)
-  let mesesComDados = mesesFechados.filter(m => m.receitas > 0 && m.despesas > 0)
-  if (mesesComDados.length < 2) mesesComDados = mesesFechados.filter(m => m.receitas > 0 || m.despesas > 0)
+  // Este bloco reimplementava aqui dentro o que agora mora em src/lib/metricas.ts:
+  // janela de meses fechados, detecção de mês atípico, média ponderada. Duas
+  // cópias da mesma regra divergem na primeira correção que alguém faz só de um
+  // lado — foi assim que o app passou a ter três scores. A rota agora só lê.
+  const mesesComDados = janela.meses
+  const mesesAtipicos = janela.atipicos
+  const baseFinal = janela.base
 
-  const mediana = (arr: number[]) => {
-    if (!arr.length) return 0
-    const o = [...arr].sort((x, y) => x - y)
-    const meio = Math.floor(o.length / 2)
-    return o.length % 2 ? o[meio] : (o[meio - 1] + o[meio]) / 2
-  }
-  const medRec = mediana(mesesComDados.map(m => m.receitas))
-  const medDesp = mediana(mesesComDados.map(m => m.despesas))
-
-  // Mês atípico: dobro da mediana, ou menos de 40% dela. Um 13º, uma rescisão,
-  // um saldo inicial importado — nada disso descreve o mês típico de ninguém.
-  // Média e desvio-padrão são reféns de um único ponto extremo: um mês desses
-  // sozinho distorce a projeção e zera a confiança. Sai da média, mas volta na
-  // resposta com o motivo, para a tela poder dizer QUAL mês saiu e POR QUÊ —
-  // que é a diferença entre um número explicado e um número arbitrário.
-  const motivoAtipico = (m: { receitas: number; despesas: number }) => {
-    if (mesesComDados.length < 4) return null
-    if (medRec > 0 && m.receitas > medRec * 2) return 'receita muito acima do seu normal'
-    if (medRec > 0 && m.receitas < medRec * 0.4) return 'receita muito abaixo do seu normal'
-    if (medDesp > 0 && m.despesas > medDesp * 2) return 'despesa muito acima do seu normal'
-    return null
-  }
-  const mesesAtipicos = mesesComDados
-    .map(m => ({ m, motivo: motivoAtipico(m) }))
-    .filter(x => x.motivo)
-    .map(x => ({
-      label: x.m.label,
-      receitas: Math.round(x.m.receitas * 100) / 100,
-      despesas: Math.round(x.m.despesas * 100) / 100,
-      motivo: x.motivo as string,
-    }))
-  const rotulosAtipicos = new Set(mesesAtipicos.map(x => x.label))
-  const semAtipicos = mesesComDados.filter(m => !rotulosAtipicos.has(m.label))
-  // Tirar atípicos só compensa se ainda sobrar amostra.
-  const baseFinal = semAtipicos.length >= 3 ? semAtipicos : mesesComDados
-
-  // Peso linear: o mês mais recente pesa 3× o mais antigo da janela. Doze meses
-  // de histórico é informação boa demais para descartar, mas o mês passado
-  // descreve a vida de hoje melhor do que o de um ano atrás.
   const pesosBase = baseFinal.map((_, i) => baseFinal.length > 1 ? 1 + (2 * i) / (baseFinal.length - 1) : 1)
   const somaPesos = pesosBase.reduce((a, b) => a + b, 0) || 1
   const mediaPesada = (vals: number[]) => vals.reduce((acc, v, i) => acc + v * pesosBase[i], 0) / somaPesos
@@ -202,25 +123,14 @@ projecao.get('/', requireAuth, async (c) => {
   const saldos = baseFinal.map(m => m.saldo)
   const mediaPonderada = saldos.length ? mediaPesada(saldos) : 0
 
-  // ── Confiança ──────────────────────────────────────────────────────────────
-  //
-  // A fórmula antiga dividia o desvio-padrão dos saldos pela MÉDIA dos saldos.
-  // Só que a média do saldo mensal de quem fecha o mês no zero a zero é... zero
-  // — e dividir por um número perto de zero explode. Com os dados reais de um
-  // usuário: desvio R$ 1.158 sobre média R$ 66 dava coeficiente 17,4, e a conta
-  // (1 − min(cv,1)) × 95 dava ZERO, salvo por um piso de 45. Ou seja: o número
-  // exibido não media nada, era o piso. Quem tinha 6 meses lançados e quem
-  // tinha 2 anos viam o mesmo 45%.
-  //
-  // Agora a dispersão é normalizada pela RECEITA, que é uma régua estável e
-  // interpretável: "seu resultado oscila X% da sua renda". E a confiança é o
-  // produto de duas coisas que o usuário entende — quanto histórico existe, e
-  // quão repetido é o padrão.
+  // Confiança: dispersão normalizada pela RENDA, não pela média dos saldos.
+  // Dividir pela média do saldo explode quando ela é perto de zero — que é o
+  // caso de quem fecha o mês empatado, justamente quem mais precisa da
+  // projeção. Antes o número exibido era sempre o piso de 45.
   const receitaRef = baseFinal.length ? mediaPesada(baseFinal.map(m => m.receitas)) : 0
   const desvioSaldo = saldos.length
     ? Math.sqrt(saldos.reduce((acc, v, i) => acc + pesosBase[i] * Math.pow(v - mediaPonderada, 2), 0) / somaPesos)
     : 0
-  // Oscilar 60% da renda de um mês para o outro = padrão nenhum.
   const LIMITE_VOLATILIDADE = 0.6
   const volatilidade = receitaRef > 0 ? desvioSaldo / receitaRef : 1
   const fatorAmostra = Math.min(1, baseFinal.length / 6)
@@ -228,6 +138,7 @@ projecao.get('/', requireAuth, async (c) => {
   const confianca = baseFinal.length === 0
     ? 0
     : Math.max(5, Math.round(100 * fatorAmostra * fatorEstabilidade))
+
 
   // PJ1: a "tendência" e a "projeção" precisam vir da MESMA fonte. Antes a
   // tendência era uma regressão sobre os 6 meses do histórico (incluindo os
@@ -557,9 +468,192 @@ projecao.get('/', requireAuth, async (c) => {
     ],
   }
 
+  // ══ BALANÇO, ENDIVIDAMENTO, PLANO E CALENDÁRIO ═══════════════════════════════
+  //
+  // A Projeção deixa de ser só o filme e passa a abrir pelo retrato. Todos os
+  // números daqui saem da camada de métricas — nenhum é somado nesta rota.
+  const rendaM = await calcRenda(c.env.DB, user.id, janela)
+  const divs = await calcDividas(c.env.DB, user.id)
+  const prest = await calcPrestacoes(c.env.DB, user.id)
+  const comp = calcComprometimento(prest.total, rendaM.mensal)
+  const patr = await calcPatrimonio(c.env.DB, user.id, divs.total)
+  const res = calcReserva(patr.reserva, janela, 6)
+
+  const sobraProximoMes = projecoes.length ? Number(projecoes[0].receitas) - Number(projecoes[0].despesas) : 0
+
+  const sc = calcScore({
+    reserva: res, comprometimento: comp, sobra_proximo_mes: sobraProximoMes,
+    renda: rendaM.mensal, patrimonio: patr, janela,
+  })
+
+  // ── Plano de quitação ──────────────────────────────────────────────────────
+  //
+  // Bola de neve ataca o menor saldo (vitória rápida); avalanche, o maior juro
+  // (menos juro pago). Nos dois, a parcela de quem termina rola para o próximo
+  // — é o rolo que encurta o plano, não o esforço extra sozinho.
+  //
+  // O financiamento que ainda não começou fica de fora: não dá para "quitar
+  // primeiro" uma prestação que ainda não saiu da conta.
+  const alvos: Array<{ nome: string; saldo: number; parcela: number; taxa: number }> = []
+  if (divs.cartoes > 0 && prest.cartao_parcelado > 0) {
+    alvos.push({ nome: 'Cartões', saldo: divs.cartoes, parcela: prest.cartao_parcelado, taxa: 0 })
+  }
+  for (const d of divs.lista) {
+    if (!d.vigente || d.tipo === 'cartao' || d.parcela <= 0) continue
+    alvos.push({ nome: d.nome, saldo: d.saldo, parcela: d.parcela, taxa: d.taxa_mensal })
+  }
+
+  const extraRaw = c.req.query('extra')
+  const extra = Math.max(0, Number.isFinite(Number(extraRaw)) ? Number(extraRaw) : 0)
+
+  function simular(ordem: 'neve' | 'avalanche', aporteExtra: number) {
+    const fila = alvos.map(a => ({ ...a }))
+    fila.sort((a, b) => ordem === 'neve' ? a.saldo - b.saldo : (b.taxa - a.taxa) || (a.saldo - b.saldo))
+    let mes = 0, juros = 0, pago = 0
+    let rolo = aporteExtra
+    const quitacoes: Array<{ nome: string; mes: number }> = []
+    const TETO = 600
+    while (fila.some(f => f.saldo > 0.01) && mes < TETO) {
+      mes++
+      let sobra = rolo
+      for (const f of fila) {
+        if (f.saldo <= 0.01) continue
+        const j = Math.round(f.saldo * (f.taxa / 100) * 100) / 100
+        juros += j
+        let pagamento = f.parcela
+        if (sobra > 0) { pagamento += sobra; sobra = 0 }
+        const devido = f.saldo + j
+        const efetivo = Math.min(pagamento, devido)
+        pago += efetivo
+        f.saldo = Math.round((devido - efetivo) * 100) / 100
+        if (f.saldo <= 0.01) {
+          f.saldo = 0
+          quitacoes.push({ nome: f.nome, mes })
+          rolo += f.parcela   // a parcela de quem terminou passa para o próximo
+        }
+      }
+    }
+    return {
+      meses: mes, juros: Math.round(juros * 100) / 100,
+      total_pago: Math.round(pago * 100) / 100, quitacoes,
+      // Quem recebe o esforço extra. É o alvo da estratégia — não confundir
+      // com quem termina primeiro, que costuma ser outro por causa do rolo.
+      alvo: fila.length ? fila[0].nome : null,
+    }
+  }
+
+  const temAlvo = alvos.length > 0
+  const neve = temAlvo ? simular('neve', extra) : null
+  const avalanche = temAlvo ? simular('avalanche', extra) : null
+  const semExtra = temAlvo ? simular('neve', 0) : null
+
+  const plano_quitacao = {
+    extra,
+    divida_alvo: Math.round(alvos.reduce((s, a) => s + a.saldo, 0) * 100) / 100,
+    parcela_alvo: Math.round(alvos.reduce((s, a) => s + a.parcela, 0) * 100) / 100,
+    bola_de_neve: neve,
+    avalanche,
+    sem_esforco_extra: semExtra,
+    // Quando a dívida de menor saldo é também a de maior juro, as duas
+    // estratégias apontam para o mesmo lugar e não há contrapartida a ponderar.
+    // Compara o ALVO de cada uma, não quem termina primeiro — com o rolo da
+    // parcela, quem termina primeiro costuma ser outro.
+    concordam: !!(neve && avalanche && neve.alvo && neve.alvo === avalanche.alvo),
+    alvo_neve: neve?.alvo ?? null,
+    alvo_avalanche: avalanche?.alvo ?? null,
+    dividas: alvos.map(a => ({ ...a, saldo: Math.round(a.saldo * 100) / 100 })),
+  }
+
+  // ── Calendário: o ritmo, com data ──────────────────────────────────────────
+  //
+  // Média é um número; ritmo é um calendário. Como cada compromisso tem começo
+  // e fim, dá para dizer quando aperta, quando alivia e quando entra algo novo.
+  const rotulo = (n: number) => {
+    let m = mesAtual + n, a = anoAtual
+    while (m > 12) { m -= 12; a += 1 }
+    return `${mesesNomes[m - 1]}/${a}`
+  }
+  const eventos: Array<{ quando: string; tipo: string; titulo: string; detalhe: string; valor: number }> = []
+  const cruza = projecoes.findIndex(p => Number(p.valor) < 0)
+  if (cruza >= 0) {
+    eventos.push({ quando: projecoes[cruza].label, tipo: 'aperto', titulo: 'O caixa fica negativo',
+      detalhe: 'Somando o que entra e o que sai a partir de hoje, é aqui que o acumulado vira vermelho.',
+      valor: Number(projecoes[cruza].valor) })
+  }
+  const pior = projecoes.reduce((min, p) => (Number(p.valor) < Number(min.valor) ? p : min), projecoes[0] || { valor: 0, label: '' } as any)
+  if (pior && Number(pior.valor) < 0) {
+    eventos.push({ quando: pior.label, tipo: 'fundo', titulo: 'Fundo do poço',
+      detalhe: 'Daqui em diante as parcelas começam a acabar e a maré vira.', valor: Number(pior.valor) })
+  }
+  if (neve && neve.meses > 0 && neve.meses < 600) {
+    eventos.push({ quando: rotulo(neve.meses), tipo: 'alivio', titulo: 'Dívida de consumo zerada',
+      detalhe: `No ritmo atual${extra > 0 ? ' com o esforço extra' : ''}, tudo que hoje tem parcela está pago.`,
+      valor: plano_quitacao.parcela_alvo })
+  }
+  for (const d of divs.lista) {
+    if (d.vigente || !d.comeca_em) continue
+    const ini = new Date(d.comeca_em + 'T12:00:00')
+    const dif = (ini.getFullYear() - anoAtual) * 12 + (ini.getMonth() + 1 - mesAtual)
+    if (dif > 0) {
+      eventos.push({ quando: rotulo(dif), tipo: 'novo', titulo: `1ª parcela · ${d.nome}`,
+        detalhe: 'Compromisso já assinado que começa a sair da conta nesta data.', valor: -d.parcela })
+    }
+  }
+  eventos.sort((a, b) => {
+    const pa = projecoes.findIndex(p => p.label === a.quando)
+    const pb = projecoes.findIndex(p => p.label === b.quando)
+    return (pa < 0 ? 999 : pa) - (pb < 0 ? 999 : pb)
+  })
+
+  // "Cabe?" — a folga que a dívida libera contra a prestação que vai entrar.
+  const futuras = divs.lista.filter(d => !d.vigente && d.parcela > 0)
+  const teste_de_caber = futuras.length ? {
+    prestacao_futura: Math.round(futuras.reduce((s, d) => s + d.parcela, 0) * 100) / 100,
+    comeca_em: futuras[0].comeca_em,
+    folga_liberada: plano_quitacao.parcela_alvo,
+    meses_ate_liberar: neve ? neve.meses : null,
+    cabe: neve ? plano_quitacao.parcela_alvo >= futuras.reduce((s, d) => s + d.parcela, 0) : null,
+  } : null
+
+  const balanco = {
+    tem: { total: patr.total, detalhe: patr.detalhe,
+      bens_quitados: patr.bens_quitados, bens_em_formacao: patr.bens_em_formacao,
+      investimentos: patr.investimentos, reserva: patr.reserva },
+    deve: { total: divs.total, vigente: divs.vigente, contratada: divs.contratada,
+      cartoes: divs.cartoes, emprestimos: divs.emprestimos,
+      financiamentos: divs.financiamentos, entradas: divs.entradas, lista: divs.lista },
+    renda: rendaM,
+    patrimonio_liquido: patr.liquido,
+    indices: {
+      disponibilidade: patr.pct_disponibilidade,
+      imobilizacao: patr.pct_imobilizacao,
+      gera_renda: patr.pct_gera_renda,
+      reserva_meses: res.meses_cobertos,
+    },
+    reserva: res,
+  }
+
+  const endividamento = {
+    comprometimento: comp,
+    limite_sugerido: 30,
+    prestacoes: prest.total,
+    detalhe: prest.detalhe,
+    sobra_depois_das_prestacoes: Math.round((rendaM.mensal - prest.total) * 100) / 100,
+    // Os 30% são referência de mercado, não regra: quem ganha muito e
+    // compromete 40% vive melhor que quem ganha pouco e compromete 25%.
+    nota: 'Os 30% são uma referência, não uma regra. O que decide é quanto sobra em reais depois das prestações.',
+  }
+
   return c.json({
     historico: meses,
     explicacoes,
+    // ── O retrato, novo ──────────────────────────────────────────────────────
+    balanco,
+    endividamento,
+    plano_quitacao,
+    calendario: eventos,
+    teste_de_caber,
+    score: sc,
     analise,
     projecoes,
     // S-P3: cenários otimista / pessimista
