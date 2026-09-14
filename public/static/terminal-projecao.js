@@ -50,6 +50,7 @@
       // O plano nasce com os alvos vazios: quem os preenche é a simulação do
       // cliente, a mesma que roda a cada tecla. Uma função, um resultado.
       this._planoLive()
+      window.VM?.alertaNoContexto?.(['juro_maior_que_rendimento'], 'pj-alerta-ctx')
     },
 
     _indice() {
@@ -406,6 +407,11 @@
           <div class="pj-sim__res" id="pj-plano-res"></div>
         </div>
 
+        <!-- "seu dinheiro rende menos do que a dívida cobra" pertence aqui,
+             ao lado da decisão de quem pagar primeiro — não só numa lista
+             lida uma vez por mês. -->
+        <div id="pj-alerta-ctx"></div>
+
         <div id="pj-plano-nota"></div>
 
         <div class="ds-tablewrap">
@@ -536,6 +542,8 @@
         <p class="pj-nota-txt">A linha começa do zero: mede o que entra menos o que sai a partir de hoje,
           não o saldo da sua conta.</p>
 
+        ${this._sobra(d)}
+
         <div class="pj-chart">${this._chart(proj, d.cenarios)}</div>
 
         <div class="pj-cenarios">
@@ -583,6 +591,42 @@
         <span class="dg-kpi__lbl">${esc(lbl)}</span>
         <span class="dg-kpi__val dg-kpi__val--${tone || 'neutral'}">${val}</span>
         ${hint ? `<span class="pj-kpi__hint">${esc(hint)}</span>` : ''}
+      </div>`
+    },
+
+    /**
+     * A sobra do mês que vem — o número que não depende de um seletor.
+     *
+     * A "média mensal" que o app calculava espalhava as parcelas futuras pelo
+     * horizonte escolhido. As parcelas desta conta duram ~13 meses; em 12 a
+     * sobra dava −R$ 307,21, em 24 dava +R$ 977,79. Mesmos dados, sinais
+     * opostos, dependendo de um dropdown — e nenhum dos dois é a vida da
+     * pessoa, porque diluir por 24 meses uma parcela que acaba em 13 inventa
+     * uma folga que não vai acontecer.
+     *
+     * Este bloco mostra o mês que vem, que é fato, e só então oferece a média
+     * diluída com o horizonte escrito ao lado.
+     */
+    _sobra(d) {
+      const s = Number(d.sobra_proximo_mes)
+      if (!Number.isFinite(s)) return ''
+      const m = Number(d.media_mensal) || 0
+      const h = Number(d.media_mensal_horizonte) || 12
+      const divergem = Math.sign(s) !== Math.sign(m) && Math.abs(s - m) > 100
+      return `<div class="pj-sobra">
+        <div class="pj-sobra__um">
+          <span class="dg-kpi__lbl">Sobra do mês que vem</span>
+          <b class="${s >= 0 ? 'is-ok' : 'is-bad'}">${s < 0 ? '−' : ''}${money(Math.abs(s))}</b>
+          <small>O que entra menos as prestações do mês e o seu gasto variável médio.
+            Não depende de horizonte nenhum.</small>
+        </div>
+        <div class="pj-sobra__dois">
+          <span class="dg-kpi__lbl">Média diluída em ${h} meses</span>
+          <b>${m < 0 ? '−' : ''}${money(Math.abs(m))}</b>
+          <small>${divergem
+            ? 'Repare no sinal contrário: as suas parcelas acabam antes do horizonte, e espalhá-las por ele inventa uma folga que não vai acontecer. Por isso o número de cima é o que vale.'
+            : 'Espalha as parcelas futuras pelo período selecionado. Muda se você mudar o horizonte.'}</small>
+        </div>
       </div>`
     },
 

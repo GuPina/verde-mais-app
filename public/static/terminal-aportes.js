@@ -46,6 +46,10 @@
           </div>
         </header>
 
+        <!-- "Aportar sem reserva" importa muito mais na hora de aportar do que
+             numa lista lida uma vez por mês. Nasce vazio e some sozinho. -->
+        <div id="ap-alerta-ctx"></div>
+
         <section class="tm-kpis">
           <article class="td-kpi"><span>Aportado no mês</span><strong>${money(r.total_mes)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${r.qtd_mes || 0} aporte(s) em ${ABREV[this._mes - 1]}</span></article>
           <article class="td-kpi"><span>Aportado em ${this._ano}</span><strong>${money(r.total_ano)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${r.qtd_ano || 0} aporte(s) no ano</span></article>
@@ -74,6 +78,9 @@
 
         <p class="to-global__explain" style="margin-top:12px"><i class="fas fa-circle-info"></i> ${esc(d.explicacao || '')} Os cards de patrimônio mostram a posição de hoje — não o resultado direto dos aportes deste ano.</p>
       </div>`
+
+      // Sem await: o alerta é um extra e nunca deve atrasar a tela.
+      window.VM?.alertaNoContexto?.(['aporte_sem_reserva', 'juro_maior_que_rendimento'], 'ap-alerta-ctx')
     },
 
     _row(a) {

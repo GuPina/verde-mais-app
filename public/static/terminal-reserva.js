@@ -66,6 +66,7 @@
       content.innerHTML = this._shell(`
         ${readonly ? `<div class="td-notice"><i class="fas fa-circle-info"></i><div><strong>Esta reserva é gerida em "Minhas Reservas".</strong><span>Aqui você acompanha; para depositar ou sacar, abra a tela de Minhas Reservas.</span></div></div>` : ''}
         ${this._hero(d, r, meses, obj, media)}
+        ${this._base(d, obj)}
         ${this._escada(meses, media)}
         ${this._kpis(d, r, media)}
         ${this._notas(d, r, meses, obj, media)}
@@ -74,6 +75,37 @@
           ${this._extrato()}
         </div>
       `, readonly, r, obj)
+    },
+
+    /**
+     * De onde sai o alvo.
+     *
+     * Esta tela tinha régua própria: média dos últimos 3 meses sobre uma lista
+     * de categorias escrita no código — e a lista contava empréstimo,
+     * financiamento e cartão como gasto essencial. Ou seja, ela mandava
+     * guardar seis meses de parcela de cartão.
+     *
+     * Reserva existe para o mês em que a renda falta. Nesse mês você renegocia
+     * prestação; aluguel, mercado e remédio você paga. O alvo agora é o gasto
+     * essencial, pela mesma classificação da 50/30/20 — e a tela diz isso,
+     * porque um alvo que muda de valor sem explicação é um alvo em que
+     * ninguém acredita.
+     */
+    _base(d, obj) {
+      const b = d.base_gasto
+      if (!b || !(Number(b.total) > 0)) return ''
+      const ess = Number(b.essencial) || 0
+      const tot = Number(b.total) || 0
+      if (!(tot > ess * 1.05)) return ''   // sem diferença relevante, sem ruído
+      return `<div class="ds-note ds-note--info re-base">
+        <i class="fas fa-ruler ds-note__ico"></i>
+        <div><b>O alvo cobre o seu gasto essencial, não tudo que sai.</b>
+          São ${money(ess)} por mês de moradia, mercado, saúde, transporte e contas — a média de
+          ${b.meses_base} ${b.meses_base === 1 ? 'mês fechado' : 'meses fechados'}. Do seu bolso saem
+          ${money(tot)} por mês no total; cobrir tudo isso por ${obj} meses seria
+          ${money(b.alvo_confortavel)}, e é uma meta legítima, só não é a que protege.
+          Numa perda de renda você renegocia prestação e corta assinatura — aluguel e remédio, não.</div>
+      </div>`
     },
 
     // ── quantos meses você aguenta ───────────────────────────────────────────
@@ -92,7 +124,8 @@
           <span class="td-eyebrow">Se a renda parar hoje, você aguenta</span>
           <div class="re-hero__months" style="color:${cor}">${meses.toFixed(1)} <em>${meses === 1 ? 'mês' : 'meses'}</em></div>
           <p><strong>${veredito}.</strong> ${media > 0
-            ? `A conta usa ${money(media)} por mês — a média dos seus gastos essenciais nos últimos três meses.`
+            ? `A conta usa ${money(media)} por mês — a média dos seus gastos essenciais${
+                d.base_gasto?.meses_base ? ` em ${d.base_gasto.meses_base} ${d.base_gasto.meses_base === 1 ? 'mês fechado' : 'meses fechados'}` : ''}.`
             : 'Registre seus gastos para o app calcular quantos meses sua reserva cobre.'}</p>
         </div>
         <div class="re-hero__gauge">

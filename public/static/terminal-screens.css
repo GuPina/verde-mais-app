@@ -1828,3 +1828,26 @@
   .dg-nota__txt { min-width: 0; }
   .dg-pilares { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
+
+/* O alerta do Diagnóstico exibido na tela onde a decisão acontece. Mesmo
+   visual do 360° de propósito: quem já viu lá reconhece aqui, e entende que é
+   a mesma coisa em outro lugar — não um aviso novo. */
+.ctx-alerta { margin-bottom: var(--ds-4); }
+.ctx-alerta__ir { margin-top: var(--ds-3); }
+
+/* A sobra do mês que vem, ao lado da média diluída que ela substitui. */
+.pj-sobra { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--ds-4); margin: var(--ds-4) 0 var(--ds-5); }
+.pj-sobra > div { border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius);
+  background: var(--terminal-bg); padding: var(--ds-4) var(--ds-5); }
+.pj-sobra__um { border-color: var(--terminal-line-strong) !important; }
+.pj-sobra b { display: block; margin: 7px 0 6px; font-size: 25px; font-weight: 700;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.pj-sobra__um b.is-ok  { color: var(--terminal-primary); }
+.pj-sobra__um b.is-bad { color: var(--terminal-negative); }
+.pj-sobra__dois b { color: var(--terminal-ink-soft); font-size: 21px; }
+.pj-sobra small { display: block; color: var(--terminal-ink-soft); font-size: 11.5px;
+  line-height: 1.55; }
+
+/* A explicação de onde sai o alvo da reserva. */
+.re-base { margin-bottom: var(--ds-4); }

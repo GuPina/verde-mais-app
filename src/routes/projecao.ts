@@ -671,15 +671,32 @@ projecao.get('/', requireAuth, async (c) => {
       pessimista: cenarioPessimista
     },
     tendencia,
-    // PJ2: "média mensal" agora reflete a sobra REAL — receita (incl. recorrente)
-    // menos a despesa variável média E o que já está contratado (recorrências +
-    // parcelas futuras diluídas no horizonte). O valor antigo (só variável)
-    // prometia um superávit que só existia se nada contratado fosse pago.
+    // ── A SOBRA DO MÊS QUE VEM ────────────────────────────────────────────────
+    //
+    // `media_mensal` tem um defeito que eu mesmo documentei e deixei passar:
+    // ela dilui as parcelas futuras pelo HORIZONTE ESCOLHIDO NA TELA. As
+    // parcelas de cartão desta conta existem por ~13 meses e somam R$ 30.840.
+    // Em 12 meses cada mês "custa" R$ 2.570 e a sobra dá −R$ 307,21; em 24
+    // meses o mesmo total vira R$ 1.285/mês e a sobra dá +R$ 977,79.
+    //
+    // Os mesmos dados, um número negativo e outro positivo, dependendo de um
+    // seletor. Nenhum dos dois é a vida da pessoa: espalhar por 24 meses uma
+    // parcela que só existe por 13 é inventar uma folga que não vai acontecer.
+    //
+    // `sobra_proximo_mes` não depende de escolha nenhuma: é a renda de
+    // referência menos as prestações que saem no mês e menos o gasto variável
+    // médio. É o número que a tela passa a exibir; a média fica disponível,
+    // com o horizonte declarado, para quem quiser a leitura diluída.
+    sobra_proximo_mes: sobraProximoMes,
     media_mensal: Math.round((
       (avgReceitas + recorrenciaReceitaMensal)
       - avgDespesas - recorrenciaMensal
       - (Object.values(parcelasMap).reduce((a, b) => a + b, 0) / Math.max(1, mesesParam))
     ) * 100) / 100,
+    media_mensal_horizonte: mesesParam,
+    media_mensal_nota: `Diluída nos ${mesesParam} meses selecionados. Como as parcelas não duram ` +
+      `esse tempo todo, este número muda quando você muda o horizonte — por isso a tela mostra a ` +
+      `sobra do mês que vem, que não depende de escolha nenhuma.`,
     media_mensal_variavel: Math.round((avgReceitas - avgDespesas) * 100) / 100,
     media_receitas: Math.round((avgReceitas + recorrenciaReceitaMensal) * 100) / 100,
     // `media_despesas` agora é a média da parte VARIÁVEL. O que é contratado

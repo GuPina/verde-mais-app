@@ -10,37 +10,11 @@ type Variables = { user: { id: number; nome: string; email: string; plano: strin
 
 const regra503020 = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// Mapeamento de categorias do VerdeMais para os 3 grupos
-const NEEDS_CATS = [
-  'Alimentação', 'Moradia', 'Saúde', 'Transporte', 'Educação', 'Contas',
-  'Mercado', 'Farmácia', 'Farmacia', 'Aluguel', 'Seguro', 'Serviços',
-  'Serviços Essenciais', 'Supermercado', 'Conta de Luz', 'Conta de Água',
-  'Conta de Gás', 'Internet', 'Telefone', 'Plano de Saúde', 'Escola',
-  'Faculdade', 'Trabalho', 'Condomínio'
-]
-const WANTS_CATS = [
-  'Lazer', 'Viagem', 'Roupas', 'Assinaturas', 'Delivery', 'Restaurante',
-  'Beleza', 'Entretenimento', 'Pets', 'Eletrônicos', 'Outros',
-  'Tecnologia', 'Shopping', 'Esporte', 'Academia', 'Streaming',
-  'Bar', 'Jogos', 'Hobbies', 'Presente', 'Moda', 'Cosméticos'
-]
-const SAVINGS_CATS = [
-  'Investimentos', 'Poupança', 'Reserva', 'Aplicação', 'Tesouro',
-  'Previdência', 'CDB', 'LCI', 'LCA', 'Fundo'
-]
-
-/**
- * A classificação de uma categoria em necessidade / desejo / poupança estava
- * escrita solta dentro do GET '/'. O histórico precisa exatamente da mesma
- * regra: duplicá-la garantiria que um dia o mês isolado e o gráfico anual
- * discordassem sobre o mesmo gasto.
- */
-function grupoDaCategoria(cat: string): 'needs' | 'savings' | 'wants' {
-  const c = cat.toLowerCase()
-  if (NEEDS_CATS.some(n => c.includes(n.toLowerCase()))) return 'needs'
-  if (SAVINGS_CATS.some(x => c.includes(x.toLowerCase()))) return 'savings'
-  return 'wants'
-}
+// As listas NEEDS_CATS / WANTS_CATS / SAVINGS_CATS e a função que as lia
+// saíram daqui: a classificação agora mora em src/lib/divisao.ts, é a mesma que
+// o mês, o histórico do ano e a base da reserva usam, e ela acha dívida pelo
+// vínculo do sistema em vez de por nome de categoria. Três cópias da regra
+// viraram uma — que era o problema inteiro desta tela.
 
 /**
  * ADERÊNCIA, não saúde.
@@ -334,13 +308,14 @@ regra503020.get('/', requireAuth, async (c) => {
     ).bind(user.id).run()
   }
 
-  // Top categorias por grupo para o breakdown
-  const topNeeds = Object.entries(despByCat)
-    .filter(([cat]) => NEEDS_CATS.some(n => cat.toLowerCase().includes(n.toLowerCase())))
-    .sort(([, a], [, b]) => b - a).slice(0, 5)
-  const topWants = Object.entries(despByCat)
-    .filter(([cat]) => WANTS_CATS.some(w => cat.toLowerCase().includes(w.toLowerCase())))
-    .sort(([, a], [, b]) => b - a).slice(0, 5)
+  // As maiores de cada gaveta, direto do detalhe que a classificação já
+  // produziu. Antes isto refiltrava `despByCat` contra as listas de nomes —
+  // uma quarta leitura da mesma pergunta, que discordava das outras três
+  // sempre que uma delas mudava.
+  const topNeeds: Array<[string, number]> = divisao.detalhe.necessidades
+    .slice(0, 5).map(x => [x.nome, x.valor])
+  const topWants: Array<[string, number]> = divisao.detalhe.desejos
+    .slice(0, 5).map(x => [x.nome, x.valor])
 
   // ── Sugestão de orçamento: não mora mais aqui ─────────────────────────────
   //
@@ -441,13 +416,20 @@ regra503020.get('/historico', requireAuth, async (c) => {
       SELECT strftime('%m', data) as mes, COALESCE(SUM(valor),0) as total
       FROM receitas WHERE user_id = ? AND strftime('%Y', data) = ?
       GROUP BY 1`).bind(user.id, String(ano)).all(),
+    // Linha a linha, e não agrupado por categoria: a dívida é achada pelo
+    // carimbo que o sistema pôs NA LINHA. Agrupar antes de classificar era o
+    // que fazia o gráfico do ano rodar em três fatias enquanto o mês logo
+    // acima já rodava em quatro — a mesma tela, duas réguas.
+    //
+    // E pendente entra junto com pago, como no mês: a parcela que vence dia 30
+    // é compromisso daquele mês, não do seguinte.
     c.env.DB.prepare(`
-      SELECT (${competenciaMes()}) as mes, categoria, COALESCE(SUM(valor),0) as total
+      SELECT (${competenciaMes()}) as mes, id, descricao, categoria, valor,
+             observacoes, recorrencia_id, numero_parcelas, cartao_id
       FROM despesas
-      WHERE user_id = ? AND status = 'pago'
+      WHERE user_id = ? AND status IN ('pago','pendente')
         AND ${filtroNaoCancelada()} AND ${filtroSemAporte()}
-        AND (${competenciaAno()}) = ?
-      GROUP BY 1, 2`).bind(user.id, String(ano)).all(),
+        AND (${competenciaAno()}) = ?`).bind(user.id, String(ano)).all(),
     c.env.DB.prepare(`
       SELECT strftime('%m', data_inicio) as mes, COALESCE(SUM(valor_investido),0) as total
       FROM investimentos WHERE user_id = ? AND strftime('%Y', data_inicio) = ?
@@ -460,7 +442,9 @@ regra503020.get('/historico', requireAuth, async (c) => {
       GROUP BY 1`).bind(user.id, String(ano)).all(),
   ])
 
-  const porMes = Array.from({ length: 12 }, () => ({ income: 0, needs: 0, wants: 0, savings: 0 }))
+  const porMes = Array.from({ length: 12 }, () => ({
+    income: 0, needs: 0, wants: 0, dividas: 0, savings: 0, nao_classificado: 0,
+  }))
   const idx = (m: any) => {
     const n = parseInt(String(m ?? ''), 10)
     return Number.isInteger(n) && n >= 1 && n <= 12 ? n - 1 : -1
@@ -468,24 +452,44 @@ regra503020.get('/historico', requireAuth, async (c) => {
   for (const r of (rec.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].income  += parseFloat(r.total) }
   for (const r of (inv.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].savings += parseFloat(r.total) }
   for (const r of (res.results as any[]))  { const i = idx(r.mes); if (i >= 0) porMes[i].savings += parseFloat(r.total) }
+  // Agrupa por mês e classifica cada mês com a MESMA função do bloco do mês.
+  const linhasPorMes: DespesaDivisivel[][] = Array.from({ length: 12 }, () => [])
   for (const r of (desp.results as any[])) {
     const i = idx(r.mes); if (i < 0) continue
-    porMes[i][grupoDaCategoria(String(r.categoria || ''))] += parseFloat(r.total)
+    linhasPorMes[i].push({
+      id: Number(r.id), descricao: r.descricao ?? null, categoria: r.categoria ?? null,
+      valor: Number(r.valor) || 0, observacoes: r.observacoes ?? null,
+      recorrencia_id: r.recorrencia_id ?? null,
+      numero_parcelas: r.numero_parcelas ?? null, cartao_id: r.cartao_id ?? null,
+    })
+  }
+  for (let i = 0; i < 12; i++) {
+    if (!linhasPorMes[i].length) continue
+    const dv = dividir(linhasPorMes[i], porMes[i].income)
+    porMes[i].needs += dv.necessidades
+    porMes[i].wants += dv.desejos
+    porMes[i].dividas += dv.dividas
+    porMes[i].savings += dv.poupanca
+    porMes[i].nao_classificado += dv.nao_classificado
   }
 
   const meses = porMes.map((m, i) => {
     const pN = m.income > 0 ? (m.needs   / m.income) * 100 : 0
     const pW = m.income > 0 ? (m.wants   / m.income) * 100 : 0
     const pS = m.income > 0 ? (m.savings / m.income) * 100 : 0
-    const { score } = calcularAderencia(m.income, pN, pW, pS, 0, ALVO_N, ALVO_W, ALVO_S)
+    const pD = m.income > 0 ? (m.dividas / m.income) * 100 : 0
+    const { score } = calcularAderencia(m.income, pN, pW, pS, pD, ALVO_N, ALVO_W, ALVO_S)
     return {
       mes: i + 1,
       income: Math.round(m.income * 100) / 100,
       needs: Math.round(m.needs * 100) / 100,
       wants: Math.round(m.wants * 100) / 100,
+      dividas: Math.round(m.dividas * 100) / 100,
       savings: Math.round(m.savings * 100) / 100,
+      nao_classificado: Math.round(m.nao_classificado * 100) / 100,
       pct_needs: Math.round(pN * 10) / 10,
       pct_wants: Math.round(pW * 10) / 10,
+      pct_dividas: Math.round(pD * 10) / 10,
       pct_savings: Math.round(pS * 10) / 10,
       score,
       // Sem receita no mês o score é 0 por falta de dado, não por desequilíbrio.

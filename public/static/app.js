@@ -2066,7 +2066,7 @@ const VM = {
       conquistas: ['Conquistas', 'Sua evolução financeira'],
       perfil: ['Meu Perfil', 'Configurações da conta'],
       tags: ['Tags & Filtros 🏷️', 'Organize suas despesas com etiquetas'],
-      'organizador': ['🗂️ Central de Organização', 'Categorias e tags em massa — passado e futuro'],
+      'organizador': ['🗂️ Central de Organização', 'Uma pergunta por vez — arrume uma vez, vale para sempre'],
       'alertas-cartao': ['⚠️ Alertas de Cartão', 'Fatura próxima, limite alto, cobrança duplicada'],
       'reservas-esp': ['🛡️ Minhas Reservas', 'Múltiplas reservas por objetivos específicos'],
       'assinaturas-fantasma': ['👻 Assinaturas Fantasma', 'Detecte gastos recorrentes esquecidos'],
@@ -4230,6 +4230,47 @@ const VM = {
       URL.revokeObjectURL(url)
       this.toast('✅ CSV exportado!', 'success')
     }).catch(() => this.toast('Erro ao exportar', 'error'))
+  },
+
+  /**
+   * O alerta do Diagnóstico, na tela onde a decisão acontece.
+   *
+   * O Diagnóstico devolve, em cada alerta, um campo `no_contexto` dizendo onde
+   * ele também deveria aparecer — "Tela de Aportes", "Plano de quitação". Eu
+   * escrevi esse campo e não liguei nada nele: a tela prometia um contexto que
+   * não existia.
+   *
+   * O 360° é onde os alertas se juntam e viram prioridade; a tela de origem é
+   * onde eles pegam a pessoa no momento da decisão. Aportar sem reserva importa
+   * muito mais na hora de aportar do que numa lista lida uma vez por mês.
+   *
+   * Uma requisição por sessão, guardada em memória: várias telas pedem o mesmo
+   * diagnóstico, e refazê-lo a cada navegação seria caro para um aviso que na
+   * maioria das contas nem aparece. Falha em silêncio — um extra jamais deve
+   * quebrar a tela que ele acompanha.
+   */
+  async alertaNoContexto(chaves, elId) {
+    const el = document.getElementById(elId)
+    if (!el) return
+    try {
+      if (!this._diagCache) this._diagCache = await this.api('GET', 'diagnostico')
+      const alvo = Array.isArray(chaves) ? chaves : [chaves]
+      const a = (this._diagCache.alertas || []).find(x => alvo.includes(x.chave))
+      if (!a) { el.innerHTML = ''; return }
+      const tom = a.severidade === 'critico' ? 'neg' : a.severidade === 'alto' ? 'warn' : 'info'
+      el.innerHTML = `
+        <div class="dg-alerta is-${tom} ctx-alerta">
+          <i class="fas fa-triangle-exclamation dg-alerta__ico"></i>
+          <div class="dg-alerta__corpo">
+            <strong>${this.escapeHtml(a.titulo)}</strong>
+            <p>${this.escapeHtml(a.descricao)}</p>
+            <p class="dg-alerta__acao"><b>O que fazer:</b> ${this.escapeHtml(a.acao)}</p>
+            <button class="ds-btn ds-btn--sm ctx-alerta__ir" onclick="VM.navigate('ia')">Ver o diagnóstico completo</button>
+          </div>
+        </div>`
+    } catch (e) {
+      el.innerHTML = ''
+    }
   },
 
   /**

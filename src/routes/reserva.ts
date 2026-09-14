@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { janelaHistorica, baseDeReserva } from '../lib/metricas'
 import { requireAuth } from './auth'
 
 type Bindings = { DB: D1Database }
@@ -13,35 +14,33 @@ function parseValorNaoNeg(v: unknown): number | null { if (v === '' || v === nul
 function parseValorPos(v: unknown): number | null { const n = Number(v); return Number.isFinite(n) && n > 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null }
 function parseMeses(v: unknown): number | null { const n = parseInt(String(v), 10); return Number.isInteger(n) && n >= 1 && n <= 36 ? n : null }
 
-// ─── Helper: média de gastos mensais (excluindo não-recorrentes eventuais) ────
+// ─── Helper: quanto custa um mês da sua vida ─────────────────────────────────
+//
+// Esta função tinha régua própria, e era a terceira do app para a mesma
+// pergunta. Ela somava a média dos últimos 3 meses sobre uma lista de
+// categorias "essenciais" escrita à mão aqui dentro — e essa lista incluía
+// `emprestimo`, `financiamento` e `cartao`.
+//
+// O efeito prático: a tela mandava o usuário guardar seis meses de parcela de
+// cartão. Reserva de emergência não existe para pagar prestação em dia numa
+// perda de renda — prestação se renegocia; aluguel, mercado e remédio não. Era
+// conselho errado, entregue com a confiança de um número redondo.
+//
+// Agora vem de metricas.baseDeReserva, a mesma classificação que desenha as
+// quatro fatias da 50/30/20 e que alimenta o pilar Fôlego do score. Três
+// respostas viraram uma, e a lista de essenciais deixou de ser constante de
+// código para virar coisa que o usuário pode corrigir.
+async function getBaseGasto(db: D1Database, userId: number) {
+  const janela = await janelaHistorica(db, userId, 12)
+  const base = await baseDeReserva(db, userId, janela)
+  // Sem meses fechados suficientes, o conservador é pedir de mais, nunca de
+  // menos: errar dizendo "você está coberto" é o único erro que machuca aqui.
+  const essencial = base.essencial > 0 ? base.essencial : base.total
+  return { essencial, total: base.total, meses: base.meses }
+}
+
 async function getMediaGastos(db: D1Database, userId: number): Promise<number> {
-  // Exclui categorias claramente eventuais: viagem, presente, lazer esporádico
-  const r = await db.prepare(`
-    SELECT COALESCE(AVG(total_mes), 0) as media FROM (
-      SELECT SUM(valor) as total_mes FROM despesas
-      WHERE user_id = ? AND status IN ('pago','pendente')
-      AND data >= date('now', '-3 months') AND data <= date('now')
-      AND LOWER(categoria) NOT IN ('viagem','presente','presentes','doacao','doação','lazer_especial','outros_eventuais')
-      AND (fixa_ou_variavel = 'fixa' OR recorrente = 1 OR LOWER(categoria) IN (
-        'alimentacao','alimentação','moradia','transporte','saude','saúde','educacao','educação','utilidades',
-        'seguros','assinaturas','emprestimo','empréstimo','financiamento','cartao','cartão','investimento','supermercado','fixo'
-      ))
-      GROUP BY strftime('%Y-%m', data)
-    )
-  `).bind(userId).first() as any
-  // Fallback: se não houver despesas recorrentes, usa todas as despesas
-  if (!r?.media) {
-    const r2 = await db.prepare(`
-      SELECT COALESCE(AVG(total_mes), 0) as media FROM (
-        SELECT SUM(valor) as total_mes FROM despesas
-        WHERE user_id = ? AND status IN ('pago','pendente')
-        AND data >= date('now', '-3 months') AND data <= date('now')
-        GROUP BY strftime('%Y-%m', data)
-      )
-    `).bind(userId).first() as any
-    return r2?.media || 0
-  }
-  return r?.media || 0
+  return (await getBaseGasto(db, userId)).essencial
 }
 
 // ─── Helper: calcular métricas ────────────────────────────────────────────────
@@ -98,6 +97,8 @@ reserva.get('/', requireAuth, async (c) => {
   const objetivoMeses = r?.objetivo_meses || 6
   const met = calcMetricas(r?.valor_atual || 0, mediaGastos, objetivoMeses)
 
+  const base = await getBaseGasto(c.env.DB, user.id)
+
   return c.json({
     reserva: r || null,
     media_gastos_mensais: Math.round(mediaGastos * 100) / 100,
@@ -105,6 +106,14 @@ reserva.get('/', requireAuth, async (c) => {
     cobertura_pct: met.cobertura,
     meses_cobertos: met.mesesCobertos,
     faltando: met.faltando,
+    // De onde sai o número. Um alvo de reserva que muda sem explicação é um
+    // alvo em que ninguém acredita — e este mudou de verdade nesta versão.
+    base_gasto: {
+      essencial: Math.round(base.essencial * 100) / 100,
+      total: Math.round(base.total * 100) / 100,
+      meses_base: base.meses,
+      alvo_confortavel: Math.round(base.total * objetivoMeses * 100) / 100,
+    },
   })
 })
 
