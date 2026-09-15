@@ -76,11 +76,11 @@ const VM = {
       <div style="text-align:center;padding:8px 0;">
         <div style="font-size:2.5rem;margin-bottom:12px;">🔒</div>
         <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:8px;">${info.titulo}</h3>
-        <p style="color:#888;margin-bottom:20px;font-size:0.9rem;line-height:1.5;">${info.desc}</p>
+        <p style="color:var(--terminal-ink-soft);margin-bottom:20px;font-size:0.9rem;line-height:1.5;">${info.desc}</p>
         <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:12px;padding:16px;margin-bottom:20px;">
           <div style="font-size:0.8rem;color:#2FBF71;font-weight:600;margin-bottom:4px;">Disponível no plano</div>
           <div style="font-size:1.1rem;font-weight:700;">${proximo}</div>
-          <div style="font-size:0.78rem;color:#666;margin-top:4px;">Cancele quando quiser · Sem burocracia</div>
+          <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">Cancele quando quiser · Sem burocracia</div>
         </div>
         <button onclick="VM.closeModal();VM.openPricingModal()" class="btn-primary" style="width:100%;justify-content:center;">
           <i class="fas fa-crown"></i> Ver Planos e Fazer Upgrade
@@ -383,11 +383,11 @@ const VM = {
         infoEl.innerHTML = `
           <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.3);border-radius:8px;padding:10px 14px;font-size:0.8rem;">
             📅 <strong>Fatura de ${mesesNomes[mesF-1]}/${anoF}</strong>
-            <span style="color:#888;margin-left:8px;">Fechamento dia ${info.dia_fechamento} · Vencimento dia ${info.dia_vencimento} · ${this.formatDate(info.data_vencimento)}</span>
+            <span style="color:var(--terminal-ink-soft);margin-left:8px;">Fechamento dia ${info.dia_fechamento} · Vencimento dia ${info.dia_vencimento} · ${this.formatDate(info.data_vencimento)}</span>
             ${diaCompra >= info.dia_fechamento
               ? `<div style="color:#ffc400;margin-top:3px;">⚠️ Compra no fechamento ou após (dia ${info.dia_fechamento}) → próxima fatura</div>`
               : `<div style="color:#2FBF71;margin-top:3px;">✅ Compra antes do fechamento → fatura de ${mesesNomes[mesF-1]}</div>`}
-            <div style="color:#888;margin-top:3px;">Limite disponível: <strong style="color:#fff;">${this.formatMoney(info.limite_disponivel)}</strong></div>
+            <div style="color:var(--terminal-ink-soft);margin-top:3px;">Limite disponível: <strong style="color:#fff;">${this.formatMoney(info.limite_disponivel)}</strong></div>
           </div>`
       }
     } catch(e) { /* silencioso */ }
@@ -1400,9 +1400,9 @@ const VM = {
               <div style="width:36px;height:36px;background:${avatarColor};border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;">${initials}</div>
               <div style="flex:1;min-width:0;">
                 <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${userName}</div>
-                <div style="font-size:0.72rem;color:#666;">${this.user?.plano || 'Free'}</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">${this.user?.plano || 'Free'}</div>
               </div>
-              <i class="fas fa-cog" style="color:#555;font-size:0.75rem;"></i>
+              <i class="fas fa-cog" style="color:var(--terminal-ink-soft);font-size:0.75rem;"></i>
             </div>
           </div>
         </aside>
@@ -1412,22 +1412,22 @@ const VM = {
           <header class="topbar">
             <div style="display:flex;align-items:center;gap:16px;">
               <button onclick="VM.toggleSidebar()" aria-label="Recolher menu" title="Recolher menu"
-                style="background:none;border:none;color:#888;font-size:1.1rem;cursor:pointer;" id="menu-btn">
+                style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.1rem;cursor:pointer;" id="menu-btn">
                 <i class="fas fa-bars"></i>
               </button>
               <div>
                 <div style="font-size:1rem;font-weight:600;" id="page-title">Dashboard</div>
-                <div style="color:#555;font-size:0.75rem;" id="page-sub">Visão geral das suas finanças</div>
+                <div style="color:var(--terminal-ink-soft);font-size:0.75rem;" id="page-sub">Visão geral das suas finanças</div>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
-              <div style="font-size:0.8rem;color:#555;" id="topbar-date"></div>
+              <div style="font-size:0.8rem;color:var(--terminal-ink-soft);" id="topbar-date"></div>
               <!-- Bell de alertas de cartão -->
               <button onclick="VM.navigate('alertas-cartao')" id="btn-bell-alertas"
                 title="Alertas de Cartão"
-                style="position:relative;background:none;border:none;color:#666;font-size:1rem;cursor:pointer;padding:6px;border-radius:8px;transition:all 0.2s;"
+                style="position:relative;background:none;border:none;color:var(--terminal-ink-soft);font-size:1rem;cursor:pointer;padding:6px;border-radius:8px;transition:all 0.2s;"
                 onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='#F59E0B'"
-                onmouseout="this.style.background='none';this.style.color='#666'">
+                onmouseout="this.style.background='none';this.style.color='#7A8B80'">
                 <i class="fas fa-bell"></i>
                 <span id="topbar-badge-alertas" style="display:none;position:absolute;top:2px;right:2px;background:#F43F5E;color:#fff;font-size:0.55rem;padding:1px 4px;border-radius:50px;font-weight:700;min-width:14px;text-align:center;"></span>
               </button>
@@ -2326,7 +2326,7 @@ const VM = {
             <div class="stat-value ${resumo.saldo_liquido >= 0 ? 'positive' : 'negative'}">${this.formatMoney(resumo.saldo_liquido)}</div>
             <div class="stat-change ${resumo.taxa_poupanca >= 0 ? 'positive' : 'negative'}">
               ${resumo.taxa_poupanca >= 0 ? '▲' : '▼'} ${Math.abs(resumo.taxa_poupanca)}% da renda
-              ${mes_anterior?.saldo_liquido !== undefined ? `<span style="font-size:0.65rem;color:#555;margin-left:4px;">ant: ${this.formatMoney(mes_anterior.saldo_liquido)}</span>` : ''}
+              ${mes_anterior?.saldo_liquido !== undefined ? `<span style="font-size:0.65rem;color:var(--terminal-ink-soft);margin-left:4px;">ant: ${this.formatMoney(mes_anterior.saldo_liquido)}</span>` : ''}
             </div>
           </div>
           <div class="stat-card">
@@ -2359,7 +2359,7 @@ const VM = {
             <div class="stat-value" style="color:${totalDevedor > 0 ? '#ff6b6b' : '#2FBF71'};font-size:1.3rem;">
               ${this.formatMoney(totalDevedor)}
             </div>
-            <div style="font-size:0.72rem;color:#888;margin-top:4px;">
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:4px;">
               ${resumo.count_emprestimos_ativos > 0 ? `${resumo.count_emprestimos_ativos} emprést.` : ''}
               ${resumo.count_emprestimos_ativos > 0 && resumo.count_financiamentos_ativos > 0 ? ' + ' : ''}
               ${resumo.count_financiamentos_ativos > 0 ? `${resumo.count_financiamentos_ativos} financ.` : ''}
@@ -2377,7 +2377,7 @@ const VM = {
           <div class="stat-card" style="border-color:rgba(47,191,113,0.2);">
             <div class="stat-label" style="margin-bottom:6px;">🎯 Metas Financeiras</div>
             <div class="stat-value positive" style="font-size:1.3rem;">${metas.ativas} ativa${metas.ativas !== 1 ? 's' : ''}</div>
-            <div style="font-size:0.72rem;color:#888;margin-top:4px;">
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:4px;">
               ${metas.ativas > 0 ? `${this.formatMoney(metas.atual_total)} de ${this.formatMoney(metas.objetivo_total)}` : 'Nenhuma meta cadastrada'}
             </div>
           </div>
@@ -2390,9 +2390,9 @@ const VM = {
               <i class="fas fa-${patrimonioLiquido>=0?'trending-up':'trending-down'}" style="color:${patrimonioColor};font-size:1.3rem;"></i>
             </div>
             <div>
-              <div style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Patrimônio Líquido</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;font-weight:600;">Patrimônio Líquido</div>
               <div style="font-size:1.8rem;font-weight:900;color:${patrimonioColor};line-height:1.1;">${this.formatMoney(patrimonioLiquido)}</div>
-              <div style="font-size:0.72rem;color:#555;margin-top:2px;">
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:2px;">
                 ${this.formatMoney(resumo.total_investimentos||0)} inv. + ${this.formatMoney((reservas_esp?.total_guardado||0)+(resumo.total_reservas||0))} reservas − ${this.formatMoney(resumo.total_devedor||0)} dívidas
               </div>
               ${patrimonioLiquido < 0 ? `<div style="font-size:0.68rem;color:#ff6b6b;margin-top:3px;font-weight:600;">⚠️ Dívidas superam ativos — cadastre investimentos para melhorar</div>` : ''}
@@ -2400,19 +2400,19 @@ const VM = {
           </div>
           <div style="display:flex;gap:24px;flex-wrap:wrap;">
             <div style="text-align:center;">
-              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Investido</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;">Investido</div>
               <div style="font-size:1rem;font-weight:700;color:#74b9ff;">${this.formatMoney(resumo.total_investimentos||0)}</div>
             </div>
             <div style="text-align:center;">
-              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Reservas</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;">Reservas</div>
               <div style="font-size:1rem;font-weight:700;color:#2FBF71;">${this.formatMoney((reservas_esp?.total_guardado||0)+(resumo.total_reservas||0))}</div>
             </div>
             <div style="text-align:center;">
-              <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:1px;">Dívidas</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;">Dívidas</div>
               <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(resumo.total_dividas||0)}</div>
             </div>
             <div style="text-align:center;align-self:center;">
-              <i class="fas fa-chevron-right" style="color:#555;font-size:0.9rem;"></i>
+              <i class="fas fa-chevron-right" style="color:var(--terminal-ink-soft);font-size:0.9rem;"></i>
             </div>
           </div>
         </div>
@@ -2422,7 +2422,7 @@ const VM = {
           <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;border-color:${patrimonioColor}30;" title="Patrimônio = Investimentos + Reservas - Dívidas">
             <div class="stat-label" style="margin-bottom:6px;">🏦 Patrimônio Líquido</div>
             <div class="stat-value" style="color:${patrimonioColor};font-size:1.2rem;">${this.formatMoney(patrimonioLiquido)}</div>
-            <div style="font-size:0.7rem;color:#666;margin-top:4px;">Bruto: ${this.formatMoney(patrimonioBruto)}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:4px;">Bruto: ${this.formatMoney(patrimonioBruto)}</div>
           </div>
           <div class="stat-card" onclick="VM.navigate('reservas-esp')" style="cursor:pointer;border-color:rgba(16,185,129,0.2);">
             <div class="stat-label" style="margin-bottom:6px;">🛡️ Reservas Especializadas</div>
@@ -2431,13 +2431,13 @@ const VM = {
               <div style="background:#1a3a1a;border-radius:4px;height:4px;margin-top:4px;">
                 <div style="background:#2FBF71;height:4px;border-radius:4px;width:${Math.min(100,reservasProgresso)}%;"></div>
               </div>
-              <span style="color:#666;">${reservasProgresso}% da meta</span>
+              <span style="color:var(--terminal-ink-soft);">${reservasProgresso}% da meta</span>
             </div>
           </div>
           <div class="stat-card" onclick="VM.navigate('assinaturas-fantasma')" style="cursor:pointer;border-color:${assinaturasTem ? 'rgba(139,92,246,0.3)' : 'rgba(42,58,42,0.5)'};">
             <div class="stat-label" style="margin-bottom:6px;">👻 Assinaturas Detectadas</div>
-            <div class="stat-value" style="color:${assinaturasTem ? '#A78BFA' : '#666'};font-size:1.2rem;">${alerta_assinaturas?.count_nao_avaliadas || 0}</div>
-            <div style="font-size:0.7rem;color:${assinaturasTem ? '#A78BFA' : '#555'};margin-top:4px;">
+            <div class="stat-value" style="color:${assinaturasTem ? '#A78BFA' : '#7A8B80'};font-size:1.2rem;">${alerta_assinaturas?.count_nao_avaliadas || 0}</div>
+            <div style="font-size:0.7rem;color:${assinaturasTem ? '#A78BFA' : '#7A8B80'};margin-top:4px;">
               ${assinaturasTem ? `~${this.formatMoney(assinaturasGasto)}/mês ⚠️` : 'Nenhuma detectada ✅'}
             </div>
           </div>
@@ -2448,7 +2448,7 @@ const VM = {
               <div style="background:#2a1a2a;border-radius:4px;height:4px;margin-top:4px;">
                 <div style="background:#EC4899;height:4px;border-radius:4px;width:${Math.round(desafio52Concluidas/52*100)}%;"></div>
               </div>
-              <span style="color:#666;">${this.formatMoney(desafio52Guardado)} guardados</span>
+              <span style="color:var(--terminal-ink-soft);">${this.formatMoney(desafio52Guardado)} guardados</span>
             </div>
           </div>
         </div>
@@ -2465,12 +2465,12 @@ const VM = {
               <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,rgba(116,185,255,0.2),rgba(116,185,255,0.05));border:1px solid rgba(116,185,255,0.25);display:flex;align-items:center;justify-content:center;font-size:1rem;">🏷️</div>
               <div>
                 <div style="font-size:0.95rem;font-weight:700;color:#f1f5f9;">Gastos por Tag</div>
-                <div style="font-size:0.7rem;color:#555;margin-top:1px;">${mesNomeAtual} · ${top_tags.length} tag${top_tags.length !== 1 ? 's' : ''} · ${top_tags.reduce((s,t)=>s+t.qtd,0)} lançamentos</div>
+                <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:1px;">${mesNomeAtual} · ${top_tags.length} tag${top_tags.length !== 1 ? 's' : ''} · ${top_tags.reduce((s,t)=>s+t.qtd,0)} lançamentos</div>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
               <div style="text-align:right;">
-                <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Total tagueado</div>
+                <div style="font-size:0.68rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Total tagueado</div>
                 <div style="font-size:0.92rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(totalTags)}</div>
               </div>
               <button onclick="VM.navigate('tags')" class="btn-secondary" style="font-size:0.72rem;padding:5px 12px;white-space:nowrap;">Ver todas →</button>
@@ -2479,7 +2479,7 @@ const VM = {
 
           <!-- Destaque: maior tag -->
           <div style="padding:12px 20px 10px;background:${topTag.cor}08;border-bottom:1px solid ${topTag.cor}18;">
-            <div style="font-size:0.68rem;color:#555;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">🥇 Maior gasto</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">🥇 Maior gasto</div>
             <div style="display:flex;align-items:center;gap:12px;">
               <div style="width:40px;height:40px;border-radius:12px;background:${topTag.cor}20;border:2px solid ${topTag.cor}50;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <span style="width:14px;height:14px;border-radius:50%;background:${topTag.cor};display:block;box-shadow:0 0 8px ${topTag.cor}80;"></span>
@@ -2490,7 +2490,7 @@ const VM = {
                   <span style="font-size:1.05rem;font-weight:800;color:#f1f5f9;">${this.formatMoney(topTag.total)}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-                  <span style="font-size:0.72rem;color:#555;">${topTag.qtd} lançamento${topTag.qtd !== 1 ? 's' : ''}</span>
+                  <span style="font-size:0.72rem;color:var(--terminal-ink-soft);">${topTag.qtd} lançamento${topTag.qtd !== 1 ? 's' : ''}</span>
                   <span style="font-size:0.72rem;color:${topTag.cor};background:${topTag.cor}18;padding:2px 8px;border-radius:10px;font-weight:700;">${totalTags > 0 ? Math.round((topTag.total/totalTags)*100) : 0}% do total</span>
                 </div>
               </div>
@@ -2510,7 +2510,7 @@ const VM = {
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                     <span style="font-size:0.83rem;font-weight:700;color:${t.cor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.nome}</span>
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                      <span style="font-size:0.68rem;color:#555;">${t.qtd}x</span>
+                      <span style="font-size:0.68rem;color:var(--terminal-ink-soft);">${t.qtd}x</span>
                       <span style="font-size:0.85rem;font-weight:700;color:#e2e8f0;">${this.formatMoney(t.total)}</span>
                       <span style="font-size:0.68rem;color:${t.cor};font-weight:600;min-width:32px;text-align:right;">${pct}%</span>
                     </div>
@@ -2543,7 +2543,7 @@ const VM = {
           
           <!-- SCORE -->
           <div class="card" style="display:flex;flex-direction:column;align-items:center;text-align:center;overflow:hidden;position:relative;">
-            <div style="font-size:0.8rem;color:#888;margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;font-weight:600;">🧠 Saúde Financeira</div>
+            <div style="font-size:0.8rem;color:var(--terminal-ink-soft);margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase;font-weight:600;">🧠 Saúde Financeira</div>
             ${score_bloqueado ? `
               <div style="position:relative;width:120px;height:120px;margin-bottom:10px;filter:blur(4px);pointer-events:none;">
                 <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);width:120px;height:120px;">
@@ -2554,7 +2554,7 @@ const VM = {
                 </svg>
                 <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                   <div style="font-size:1.9rem;font-weight:800;color:#2FBF71;line-height:1;">??</div>
-                  <div style="font-size:0.62rem;color:#555;margin-top:2px;">/ 100</div>
+                  <div style="font-size:0.62rem;color:var(--terminal-ink-soft);margin-top:2px;">/ 100</div>
                 </div>
               </div>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(15,15,26,0.7);backdrop-filter:blur(2px);border-radius:16px;cursor:pointer;" onclick="VM.upsellModal('score_saude')">
@@ -2573,7 +2573,7 @@ const VM = {
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                 <div style="font-size:1.9rem;font-weight:800;color:${scoreColor};line-height:1;">${scoreReal}</div>
-                <div style="font-size:0.62rem;color:#555;margin-top:2px;">/ 100</div>
+                <div style="font-size:0.62rem;color:var(--terminal-ink-soft);margin-top:2px;">/ 100</div>
               </div>
             </div>
             <div style="font-weight:700;color:${scoreColor};font-size:0.9rem;margin-bottom:14px;">${scoreLabel}</div>
@@ -2589,14 +2589,14 @@ const VM = {
                       <div style="flex:1;text-align:left;">
                         <div style="font-size:0.72rem;color:${cor};line-height:1.4;">${f.descricao}</div>
                       </div>
-                      <span style="font-size:0.7rem;font-weight:800;color:${f.pontos > 0 ? '#2FBF71' : f.pontos < 0 ? '#ff6b6b' : '#666'};flex-shrink:0;min-width:32px;text-align:right;">${f.pontos > 0 ? '+' : ''}${f.pontos !== 0 ? f.pontos : '—'}</span>
+                      <span style="font-size:0.7rem;font-weight:800;color:${f.pontos > 0 ? '#2FBF71' : f.pontos < 0 ? '#ff6b6b' : '#7A8B80'};flex-shrink:0;min-width:32px;text-align:right;">${f.pontos > 0 ? '+' : ''}${f.pontos !== 0 ? f.pontos : '—'}</span>
                     </div>
                   `).join('')}
                 </div>
               `
               return `
               <div style="width:100%;text-align:left;border-top:1px solid rgba(255,255,255,0.07);padding-top:12px;">
-                <div style="font-size:0.7rem;color:#555;margin-bottom:8px;text-align:center;">Fatores que impactam seu score</div>
+                <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:8px;text-align:center;">Fatores que impactam seu score</div>
                 ${renderGroup(positivos, '#2FBF71', 'rgba(47,191,113,0.12)', '✅ Pontos positivos')}
                 ${renderGroup(negativos, '#ff6b6b', 'rgba(255,107,107,0.12)', '❌ Pontos negativos')}
                 ${renderGroup(neutros,   '#ffc400', 'rgba(255,196,0,0.10)',   '⚠️ Pontos de atenção')}
@@ -2613,7 +2613,7 @@ const VM = {
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
               <div style="font-size:1rem;font-weight:700;">🏷️ Gastos por Categoria</div>
-              ${categorias_despesas.length > 0 ? `<span style="font-size:0.7rem;color:#555;">Clique no gráfico para filtrar</span>` : ''}
+              ${categorias_despesas.length > 0 ? `<span style="font-size:0.7rem;color:var(--terminal-ink-soft);">Clique no gráfico para filtrar</span>` : ''}
             </div>
             ${categorias_despesas.length > 0 ? `
               <div style="height:200px;"><canvas id="chart-categorias" style="cursor:pointer;"></canvas></div>
@@ -2650,9 +2650,9 @@ const VM = {
                     </div>
                     <div style="flex:1;min-width:0;">
                       <div style="font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.descricao}</div>
-                      <div style="font-size:0.68rem;color:#555;display:flex;align-items:center;gap:4px;">
+                      <div style="font-size:0.68rem;color:var(--terminal-ink-soft);display:flex;align-items:center;gap:4px;">
                         <span>${t.categoria}</span>
-                        <span style="color:#333;">•</span>
+                        <span style="color:var(--terminal-line);">•</span>
                         <span>${this.formatDate(t.data)}</span>
                         ${t.status === 'pendente' ? `<span style="color:#ffc400;font-size:0.65rem;">● pendente</span>` : ''}
                       </div>
@@ -2671,7 +2671,7 @@ const VM = {
           <div class="card" style="margin-top:20px;border-color:rgba(255,196,0,0.3);">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
               <div style="font-size:1rem;font-weight:700;color:#ffc400;">⏰ Vencimentos Próximos (7 dias)</div>
-              <span style="font-size:0.72rem;color:#666;">${proximos_vencimentos.length} pendente${proximos_vencimentos.length !== 1 ? 's' : ''}</span>
+              <span style="font-size:0.72rem;color:var(--terminal-ink-soft);">${proximos_vencimentos.length} pendente${proximos_vencimentos.length !== 1 ? 's' : ''}</span>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px;">
               ${proximos_vencimentos.map(v => {
@@ -2684,7 +2684,7 @@ const VM = {
                   </div>
                   <div style="flex:1;min-width:140px;">
                     <div style="font-size:0.85rem;font-weight:600;">${v.descricao}</div>
-                    <div style="font-size:0.72rem;color:#888;display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">
+                    <div style="font-size:0.72rem;color:var(--terminal-ink-soft);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">
                       <span>Vence: ${this.formatDate(v.vencimento)}</span>
                       <span style="color:${urgente ? '#ff6b6b' : '#ffc400'};font-weight:600;">${diasRestantes === 0 ? 'Hoje!' : diasRestantes === 1 ? 'Amanhã!' : `em ${diasRestantes} dias`}</span>
                     </div>
@@ -3018,22 +3018,22 @@ const VM = {
           <!-- Resumo consolidado -->
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
             <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;">
-              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Limite Total</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:6px;">Limite Total</div>
               <div style="font-size:1.1rem;font-weight:800;">${this.formatMoney(totalLimite)}</div>
             </div>
             <div style="background:rgba(255,80,80,0.06);border-radius:12px;padding:14px;text-align:center;">
-              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Utilizado</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:6px;">Utilizado</div>
               <div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(totalUsado)}</div>
             </div>
             <div style="background:rgba(47,191,113,0.06);border-radius:12px;padding:14px;text-align:center;">
-              <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">Disponível</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:6px;">Disponível</div>
               <div style="font-size:1.1rem;font-weight:800;color:#2FBF71;">${this.formatMoney(totalDisp)}</div>
             </div>
           </div>
 
           <!-- Barra consolidada -->
           <div style="margin-bottom:20px;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:#888;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:var(--terminal-ink-soft);">
               <span>Uso consolidado de todos os cartões</span>
               <span style="font-weight:700;color:${pctColor};">${pctTotal}% utilizado</span>
             </div>
@@ -3058,7 +3058,7 @@ const VM = {
                       <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.nome}</div>
                       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px;">
                         <span style="font-size:0.78rem;color:#ff6b6b;">${this.formatMoney(usado)}</span>
-                        <span style="font-size:0.72rem;color:#666;">/ ${this.formatMoney(c.limite_total)}</span>
+                        <span style="font-size:0.72rem;color:var(--terminal-ink-soft);">/ ${this.formatMoney(c.limite_total)}</span>
                         <span style="font-size:0.72rem;font-weight:700;color:${cor};min-width:32px;text-align:right;">${pct}%</span>
                       </div>
                     </div>
@@ -3113,8 +3113,8 @@ const VM = {
           <!-- Barra global -->
           <div style="margin-bottom:16px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;">
-              <span style="color:#888;">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
-              <span style="color:#888;">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLim)}</strong> · <strong style="color:${corGlobal};">${pctGlobal}%</strong></span>
+              <span style="color:var(--terminal-ink-soft);">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
+              <span style="color:var(--terminal-ink-soft);">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLim)}</strong> · <strong style="color:${corGlobal};">${pctGlobal}%</strong></span>
             </div>
             <div style="background:#1a1a2e;border-radius:20px;height:8px;overflow:hidden;">
               <div style="background:${corGlobal};height:100%;border-radius:20px;width:${Math.min(pctGlobal,100)}%;transition:width 0.6s ease;"></div>
@@ -3135,7 +3135,7 @@ const VM = {
                   <div style="background:#1a1a2e;border-radius:20px;height:5px;overflow:hidden;">
                     <div style="background:${cor};height:100%;border-radius:20px;width:${pct}%;transition:width 0.5s ease;"></div>
                   </div>
-                  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.7rem;color:#666;">
+                  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.7rem;color:var(--terminal-ink-soft);">
                     <span>${this.fmt(o.gasto)}</span>
                     <span>${this.fmt(o.restante)} restante</span>
                   </div>
@@ -3163,7 +3163,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title" data-kicker="Entradas">Receitas <em style="color:var(--terminal-primary);font-style:italic;">plantadas</em></div>
-          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:520px;line-height:1.5;">Acompanhe renda fixa, entradas avulsas e recorrências em uma visão de terminal financeiro.</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:8px;max-width:520px;line-height:1.5;">Acompanhe renda fixa, entradas avulsas e recorrências em uma visão de terminal financeiro.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM._exportarReceitasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
@@ -3187,30 +3187,30 @@ const VM = {
       <div class="card tf-command-card" style="margin-bottom:20px;padding:14px 18px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
             <select id="filtro-mes" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
               <option value="" ${mes === '' ? 'selected' : ''}>Todos</option>
               ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="filtro-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
               ${VM._anosOpcoes(ano)}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
             <select id="filtro-cat-rec" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarReceitas()">
               <option value="">Todas</option>
               ${['Salário','Freelance','Renda Extra','Investimentos','Aluguel','Dividendos','Vendas','Bônus','13º Salário','Férias','Reembolso','Presente','Outros'].map(c => `<option value="${c}" ${c === catSalva ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
             <div style="position:relative;">
               <input type="text" id="filtro-busca-rec" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" oninput="clearTimeout(VM._buscaRecTimer);VM._buscaRecTimer=setTimeout(()=>VM.carregarReceitas(),400)">
-              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#555;font-size:0.75rem;pointer-events:none;"></i>
+              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--terminal-ink-soft);font-size:0.75rem;pointer-events:none;"></i>
             </div>
           </div>
           <button onclick="VM._limparFiltrosReceitas()" class="btn-secondary" style="padding:7px 14px;font-size:0.82rem;align-self:flex-end;">
@@ -3226,7 +3226,7 @@ const VM = {
           <div style="position:relative;width:160px;height:160px;">
             <canvas id="chart-receitas-pizza" width="160" height="160"></canvas>
             <div id="receitas-pizza-centro" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
-              <div style="font-size:0.65rem;color:#666;text-transform:uppercase;">Total</div>
+              <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;">Total</div>
               <div id="receitas-pizza-total" style="font-size:1rem;font-weight:800;color:#2FBF71;"></div>
             </div>
           </div>
@@ -3334,22 +3334,22 @@ const VM = {
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:6px;">💰 Total do Período</div>
             <div class="stat-value positive" style="font-size:1.4rem;">${this.formatMoney(m.total || 0)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${totalCount} receita${totalCount !== 1 ? 's' : ''}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">${totalCount} receita${totalCount !== 1 ? 's' : ''}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:6px;">📊 Média por Receita</div>
             <div class="stat-value" style="font-size:1.3rem;color:#74b9ff;">${this.formatMoney(m.media || 0)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">↑ ${this.formatMoney(m.maior||0)} ↓ ${this.formatMoney(m.menor||0)}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">↑ ${this.formatMoney(m.maior||0)} ↓ ${this.formatMoney(m.menor||0)}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:6px;">🔄 Recorrentes</div>
             <div class="stat-value positive" style="font-size:1.3rem;">${this.formatMoney(m.total_recorrente || 0)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Renda fixa mensal</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">Renda fixa mensal</div>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:6px;">✨ Avulsas</div>
             <div class="stat-value" style="font-size:1.3rem;color:#ffc400;">${this.formatMoney(m.total_avulso || 0)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Entradas extras</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">Entradas extras</div>
           </div>
         `
       }
@@ -3396,8 +3396,8 @@ const VM = {
                 <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width 0.6s;"></div>
               </div>
               <div style="font-size:0.78rem;font-weight:700;color:#f1f5f9;min-width:76px;text-align:right;">${this.formatMoney(c.total)}</div>
-              <div style="font-size:0.68rem;color:#555;min-width:32px;text-align:right;">${pctTotal}%</div>
-              <div style="font-size:0.68rem;color:#555;min-width:28px;text-align:right;">${c.qtd}x</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);min-width:32px;text-align:right;">${pctTotal}%</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);min-width:28px;text-align:right;">${c.qtd}x</div>
             </div>`
           }).join('')
         }
@@ -3426,19 +3426,19 @@ const VM = {
 
       const paginacao = totalPages > 1 ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:0.8rem;color:#888;">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#2FBF71;">${totalCount}</strong> registros</span>
+          <span style="font-size:0.8rem;color:var(--terminal-ink-soft);">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#2FBF71;">${totalCount}</strong> registros</span>
           <div style="display:flex;gap:6px;">
-            <button onclick="VM.carregarReceitas(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
-            <button onclick="VM.carregarReceitas(${pagina + 1})" ${pagina >= totalPages ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
+            <button onclick="VM.carregarReceitas(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#7A8B80':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
+            <button onclick="VM.carregarReceitas(${pagina + 1})" ${pagina >= totalPages ? 'disabled' : ''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#7A8B80':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
           </div>
         </div>
-      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#2FBF71;">${totalCount}</strong> registros</div>`
+      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:var(--terminal-ink-soft);"><strong style="color:#2FBF71;">${totalCount}</strong> registros</div>`
 
       wrapper.innerHTML = `
         <div id="receitas-sel-bar" style="display:none;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;">
           <span id="receitas-sel-count" style="color:#f87171;font-weight:600;font-size:0.88rem;">0 selecionadas</span>
           <button onclick="VM._selTodosReceitas(true)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.8rem;cursor:pointer;">Selecionar tudo</button>
-          <button onclick="VM._selTodosReceitas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.8rem;cursor:pointer;">Limpar</button>
+          <button onclick="VM._selTodosReceitas(false)" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--terminal-ink-soft);font-size:0.8rem;cursor:pointer;">Limpar</button>
           <button onclick="VM._excluirSelecionadasReceitas()" style="padding:5px 14px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.82rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash" style="margin-right:5px;"></i>Excluir selecionadas</button>
         </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
@@ -3461,7 +3461,7 @@ const VM = {
                   <td><input type="checkbox" class="rec-chk" data-id="${r.id}" onchange="VM._onSelReceita()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td>
                     <div style="font-weight:600;color:#f1f5f9;">${this.escapeHtml(r.descricao || '')}</div>
-                    ${r.observacoes ? `<div style="font-size:0.72rem;color:#555;margin-top:2px;">${this.escapeHtml(r.observacoes)}</div>` : ''}
+                    ${r.observacoes ? `<div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:2px;">${this.escapeHtml(r.observacoes)}</div>` : ''}
                     <div id="tags-rec-${r.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;" data-loaded="0"></div>
                   </td>
                   <td>
@@ -3469,7 +3469,7 @@ const VM = {
                       ${catIcons[r.categoria] || '💰'} ${this.escapeHtml(r.categoria || 'Outros')}
                     </span>
                   </td>
-                  <td style="color:#888;font-size:0.85rem;">${this.formatDate(r.data)}</td>
+                  <td style="color:var(--terminal-ink-soft);font-size:0.85rem;">${this.formatDate(r.data)}</td>
                   <td style="font-size:0.82rem;color:#94A3B8;">${meioIcons[r.meio_pagamento] || '💰'} ${r.meio_pagamento || 'pix'}</td>
                   <td style="text-align:center;">
                     ${r.recorrente
@@ -3478,7 +3478,7 @@ const VM = {
                   </td>
                   <td style="text-align:right;font-weight:800;color:#2FBF71;font-size:0.95rem;">${this.formatMoney(r.valor)}</td>
                   <td style="text-align:right;white-space:nowrap;">
-                    <button onclick="VM._duplicarReceita(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#888;cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
+                    <button onclick="VM._duplicarReceita(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:var(--terminal-ink-soft);cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
                     <button onclick="VM.modalReceita(${JSON.stringify(r).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;padding:5px 8px;" title="Editar"><i class="fas fa-edit"></i></button>
                     <button onclick="VM.deleteReceita(${r.id})" class="btn-danger" title="Excluir" style="padding:5px 8px;"><i class="fas fa-trash"></i></button>
                   </td>
@@ -3545,9 +3545,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.1rem;font-weight:700;margin:0;">${isEdit ? '✏️ Editar' : '💰 Nova'} Receita</h3>
-              <div style="font-size:0.72rem;color:#555;margin-top:2px;">${isEdit ? 'Atualize os dados da receita' : 'Registre uma nova entrada de dinheiro'}</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:2px;">${isEdit ? 'Atualize os dados da receita' : 'Registre uma nova entrada de dinheiro'}</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="receita-form">
 
@@ -3608,7 +3608,7 @@ const VM = {
                 <input type="checkbox" id="r-recorrente" ${receita?.recorrente ? 'checked' : ''} style="width:16px;height:16px;accent-color:#74b9ff;pointer-events:none;">
                 <div>
                   <div style="font-size:0.82rem;font-weight:600;color:#74b9ff;">🔄 Recorrente</div>
-                  <div style="font-size:0.68rem;color:#555;">Repete todo mês</div>
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Repete todo mês</div>
                 </div>
               </div>
               <div class="form-group" style="margin:0;">
@@ -3926,7 +3926,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title" data-kicker="Saídas">Despesas <em style="color:var(--terminal-negative);font-style:italic;">sob controle</em></div>
-          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Veja pendências, pagamentos, categorias e cartão em uma mesa de controle mais densa e auditável.</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Veja pendências, pagamentos, categorias e cartão em uma mesa de controle mais densa e auditável.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM._exportarDespesasCSV()" class="btn-secondary" style="padding:9px 16px;font-size:0.82rem;" title="Exportar CSV">
@@ -3958,20 +3958,20 @@ const VM = {
       <div class="card tf-command-card" style="margin-bottom:20px;padding:14px 18px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
             <select id="filtro-mes-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               <option value="" ${mes === '' ? 'selected' : ''}>Todos</option>
               ${mesesNomes.map((m, i) => `<option value="${i+1}" ${String(i+1) === mes ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="filtro-ano-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               ${VM._anosOpcoes(ano)}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Status</label>
             <select id="filtro-status-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               <option value="" ${stat===''?'selected':''}>Ativos</option>
               <option value="pendente" ${stat==='pendente'?'selected':''}>⏳ Pendente</option>
@@ -3980,7 +3980,7 @@ const VM = {
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Categoria</label>
             <select id="filtro-cat-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;" onchange="VM.carregarDespesas()">
               <option value="">Todas</option>
               ${VM._CATS_DESPESA.map(c => `<option value="${c}" ${c === catD ? 'selected' : ''}>${c}</option>`).join('')}
@@ -3988,7 +3988,7 @@ const VM = {
           </div>
           <!-- Filtro por Cartão -->
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Cartão</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Cartão</label>
             <select id="filtro-cartao-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:130px;" onchange="VM.carregarDespesas()">
               <option value="">Todos</option>
               <option value="__com_cartao__">Com cartão</option>
@@ -3998,7 +3998,7 @@ const VM = {
           </div>
           <!-- Filtro por Tag -->
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Tag</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Tag</label>
             <select id="filtro-tag-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:140px;" onchange="VM.carregarDespesas()">
               <option value="">Todas as tags</option>
               <option value="__sem_tag__">🚫 Sem tag</option>
@@ -4006,16 +4006,16 @@ const VM = {
           </div>
           <!-- Filtro por Parcelas -->
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Parcelas</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Parcelas</label>
             <select id="filtro-parcelas-d" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;min-width:130px;" onchange="VM.carregarDespesas()">
               ${parcelasOpcoes.map(([v,l]) => `<option value="${v}" ${v === parcD ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Buscar</label>
             <div style="position:relative;">
               <input type="text" id="filtro-busca-d" class="form-input" placeholder="🔍 Buscar descrição..." style="padding:7px 12px 7px 32px;font-size:0.85rem;" value="${busca}" oninput="clearTimeout(VM._buscaDespTimer);VM._buscaDespTimer=setTimeout(()=>VM.carregarDespesas(),400)">
-              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#555;font-size:0.75rem;pointer-events:none;"></i>
+              <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--terminal-ink-soft);font-size:0.75rem;pointer-events:none;"></i>
             </div>
           </div>
           <button onclick="VM._limparFiltrosDespesas()" class="btn-secondary" style="padding:7px 14px;font-size:0.82rem;align-self:flex-end;">
@@ -4031,7 +4031,7 @@ const VM = {
           <div style="position:relative;width:160px;height:160px;">
             <canvas id="chart-despesas-pizza" width="160" height="160"></canvas>
             <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
-              <div style="font-size:0.65rem;color:#666;text-transform:uppercase;">Total</div>
+              <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;">Total</div>
               <div id="despesas-pizza-total" style="font-size:1rem;font-weight:800;color:#ff6b6b;"></div>
             </div>
           </div>
@@ -4375,22 +4375,22 @@ const VM = {
           <div class="stat-card" style="border-left:3px solid #ff6b6b;">
             <div class="stat-label" style="margin-bottom:6px;">💸 Total do Período</div>
             <div class="stat-value" style="font-size:1.4rem;color:#ff6b6b;">${this.formatMoney(totalGeral)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${totalCount} despesa${totalCount !== 1 ? 's' : ''}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">${totalCount} despesa${totalCount !== 1 ? 's' : ''}</div>
           </div>
           <div class="stat-card" style="border-left:3px solid #2FBF71;">
             <div class="stat-label" style="margin-bottom:6px;">✅ Pago</div>
             <div class="stat-value positive" style="font-size:1.4rem;">${this.formatMoney(pago)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${pctPago}% do total · ${data.count_pago || 0} itens</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">${pctPago}% do total · ${data.count_pago || 0} itens</div>
           </div>
           <div class="stat-card" style="border-left:3px solid #ffc400;">
             <div class="stat-label" style="margin-bottom:6px;">⏳ Pendente</div>
             <div class="stat-value" style="font-size:1.4rem;color:#ffc400;">${this.formatMoney(pendente)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${data.count_pendente || 0} a pagar</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">${data.count_pendente || 0} a pagar</div>
           </div>
           <div class="stat-card" style="border-left:3px solid #74b9ff;">
             <div class="stat-label" style="margin-bottom:6px;">📊 Média por Gasto</div>
             <div class="stat-value" style="font-size:1.3rem;color:#74b9ff;">${this.formatMoney(media)}</div>
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">${cat ? cat : 'Todas categorias'}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">${cat ? cat : 'Todas categorias'}</div>
           </div>
         `
       }
@@ -4444,8 +4444,8 @@ const VM = {
                 <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width 0.6s;"></div>
               </div>
               <div style="font-size:0.78rem;font-weight:700;color:#f1f5f9;min-width:76px;text-align:right;">${this.formatMoney(c.total)}</div>
-              <div style="font-size:0.68rem;color:#555;min-width:32px;text-align:right;">${pctTotal}%</div>
-              <div style="font-size:0.68rem;color:#555;min-width:28px;text-align:right;">${c.qtd}x</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);min-width:32px;text-align:right;">${pctTotal}%</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);min-width:28px;text-align:right;">${c.qtd}x</div>
             </div>`
           }).join('')
         }
@@ -4477,13 +4477,13 @@ const VM = {
 
       const paginacao = totalPages > 1 ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0 4px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:0.8rem;color:#888;">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#ff6b6b;">${totalCount}</strong> registros</span>
+          <span style="font-size:0.8rem;color:var(--terminal-ink-soft);">Página <strong style="color:#ddd;">${pagina}</strong> de <strong style="color:#ddd;">${totalPages}</strong> · <strong style="color:#ff6b6b;">${totalCount}</strong> registros</span>
           <div style="display:flex;gap:6px;">
-            <button onclick="VM.carregarDespesas(${pagina - 1})" ${pagina<=1?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#555':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
-            <button onclick="VM.carregarDespesas(${pagina + 1})" ${pagina>=totalPages?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#555':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
+            <button onclick="VM.carregarDespesas(${pagina - 1})" ${pagina<=1?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina<=1?'#7A8B80':'#ddd'};cursor:${pagina<=1?'default':'pointer'};font-size:0.82rem;">← Anterior</button>
+            <button onclick="VM.carregarDespesas(${pagina + 1})" ${pagina>=totalPages?'disabled':''} style="padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:${pagina>=totalPages?'#7A8B80':'#ddd'};cursor:${pagina>=totalPages?'default':'pointer'};font-size:0.82rem;">Próxima →</button>
           </div>
         </div>
-      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:#888;"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
+      ` : `<div style="padding:10px 0 4px;font-size:0.8rem;color:var(--terminal-ink-soft);"><strong style="color:#ff6b6b;">${totalCount}</strong> registros</div>`
 
       // Barra lote de ações + botão marcar todas
       const barraLote = `
@@ -4491,12 +4491,12 @@ const VM = {
           <div id="desp-sel-bar" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="desp-sel-count" style="color:#f87171;font-weight:600;font-size:0.85rem;">0 selecionadas</span>
             <button onclick="VM._selTodosDespesas(true)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#ddd;font-size:0.78rem;cursor:pointer;">Selec. tudo</button>
-            <button onclick="VM._selTodosDespesas(false)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:0.78rem;cursor:pointer;">Limpar</button>
+            <button onclick="VM._selTodosDespesas(false)" style="padding:4px 11px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--terminal-ink-soft);font-size:0.78rem;cursor:pointer;">Limpar</button>
             <button onclick="VM._pagarSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#10B981;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-check"></i> Pagar sel.</button>
             <button onclick="VM._pendenteSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#ffc400;color:#1a1a2e;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-undo"></i> Pendente sel.</button>
             <button onclick="VM._excluirSelecionadasDespesas()" style="padding:4px 12px;border-radius:7px;border:none;background:#ef4444;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash"></i> Excluir sel.</button>
           </div>
-          <div id="desp-sel-empty" style="font-size:0.78rem;color:#555;">Selecione itens para ações em lote</div>
+          <div id="desp-sel-empty" style="font-size:0.78rem;color:var(--terminal-ink-soft);">Selecione itens para ações em lote</div>
           ${data.count_pendente > 0 ? `
           <button onclick="VM.marcarTodasPagas('${mes}','${ano}')" class="btn-primary" style="width:auto;padding:7px 14px;font-size:0.8rem;background:linear-gradient(135deg,#2FBF71,#10a055);">
             <i class="fas fa-check-double"></i> Pagar todas pendentes (${data.count_pendente})
@@ -4542,7 +4542,7 @@ const VM = {
                   const diff = Math.ceil((new Date(d.vencimento) - new Date()) / 86400000)
                   const urgente = diff <= 2 && diff >= 0
                   const atrasado = diff < 0
-                  return `<div style="font-size:0.68rem;margin-top:2px;color:${atrasado?'#f87171':urgente?'#fbbf24':'#555'};">${atrasado ? `⚠️ ${Math.abs(diff)}d atrasado` : urgente ? `🔔 vence em ${diff}d` : `📅 ${this.formatDate(d.vencimento)}`}</div>`
+                  return `<div style="font-size:0.68rem;margin-top:2px;color:${atrasado?'#f87171':urgente?'#fbbf24':'#7A8B80'};">${atrasado ? `⚠️ ${Math.abs(diff)}d atrasado` : urgente ? `🔔 vence em ${diff}d` : `📅 ${this.formatDate(d.vencimento)}`}</div>`
                 })() : ''
                 const statusClasse = d.status === 'pago' ? 'badge-green' : d.status === 'cancelado' ? 'badge-gray' : 'badge-yellow'
                 const statusLabel = d.status === 'pago' ? '✅ Pago' : d.status === 'cancelado' ? '🚫 Cancelado' : '⏳ Pendente'
@@ -4551,7 +4551,7 @@ const VM = {
                   <td><input type="checkbox" class="desp-chk" data-id="${d.id}" onchange="VM._onSelDespesa()" style="cursor:pointer;width:16px;height:16px;"></td>
                   <td>
                     <div style="font-weight:600;color:#f1f5f9;">${descSafe}${parcelaBadge}</div>
-                    ${obsSafe ? `<div style="font-size:0.7rem;color:#555;margin-top:1px;">${obsSafe}</div>` : ''}
+                    ${obsSafe ? `<div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:1px;">${obsSafe}</div>` : ''}
                     <div id="desp-tags-${d.id}" style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;min-height:0;"></div>
                   </td>
                   <td>
@@ -4559,7 +4559,7 @@ const VM = {
                       ${catIcons[d.categoria] || '📦'} ${catSafe}
                     </span>
                   </td>
-                  <td style="color:#888;font-size:0.83rem;">
+                  <td style="color:var(--terminal-ink-soft);font-size:0.83rem;">
                     <div>${this.formatDate(d.data)}</div>
                     ${d.status === 'pago' && d.data_pagamento ? `<div style="font-size:0.68rem;margin-top:2px;color:#2FBF71;">✅ pago em ${this.formatDate(d.data_pagamento)}</div>` : ''}
                     ${vencInfo}
@@ -4575,7 +4575,7 @@ const VM = {
                   </td>
                   <td style="text-align:right;font-weight:800;color:#ff6b6b;font-size:0.95rem;">${this.formatMoney(d.valor)}</td>
                   <td style="text-align:right;white-space:nowrap;">
-                    <button onclick="VM._duplicarDespesa(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#888;cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
+                    <button onclick="VM._duplicarDespesa(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Duplicar" style="padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:var(--terminal-ink-soft);cursor:pointer;margin-right:3px;font-size:0.8rem;" onmouseover="this.style.color='#ffc400'" onmouseout="this.style.color='#888'"><i class="fas fa-copy"></i></button>
                     <button onclick="VM.modalDespesa(${JSON.stringify(d).replace(/"/g, '&quot;')})" class="btn-success" style="margin-right:4px;padding:5px 8px;" title="Editar"><i class="fas fa-edit"></i></button>
                     <button onclick="VM.deleteDespesa(${d.id})" class="btn-danger" style="padding:5px 8px;" title="Excluir"><i class="fas fa-trash"></i></button>
                   </td>
@@ -4640,7 +4640,7 @@ const VM = {
               <h3 style="font-size:1.05rem;font-weight:700;margin:0;">✅ Marcar como paga</h3>
               <div style="font-size:0.74rem;color:#64748B;margin-top:2px;">Informe a data real do pagamento para manter a competência correta.</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="pagar-despesa-form">
             <div class="form-group">
@@ -4711,15 +4711,15 @@ const VM = {
           <div class="modal" style="max-width:520px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
               <h3 style="font-size:1.1rem;font-weight:700;">💳 Parcelas: ${descBase}</h3>
-              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
             </div>
             <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
               <div style="background:#f8f9fa;border-radius:10px;padding:12px 18px;flex:1;">
-                <div style="color:#888;font-size:0.78rem;">Total do grupo</div>
+                <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Total do grupo</div>
                 <div style="font-size:1.2rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(total)}</div>
               </div>
               <div style="background:#f8f9fa;border-radius:10px;padding:12px 18px;flex:1;">
-                <div style="color:#888;font-size:0.78rem;">Pagas</div>
+                <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Pagas</div>
                 <div style="font-size:1.2rem;font-weight:800;color:#2FBF71;">${pagas}/${parcelas.length}</div>
               </div>
             </div>
@@ -4815,9 +4815,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
             <div>
               <h3 style="font-size:1.1rem;font-weight:700;margin:0;">${isEdit ? '✏️ Editar' : '💸 Nova'} Despesa</h3>
-              <div style="font-size:0.72rem;color:#555;margin-top:2px;">${isEdit ? 'Atualize os dados do gasto' : 'Registre um novo gasto'}</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:2px;">${isEdit ? 'Atualize os dados do gasto' : 'Registre um novo gasto'}</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="despesa-form">
 
@@ -4907,14 +4907,14 @@ const VM = {
                   <option value="">— Sem cartão específico —</option>
                   ${cartaoOptions}
                 </select>
-                ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:#888;margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
+                ${cartoes.length === 0 ? `<div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:4px;">⚠️ Nenhum cartão cadastrado. <a href="#" onclick="VM.navigate('cartoes');VM.closeModal();" style="color:#2FBF71;">Cadastrar cartão</a></div>` : ''}
               </div>
               <div id="d-billing-info" style="display:none;margin-bottom:12px;"></div>
               ${isEdit ? `
                 <div class="form-group">
                   <label class="form-label">Data da compra</label>
                   <input type="date" id="d-data-compra" class="form-input" value="${(despesa?.data_compra || '').slice(0,10)}" onchange="VM.inferirMesFaturamento(document.getElementById('d-cartao-id').value)">
-                  <div style="font-size:0.72rem;color:#888;margin-top:4px;">O campo <strong>Data</strong> acima é o vencimento da fatura. É esta data aqui — a da compra — que decide em qual fatura ela entra.</div>
+                  <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:4px;">O campo <strong>Data</strong> acima é o vencimento da fatura. É esta data aqui — a da compra — que decide em qual fatura ela entra.</div>
                 </div>` : ''}
             </div>
 
@@ -4927,7 +4927,7 @@ const VM = {
                   <button type="button" class="lr__meio" data-escopo="todas" onclick="VM._dEscopo('todas')">Todas as parcelas</button>
                 </div>
                 <input type="hidden" id="d-escopo-val" value="uma">
-                <div style="font-size:0.72rem;color:#888;margin-top:6px;">Parcela ${Number(despesa.parcela_atual) || 1} de ${Number(despesa.numero_parcelas)}. Descrição, categoria, cartão e valor da parcela seguem o alcance escolhido.</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:6px;">Parcela ${Number(despesa.parcela_atual) || 1} de ${Number(despesa.numero_parcelas)}. Descrição, categoria, cartão e valor da parcela seguem o alcance escolhido.</div>
               </div>` : ''}
 
             <!-- Parcelas (somente para parcelado, somente criação) -->
@@ -4949,7 +4949,7 @@ const VM = {
                     <input type="checkbox" id="d-retro-sim" onchange="VM.onChangeRetroativa(this.checked)" style="width:18px;height:18px;accent-color:#2FBF71;cursor:pointer;">
                     📅 Parcelas retroativas (compra já existente)
                   </label>
-                  <div style="font-size:0.72rem;color:#888;margin-top:5px;padding-left:28px;">Ex: comprou em janeiro, cadastrando em março — informe parcelas restantes.</div>
+                  <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:5px;padding-left:28px;">Ex: comprou em janeiro, cadastrando em março — informe parcelas restantes.</div>
                   <div id="d-retro-parcelas-wrapper" style="display:none;margin-top:10px;">
                     <label class="form-label">📆 Parcelas Restantes *</label>
                     <input type="number" id="d-parcelas-restantes" class="form-input" min="1" placeholder="Ex: 10" oninput="VM.atualizarPreviewParcela()">
@@ -4996,7 +4996,7 @@ const VM = {
                 <input type="checkbox" id="d-eh-aporte" style="width:16px;height:16px;accent-color:#818cf8;pointer-events:none;" ${(despesa?.tipo==='aporte')?'checked':''}>
                 <div>
                   <div style="color:#818cf8;">💼 Aporte / Transferência Patrimonial</div>
-                  <div style="font-size:0.68rem;color:#555;margin-top:2px;font-weight:400;">Não entra nas despesas nem na regra 50/30/20</div>
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);margin-top:2px;font-weight:400;">Não entra nas despesas nem na regra 50/30/20</div>
                 </div>
               </label>
             </div>
@@ -5403,7 +5403,7 @@ const VM = {
               <h3 style="font-size:1.05rem;font-weight:700;margin:0;">✅ Pagar selecionadas</h3>
               <div style="font-size:0.74rem;color:#64748B;margin-top:2px;">${ids.length} despesa${ids.length !== 1 ? 's' : ''} receber${ids.length !== 1 ? 'ão' : 'á'} a mesma data de pagamento.</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>
           </div>
           <form id="bulk-pagar-despesa-form">
             <div class="form-group">
@@ -5473,7 +5473,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">🎯 Metas Financeiras</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Seus objetivos e conquistas</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Seus objetivos e conquistas</div>
         </div>
         <button onclick="VM.modalMeta()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Nova Meta
@@ -5572,7 +5572,7 @@ const VM = {
 
       ${ativas.length > 0 ? `
         <div style="margin-bottom:32px;">
-          <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Ativas (${ativas.length})</div>
+          <div style="font-size:0.85rem;font-weight:600;color:var(--terminal-ink-soft);letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Ativas (${ativas.length})</div>
           <div class="grid-3">
             ${ativas.map(m => this.renderMetaCard(m)).join('')}
           </div>
@@ -5582,8 +5582,8 @@ const VM = {
       ${concluidas.length > 0 ? `
         <div style="margin-bottom:24px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;">🏆 Concluídas (${concluidas.length})</div>
-            <button onclick="VM._toggleArquivadas()" style="background:none;border:none;color:#888;font-size:0.78rem;cursor:pointer;text-decoration:underline;" id="btn-toggle-concluidas">Arquivar todas</button>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--terminal-ink-soft);letter-spacing:1px;text-transform:uppercase;">🏆 Concluídas (${concluidas.length})</div>
+            <button onclick="VM._toggleArquivadas()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:0.78rem;cursor:pointer;text-decoration:underline;" id="btn-toggle-concluidas">Arquivar todas</button>
           </div>
           <div class="grid-3" id="grid-concluidas">
             ${concluidas.map(m => this.renderMetaCard(m)).join('')}
@@ -5593,7 +5593,7 @@ const VM = {
 
       ${arquivadas.length > 0 ? `
         <div>
-          <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="background:none;border:none;color:#555;font-size:0.8rem;cursor:pointer;margin-bottom:8px;">
+          <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:0.8rem;cursor:pointer;margin-bottom:8px;">
             📦 Arquivadas / Canceladas (${arquivadas.length}) <i class="fas fa-chevron-down"></i>
           </button>
           <div style="display:none;" class="grid-3">
@@ -5622,7 +5622,7 @@ const VM = {
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
                   <div>
                     <div style="font-weight:700;font-size:1rem;">${m.nome}</div>
-                    ${m.descricao ? `<div style="color:#666;font-size:0.78rem;">${m.descricao}</div>` : ''}
+                    ${m.descricao ? `<div style="color:var(--terminal-ink-soft);font-size:0.78rem;">${m.descricao}</div>` : ''}
                   </div>
                   <div style="text-align:right;">
                     ${isConcluida ? '<span class="badge badge-green">🏆 Concluída</span>' : atrasada ? '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:600;">⚠️ Atrasada</span>' : `<span style="background:rgba(47,191,113,0.1);color:#2FBF71;border:1px solid rgba(47,191,113,0.2);border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:600;">📅 ${this.formatDate(m.data_meta)}</span>`}
@@ -5630,7 +5630,7 @@ const VM = {
                 </div>
                 <div style="margin-top:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.8rem;">
-                    <span style="color:#888;">${this.formatMoney(m.valor_atual)} / ${this.formatMoney(m.valor_objetivo)}</span>
+                    <span style="color:var(--terminal-ink-soft);">${this.formatMoney(m.valor_atual)} / ${this.formatMoney(m.valor_objetivo)}</span>
                     <span style="font-weight:700;color:${borderColor};">${m.percentual}%</span>
                   </div>
                   <div class="progress-bar" style="height:6px;">
@@ -5664,7 +5664,7 @@ const VM = {
         <div style="position:absolute;top:14px;right:14px;">
           ${isConcluida ? '<span class="badge badge-green" style="font-size:0.7rem;">🏆 Concluída</span>' : ''}
           ${atrasada    ? '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:20px;padding:2px 8px;font-size:0.7rem;font-weight:600;">⚠️ Atrasada</span>' : ''}
-          ${isArquivada ? '<span style="background:rgba(100,100,100,0.2);color:#888;border-radius:20px;padding:2px 8px;font-size:0.7rem;">📦 Arquivada</span>' : ''}
+          ${isArquivada ? '<span style="background:rgba(100,100,100,0.2);color:var(--terminal-ink-soft);border-radius:20px;padding:2px 8px;font-size:0.7rem;">📦 Arquivada</span>' : ''}
         </div>
 
         <!-- Cabeçalho -->
@@ -5674,20 +5674,20 @@ const VM = {
           </div>
           <div>
             <div style="font-size:1rem;font-weight:700;line-height:1.3;">${m.nome}</div>
-            ${m.descricao ? `<div style="color:#666;font-size:0.75rem;margin-top:2px;">${m.descricao}</div>` : ''}
+            ${m.descricao ? `<div style="color:var(--terminal-ink-soft);font-size:0.75rem;margin-top:2px;">${m.descricao}</div>` : ''}
           </div>
         </div>
 
         <!-- Barra de progresso -->
         <div style="margin-bottom:14px;">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-size:0.75rem;color:#888;">Progresso</span>
+            <span style="font-size:0.75rem;color:var(--terminal-ink-soft);">Progresso</span>
             <span style="font-size:0.9rem;font-weight:700;color:${borderColor};">${m.percentual}%</span>
           </div>
           <div class="progress-bar" style="height:8px;border-radius:6px;background:rgba(255,255,255,0.06);">
             <div style="width:${Math.min(100,m.percentual)}%;background:linear-gradient(90deg,${borderColor},${borderColor}cc);border-radius:6px;height:100%;transition:width 0.6s;"></div>
           </div>
-          <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:0.72rem;color:#555;">
+          <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:0.72rem;color:var(--terminal-ink-soft);">
             <span>${this.formatMoney(m.valor_atual)}</span>
             <span>${this.formatMoney(m.valor_objetivo)}</span>
           </div>
@@ -5697,12 +5697,12 @@ const VM = {
         ${!isConcluida && !isArquivada ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
             <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:8px 10px;">
-              <div style="color:#666;font-size:0.68rem;margin-bottom:2px;">📅 Prazo</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.68rem;margin-bottom:2px;">📅 Prazo</div>
               <div style="font-weight:600;font-size:0.8rem;color:${atrasada?'#f87171':'#ccc'};">${this.formatDate(m.data_meta)}</div>
-              ${atrasada ? `<div style="font-size:0.65rem;color:#f87171;">Prazo vencido!</div>` : `<div style="font-size:0.65rem;color:#666;">${m.meses_restantes} ${m.meses_restantes === 1 ? 'mês' : 'meses'} restantes</div>`}
+              ${atrasada ? `<div style="font-size:0.65rem;color:#f87171;">Prazo vencido!</div>` : `<div style="font-size:0.65rem;color:var(--terminal-ink-soft);">${m.meses_restantes} ${m.meses_restantes === 1 ? 'mês' : 'meses'} restantes</div>`}
             </div>
             <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:8px 10px;">
-              <div style="color:#666;font-size:0.68rem;margin-bottom:2px;">💸 Necessário/mês</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.68rem;margin-bottom:2px;">💸 Necessário/mês</div>
               <div style="font-weight:600;font-size:0.8rem;color:${cor};">${m.meses_restantes > 0 ? this.formatMoney(m.mensalidade_necessaria) : '—'}</div>
               ${m.aporte_mes_atual > 0 ? `<div style="font-size:0.65rem;color:#4ade80;">✓ ${this.formatMoney(m.aporte_mes_atual)} já aportado</div>` : ''}
             </div>
@@ -5762,7 +5762,7 @@ const VM = {
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.1rem;font-weight:700;">💰 Depositar em "${nome}"</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
 
           <!-- Tipo: Aporte ou Saque -->
@@ -5772,7 +5772,7 @@ const VM = {
               ➕ Aporte
             </div>
             <div id="dep-tipo-saque" onclick="VM._selDepTipo('saque')"
-              style="flex:1;padding:10px;text-align:center;border-radius:10px;cursor:pointer;border:2px solid rgba(255,255,255,0.08);color:#666;font-weight:600;font-size:0.85rem;">
+              style="flex:1;padding:10px;text-align:center;border-radius:10px;cursor:pointer;border:2px solid rgba(255,255,255,0.08);color:var(--terminal-ink-soft);font-weight:600;font-size:0.85rem;">
               ➖ Saque
             </div>
           </div>
@@ -5813,10 +5813,10 @@ const VM = {
     const es = document.getElementById('dep-tipo-saque')
     if (tipo === 'aporte') {
       ea.style.border='2px solid #2FBF71'; ea.style.background='rgba(47,191,113,0.12)'; ea.style.color=''
-      es.style.border='2px solid rgba(255,255,255,0.08)'; es.style.background=''; es.style.color='#666'
+      es.style.border='2px solid rgba(255,255,255,0.08)'; es.style.background=''; es.style.color='#7A8B80'
     } else {
       es.style.border='2px solid #ef4444'; es.style.background='rgba(239,68,68,0.1)'; es.style.color='#f87171'
-      ea.style.border='2px solid rgba(255,255,255,0.08)'; ea.style.background=''; ea.style.color='#666'
+      ea.style.border='2px solid rgba(255,255,255,0.08)'; ea.style.background=''; ea.style.color='#7A8B80'
     }
     this._calcDepSimulado()
   },
@@ -5868,7 +5868,7 @@ const VM = {
         <div class="modal" style="max-width:480px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">📋 Histórico — ${nome}</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div id="hist-meta-body"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
         </div>
@@ -5880,7 +5880,7 @@ const VM = {
       const el   = document.getElementById('hist-meta-body')
       if (!el) return
       if (hist.length === 0) {
-        el.innerHTML = '<div style="text-align:center;color:#555;padding:30px;">Nenhum depósito registrado ainda.</div>'
+        el.innerHTML = '<div style="text-align:center;color:var(--terminal-ink-soft);padding:30px;">Nenhum depósito registrado ainda.</div>'
         return
       }
       el.innerHTML = `
@@ -5897,7 +5897,7 @@ const VM = {
                   </div>
                   <div>
                     <div style="font-size:0.85rem;font-weight:600;">${h.descricao || (isAporte ? 'Aporte' : 'Saque')}</div>
-                    <div style="font-size:0.72rem;color:#666;">${this.formatDate(h.data?.split('T')[0] || h.data)} · ${h.valor_antes !== undefined ? `${this.formatMoney(h.valor_antes)} → ${this.formatMoney(h.valor_depois)}` : ''}</div>
+                    <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">${this.formatDate(h.data?.split('T')[0] || h.data)} · ${h.valor_antes !== undefined ? `${this.formatMoney(h.valor_antes)} → ${this.formatMoney(h.valor_depois)}` : ''}</div>
                   </div>
                 </div>
                 <div style="font-weight:700;color:${cor};">${isAporte?'+':'−'}${this.formatMoney(h.valor)}</div>
@@ -5905,7 +5905,7 @@ const VM = {
             `
           }).join('')}
         </div>
-        <div style="font-size:0.72rem;color:#555;text-align:right;margin-top:8px;">Total de ${hist.length} registros</div>
+        <div style="font-size:0.72rem;color:var(--terminal-ink-soft);text-align:right;margin-top:8px;">Total de ${hist.length} registros</div>
       `
     } catch(e) {
       const el = document.getElementById('hist-meta-body')
@@ -5921,20 +5921,20 @@ const VM = {
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">🧮 Simulador — ${nome}</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
 
           <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div>
-              <div style="color:#666;font-size:0.72rem;">Valor Objetivo</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Valor Objetivo</div>
               <div style="font-weight:700;font-size:1rem;">${this.formatMoney(valorObj)}</div>
             </div>
             <div>
-              <div style="color:#666;font-size:0.72rem;">Valor Acumulado</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Valor Acumulado</div>
               <div style="font-weight:700;font-size:1rem;color:#2FBF71;">${this.formatMoney(valorAtual)}</div>
             </div>
             <div style="grid-column:1/-1;">
-              <div style="color:#666;font-size:0.72rem;">Falta acumular</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Falta acumular</div>
               <div style="font-weight:700;font-size:1.1rem;color:#fbbf24;">${this.formatMoney(faltante)}</div>
             </div>
           </div>
@@ -6034,7 +6034,7 @@ const VM = {
         <div class="modal">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🎯 Nova'} Meta</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="meta-form">
             <div class="form-group">
@@ -6046,7 +6046,7 @@ const VM = {
               <select id="m-categoria" class="form-select" onchange="VM._toggleDebtPayoff()">
                 ${categoriasMeta.map(c => `<option value="${c.v}" ${(meta?.categoria||'economia')===c.v?'selected':''}>${c.l}</option>`).join('')}
               </select>
-              <div style="font-size:0.72rem;color:#888;margin-top:3px;">A categoria define quais conquistas você pode desbloquear</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">A categoria define quais conquistas você pode desbloquear</div>
             </div>
             <!-- Bloco debt_payoff (oculto por padrão) -->
             <div id="debt-payoff-block" style="display:${(meta?.categoria==='debt_payoff')?'block':'none'};">
@@ -6212,7 +6212,7 @@ const VM = {
       summaryEl.innerHTML = `
         <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;font-size:0.78rem;">
           <div style="font-weight:600;color:#2FBF71;margin-bottom:6px;">💰 Saldo devedor total: ${this.formatMoney(totalSaldo)}</div>
-          ${items.map(i => `<div style="color:#888;margin-top:2px;">${i}</div>`).join('')}
+          ${items.map(i => `<div style="color:var(--terminal-ink-soft);margin-top:2px;">${i}</div>`).join('')}
           <div style="color:#4ade80;margin-top:6px;font-size:0.72rem;">✅ Valor objetivo preenchido automaticamente</div>
         </div>`
     } catch(e) {
@@ -6242,8 +6242,8 @@ const VM = {
       summaryEl.innerHTML = `
         <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;font-size:0.78rem;">
           <div style="font-weight:600;color:#2FBF71;">${tipo === 'fin' ? '🏠' : '💰'} ${item.descricao}</div>
-          <div style="color:#888;margin-top:4px;">Saldo devedor: <strong style="color:#fff;">${this.formatMoney(saldo)}</strong></div>
-          ${item.valor_parcela ? `<div style="color:#888;">Parcela mensal: ${this.formatMoney(item.valor_parcela)}</div>` : ''}
+          <div style="color:var(--terminal-ink-soft);margin-top:4px;">Saldo devedor: <strong style="color:#fff;">${this.formatMoney(saldo)}</strong></div>
+          ${item.valor_parcela ? `<div style="color:var(--terminal-ink-soft);">Parcela mensal: ${this.formatMoney(item.valor_parcela)}</div>` : ''}
           <div style="color:#4ade80;margin-top:6px;font-size:0.72rem;">✅ Valor objetivo preenchido automaticamente</div>
         </div>`
     } catch(e) {}
@@ -6268,7 +6268,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">📈 Investimentos</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Construindo patrimônio</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Construindo patrimônio</div>
         </div>
         <button onclick="VM.modalInvestimento()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Novo Investimento
@@ -6507,7 +6507,7 @@ const VM = {
           <div style="width:10px;height:10px;border-radius:3px;background:${CORES_PIZZA[idx%CORES_PIZZA.length]};flex-shrink:0;"></div>
           <div style="flex:1;font-size:0.8rem;">${tipoEmojis[tipo]||'💼'} ${tipoLabels[tipo]||tipo}</div>
           <div style="font-size:0.8rem;font-weight:700;">${pct}%</div>
-          <div style="font-size:0.75rem;color:#666;">${this.formatMoney(val)}</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">${this.formatMoney(val)}</div>
         </div>`
     }).join('')
   },
@@ -6566,7 +6566,7 @@ const VM = {
                 const isCaixinha = inv.tipo === 'caixinha'
                 const rentPct    = inv.rentabilidade_percentual || 0
                 const rentLabel  = (isCaixinha && (inv.cotacao_ao_vivo?.dias_decorridos || 0) === 0)
-                  ? '<span style="color:#888;font-size:0.78rem;">Rendendo...</span>'
+                  ? '<span style="color:var(--terminal-ink-soft);font-size:0.78rem;">Rendendo...</span>'
                   : `<span style="${rentPct >= 0?'color:#2FBF71':'color:#ff6b6b'}">${rentPct >= 0?'+':''}${rentPct}%</span>`
 
                 // vs CDI: comparar rentabilidade anualizada com CDI
@@ -6583,13 +6583,13 @@ const VM = {
                 const temValorAtual = inv.valor_atual > 0 && inv.valor_atual !== inv.valor_investido
                 const valorAtualDisplay = temValorAtual
                   ? `<span style="color:#2FBF71;font-weight:700;">${this.formatMoney(inv.valor_atual)}</span>`
-                  : `<span style="color:#888;" title="Valor atual não informado — exibindo valor investido">${this.formatMoney(inv.valor_investido)} <i class="fas fa-exclamation-circle" style="font-size:0.65rem;color:#fbbf24;" title="Atualize o valor atual"></i></span>`
+                  : `<span style="color:var(--terminal-ink-soft);" title="Valor atual não informado — exibindo valor investido">${this.formatMoney(inv.valor_investido)} <i class="fas fa-exclamation-circle" style="font-size:0.65rem;color:#fbbf24;" title="Atualize o valor atual"></i></span>`
 
                 return `
                   <tr>
                     <td>
                       <div style="font-weight:600;">${inv.nome} ${vencAlert}</div>
-                      ${inv.instituicao ? `<div style="font-size:0.72rem;color:#666;">${inv.instituicao}</div>` : ''}
+                      ${inv.instituicao ? `<div style="font-size:0.72rem;color:var(--terminal-ink-soft);">${inv.instituicao}</div>` : ''}
                       ${isCaixinha && inv.cotacao_ao_vivo?.cdi_info ? `<div style="font-size:0.68rem;color:#2FBF71;">📊 ${inv.cotacao_ao_vivo.cdi_info}</div>` : ''}
                     </td>
                     <td style="white-space:nowrap;">${tipoEmojis[inv.tipo]||'💼'} ${tipoLabels[inv.tipo]||inv.tipo}</td>
@@ -6617,7 +6617,7 @@ const VM = {
     // Calcula rentabilidade anualizada do investimento e compara com CDI
     const vi = Number(inv.valor_investido) || 0
     const va = Number(inv.valor_atual) || vi
-    if (vi <= 0) return { badge: '<span style="color:#555;font-size:0.75rem;">—</span>' }
+    if (vi <= 0) return { badge: '<span style="color:var(--terminal-ink-soft);font-size:0.75rem;">—</span>' }
 
     const inicio = new Date((inv.data_inicio||'').split('T')[0]+'T00:00:00')
     const hoje   = new Date()
@@ -6636,7 +6636,7 @@ const VM = {
     }
 
     if (Math.abs(diff) < 0.5) {
-      return { badge: `<span style="color:#888;font-size:0.75rem;">≈ CDI</span>` }
+      return { badge: `<span style="color:var(--terminal-ink-soft);font-size:0.75rem;">≈ CDI</span>` }
     }
     const cor   = diff > 0 ? '#2FBF71' : '#ff6b6b'
     const sinal = diff > 0 ? '+' : ''
@@ -6663,24 +6663,24 @@ const VM = {
           ${vsCDI.badge}
         </div>
         <div style="font-weight:700;font-size:1rem;margin-bottom:3px;">${inv.nome}</div>
-        ${inv.instituicao ? `<div style="font-size:0.72rem;color:#666;margin-bottom:8px;">${inv.instituicao}</div>` : '<div style="margin-bottom:8px;"></div>'}
+        ${inv.instituicao ? `<div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:8px;">${inv.instituicao}</div>` : '<div style="margin-bottom:8px;"></div>'}
         ${vencAlert}
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
           <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-            <div style="color:#555;font-size:0.65rem;">Investido</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Investido</div>
             <div style="font-weight:600;font-size:0.85rem;">${this.formatMoney(inv.valor_investido)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-            <div style="color:#555;font-size:0.65rem;">Atual ${!temValorAtual ? '<i class="fas fa-exclamation-circle" style="color:#fbbf24;" title="Não atualizado"></i>' : ''}</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Atual ${!temValorAtual ? '<i class="fas fa-exclamation-circle" style="color:#fbbf24;" title="Não atualizado"></i>' : ''}</div>
             <div style="font-weight:700;font-size:0.85rem;color:${temValorAtual?'#2FBF71':'#888'};">${this.formatMoney(inv.valor_atual||inv.valor_investido)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-            <div style="color:#555;font-size:0.65rem;">Rentab.</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Rentab.</div>
             <div style="font-weight:700;font-size:0.85rem;color:${rentColor};">${rentPct >= 0?'+':''}${rentPct}%</div>
           </div>
           <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-            <div style="color:#555;font-size:0.65rem;">Lucro</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Lucro</div>
             <div style="font-weight:700;font-size:0.85rem;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
           </div>
         </div>
@@ -6702,7 +6702,7 @@ const VM = {
         <div class="modal" style="max-width:500px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">📋 Aportes — ${nome}</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div id="hist-inv-body"><div class="skeleton" style="height:120px;border-radius:10px;"></div></div>
         </div>
@@ -6718,21 +6718,21 @@ const VM = {
       const resumoHtml = `
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
-            <div style="color:#666;font-size:0.68rem;">Investido</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.68rem;">Investido</div>
             <div style="font-weight:700;font-size:0.9rem;">${this.formatMoney(inv.valor_investido)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
-            <div style="color:#666;font-size:0.68rem;">Valor Atual</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.68rem;">Valor Atual</div>
             <div style="font-weight:700;font-size:0.9rem;color:#2FBF71;">${this.formatMoney(inv.valor_atual)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;">
-            <div style="color:#666;font-size:0.68rem;">Total Aportado</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.68rem;">Total Aportado</div>
             <div style="font-weight:700;font-size:0.9rem;color:#74b9ff;">${this.formatMoney(totalAportado)}</div>
           </div>
         </div>`
 
       if (hist.length === 0) {
-        el.innerHTML = resumoHtml + `<div style="text-align:center;color:#555;padding:20px;">Nenhum aporte registrado ainda.<br><small style="color:#444;">Aportes são registrados automaticamente pelo botão ➕</small></div>`
+        el.innerHTML = resumoHtml + `<div style="text-align:center;color:var(--terminal-ink-soft);padding:20px;">Nenhum aporte registrado ainda.<br><small style="color:var(--terminal-line-strong);">Aportes são registrados automaticamente pelo botão ➕</small></div>`
         return
       }
       el.innerHTML = resumoHtml + `
@@ -6741,12 +6741,12 @@ const VM = {
             <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
               <div>
                 <div style="font-size:0.82rem;font-weight:600;">${h.descricao || 'Aporte'}</div>
-                <div style="font-size:0.7rem;color:#666;">${this.formatDate(h.data?.split('T')[0]||h.data)}</div>
+                <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">${this.formatDate(h.data?.split('T')[0]||h.data)}</div>
               </div>
               <div style="font-weight:700;color:#2FBF71;">+${this.formatMoney(h.valor)}</div>
             </div>`).join('')}
         </div>
-        <div style="font-size:0.72rem;color:#555;text-align:right;margin-top:8px;">${hist.length} registros encontrados</div>`
+        <div style="font-size:0.72rem;color:var(--terminal-ink-soft);text-align:right;margin-top:8px;">${hist.length} registros encontrados</div>`
     } catch(e) {
       const el = document.getElementById('hist-inv-body')
       if (el) el.innerHTML = '<div style="color:#f87171;text-align:center;padding:20px;">Erro ao carregar histórico.</div>'
@@ -6760,10 +6760,10 @@ const VM = {
         <div class="modal" style="max-width:400px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">💸 Resgate Parcial — ${nome}</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;margin-bottom:16px;">
-            <div style="color:#666;font-size:0.75rem;">Saldo disponível</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Saldo disponível</div>
             <div style="font-weight:700;font-size:1.2rem;color:#2FBF71;">${this.formatMoney(saldoAtual)}</div>
           </div>
           <div class="form-group">
@@ -6815,7 +6815,7 @@ const VM = {
         <div class="modal" style="max-width:560px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">📊 Comparativo com CDI (${(this._invCdiAtual||13.65).toFixed(2)}% a.a.)</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div id="cdi-comp-body"><div class="skeleton" style="height:200px;border-radius:10px;"></div></div>
         </div>
@@ -6832,11 +6832,11 @@ const VM = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
           <div style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;text-align:center;">
             <div style="color:#2FBF71;font-size:1.5rem;font-weight:800;">${resumo.acima_cdi||0}</div>
-            <div style="font-size:0.75rem;color:#888;">Acima do CDI</div>
+            <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">Acima do CDI</div>
           </div>
           <div style="background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px;text-align:center;">
             <div style="color:#ff6b6b;font-size:1.5rem;font-weight:800;">${resumo.abaixo_cdi||0}</div>
-            <div style="font-size:0.75rem;color:#888;">Abaixo do CDI</div>
+            <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">Abaixo do CDI</div>
           </div>
         </div>
         <div style="max-height:360px;overflow-y:auto;">
@@ -6849,7 +6849,7 @@ const VM = {
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
                   <div>
                     <div style="font-weight:600;font-size:0.88rem;">${inv.nome}</div>
-                    <div style="font-size:0.7rem;color:#666;">${inv.tipo}</div>
+                    <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">${inv.tipo}</div>
                   </div>
                   <div style="text-align:right;">
                     <div style="font-weight:700;color:${cor};font-size:0.9rem;">${inv.rentabilidade_anualizada.toFixed(2)}% a.a.</div>
@@ -6862,7 +6862,7 @@ const VM = {
               </div>`
           }).join('')}
         </div>
-        <div style="font-size:0.72rem;color:#555;margin-top:10px;text-align:center;">CDI atual: ${cdi}% a.a. · Comparativo por rentabilidade anualizada</div>`
+        <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:10px;text-align:center;">CDI atual: ${cdi}% a.a. · Comparativo por rentabilidade anualizada</div>`
     } catch(e) {
       const el = document.getElementById('cdi-comp-body')
       if (el) el.innerHTML = '<div style="color:#f87171;text-align:center;padding:20px;">Erro ao carregar comparativo.</div>'
@@ -6904,7 +6904,7 @@ const VM = {
         <div class="modal" style="max-width:500px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">⚖️ Sugestão de Rebalanceamento</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(116,185,255,0.06);border:1px solid rgba(116,185,255,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.78rem;color:#74b9ff;">
             💡 Alocação ideal sugerida (perfil conservador): 70% Renda Fixa · 25% Variável · 5% Cripto
@@ -6919,22 +6919,22 @@ const VM = {
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
                   <div style="font-weight:600;font-size:0.88rem;">${m.emoji} ${m.label}</div>
                   <div style="font-size:0.78rem;">
-                    <span style="color:#888;">Atual: <strong style="color:#fff;">${m.atual}%</strong></span>
-                    <span style="color:#555;margin:0 6px;">·</span>
-                    <span style="color:#888;">Ideal: <strong style="color:${m.cor};">${m.ideal}%</strong></span>
+                    <span style="color:var(--terminal-ink-soft);">Atual: <strong style="color:#fff;">${m.atual}%</strong></span>
+                    <span style="color:var(--terminal-ink-soft);margin:0 6px;">·</span>
+                    <span style="color:var(--terminal-ink-soft);">Ideal: <strong style="color:${m.cor};">${m.ideal}%</strong></span>
                     ${m.ideal > 0 ? `<span style="margin-left:6px;font-size:0.72rem;">${acao}</span>` : ''}
                   </div>
                 </div>
                 <div style="background:rgba(255,255,255,0.05);border-radius:6px;height:8px;overflow:hidden;margin-bottom:4px;">
                   <div style="width:${m.atual}%;background:${m.cor};height:100%;border-radius:6px;transition:width 0.5s;"></div>
                 </div>
-                <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#555;">
+                <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--terminal-ink-soft);">
                   <span>${this.formatMoney(m.valor)}</span>
                   ${diffAbs > 2 ? `<span style="color:${diff>0?'#ff6b6b':'#2FBF71'};">${diff>0?'Reduzir':'Aportar'} ~${this.formatMoney(valorDiff)}</span>` : '<span style="color:#4ade80;">Balanceado</span>'}
                 </div>
               </div>`
           }).join('')}
-          <div style="font-size:0.72rem;color:#555;margin-top:12px;text-align:center;">* Sugestão baseada em perfil conservador. Ajuste conforme seu perfil de risco.</div>
+          <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:12px;text-align:center;">* Sugestão baseada em perfil conservador. Ajuste conforme seu perfil de risco.</div>
           <button onclick="VM.closeModal()" class="btn-secondary" style="width:100%;justify-content:center;margin-top:12px;">Fechar</button>
         </div>
       </div>`
@@ -6955,7 +6955,7 @@ const VM = {
         <div class="modal">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '📈 Novo'} Investimento</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="inv-form">
             <div class="form-group">
@@ -6986,13 +6986,13 @@ const VM = {
               <div class="form-group">
                 <label class="form-label">Valor Atual (R$)</label>
                 <input type="number" id="i-valor-atual" class="form-input" placeholder="0,00" step="0.01" min="0" value="${inv?.valor_atual || ''}" oninput="VM._calcInvRendimento()">
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Deixe vazio se não souber</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Deixe vazio se não souber</div>
               </div>
             </div>
             <!-- Preview de rendimento acumulado (só no modo edição) -->
             ${isEdit && inv?.valor_investido ? `
             <div id="inv-rendimento-preview" style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:12px;">
-              <div style="font-size:0.78rem;color:#888;margin-bottom:6px;">📊 Rendimento acumulado até hoje</div>
+              <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:6px;">📊 Rendimento acumulado até hoje</div>
               <div id="inv-rend-values" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.8rem;">
                 ${(() => {
                   const vi = Number(inv.valor_investido)
@@ -7003,15 +7003,15 @@ const VM = {
                   const dias  = Math.max(1,Math.ceil((new Date()-inicio)/86400000))
                   return `
                     <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-                      <div style="color:#555;font-size:0.65rem;">Lucro/Prej.</div>
+                      <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Lucro/Prej.</div>
                       <div style="font-weight:700;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
                     </div>
                     <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-                      <div style="color:#555;font-size:0.65rem;">Rentab. %</div>
+                      <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Rentab. %</div>
                       <div style="font-weight:700;color:${parseFloat(pct)>=0?'#2FBF71':'#ff6b6b'};">${parseFloat(pct)>=0?'+':''}${pct}%</div>
                     </div>
                     <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-                      <div style="color:#555;font-size:0.65rem;">Dias</div>
+                      <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Dias</div>
                       <div style="font-weight:700;color:#aaa;">${dias}d</div>
                     </div>`
                 })()}
@@ -7031,12 +7031,12 @@ const VM = {
                 <div class="form-group">
                   <label class="form-label">% do CDI *</label>
                   <input type="number" id="i-pct-cdi" class="form-input" step="1" min="1" placeholder="Ex: 140" value="${inv?.percentual_cdi || ''}">
-                  <div style="font-size:0.72rem;color:#888;margin-top:3px;">Ex: 140 = 140% do CDI</div>
+                  <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Ex: 140 = 140% do CDI</div>
                 </div>
                 <div class="form-group">
                   <label class="form-label">CDI Atual (% a.a.)</label>
                   <input type="number" id="i-cdi-atual" class="form-input" step="0.01" placeholder="13.65" value="${inv?.cdi_atual || '13.65'}">
-                  <div style="font-size:0.72rem;color:#888;margin-top:3px;">Taxa CDI atual ao ano</div>
+                  <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Taxa CDI atual ao ano</div>
                 </div>
               </div>
               <div id="i-caixinha-preview" style="font-size:0.8rem;color:#2FBF71;margin-top:6px;"></div>
@@ -7131,15 +7131,15 @@ const VM = {
     const pct   = vi > 0 ? ((va-vi)/vi*100).toFixed(2) : '0'
     el.innerHTML = `
       <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-        <div style="color:#555;font-size:0.65rem;">Lucro/Prej.</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Lucro/Prej.</div>
         <div style="font-weight:700;color:${lucro>=0?'#2FBF71':'#ff6b6b'};">${lucro>=0?'+':''}${this.formatMoney(lucro)}</div>
       </div>
       <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-        <div style="color:#555;font-size:0.65rem;">Rentab. %</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Rentab. %</div>
         <div style="font-weight:700;color:${parseFloat(pct)>=0?'#2FBF71':'#ff6b6b'};">${parseFloat(pct)>=0?'+':''}${pct}%</div>
       </div>
       <div style="text-align:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:8px;">
-        <div style="color:#555;font-size:0.65rem;">Valor Atual</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.65rem;">Valor Atual</div>
         <div style="font-weight:700;color:#aaa;">${this.formatMoney(va)}</div>
       </div>`
   },
@@ -7227,7 +7227,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">📊 Comparativo Mensal</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Evolução mês a mês por categoria</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Evolução mês a mês por categoria</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <button onclick="VM._navComparativo(-1)" title="Mês anterior"
@@ -7508,8 +7508,8 @@ const VM = {
               responsive: true, maintainAspectRatio: false,
               plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${this.formatMoney(ctx.raw)}` } } },
               scales: {
-                x: { ticks: { color: '#555', font: { size: 10 } }, grid: { display: false } },
-                y: { ticks: { color: '#555', font: { size: 10 }, callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                x: { ticks: { color: '#7A8B80', font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { color: '#7A8B80', font: { size: 10 }, callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: 'rgba(255,255,255,0.04)' } }
               }
             }
           })
@@ -8618,7 +8618,7 @@ const VM = {
         <div class="modal" style="max-width:380px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">🏷️ Nova Tag</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);cursor:pointer;">✕</button>
           </div>
           <div class="form-group">
             <label class="form-label">Nome da tag *</label>
@@ -8860,7 +8860,7 @@ const VM = {
         <div class="modal" style="max-width:380px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.05rem;font-weight:700;">✏️ Editar Tag</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:1.1rem;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);cursor:pointer;font-size:1.1rem;">✕</button>
           </div>
           <div class="form-group">
             <label class="form-label">Nome</label>
@@ -9137,19 +9137,19 @@ const VM = {
             <h3 style="font-size:1.05rem;font-weight:700;margin:0;color:#f1f5f9;">🤖 Reclassificar "Outros" com IA</h3>
             <div style="font-size:0.75rem;color:#64748B;margin-top:3px;">Detectar categorias corretas para despesas não classificadas</div>
           </div>
-          <button onclick="document.getElementById('modal-higienizar-outros').remove()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;">✕</button>
+          <button onclick="document.getElementById('modal-higienizar-outros').remove()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;">✕</button>
         </div>
 
         <!-- Seletor de mês/ano -->
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Mês</label>
             <select id="hig-mes" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;">
               ${mesesNomes.map((m, i) => `<option value="${i+1}" ${(i+1)===mes?'selected':''}>${m}</option>`).join('')}
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
-            <label style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
+            <label style="font-size:0.7rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.5px;">Ano</label>
             <select id="hig-ano" class="form-select" style="width:auto;padding:7px 12px;font-size:0.85rem;">
               ${VM._anosOpcoes(ano)}
             </select>
@@ -9474,7 +9474,7 @@ const VM = {
         <div class="modal" style="max-width:520px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
             <h3 style="font-size:1.05rem;font-weight:700;">🔀 Mesclar Tags Similares</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:1.1rem;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);cursor:pointer;font-size:1.1rem;">✕</button>
           </div>
           <div id="mesclar-tags-content">
             <div style="text-align:center;padding:24px;color:#64748B;"><i class="fas fa-spinner fa-spin"></i> Detectando tags similares...</div>
@@ -9718,7 +9718,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">⚠️ Alertas de Cartão</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Fatura próxima, limite alto, cobranças duplicadas e anomalias</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Fatura próxima, limite alto, cobranças duplicadas e anomalias</div>
         </div>
         <button onclick="VM.carregarAlertasCartao()" class="btn-secondary" style="width:auto;padding:9px 16px;">
           <i class="fas fa-sync-alt"></i> Atualizar
@@ -10583,7 +10583,7 @@ const VM = {
           <div class="card" style="text-align:center;padding:60px 40px;">
             <div style="font-size:3rem;margin-bottom:16px;">🧮</div>
             <h3 style="font-size:1.2rem;margin-bottom:8px;">Configure sua simulação</h3>
-            <p style="color:#666;">Ajuste os parâmetros e clique em "Simular"</p>
+            <p style="color:var(--terminal-ink-soft);">Ajuste os parâmetros e clique em "Simular"</p>
           </div>
         </div>
       </div>
@@ -10645,7 +10645,7 @@ const VM = {
               ${s.projecao.map(p => `
                 <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
                   <div>
-                    <div style="font-size:0.8rem;color:#888;">Mês ${p.mes}</div>
+                    <div style="font-size:0.8rem;color:var(--terminal-ink-soft);">Mês ${p.mes}</div>
                     <div style="font-weight:600;">${this.formatMoney(p.valor)}</div>
                   </div>
                   <div style="text-align:right;">
@@ -10726,7 +10726,7 @@ const VM = {
             </div>
             <div style="flex:1;">
               <div style="font-size:1.3rem;font-weight:700;">${p.nome || '-'}</div>
-              <div style="color:#888;font-size:0.9rem;">${p.email || '-'}</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.9rem;">${p.email || '-'}</div>
               <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
                 <span class="badge" style="background:${planoColors[p.plano]||'#888'}22;color:${planoColors[p.plano]||'#888'};border:1px solid ${planoColors[p.plano]||'#888'}44;font-size:0.8rem;padding:5px 14px;">
                   ${planoIcons[p.plano]||'🌱'} Plano ${(p.plano||'Free').charAt(0).toUpperCase()+(p.plano||'free').slice(1)}
@@ -10752,7 +10752,7 @@ const VM = {
               { l: '📊 Perfil Investidor', v: perfilInvLabels[p.perfil_investidor] || '—' }
             ].map(item => `
               <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
-                <div style="font-size:0.75rem;color:#666;margin-bottom:4px;">${item.l}</div>
+                <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:4px;">${item.l}</div>
                 <div style="font-size:0.9rem;font-weight:600;">${item.v}</div>
               </div>
             `).join('')}
@@ -10766,14 +10766,14 @@ const VM = {
             <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
               <div>
                 <div style="font-size:0.88rem;font-weight:600;">✉️ E-mail</div>
-                <div style="font-size:0.8rem;color:#888;">${p.email || '-'}</div>
+                <div style="font-size:0.8rem;color:var(--terminal-ink-soft);">${p.email || '-'}</div>
               </div>
               <button onclick="VM.modalAlterarEmail()" class="btn-secondary" style="width:auto;padding:6px 14px;font-size:0.8rem;">Alterar</button>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
               <div>
                 <div style="font-size:0.88rem;font-weight:600;">🔑 Senha</div>
-                <div style="font-size:0.8rem;color:#888;">••••••••</div>
+                <div style="font-size:0.8rem;color:var(--terminal-ink-soft);">••••••••</div>
               </div>
               <button onclick="VM.modalAlterarSenha()" class="btn-secondary" style="width:auto;padding:6px 14px;font-size:0.8rem;">Alterar</button>
             </div>
@@ -10787,7 +10787,7 @@ const VM = {
             <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;">
               <div>
                 <div style="font-size:0.88rem;font-weight:600;">📱 Notificações Push</div>
-                <div style="font-size:0.8rem;color:#888;" id="push-status-txt">Verificando...</div>
+                <div style="font-size:0.8rem;color:var(--terminal-ink-soft);" id="push-status-txt">Verificando...</div>
               </div>
               <button onclick="VM.ativarNotificacoesPush()" class="btn-primary" style="width:auto;padding:6px 14px;font-size:0.8rem;display:none;" id="btn-push-ativar">
                 Ativar
@@ -10839,7 +10839,7 @@ const VM = {
               <div style="font-size:1.5rem;">🚀</div>
               <div style="flex:1;">
                 <div style="font-size:0.85rem;font-weight:700;margin-bottom:2px;">Desbloqueie o plano completo</div>
-                <div style="font-size:0.78rem;color:#888;">Orçamentos, recorrências, projeção financeira e muito mais por <strong style="color:#3B82F6;">R$ 17,90/mês</strong></div>
+                <div style="font-size:0.78rem;color:var(--terminal-ink-soft);">Orçamentos, recorrências, projeção financeira e muito mais por <strong style="color:#3B82F6;">R$ 17,90/mês</strong></div>
               </div>
               <button onclick="VM.openPricingModal()" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap;">Ver Planos</button>
             </div>` : ''}
@@ -10860,7 +10860,7 @@ const VM = {
         <div class="modal" style="max-width:540px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">✏️ Editar Perfil</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="perfil-form">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -11028,7 +11028,7 @@ const VM = {
         <div class="modal" style="max-width:400px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">🔑 Alterar Senha</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="senha-form">
             <div class="form-group">
@@ -11075,7 +11075,7 @@ const VM = {
         <div class="modal" style="max-width:400px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">✉️ Alterar E-mail</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="email-form">
             <div class="form-group">
@@ -11326,7 +11326,7 @@ const VM = {
         subtitulo: 'Selecione tudo que deseja conquistar. Priorizaremos juntos.',
         html: `
           <div class="form-group">
-            <label class="form-label">Seus principais objetivos financeiros <span style="color:#555;">(selecione quantos quiser)</span></label>
+            <label class="form-label">Seus principais objetivos financeiros <span style="color:var(--terminal-ink-soft);">(selecione quantos quiser)</span></label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;" id="obj-options">
               ${[
                 {v:'reserva_emergencia', l:'🛡️ Reserva de emergência'},
@@ -11694,7 +11694,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title" data-kicker="Crédito">Cartões <em style="color:#6EA8FE;font-style:italic;">em radar</em></div>
-          <div style="color:#666;font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Controle limite, faturas, compras parceladas e vencimentos em uma visão de comando única.</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:8px;max-width:560px;line-height:1.5;">Controle limite, faturas, compras parceladas e vencimentos em uma visão de comando única.</div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button onclick="VM.modalGerenciarCompras()" title="Excluir compras parceladas e todas as suas parcelas" style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);color:#ff6b6b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;">
@@ -11726,9 +11726,9 @@ const VM = {
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div>
                 <div style="font-size:1.05rem;font-weight:700;">🗑️ Gerenciar Compras Parceladas</div>
-                <div style="font-size:0.75rem;color:#888;margin-top:2px;">Selecione o cartão para ver e excluir compras</div>
+                <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">Selecione o cartão para ver e excluir compras</div>
               </div>
-              <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
+              <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
             </div>
           </div>
           <div style="padding:20px;">
@@ -11739,7 +11739,7 @@ const VM = {
               </select>
             </div>
             <div id="gc-lista-compras">
-              <div style="text-align:center;padding:32px;color:#555;font-size:0.85rem;">Selecione um cartão acima</div>
+              <div style="text-align:center;padding:32px;color:var(--terminal-ink-soft);font-size:0.85rem;">Selecione um cartão acima</div>
             </div>
           </div>
         </div>
@@ -11768,17 +11768,17 @@ const VM = {
   async _carregarComprasParaGerenciar(cartaoId) {
     const div = document.getElementById('gc-lista-compras')
     if (!div || !cartaoId) return
-    div.innerHTML = `<div style="text-align:center;padding:32px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando compras...</div>`
+    div.innerHTML = `<div style="text-align:center;padding:32px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i> Carregando compras...</div>`
     try {
       const data = await this.api('GET', `cartoes/${cartaoId}/compras`)
       const { compras } = data
       if (!compras || compras.length === 0) {
-        div.innerHTML = `<div style="text-align:center;padding:32px;color:#555;font-size:0.85rem;">Nenhuma compra registrada neste cartão.</div>`
+        div.innerHTML = `<div style="text-align:center;padding:32px;color:var(--terminal-ink-soft);font-size:0.85rem;">Nenhuma compra registrada neste cartão.</div>`
         return
       }
       const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
       div.innerHTML = `
-        <div style="font-size:0.75rem;color:#888;margin-bottom:12px;padding:0 2px;">
+        <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:12px;padding:0 2px;">
           ${compras.length} compra(s) encontrada(s) — excluir remove <strong>todas</strong> as parcelas e despesas vinculadas
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -11799,12 +11799,12 @@ const VM = {
                   <div style="font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cp.descricao}</div>
                   <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;">
                     ${parcelaLabel} ${statusLabel}
-                    <span style="color:#666;font-size:0.72rem;">${dataFmt}</span>
+                    <span style="color:var(--terminal-ink-soft);font-size:0.72rem;">${dataFmt}</span>
                   </div>
                 </div>
                 <div style="text-align:right;flex-shrink:0;margin-right:8px;">
                   <div style="font-size:0.9rem;font-weight:700;">${this.formatMoney(cp.valor_parcela)}${isParcelada ? '/parc.' : ''}</div>
-                  ${isParcelada ? `<div style="font-size:0.7rem;color:#888;">Total: ${this.formatMoney(cp.valor_total_compra)}</div>` : ''}
+                  ${isParcelada ? `<div style="font-size:0.7rem;color:var(--terminal-ink-soft);">Total: ${this.formatMoney(cp.valor_total_compra)}</div>` : ''}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
                   <button onclick="VM._editarCompraParcelada(${groupParam}, '${(cp.descricao||'').replace(/'/g,"\'")}', ${cp.valor_parcela})"
@@ -11973,7 +11973,7 @@ const VM = {
           <div class="card" style="text-align:center;padding:60px 40px;">
             <div style="font-size:3rem;margin-bottom:16px;">💳</div>
             <h3 style="margin-bottom:8px;">Nenhum cartão cadastrado</h3>
-            <p style="color:#666;margin-bottom:24px;">Adicione seus cartões para controlar faturas e gastos</p>
+            <p style="color:var(--terminal-ink-soft);margin-bottom:24px;">Adicione seus cartões para controlar faturas e gastos</p>
             <button onclick="VM.modalCartao()" class="btn-primary" style="width:auto;padding:10px 24px;">
               <i class="fas fa-plus"></i> Adicionar Cartão
             </button>
@@ -12134,12 +12134,12 @@ const VM = {
                 <div style="width:10px;height:10px;border-radius:50%;background:${cor || '#2FBF71'};"></div>
                 <div>
                   <div style="font-size:1.05rem;font-weight:700;">💳 ${nomeCartao}</div>
-                  <div style="font-size:0.75rem;color:#888;">Extrato bancário</div>
+                  <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">Extrato bancário</div>
                 </div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
                 <button onclick="VM.modalNovaCompraCartao(${cartaoId})" style="background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.8rem;"><i class="fas fa-plus"></i> Nova Compra</button>
-                <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
+                <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
               </div>
             </div>
             <!-- Navegação de mês -->
@@ -12151,7 +12151,7 @@ const VM = {
           </div>
           <!-- Corpo da fatura -->
           <div id="fatura-body" style="padding:20px;">
-            <div style="text-align:center;padding:60px;color:#666;"><i class="fas fa-spinner fa-spin"></i> Carregando fatura...</div>
+            <div style="text-align:center;padding:60px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i> Carregando fatura...</div>
           </div>
         </div>
       </div>
@@ -12178,7 +12178,7 @@ const VM = {
 
     const body = document.getElementById('fatura-body')
     if (!body) return
-    body.innerHTML = `<div style="text-align:center;padding:60px;color:#666;"><i class="fas fa-spinner fa-spin"></i></div>`
+    body.innerHTML = `<div style="text-align:center;padding:60px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i></div>`
 
     try {
       const data = await this.api('GET', `cartoes/${cartaoId}/fatura?mes=${mes}&ano=${ano}`)
@@ -12196,21 +12196,21 @@ const VM = {
       const resumoHtml = `
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
           <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">TOTAL DA FATURA</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;">TOTAL DA FATURA</div>
             <div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;">${this.formatMoney(fatura.total)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">PENDENTE</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;">PENDENTE</div>
             <div style="font-size:1.1rem;font-weight:800;color:#ffc400;">${this.formatMoney(fatura.total_pendente)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">LIMITE DISPONÍVEL</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;">LIMITE DISPONÍVEL</div>
             <div style="font-size:1.1rem;font-weight:800;color:#2FBF71;">${this.formatMoney(cartao.limite_disponivel)}</div>
           </div>
           <div style="background:${sc.bg};border-radius:12px;padding:14px;text-align:center;border:1px solid ${sc.color}40;">
-            <div style="font-size:0.7rem;color:#888;margin-bottom:6px;">STATUS</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;">STATUS</div>
             <div style="font-size:0.85rem;font-weight:700;color:${sc.color};">${sc.label}</div>
-            <div style="font-size:0.68rem;color:#666;margin-top:2px;">Vence: ${fatura.data_vencimento ? this.formatDate(fatura.data_vencimento) : '—'}</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);margin-top:2px;">Vence: ${fatura.data_vencimento ? this.formatDate(fatura.data_vencimento) : '—'}</div>
           </div>
         </div>
       `
@@ -12242,16 +12242,16 @@ const VM = {
       const _viewMode = this._faturaViewMode || 'categoria'
       const toggleBtn = `
         <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;">
-          <span style="font-size:0.75rem;color:#888;">Agrupar por:</span>
-          <button onclick="VM._setFaturaView('categoria')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='categoria'?'background:rgba(99,102,241,0.2);color:#a78bfa;border-color:rgba(99,102,241,0.4);':'background:none;color:#666;'}"><i class="fas fa-tags"></i> Categoria</button>
-          <button onclick="VM._setFaturaView('data')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='data'?'background:rgba(47,191,113,0.15);color:#2FBF71;border-color:rgba(47,191,113,0.4);':'background:none;color:#666;'}"><i class="fas fa-calendar-alt"></i> Data</button>
+          <span style="font-size:0.75rem;color:var(--terminal-ink-soft);">Agrupar por:</span>
+          <button onclick="VM._setFaturaView('categoria')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='categoria'?'background:rgba(99,102,241,0.2);color:#a78bfa;border-color:rgba(99,102,241,0.4);':'background:none;color:var(--terminal-ink-soft);'}"><i class="fas fa-tags"></i> Categoria</button>
+          <button onclick="VM._setFaturaView('data')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-size:0.75rem;${_viewMode==='data'?'background:rgba(47,191,113,0.15);color:#2FBF71;border-color:rgba(47,191,113,0.4);':'background:none;color:var(--terminal-ink-soft);'}"><i class="fas fa-calendar-alt"></i> Data</button>
         </div>
       `
 
       let listaHtml = ''
       if (lancamentos.length === 0) {
         listaHtml = `
-          <div style="text-align:center;padding:48px 24px;color:#666;">
+          <div style="text-align:center;padding:48px 24px;color:var(--terminal-ink-soft);">
             <div style="font-size:2.5rem;margin-bottom:12px;">📭</div>
             <div style="font-size:0.9rem;">Nenhum lançamento nesta fatura</div>
             <button onclick="VM.modalNovaCompraCartao(${cartaoId})" style="margin-top:16px;background:rgba(47,191,113,0.12);color:#2FBF71;border:1px solid rgba(47,191,113,0.25);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:0.82rem;">
@@ -12316,7 +12316,7 @@ const VM = {
           for (const cat of catsOrdenadas) {
             const g = grupoCats[cat]
             listaHtml += `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 4px;font-size:0.72rem;font-weight:700;color:#888;letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.04);margin-top:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 4px;font-size:0.72rem;font-weight:700;color:var(--terminal-ink-soft);letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.04);margin-top:8px;">
                 <span>${this._catIcon(cat)} ${cat}</span>
                 <span style="color:#aaa;">${this.formatMoney(g.total)}</span>
               </div>
@@ -12333,7 +12333,7 @@ const VM = {
           }
           const datasOrdenadas = Object.keys(grupoDatas).sort((a,b) => b.localeCompare(a))
           for (const data of datasOrdenadas) {
-            listaHtml += `<div style="font-size:0.72rem;color:#555;padding:10px 4px 6px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">${this.formatDate(data)}</div>`
+            listaHtml += `<div style="font-size:0.72rem;color:var(--terminal-ink-soft);padding:10px 4px 6px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">${this.formatDate(data)}</div>`
             for (const l of grupoDatas[data]) listaHtml += renderLancamento(l)
           }
         }
@@ -12429,9 +12429,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.05rem;font-weight:700;">💳 Nova Compra no Cartão</h3>
-              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Lançamento com cálculo automático da fatura</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">Lançamento com cálculo automático da fatura</div>
             </div>
-            <button onclick="VM._voltarParaFatura(${cartaoId})" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM._voltarParaFatura(${cartaoId})" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="nova-compra-form">
             <div class="form-group">
@@ -12548,9 +12548,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.05rem;font-weight:700;">🚩 Contestar Lançamento</h3>
-              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Registre a contestação para acompanhamento</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">Registre a contestação para acompanhamento</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="padding:12px 14px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.06);">
             <div style="font-size:0.82rem;font-weight:600;">${descricao}</div>
@@ -12614,7 +12614,7 @@ const VM = {
     // Abrir em nova aba — o servidor retorna HTML pronto para impressão
     const w = window.open('', '_blank')
     if (!w) { this.toast('Permita pop-ups para exportar o PDF', 'warning'); return }
-    w.document.write('<html><body style="font-family:Arial;text-align:center;padding:40px;color:#333;"><p>⏳ Gerando fatura...</p></body></html>')
+    w.document.write('<html><body style="font-family:Arial;text-align:center;padding:40px;color:var(--terminal-line);"><p>⏳ Gerando fatura...</p></body></html>')
     try {
       const resp = await fetch(`/api/cartoes/${cartaoId}/fatura-pdf?mes=${mes}&ano=${ano}`, {
         headers: { 'Authorization': `Bearer ${this.token || ''}` }
@@ -12641,7 +12641,7 @@ const VM = {
     } catch(e) {}
 
     const renderLimites = () => {
-      if (limites.length === 0) return `<div style="text-align:center;padding:24px;color:#666;font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>`
+      if (limites.length === 0) return `<div style="text-align:center;padding:24px;color:var(--terminal-ink-soft);font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>`
       return limites.map(l => {
         const cor = l.status === 'estourado' ? '#ff6b6b' : l.status === 'atencao' ? '#ffc400' : '#2FBF71'
         return `
@@ -12656,7 +12656,7 @@ const VM = {
             <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
               <div style="background:${cor};width:${Math.min(l.percentual,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
             </div>
-            <div style="font-size:0.7rem;color:#666;margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
           </div>
         `
       }).join('')
@@ -12668,9 +12668,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.05rem;font-weight:700;">🏷️ Limites por Categoria</h3>
-              <div style="font-size:0.75rem;color:#888;margin-top:2px;">${nomeCartao}</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">${nomeCartao}</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div id="lcl-lista">${renderLimites()}</div>
           <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;margin-top:8px;">
@@ -12719,7 +12719,7 @@ const VM = {
       const lista = document.getElementById('lcl-lista')
       if (lista) {
         const limites = r.limites || []
-        lista.innerHTML = limites.length === 0 ? '<div style="text-align:center;padding:24px;color:#666;font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>'
+        lista.innerHTML = limites.length === 0 ? '<div style="text-align:center;padding:24px;color:var(--terminal-ink-soft);font-size:0.85rem;">Nenhum limite definido. Adicione abaixo.</div>'
           : limites.map(l => {
             const cor = l.status === 'estourado' ? '#ff6b6b' : l.status === 'atencao' ? '#ffc400' : '#2FBF71'
             return `<div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.06);">
@@ -12733,7 +12733,7 @@ const VM = {
               <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
                 <div style="background:${cor};width:${Math.min(l.percentual,100)}%;height:100%;border-radius:50px;"></div>
               </div>
-              <div style="font-size:0.7rem;color:#666;margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
+              <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:4px;">${l.percentual}% usado · Disponível: ${this.formatMoney(l.disponivel)}</div>
             </div>`
           }).join('')
       }
@@ -12757,9 +12757,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.05rem;font-weight:700;">🔀 Split de Compra</h3>
-              <div style="font-size:0.75rem;color:#888;margin-top:2px;">Divida uma compra entre dois cartões</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">Divida uma compra entre dois cartões</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="split-form">
             <div class="form-group">
@@ -12781,7 +12781,7 @@ const VM = {
               <input type="number" id="sp-total" class="form-input" step="0.01" min="0.01" placeholder="0,00" oninput="VM._spCalcSplit()" required>
             </div>
             <div style="border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;margin-bottom:14px;">
-              <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:10px;">📇 Cartão 1</div>
+              <div style="font-size:0.78rem;font-weight:600;color:var(--terminal-ink-soft);margin-bottom:10px;">📇 Cartão 1</div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
                 <div class="form-group" style="margin:0;">
                   <label class="form-label" style="font-size:0.72rem;">Cartão</label>
@@ -12800,7 +12800,7 @@ const VM = {
               </div>
             </div>
             <div style="border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;margin-bottom:14px;">
-              <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:10px;">📇 Cartão 2</div>
+              <div style="font-size:0.78rem;font-weight:600;color:var(--terminal-ink-soft);margin-bottom:10px;">📇 Cartão 2</div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
                 <div class="form-group" style="margin:0;">
                   <label class="form-label" style="font-size:0.72rem;">Cartão</label>
@@ -12905,9 +12905,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.1rem;font-weight:700;">📅 Compra Anterior Parcelada</h3>
-              <div style="font-size:0.78rem;color:#888;margin-top:3px;">Registre compras já realizadas com parcelas em andamento</div>
+              <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:3px;">Registre compras já realizadas com parcelas em andamento</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
 
           <div style="background:rgba(255,196,0,0.08);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.8rem;color:#cca800;line-height:1.6;">
@@ -13013,9 +13013,9 @@ const VM = {
       preview.style.display = 'block'
       preview.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
-          <div><div style="color:#888;font-size:0.72rem;">Valor por parcela</div><div style="font-weight:700;color:#2FBF71;">${this.formatMoney(valorParcela)}</div></div>
-          <div><div style="color:#888;font-size:0.72rem;">Parcelas a registrar</div><div style="font-weight:700;color:#ffc400;">${restantes} de ${total}</div></div>
-          <div><div style="color:#888;font-size:0.72rem;">Total a registrar</div><div style="font-weight:700;color:#ff6b6b;">${this.formatMoney(totalRestante)}</div></div>
+          <div><div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Valor por parcela</div><div style="font-weight:700;color:#2FBF71;">${this.formatMoney(valorParcela)}</div></div>
+          <div><div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Parcelas a registrar</div><div style="font-weight:700;color:#ffc400;">${restantes} de ${total}</div></div>
+          <div><div style="color:var(--terminal-ink-soft);font-size:0.72rem;">Total a registrar</div><div style="font-weight:700;color:#ff6b6b;">${this.formatMoney(totalRestante)}</div></div>
         </div>
       `
     } else {
@@ -13310,22 +13310,22 @@ const VM = {
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.1rem;font-weight:700;">⚙️ Ajustar Limite Disponível</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:14px;margin-bottom:18px;">
-            <div style="font-size:0.82rem;color:#888;margin-bottom:4px;">Cartão: <strong style="color:#fff;">${nomeCartao}</strong></div>
+            <div style="font-size:0.82rem;color:var(--terminal-ink-soft);margin-bottom:4px;">Cartão: <strong style="color:#fff;">${nomeCartao}</strong></div>
             <div style="display:flex;gap:20px;margin-top:8px;">
               <div>
-                <div style="font-size:0.72rem;color:#888;">Limite Total</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">Limite Total</div>
                 <div style="font-size:1.1rem;font-weight:700;">${this.formatMoney(limiteTotal)}</div>
               </div>
               <div>
-                <div style="font-size:0.72rem;color:#888;">Atual Disponível</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">Atual Disponível</div>
                 <div style="font-size:1.1rem;font-weight:700;color:#2FBF71;">${this.formatMoney(limiteDisponivel)}</div>
               </div>
             </div>
           </div>
-          <div style="font-size:0.8rem;color:#888;margin-bottom:14px;padding:10px 12px;background:rgba(99,102,241,0.08);border-radius:8px;border-left:3px solid #6366f1;">
+          <div style="font-size:0.8rem;color:var(--terminal-ink-soft);margin-bottom:14px;padding:10px 12px;background:rgba(99,102,241,0.08);border-radius:8px;border-left:3px solid #6366f1;">
             💡 Use quando pagar parte da fatura diretamente no app do banco e o limite ainda não refletiu aqui.
           </div>
           <div class="form-group">
@@ -13333,7 +13333,7 @@ const VM = {
             <input type="number" id="aj-limite" class="form-input" step="0.01" min="0" max="${limiteTotal}" value="${limiteDisponivel}" placeholder="Ex: 3500.00">
           </div>
           <div class="form-group">
-            <label class="form-label">Motivo <span style="color:#888;font-size:0.78rem;">(opcional)</span></label>
+            <label class="form-label">Motivo <span style="color:var(--terminal-ink-soft);font-size:0.78rem;">(opcional)</span></label>
             <input type="text" id="aj-motivo" class="form-input" placeholder='Ex: "Paguei R$500 no app do banco"' maxlength="100">
           </div>
           <div style="display:flex;gap:12px;margin-top:8px;">
@@ -13375,7 +13375,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">⏰ Lembretes de Contas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Nunca perca um vencimento</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Nunca perca um vencimento</div>
         </div>
         <button onclick="VM.modalLembrete()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Novo Lembrete
@@ -13405,7 +13405,7 @@ const VM = {
           <div class="card" style="text-align:center;padding:60px 40px;">
             <div style="font-size:3rem;margin-bottom:16px;">🔔</div>
             <h3 style="margin-bottom:8px;">Nenhum lembrete cadastrado</h3>
-            <p style="color:#666;margin-bottom:24px;">Adicione contas e lembretes para nunca perder um vencimento</p>
+            <p style="color:var(--terminal-ink-soft);margin-bottom:24px;">Adicione contas e lembretes para nunca perder um vencimento</p>
             <button onclick="VM.modalLembrete()" class="btn-primary" style="width:auto;padding:10px 24px;">
               <i class="fas fa-plus"></i> Criar Lembrete
             </button>
@@ -13431,7 +13431,7 @@ const VM = {
       const totalMensal = data.lembretes.filter(l => l.ativo).reduce((s,l) => s + (l.valor_estimado||0), 0)
 
       const renderDiasTag = (l) => {
-        if (!l.ativo) return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:#555;">⏸️ Inativo</span>`
+        if (!l.ativo) return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:var(--terminal-ink-soft);">⏸️ Inativo</span>`
         if (l.status_mes === 'pago') return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(47,191,113,0.15);border-radius:20px;color:#2FBF71;">✅ Pago</span>`
         if (l.atrasado) {
           const d = Math.abs(l.dias_para_vencer || 0)
@@ -13443,7 +13443,7 @@ const VM = {
         if (l.dias_para_vencer !== null) {
           return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(116,185,255,0.12);border-radius:20px;color:#74b9ff;">${l.dias_para_vencer}d</span>`
         }
-        return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:#666;">📅 Ativo</span>`
+        return `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(255,255,255,0.06);border-radius:20px;color:var(--terminal-ink-soft);">📅 Ativo</span>`
       }
 
       const renderLembreteRow = (l, compact = false) => `
@@ -13454,7 +13454,7 @@ const VM = {
               ${l.titulo}
               ${renderDiasTag(l)}
             </div>
-            <div style="font-size:0.72rem;color:#666;margin-top:2px;">${freqLabel[l.frequencia]||'Mensal'} • ${l.dia_vencimento ? 'Dia '+l.dia_vencimento : 'Sem dia fixo'}${l.proximo_vencimento ? ' • Próx: '+this.formatDate(l.proximo_vencimento) : ''}</div>
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:2px;">${freqLabel[l.frequencia]||'Mensal'} • ${l.dia_vencimento ? 'Dia '+l.dia_vencimento : 'Sem dia fixo'}${l.proximo_vencimento ? ' • Próx: '+this.formatDate(l.proximo_vencimento) : ''}</div>
           </div>
           <div style="font-weight:700;font-size:0.9rem;flex-shrink:0;">${this.formatMoney(l.valor_estimado)}</div>
           <div style="display:flex;gap:5px;flex-shrink:0;">
@@ -13472,22 +13472,22 @@ const VM = {
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:1.6rem;margin-bottom:4px;">🔔</div>
             <div style="font-size:1.3rem;font-weight:800;">${data.lembretes.filter(l=>l.ativo).length}</div>
-            <div style="color:#666;font-size:0.75rem;">Ativos</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Ativos</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:1.6rem;margin-bottom:4px;">📅</div>
             <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${this.formatMoney(totalMensal)}</div>
-            <div style="color:#666;font-size:0.75rem;">Total Mensal</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Total Mensal</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:1.6rem;margin-bottom:4px;">${urgentes.length>0?'⚠️':'✅'}</div>
             <div style="font-size:1.3rem;font-weight:800;color:${urgentes.length>0?(atrasados.length>0?'#f43f5e':'#ffc400'):'#2FBF71'};">${urgentes.length}</div>
-            <div style="color:#666;font-size:0.75rem;">${atrasados.length>0?atrasados.length+' Atrasado(s)':'Urgentes'}</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">${atrasados.length>0?atrasados.length+' Atrasado(s)':'Urgentes'}</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:1.6rem;margin-bottom:4px;">✅</div>
             <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${data.lembretes.filter(l=>l.status_mes==='pago').length}</div>
-            <div style="color:#666;font-size:0.75rem;">Pagos este mês</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Pagos este mês</div>
           </div>
         </div>
 
@@ -13513,7 +13513,7 @@ const VM = {
                 <span style="font-size:1.2rem;">${tipoIcons[tipo]||'🔔'}</span>
                 <span style="font-weight:700;font-size:0.9rem;">${tipoLabel[tipo]||tipo} (${itens.length})</span>
               </div>
-              <div style="font-size:0.8rem;color:#888;">${this.formatMoney(itens.filter(l=>l.ativo).reduce((s,l)=>s+(l.valor_estimado||0),0))}/mês</div>
+              <div style="font-size:0.8rem;color:var(--terminal-ink-soft);">${this.formatMoney(itens.filter(l=>l.ativo).reduce((s,l)=>s+(l.valor_estimado||0),0))}/mês</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px;">
               ${itens.map(l => renderLembreteRow(l)).join('')}
@@ -13546,7 +13546,7 @@ const VM = {
         <div class="modal">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🔔 Novo'} Lembrete</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="lembrete-form">
             <div class="form-group">
@@ -13658,7 +13658,7 @@ const VM = {
         <div class="modal" style="max-width:480px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1rem;font-weight:700;">💸 Converter Lembrete em Despesa</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:0.82rem;">
             <strong>${lembrete.titulo}</strong> · ${this.formatMoney(lembrete.valor_estimado)}
@@ -13786,7 +13786,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">🏠 Financiamentos</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle seus financiamentos imobiliários</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Controle seus financiamentos imobiliários</div>
         </div>
         <button onclick="VM.modalFinanciamento()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Novo Financiamento
@@ -13810,7 +13810,7 @@ const VM = {
           <div class="card" style="text-align:center;padding:60px 40px;">
             <div style="font-size:3rem;margin-bottom:16px;">🏠</div>
             <h3 style="margin-bottom:8px;">Nenhum financiamento</h3>
-            <p style="color:#666;margin-bottom:24px;">Adicione seus financiamentos imobiliários para acompanhar o progresso</p>
+            <p style="color:var(--terminal-ink-soft);margin-bottom:24px;">Adicione seus financiamentos imobiliários para acompanhar o progresso</p>
             <button onclick="VM.modalFinanciamento()" class="btn-primary" style="width:auto;padding:10px 24px;">
               <i class="fas fa-plus"></i> Adicionar Financiamento
             </button>
@@ -13866,7 +13866,7 @@ const VM = {
                       ${metadePago ? `<span style="background:rgba(100,180,255,0.15);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:6px;padding:2px 8px;font-size:0.68rem;">🏆 Metade Pago</span>` : ''}
                       ${alertaIndexador}
                     </div>
-                    <div style="font-size:0.78rem;color:#666;margin-top:4px;">
+                    <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">
                       ${f.banco || 'Banco não informado'} • ${f.sistema_amortizacao?.toUpperCase() || 'PRICE'} • ${f.taxa_juros_anual}% a.a. ${idxLabel}
                     </div>
                   </div>
@@ -13880,7 +13880,7 @@ const VM = {
                 <!-- Barra de progresso de quitação -->
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                    <span style="font-size:0.78rem;color:#888;">Quitação: ${pct}% (${f.parcelas_pagas}/${f.numero_parcelas} parc.)</span>
+                    <span style="font-size:0.78rem;color:var(--terminal-ink-soft);">Quitação: ${pct}% (${f.parcelas_pagas}/${f.numero_parcelas} parc.)</span>
                     <span style="font-size:0.78rem;font-weight:700;color:${pct >= 50 ? '#74b9ff' : '#2FBF71'};">${pct}%</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
@@ -13891,19 +13891,19 @@ const VM = {
                 <!-- Grid de valores -->
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#666;">Valor Imóvel</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Valor Imóvel</div>
                     <div style="font-size:0.78rem;font-weight:700;">${this.formatMoney(f.valor_imovel)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#666;">Parcela</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Parcela</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.valor_parcela)}</div>
                   </div>
                   <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#666;">Amortizado</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Amortizado</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">${this.formatMoney(pago)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.65rem;color:#666;">Saldo Dev.</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Saldo Dev.</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(f.saldo_devedor)}</div>
                   </div>
                 </div>
@@ -13911,19 +13911,19 @@ const VM = {
                 <!-- Equity e info adicional -->
                 <div style="background:rgba(100,180,255,0.06);border:1px solid rgba(100,180,255,0.15);border-radius:10px;padding:10px;margin-bottom:10px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                    <span style="font-size:0.72rem;color:#888;">🏠 Equity (% de propriedade real)</span>
+                    <span style="font-size:0.72rem;color:var(--terminal-ink-soft);">🏠 Equity (% de propriedade real)</span>
                     <span style="font-size:0.85rem;font-weight:700;color:#74b9ff;">${equityPct}%</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.06);border-radius:50px;height:6px;overflow:hidden;">
                     <div style="background:linear-gradient(90deg,#74b9ff,#a29bfe);width:${Math.min(equityPct,100)}%;height:100%;border-radius:50px;"></div>
                   </div>
-                  <div style="font-size:0.68rem;color:#666;margin-top:5px;">
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);margin-top:5px;">
                     Entrada ${this.formatMoney(entradaPaga)} + Amortizado ${this.formatMoney(pago)} = ${this.formatMoney(equityVal)} de ${this.formatMoney(f.valor_imovel)}
                   </div>
                 </div>
 
                 <!-- Previsão e IPCA aviso -->
-                <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-bottom:${f.status === 'ativo' ? '10' : '0'}px;">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:${f.status === 'ativo' ? '10' : '0'}px;">
                   ${f.data_previsao_fim ? `<span>🏁 Quitação: <strong style="color:#ddd;">${this.formatDate(f.data_previsao_fim)}</strong></span>` : ''}
                   ${isIPCA ? `<span style="color:#ffc400;">⚠️ Parcela reajusta pelo ${idxLabel} anualmente</span>` : ''}
                 </div>
@@ -13970,7 +13970,7 @@ const VM = {
         <div class="modal" style="max-width:560px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🏠 Novo'} Financiamento</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="fin-form">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -14060,7 +14060,7 @@ const VM = {
                 <input type="number" id="f-saldo" class="form-input" step="0.01" min="0" value="${fin?.saldo_devedor || ''}">
               </div>
             </div>
-            <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:8px;padding:10px;font-size:0.78rem;color:#888;margin-bottom:4px;">
+            <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:8px;padding:10px;font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:4px;">
               💡 <strong style="color:#2FBF71;">Parcela automática:</strong> Preencha valor financiado, taxa e nº de parcelas — o sistema calcula a parcela pelo sistema escolhido (SAC/PRICE).
               <button type="button" onclick="VM._calcularParcelaAuto()" style="margin-left:8px;background:rgba(47,191,113,0.2);color:#2FBF71;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:0.75rem;font-weight:600;">Calcular</button>
             </div>
@@ -14158,9 +14158,9 @@ const VM = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
               <h3 style="font-size:1.1rem;font-weight:700;">⚡ Amortização Extraordinária</h3>
-              <div style="font-size:0.78rem;color:#888;margin-top:2px;">Pagamento extra que reduz o saldo devedor</div>
+              <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:2px;">Pagamento extra que reduz o saldo devedor</div>
             </div>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           
           <div style="background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.2);border-radius:10px;padding:12px;margin-bottom:20px;font-size:0.8rem;color:#cca800;line-height:1.6;">
@@ -14170,11 +14170,11 @@ const VM = {
           <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;margin-bottom:20px;">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div style="text-align:center;">
-                <div style="font-size:0.72rem;color:#888;">Saldo Devedor Atual</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">Saldo Devedor Atual</div>
                 <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldoAtual)}</div>
               </div>
               <div style="text-align:center;">
-                <div style="font-size:0.72rem;color:#888;">Parcelas Restantes</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">Parcelas Restantes</div>
                 <div style="font-size:1rem;font-weight:700;color:#ffc400;">${parcelasRestantes}</div>
               </div>
             </div>
@@ -14186,14 +14186,14 @@ const VM = {
               <input type="number" id="amort-valor" class="form-input" step="0.01" min="0.01" max="${saldoAtual}" placeholder="Ex: 5000.00" required>
             </div>
             <div class="form-group">
-              <label class="form-label">Parcelas Antecipadas <span style="color:#888;font-size:0.78rem;">(opcional)</span></label>
+              <label class="form-label">Parcelas Antecipadas <span style="color:var(--terminal-ink-soft);font-size:0.78rem;">(opcional)</span></label>
               <input type="number" id="amort-parcelas" class="form-input" min="0" max="${parcelasRestantes}" placeholder="Quantas parcelas foram antecipadas?" value="0">
-              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Se pagou parcelas do final, informe quantas para atualizar o contador</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:4px;">Se pagou parcelas do final, informe quantas para atualizar o contador</div>
             </div>
             <div class="form-group">
               <label class="form-label">Novo Saldo Devedor (R$) *</label>
               <input type="number" id="amort-novo-saldo" class="form-input" step="0.01" min="0" placeholder="Informe o saldo após a amortização" required>
-              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Consulte seu banco para o valor exato do novo saldo</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:4px;">Consulte seu banco para o valor exato do novo saldo</div>
             </div>
             <div class="form-group">
               <label class="form-label">Observações</label>
@@ -14264,7 +14264,7 @@ const VM = {
 
   async graficoEvolucaoFinanciamento(id, descricao) {
     const modal = document.getElementById('modal-container')
-    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:680px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">📈 Evolução do Saldo — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="graf-loading" style="text-align:center;padding:40px;color:#888;">Calculando evolução...</div></div></div>`
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:680px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">📈 Evolução do Saldo — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button></div><div id="graf-loading" style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">Calculando evolução...</div></div></div>`
     modal.style.display = 'flex'
     try {
       const d = await this.api('GET', `financiamentos/${id}/evolucao-saldo`)
@@ -14285,21 +14285,21 @@ const VM = {
       document.getElementById('graf-loading').outerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
           <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Saldo Atual</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Saldo Atual</div>
             <div style="font-size:0.9rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(d.saldo_atual)}</div>
           </div>
           <div style="background:rgba(255,196,0,0.07);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Total Juros Rest.</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Total Juros Rest.</div>
             <div style="font-size:0.9rem;font-weight:700;color:#ffc400;">${this.formatMoney(resumo.total_juros_restantes)}</div>
           </div>
           <div style="background:rgba(47,191,113,0.07);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Previsão Quitação</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Previsão Quitação</div>
             <div style="font-size:0.88rem;font-weight:700;color:#2FBF71;">${resumo.previsao_fim ? this.formatDate(resumo.previsao_fim) : '—'}</div>
           </div>
         </div>
 
         <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:12px;overflow:hidden;">
-          <div style="font-size:0.72rem;color:#666;margin-bottom:8px;">Sistema ${sistema} • Evolução do saldo devedor</div>
+          <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:8px;">Sistema ${sistema} • Evolução do saldo devedor</div>
           <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;overflow:visible;">
             <defs>
               <linearGradient id="grad-fin" x1="0" y1="0" x2="0" y2="1">
@@ -14322,18 +14322,18 @@ const VM = {
               return `<g>
                 <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="#ff6b6b" stroke="#1a1a2e" stroke-width="2"/>
                 <text x="${x.toFixed(1)}" y="${(y-10).toFixed(1)}" text-anchor="middle" font-size="9" fill="#aaa">${this.formatMoney(p.saldo, true)}</text>
-                <text x="${x.toFixed(1)}" y="${(h-pad+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="#666">${ano}</text>
+                <text x="${x.toFixed(1)}" y="${(h-pad+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="#7A8B80">${ano}</text>
               </g>`
             }).join('')}
           </svg>
         </div>
 
         <div style="margin-top:12px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;">
-          <div style="font-size:0.72rem;color:#888;margin-bottom:8px;">Tabela resumida (a cada 6 meses)</div>
+          <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:8px;">Tabela resumida (a cada 6 meses)</div>
           <div style="max-height:200px;overflow-y:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
               <thead style="position:sticky;top:0;background:#1a1a2e;">
-                <tr style="color:#888;">
+                <tr style="color:var(--terminal-ink-soft);">
                   <th style="padding:6px 8px;text-align:left;">Data</th>
                   <th style="padding:6px 8px;text-align:right;">Saldo</th>
                   <th style="padding:6px 8px;text-align:right;">Juros Acum.</th>
@@ -14359,7 +14359,7 @@ const VM = {
 
   async simulacaoFGTS(id, descricao) {
     const modal = document.getElementById('modal-container')
-    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:540px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">🏦 Simulação FGTS — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="fgts-loading" style="text-align:center;padding:40px;color:#888;">Calculando...</div></div></div>`
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:540px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">🏦 Simulação FGTS — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button></div><div id="fgts-loading" style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">Calculando...</div></div></div>`
     modal.style.display = 'flex'
     try {
       const d = await this.api('GET', `financiamentos/${id}/simulacao-fgts`)
@@ -14370,15 +14370,15 @@ const VM = {
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Saldo Devedor Atual</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Saldo Devedor Atual</div>
             <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldo_devedor)}</div>
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Total Juros sem FGTS</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Total Juros sem FGTS</div>
             <div style="font-size:1rem;font-weight:700;color:#ffc400;">${this.formatMoney(total_juros_sem_fgts)}</div>
           </div>
         </div>
-        <div style="font-size:0.78rem;color:#888;margin-bottom:10px;font-weight:600;">🔮 Cenários de uso do FGTS</div>
+        <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:10px;font-weight:600;">🔮 Cenários de uso do FGTS</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${cenarios.map(c => `
             <div style="background:${c.vale_a_pena ? 'rgba(47,191,113,0.07)' : 'rgba(255,255,255,0.03)'};border:1px solid ${c.vale_a_pena ? 'rgba(47,191,113,0.25)' : 'rgba(255,255,255,0.07)'};border-radius:10px;padding:14px;">
@@ -14391,19 +14391,19 @@ const VM = {
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                 <div style="text-align:center;">
-                  <div style="font-size:0.65rem;color:#888;">Novo Saldo</div>
+                  <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Novo Saldo</div>
                   <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(c.novo_saldo)}</div>
                 </div>
                 <div style="text-align:center;">
-                  <div style="font-size:0.65rem;color:#888;">Meses Econ.</div>
+                  <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Meses Econ.</div>
                   <div style="font-size:0.82rem;font-weight:700;color:#74b9ff;">${c.parcelas_economizadas}</div>
                 </div>
                 <div style="text-align:center;">
-                  <div style="font-size:0.65rem;color:#888;">Economia Juros</div>
+                  <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Economia Juros</div>
                   <div style="font-size:0.82rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.economia_juros)}</div>
                 </div>
               </div>
-              <div style="margin-top:8px;font-size:0.7rem;color:#888;">
+              <div style="margin-top:8px;font-size:0.7rem;color:var(--terminal-ink-soft);">
                 Retorno sobre FGTS usado: <strong style="color:${c.retorno_fgts_pct > 7 ? '#2FBF71' : '#ffc400'};">${c.retorno_fgts_pct}%</strong> em juros economizados
               </div>
             </div>`).join('')}
@@ -14411,7 +14411,7 @@ const VM = {
         <div style="margin-top:14px;background:rgba(47,191,113,0.07);border-radius:10px;padding:12px;font-size:0.82rem;color:#2FBF71;">
           💡 ${recomendacao}
         </div>
-        <div style="margin-top:8px;font-size:0.7rem;color:#555;text-align:center;">
+        <div style="margin-top:8px;font-size:0.7rem;color:var(--terminal-ink-soft);text-align:center;">
           * Simulação baseada no saldo atual. Valores do FGTS dependem do saldo real na sua conta.
         </div>`
     } catch (e) {
@@ -14421,13 +14421,13 @@ const VM = {
 
   async comparativoSistemaFinanciamento(id, descricao) {
     const modal = document.getElementById('modal-container')
-    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:560px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">⚖️ SAC vs PRICE — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="cmp-loading" style="text-align:center;padding:40px;color:#888;">Calculando comparativo...</div></div></div>`
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:560px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;"><h3 style="font-size:1.05rem;font-weight:700;">⚖️ SAC vs PRICE — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button></div><div id="cmp-loading" style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">Calculando comparativo...</div></div></div>`
     modal.style.display = 'flex'
     try {
       const d = await this.api('GET', `financiamentos/${id}/comparativo`)
       const { price, sac, economia_sac_vs_price, recomendacao, saldo_atual, sistema } = d
       document.getElementById('cmp-loading').outerHTML = `
-        <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;margin-bottom:16px;font-size:0.8rem;color:#888;text-align:center;">
+        <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;margin-bottom:16px;font-size:0.8rem;color:var(--terminal-ink-soft);text-align:center;">
           Sistema atual: <strong style="color:#ddd;">${sistema?.toUpperCase() || 'PRICE'}</strong> • Saldo: <strong style="color:#ff6b6b;">${this.formatMoney(saldo_atual)}</strong>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
@@ -14436,15 +14436,15 @@ const VM = {
             <div style="font-weight:700;font-size:0.95rem;color:#74b9ff;margin-bottom:12px;text-align:center;">📌 PRICE</div>
             <div style="display:flex;flex-direction:column;gap:8px;">
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Parcela fixa</span>
+                <span style="color:var(--terminal-ink-soft);">Parcela fixa</span>
                 <span style="font-weight:700;">${this.formatMoney(price?.primeira_parcela || 0)}</span>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Total juros</span>
+                <span style="color:var(--terminal-ink-soft);">Total juros</span>
                 <span style="font-weight:700;color:#ffc400;">${this.formatMoney(price?.total_juros || 0)}</span>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Total a pagar</span>
+                <span style="color:var(--terminal-ink-soft);">Total a pagar</span>
                 <span style="font-weight:700;color:#ff6b6b;">${this.formatMoney(price?.total_pagar || 0)}</span>
               </div>
             </div>
@@ -14454,26 +14454,26 @@ const VM = {
             <div style="font-weight:700;font-size:0.95rem;color:#2FBF71;margin-bottom:12px;text-align:center;">📉 SAC</div>
             <div style="display:flex;flex-direction:column;gap:8px;">
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">1ª parcela</span>
+                <span style="color:var(--terminal-ink-soft);">1ª parcela</span>
                 <span style="font-weight:700;">${this.formatMoney(sac?.primeira_parcela || 0)}</span>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Última parcela</span>
+                <span style="color:var(--terminal-ink-soft);">Última parcela</span>
                 <span style="font-weight:700;">${this.formatMoney(sac?.ultima_parcela || 0)}</span>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Total juros</span>
+                <span style="color:var(--terminal-ink-soft);">Total juros</span>
                 <span style="font-weight:700;color:#ffc400;">${this.formatMoney(sac?.total_juros || 0)}</span>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:0.8rem;">
-                <span style="color:#888;">Total a pagar</span>
+                <span style="color:var(--terminal-ink-soft);">Total a pagar</span>
                 <span style="font-weight:700;color:#ff6b6b;">${this.formatMoney(sac?.total_pagar || 0)}</span>
               </div>
             </div>
           </div>
         </div>
         <div style="background:${economia_sac_vs_price > 0 ? 'rgba(47,191,113,0.08)' : 'rgba(100,180,255,0.08)'};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
-          <div style="font-size:0.75rem;color:#888;margin-bottom:4px;">Diferença SAC vs PRICE</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:4px;">Diferença SAC vs PRICE</div>
           <div style="font-size:1.1rem;font-weight:700;color:${economia_sac_vs_price > 0 ? '#2FBF71' : '#74b9ff'};">
             ${economia_sac_vs_price > 0 ? '✅ SAC economiza' : '📌 PRICE é igual ou melhor'} ${this.formatMoney(Math.abs(economia_sac_vs_price))}
           </div>
@@ -14483,12 +14483,12 @@ const VM = {
         </div>
         ${sac?.primeiras_parcelas?.length ? `
         <div style="margin-top:14px;">
-          <div style="font-size:0.75rem;color:#888;margin-bottom:8px;font-weight:600;">Primeiras parcelas SAC (decrescentes):</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:8px;font-weight:600;">Primeiras parcelas SAC (decrescentes):</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
             ${sac.primeiras_parcelas.map((p, i) => `<span style="background:rgba(47,191,113,0.08);border:1px solid rgba(47,191,113,0.2);border-radius:6px;padding:4px 8px;font-size:0.75rem;">#${p.parcela}: ${this.formatMoney(p.valor)}</span>`).join('')}
           </div>
         </div>` : ''}
-        <div style="margin-top:10px;font-size:0.7rem;color:#555;text-align:center;">* Simulação a partir do saldo devedor atual. Consulte seu banco para trocar o sistema.</div>`
+        <div style="margin-top:10px;font-size:0.7rem;color:var(--terminal-ink-soft);text-align:center;">* Simulação a partir do saldo devedor atual. Consulte seu banco para trocar o sistema.</div>`
     } catch (e) {
       document.getElementById('cmp-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar comparativo</div>`
     }
@@ -14501,7 +14501,7 @@ const VM = {
       <div class="section-header">
         <div>
           <div class="section-title">💼 Empréstimos</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle suas dívidas e parcelas</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Controle suas dívidas e parcelas</div>
         </div>
         <button onclick="VM.modalEmprestimo()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Novo Empréstimo
@@ -14526,7 +14526,7 @@ const VM = {
           <div class="card" style="text-align:center;padding:60px 40px;">
             <div style="font-size:3rem;margin-bottom:16px;">🙌</div>
             <h3 style="margin-bottom:8px;">Nenhum empréstimo!</h3>
-            <p style="color:#666;margin-bottom:24px;">Ótimo! Sem dívidas ativas. Caso tenha alguma, registre para controlar.</p>
+            <p style="color:var(--terminal-ink-soft);margin-bottom:24px;">Ótimo! Sem dívidas ativas. Caso tenha alguma, registre para controlar.</p>
             <button onclick="VM.modalEmprestimo()" class="btn-primary" style="width:auto;padding:10px 24px;">
               <i class="fas fa-plus"></i> Registrar Empréstimo
             </button>
@@ -14573,7 +14573,7 @@ const VM = {
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:1rem;font-weight:700;">${e.descricao}${alertaDias}</div>
-                    <div style="font-size:0.78rem;color:#666;margin-top:3px;">
+                    <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:3px;">
                       ${tipoLabel[e.tipo] || e.tipo} • ${e.credor || 'Credor não informado'} • ${e.taxa_juros_mensal}% a.m.
                     </div>
                   </div>
@@ -14586,8 +14586,8 @@ const VM = {
 
                 <div style="margin-bottom:12px;">
                   <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-                    <span style="font-size:0.78rem;color:#888;">Pago (${pct}%)</span>
-                    <span style="font-size:0.78rem;color:#888;">${e.parcelas_pagas}/${e.numero_parcelas} parcelas</span>
+                    <span style="font-size:0.78rem;color:var(--terminal-ink-soft);">Pago (${pct}%)</span>
+                    <span style="font-size:0.78rem;color:var(--terminal-ink-soft);">${e.parcelas_pagas}/${e.numero_parcelas} parcelas</span>
                   </div>
                   <div style="background:rgba(255,255,255,0.08);border-radius:50px;height:8px;overflow:hidden;">
                     <div style="background:linear-gradient(90deg,#2FBF71,#00b894);width:${Math.min(pct,100)}%;height:100%;border-radius:50px;transition:width 0.8s ease;"></div>
@@ -14596,35 +14596,35 @@ const VM = {
 
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;">
                   <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Valor Original</div>
+                    <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Valor Original</div>
                     <div style="font-size:0.82rem;font-weight:700;">${this.formatMoney(e.valor_original)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Saldo Devedor</div>
+                    <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Saldo Devedor</div>
                     <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.saldo_devedor)}</div>
                   </div>
                   <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="font-size:0.68rem;color:#666;">Parcela/mês</div>
+                    <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Parcela/mês</div>
                     <div style="font-size:0.82rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(e.valor_parcela)}</div>
                   </div>
                 </div>
 
                 <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                   <div style="text-align:center;">
-                    <div style="font-size:0.65rem;color:#888;">Juros Totais</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Juros Totais</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#ffc400;">${this.formatMoney(totalJuros)}</div>
                   </div>
                   <div style="text-align:center;">
-                    <div style="font-size:0.65rem;color:#888;">Juros Pagos</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Juros Pagos</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#2FBF71;">${this.formatMoney(jurosPagos)}</div>
                   </div>
                   <div style="text-align:center;">
-                    <div style="font-size:0.65rem;color:#888;">Juros Restantes</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">Juros Restantes</div>
                     <div style="font-size:0.78rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(jurosAPagar)}</div>
                   </div>
                 </div>
 
-                <div style="display:flex;gap:14px;margin-bottom:10px;font-size:0.78rem;color:#888;flex-wrap:wrap;">
+                <div style="display:flex;gap:14px;margin-bottom:10px;font-size:0.78rem;color:var(--terminal-ink-soft);flex-wrap:wrap;">
                   ${e.status === 'ativo' ? `<span>📅 Próx. venc.: <strong style="color:#ddd;">${proxVencStr}</strong></span>` : ''}
                   ${e.data_previsao_fim ? `<span>🏁 Quitação: <strong style="color:#ddd;">${this.formatDate(e.data_previsao_fim)}</strong></span>` : ''}
                 </div>
@@ -14668,7 +14668,7 @@ const VM = {
         <div class="modal" style="max-width:540px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '💼 Novo'} Empréstimo</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="emp-form">
             <div class="form-group">
@@ -14700,13 +14700,13 @@ const VM = {
                 <label class="form-label">💵 Valor Original do Empréstimo (R$) *</label>
                 <input type="number" id="e-valor" class="form-input" step="0.01" min="0" value="${emp?.valor_original || ''}"
                   placeholder="Ex: 10000.00" oninput="VM.recalcularSaldoEmprestimo()" required>
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Valor que você recebeu/pegou emprestado</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Valor que você recebeu/pegou emprestado</div>
               </div>
               <div class="form-group">
-                <label class="form-label">📉 Saldo Devedor Atual (R$) <span style="color:#888;font-weight:400;">(com juros)</span></label>
+                <label class="form-label">📉 Saldo Devedor Atual (R$) <span style="color:var(--terminal-ink-soft);font-weight:400;">(com juros)</span></label>
                 <input type="number" id="e-saldo" class="form-input" step="0.01" min="0" value="${emp?.saldo_devedor || ''}"
                   placeholder="Calculado automaticamente">
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Usado no Total Devedor do painel</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Usado no Total Devedor do painel</div>
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -14714,7 +14714,7 @@ const VM = {
                 <label class="form-label">📊 Taxa de Juros Mensal (%) *</label>
                 <input type="number" id="e-juros" class="form-input" step="0.01" min="0" value="${emp?.taxa_juros_mensal || ''}"
                   placeholder="Ex: 2.52" oninput="VM.recalcularSaldoEmprestimo()" required>
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Taxa do contrato ao mês</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Taxa do contrato ao mês</div>
               </div>
               <div class="form-group">
                 <label class="form-label">🔢 Nº Total de Parcelas *</label>
@@ -14727,7 +14727,7 @@ const VM = {
                 <label class="form-label">💳 Valor da Parcela Mensal (R$) *</label>
                 <input type="number" id="e-vparcela" class="form-input" step="0.01" min="0" value="${emp?.valor_parcela || ''}"
                   placeholder="Ex: 500.00" required>
-                <div style="font-size:0.72rem;color:#888;margin-top:3px;">Valor que você paga por mês</div>
+                <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:3px;">Valor que você paga por mês</div>
               </div>
               <div class="form-group">
                 <label class="form-label">✅ Parcelas Já Pagas</label>
@@ -14747,9 +14747,9 @@ const VM = {
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">Data 1ª Parcela <span style="color:#888;font-size:0.78rem;">(opcional — use se o vencimento for diferente do mês da contratação)</span></label>
+              <label class="form-label">Data 1ª Parcela <span style="color:var(--terminal-ink-soft);font-size:0.78rem;">(opcional — use se o vencimento for diferente do mês da contratação)</span></label>
               <input type="date" id="e-primeira-parcela" class="form-input" value="${emp?.data_primeira_parcela || ''}">
-              <div style="font-size:0.75rem;color:#888;margin-top:4px;">Ex: contratado em Jan/2026, 1ª parcela em Mar/2026 → preencha 26/03/2026</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:4px;">Ex: contratado em Jan/2026, 1ª parcela em Mar/2026 → preencha 26/03/2026</div>
             </div>
             <div style="display:flex;gap:12px;margin-top:8px;">
               <button type="button" onclick="VM.closeModal()" class="btn-secondary" style="flex:1;justify-content:center;">Cancelar</button>
@@ -14841,7 +14841,7 @@ const VM = {
 
   async calendarioEmprestimo(id, descricao) {
     const modal = document.getElementById('modal-container')
-    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:620px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📅 Calendário de Parcelas — ${descricao}</h3><div style="display:flex;gap:8px;"><button onclick="VM.exportarCronogramaEmprestimo(${id},'${descricao}')" style="padding:8px 14px;background:rgba(100,180,255,0.15);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;"><i class="fas fa-file-export"></i> Exportar</button><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div></div><div id="cal-loading" style="text-align:center;padding:40px;color:#888;">Carregando parcelas...</div></div></div>`
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:620px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📅 Calendário de Parcelas — ${descricao}</h3><div style="display:flex;gap:8px;"><button onclick="VM.exportarCronogramaEmprestimo(${id},'${descricao}')" style="padding:8px 14px;background:rgba(100,180,255,0.15);color:#74b9ff;border:1px solid rgba(100,180,255,0.3);border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;"><i class="fas fa-file-export"></i> Exportar</button><button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button></div></div><div id="cal-loading" style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">Carregando parcelas...</div></div></div>`
     modal.style.display = 'flex'
     try {
       const d = await this.api('GET', `emprestimos/${id}/calendario`)
@@ -14851,22 +14851,22 @@ const VM = {
       document.getElementById('cal-loading').outerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Parcelas Restantes</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Parcelas Restantes</div>
             <div style="font-size:1.1rem;font-weight:700;">${resumo.total_parcelas_restantes}</div>
           </div>
           <div style="background:rgba(255,80,80,0.07);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Total a Pagar</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Total a Pagar</div>
             <div style="font-size:1rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(resumo.total_a_pagar)}</div>
           </div>
           <div style="background:rgba(255,196,0,0.07);border-radius:10px;padding:10px;text-align:center;">
-            <div style="font-size:0.68rem;color:#888;">Juros Futuros</div>
+            <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Juros Futuros</div>
             <div style="font-size:1rem;font-weight:700;color:#ffc400;">${this.formatMoney(resumo.total_juros_futuros)}</div>
           </div>
         </div>
         <div style="max-height:380px;overflow-y:auto;border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
           <table style="width:100%;border-collapse:collapse;">
             <thead style="position:sticky;top:0;background:#1a1a2e;z-index:1;">
-              <tr style="font-size:0.72rem;color:#888;">
+              <tr style="font-size:0.72rem;color:var(--terminal-ink-soft);">
                 <th style="padding:10px 12px;text-align:left;">Parc.</th>
                 <th style="padding:10px 12px;text-align:left;">Vencimento</th>
                 <th style="padding:10px 12px;text-align:right;">Valor</th>
@@ -14884,7 +14884,7 @@ const VM = {
                   <td style="padding:8px 12px;font-size:0.82rem;text-align:right;color:#ff6b6b;">${this.formatMoney(p.valor)}</td>
                   <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#ffc400;">${this.formatMoney(p.juros)}</td>
                   <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#2FBF71;">${this.formatMoney(p.amortizacao)}</td>
-                  <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:#888;">${this.formatMoney(p.saldo_pos)}</td>
+                  <td style="padding:8px 12px;font-size:0.8rem;text-align:right;color:var(--terminal-ink-soft);">${this.formatMoney(p.saldo_pos)}</td>
                   <td style="padding:8px 12px;text-align:center;"><span style="font-size:0.65rem;padding:2px 6px;border-radius:6px;background:${statusColor[p.status]||'#444'}22;color:${statusColor[p.status]||'#888'};border:1px solid ${statusColor[p.status]||'#444'}33;">${statusLabel[p.status]||p.status}</span></td>
                 </tr>`).join('')}
             </tbody>
@@ -14903,10 +14903,10 @@ const VM = {
 <style>
 body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
 h1 { font-size: 1.4rem; margin-bottom: 4px; }
-.subtitle { color: #666; font-size: 0.88rem; margin-bottom: 24px; }
+.subtitle { color: var(--terminal-ink-soft); font-size: 0.88rem; margin-bottom: 24px; }
 .resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
 .resumo div { background: #f4f4f4; border-radius: 8px; padding: 14px; text-align: center; }
-.resumo .label { font-size: 0.72rem; color: #888; margin-bottom: 4px; }
+.resumo .label { font-size: 0.72rem; color: var(--terminal-ink-soft); margin-bottom: 4px; }
 .resumo .value { font-size: 1rem; font-weight: 700; }
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 th { background: #222; color: #fff; padding: 10px 12px; text-align: left; }
@@ -14948,21 +14948,21 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
   async simuladorAntecipacaoEmprestimo(id, descricao) {
     const modal = document.getElementById('modal-container')
-    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:520px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📊 Simulador de Antecipação — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button></div><div id="sim-loading" style="text-align:center;padding:40px;color:#888;">Calculando cenários...</div></div></div>`
+    modal.innerHTML = `<div class="modal-overlay"><div class="modal" style="max-width:520px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h3 style="font-size:1.05rem;font-weight:700;">📊 Simulador de Antecipação — ${descricao}</h3><button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button></div><div id="sim-loading" style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">Calculando cenários...</div></div></div>`
     modal.style.display = 'flex'
     try {
       const d = await this.api('GET', `emprestimos/${id}/simulacao`)
       const { saldo_atual, valor_parcela, parcelas_restantes, total_a_pagar, juros_projetados, cenarios_amortizacao } = d
       document.getElementById('sim-loading').outerHTML = `
         <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;margin-bottom:18px;">
-          <div style="font-size:0.75rem;color:#888;margin-bottom:8px;">Situação Atual</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:8px;">Situação Atual</div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Saldo</div><div style="font-size:0.9rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldo_atual)}</div></div>
-            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Parcelas Rest.</div><div style="font-size:0.9rem;font-weight:700;">${parcelas_restantes}</div></div>
-            <div style="text-align:center;"><div style="font-size:0.68rem;color:#888;">Juros Proj.</div><div style="font-size:0.9rem;font-weight:700;color:#ffc400;">${this.formatMoney(juros_projetados)}</div></div>
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Saldo</div><div style="font-size:0.9rem;font-weight:700;color:#ff6b6b;">${this.formatMoney(saldo_atual)}</div></div>
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Parcelas Rest.</div><div style="font-size:0.9rem;font-weight:700;">${parcelas_restantes}</div></div>
+            <div style="text-align:center;"><div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Juros Proj.</div><div style="font-size:0.9rem;font-weight:700;color:#ffc400;">${this.formatMoney(juros_projetados)}</div></div>
           </div>
         </div>
-        <div style="font-size:0.8rem;color:#888;margin-bottom:12px;font-weight:600;">🔮 Cenários de Amortização Extra</div>
+        <div style="font-size:0.8rem;color:var(--terminal-ink-soft);margin-bottom:12px;font-weight:600;">🔮 Cenários de Amortização Extra</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           ${cenarios_amortizacao.map(c => `
             <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:14px;">
@@ -14972,17 +14972,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div style="text-align:center;">
-                  <div style="font-size:0.68rem;color:#888;">Parcelas Economizadas</div>
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Parcelas Economizadas</div>
                   <div style="font-size:0.9rem;font-weight:700;color:#74b9ff;">${c.parcelas_economizadas} meses</div>
                 </div>
                 <div style="text-align:center;">
-                  <div style="font-size:0.68rem;color:#888;">Economia em Juros</div>
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">Economia em Juros</div>
                   <div style="font-size:0.9rem;font-weight:700;color:#2FBF71;">${this.formatMoney(c.economia_juros || 0)}</div>
                 </div>
               </div>
             </div>`).join('')}
         </div>
-        <div style="margin-top:16px;font-size:0.75rem;color:#666;text-align:center;">* Simulação baseada na tabela Price. Consulte seu banco para valores exatos.</div>`
+        <div style="margin-top:16px;font-size:0.75rem;color:var(--terminal-ink-soft);text-align:center;">* Simulação baseada na tabela Price. Consulte seu banco para valores exatos.</div>`
     } catch (e) {
       document.getElementById('sim-loading').innerHTML = `<div style="color:#ff6b6b;text-align:center;padding:20px;">Erro ao carregar simulação</div>`
     }
@@ -14995,7 +14995,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">🧠 Diagnóstico Financeiro 360°</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Análise completa baseada em 5 módulos • Hierarquia CFP®</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Análise completa baseada em 5 módulos • Hierarquia CFP®</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM.gerarInsightsIA()" class="btn-primary" style="width:auto;padding:10px 20px;">
@@ -15093,7 +15093,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 </svg>
                 <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                   <div style="font-size:1.75rem;font-weight:900;color:${cor};line-height:1;filter:blur(4px);">${sc}</div>
-                  <div style="font-size:0.6rem;color:#555;letter-spacing:1px;">/ 100</div>
+                  <div style="font-size:0.6rem;color:var(--terminal-ink-soft);letter-spacing:1px;">/ 100</div>
                 </div>
                 <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
                   <i class="fas fa-lock" style="font-size:1.4rem;color:#fbbf24;filter:drop-shadow(0 0 6px rgba(251,191,36,0.5));"></i>
@@ -15114,7 +15114,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               ${['Fluxo de Caixa','Reserva','Dívidas','Investimentos','Metas'].map(m => `
                 <div class="card" style="text-align:center;padding:20px 12px;">
                   <div style="font-size:2rem;font-weight:900;color:#2FBF71;">??</div>
-                  <div style="font-size:0.78rem;color:#888;margin-top:4px;">${m}</div>
+                  <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">${m}</div>
                 </div>`).join('')}
             </div>
             <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
@@ -15196,14 +15196,14 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                 <div style="font-size:1.75rem;font-weight:900;color:${corScore};line-height:1;">${scoreGeral}</div>
-                <div style="font-size:0.6rem;color:#555;letter-spacing:1px;">/ 100</div>
+                <div style="font-size:0.6rem;color:var(--terminal-ink-soft);letter-spacing:1px;">/ 100</div>
               </div>
             </div>
 
             <!-- texto direito -->
             <div style="flex:1;min-width:200px;">
               <div style="font-size:1.15rem;font-weight:800;color:${corScore};margin-bottom:6px;">${re.veredicto || '—'}</div>
-              <div style="font-size:0.82rem;color:#888;line-height:1.6;margin-bottom:12px;">
+              <div style="font-size:0.82rem;color:var(--terminal-ink-soft);line-height:1.6;margin-bottom:12px;">
                 Próxima ação prioritária: <strong style="color:#ddd;">${re.proxima_acao || '—'}</strong>
               </div>
               <!-- mini KPIs -->
@@ -15232,7 +15232,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               return `
                 <div onclick="VM.navigate('${rotaModulo}')" title="Acessar ${m.label}" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;border-radius:10px;padding:6px 2px;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
                   ${miniScore(val, cor)}
-                  <div style="font-size:0.65rem;color:#666;line-height:1.3;">${m.icon}<br>${m.label.split(' ')[0]}</div>
+                  <div style="font-size:0.65rem;color:var(--terminal-ink-soft);line-height:1.3;">${m.icon}<br>${m.label.split(' ')[0]}</div>
                   <div style="font-size:0.7rem;font-weight:700;color:${cor};">${val}</div>
                 </div>`
             }).join('')}
@@ -15255,11 +15255,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     <span style="font-size:0.75rem;font-weight:700;color:${sevCor};background:${sevCor}22;padding:2px 8px;border-radius:20px;">${a.severidade}</span>
                     <div style="font-weight:700;font-size:0.9rem;">${a.titulo}</div>
                   </div>
-                  <div style="font-size:0.8rem;color:#999;line-height:1.6;margin-bottom:8px;">${a.descricao}</div>
+                  <div style="font-size:0.8rem;color:var(--terminal-ink-mid);line-height:1.6;margin-bottom:8px;">${a.descricao}</div>
                   <div style="font-size:0.78rem;color:#2FBF71;padding:8px 12px;background:rgba(47,191,113,0.06);border-radius:8px;">
                     <strong>✅ Ação:</strong> ${a.acao}
                   </div>
-                  ${a.impacto ? `<div style="font-size:0.73rem;color:#555;margin-top:6px;">💡 ${a.impacto}</div>` : ''}
+                  ${a.impacto ? `<div style="font-size:0.73rem;color:var(--terminal-ink-soft);margin-top:6px;">💡 ${a.impacto}</div>` : ''}
                 </div>`
             }).join('')}
           </div>
@@ -15270,7 +15270,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <span style="font-size:1.5rem;">✅</span>
             <div>
               <div style="font-weight:700;font-size:0.9rem;">Nenhum alerta crítico</div>
-              <div style="font-size:0.78rem;color:#666;">Seus dados não apontam conflitos financeiros graves no momento.</div>
+              <div style="font-size:0.78rem;color:var(--terminal-ink-soft);">Seus dados não apontam conflitos financeiros graves no momento.</div>
             </div>
           </div>
         </div>
@@ -15293,19 +15293,19 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                        style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;background:rgba(255,255,255,0.02);user-select:none;">
                     <div style="width:36px;height:36px;border-radius:10px;background:${cor}22;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">${m.icon}</div>
                     <div style="flex:1;">
-                      <div style="font-size:0.6rem;color:#555;letter-spacing:1px;text-transform:uppercase;">${m.hierarquia}</div>
+                      <div style="font-size:0.6rem;color:var(--terminal-ink-soft);letter-spacing:1px;text-transform:uppercase;">${m.hierarquia}</div>
                       <div style="font-weight:700;font-size:0.88rem;">${m.label}</div>
                     </div>
                     ${badgeSt(mod.status || 'CRITICO')}
                     <div style="display:flex;flex-direction:column;align-items:center;margin-left:8px;">
                       <div style="font-size:1.1rem;font-weight:800;color:${cor};">${val}</div>
-                      <div style="font-size:0.6rem;color:#555;">/100</div>
+                      <div style="font-size:0.6rem;color:var(--terminal-ink-soft);">/100</div>
                     </div>
                     <!-- barra de progresso compacta -->
                     <div style="width:60px;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;flex-shrink:0;">
                       <div style="height:100%;width:${val}%;background:${cor};border-radius:3px;transition:width 0.8s ease;"></div>
                     </div>
-                    <i class="fas fa-chevron-down" style="color:#555;font-size:0.75rem;margin-left:4px;"></i>
+                    <i class="fas fa-chevron-down" style="color:var(--terminal-ink-soft);font-size:0.75rem;margin-left:4px;"></i>
                   </div>
                   <!-- detalhe (oculto por padrão) -->
                   <div id="${id}" style="display:none;padding:14px 16px;border-top:1px solid rgba(255,255,255,0.05);background:rgba(0,0,0,0.15);">
@@ -15315,30 +15315,30 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     </div>
                     ${m.key === 'fluxo_caixa' && dados.top_categorias ? `
                       <div style="margin-top:8px;">
-                        <div style="font-size:0.72rem;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Top categorias</div>
+                        <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Top categorias</div>
                         ${dados.top_categorias.slice(0,4).map(c => `
                           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
                             <div style="font-size:0.78rem;color:#aaa;width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.nome}</div>
                             <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
                               <div style="height:100%;width:${Math.min(100,c.pct)}%;background:#ff6b6b;border-radius:3px;"></div>
                             </div>
-                            <div style="font-size:0.75rem;color:#888;width:60px;text-align:right;">${fmtM(c.valor)}</div>
+                            <div style="font-size:0.75rem;color:var(--terminal-ink-soft);width:60px;text-align:right;">${fmtM(c.valor)}</div>
                           </div>`).join('')}
                       </div>` : ''}
                     ${m.key === 'reserva_emergencia' ? `
-                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">
                         <span>💰 Atual: <strong style="color:#ddd;">${fmtM(dados.valor_atual)}</strong></span>
                         <span>🎯 Ideal: <strong style="color:#ddd;">${fmtM(dados.valor_ideal)}</strong></span>
                         <span>📅 Cobertura: <strong style="color:${(dados.meses_cobertos||0)>=3?'#2FBF71':'#ffc400'};">${(dados.meses_cobertos||0).toFixed(1)} meses</strong></span>
                       </div>` : ''}
                     ${m.key === 'dividas' ? `
-                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">
                         <span>📊 Comprometimento: <strong style="color:${(dados.comprometimento_pct||0)>30?'#ff6b6b':'#2FBF71'};">${(dados.comprometimento_pct||0).toFixed(1)}%</strong></span>
                         <span>💸 Parcela/mês: <strong style="color:#ddd;">${fmtM(dados.parcela_mensal)}</strong></span>
                         ${dados.taxa_max_aa > 0 ? `<span>📈 Taxa máx: <strong style="color:#ffc400;">${dados.taxa_max_aa}% a.a.</strong></span>` : ''}
                       </div>` : ''}
                     ${m.key === 'investimentos' ? `
-                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:#888;margin-top:4px;">
+                      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.78rem;color:var(--terminal-ink-soft);margin-top:4px;">
                         <span>💼 Carteira: <strong style="color:#ddd;">${fmtM(dados.total_atual)}</strong></span>
                         <span>📊 Rentab.: <strong style="color:${(dados.rentab_pct||0)>=0?'#2FBF71':'#ff6b6b'};">${(dados.rentab_pct||0).toFixed(2)}%</strong></span>
                         <span>👤 Perfil: <strong style="color:#74b9ff;">${dados.perfil || '—'}</strong></span>
@@ -15351,7 +15351,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                             <div style="width:80px;height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
                               <div style="height:100%;width:${Math.min(100,mt.progresso_pct)}%;background:#74b9ff;border-radius:3px;"></div>
                             </div>
-                            <div style="font-size:0.72rem;color:#888;">${mt.progresso_pct.toFixed(0)}%</div>
+                            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">${mt.progresso_pct.toFixed(0)}%</div>
                           </div>`).join('')}
                       </div>` : ''}
                   </div>
@@ -15435,7 +15435,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
                       ${atalho ? `<button onclick="VM.navigate('${atalho.rota}')" title="Ir para ${atalho.label}" style="background:${hierCor}18;border:1px solid ${hierCor}40;color:${hierCor};border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.72rem;font-weight:700;white-space:nowrap;transition:background 0.15s;" onmouseover="this.style.background='${hierCor}30'" onmouseout="this.style.background='${hierCor}18'"><i class="fas ${atalho.icon}" style="margin-right:4px;"></i>${atalho.label} →</button>` : ''}
-                      <div style="font-size:0.7rem;color:#555;white-space:nowrap;">⏱️ ${p.prazo}</div>
+                      <div style="font-size:0.7rem;color:var(--terminal-ink-soft);white-space:nowrap;">⏱️ ${p.prazo}</div>
                     </div>
                   </div>
                   <div style="padding:12px 14px 14px;background:rgba(0,0,0,0.1);">
@@ -15460,7 +15460,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <!-- 50/30/20 -->
           <div class="card">
             <div style="font-weight:700;font-size:0.9rem;margin-bottom:14px;">📐 Regra 50/30/20</div>
-            <div style="color:#666;font-size:0.72rem;margin-bottom:14px;">Ideal: 50% necessidades • 30% desejos • 20% poupança</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.72rem;margin-bottom:14px;">Ideal: 50% necessidades • 30% desejos • 20% poupança</div>
             ${r5030 ? `
               <div style="display:flex;flex-direction:column;gap:10px;">
                 ${[
@@ -15473,16 +15473,16 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     <div>
                       <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:4px;">
                         <span style="color:#aaa;">${item.l}</span>
-                        <span style="font-weight:700;color:${ok?item.cor:'#ff6b6b'};">${item.v.toFixed(1)}% <span style="color:#555;font-weight:400;">/ ${item.ideal}%</span></span>
+                        <span style="font-weight:700;color:${ok?item.cor:'#ff6b6b'};">${item.v.toFixed(1)}% <span style="color:var(--terminal-ink-soft);font-weight:400;">/ ${item.ideal}%</span></span>
                       </div>
                       <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
                         <div style="height:100%;width:${Math.min(100,item.v)}%;background:${ok?item.cor:'#ff6b6b'};border-radius:3px;transition:width 0.8s;"></div>
                       </div>
-                      <div style="font-size:0.68rem;color:#555;margin-top:3px;text-align:right;">Ideal: ${item.meta}</div>
+                      <div style="font-size:0.68rem;color:var(--terminal-ink-soft);margin-top:3px;text-align:right;">Ideal: ${item.meta}</div>
                     </div>`
                 }).join('')}
               </div>
-            ` : '<div style="color:#555;font-size:0.82rem;text-align:center;padding:20px 0;">Cadastre receitas para ativar</div>'}
+            ` : '<div style="color:var(--terminal-ink-soft);font-size:0.82rem;text-align:center;padding:20px 0;">Cadastre receitas para ativar</div>'}
           </div>
 
           <!-- Sugestões personalizadas -->
@@ -15506,7 +15506,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div id="alertas-categoria-container" style="margin-top:0;"></div>
 
         <!-- rodapé -->
-        <div style="text-align:center;font-size:0.72rem;color:#444;padding:8px 0 20px;">
+        <div style="text-align:center;font-size:0.72rem;color:var(--terminal-line-strong);padding:8px 0 20px;">
           Análise gerada em ${new Date().toLocaleString('pt-BR')} • Período ${re.periodo?.mes || '—'}/${re.periodo?.ano || '—'}
         </div>
       `
@@ -15519,7 +15519,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="card" style="text-align:center;padding:60px 40px;">
           <div style="font-size:3rem;margin-bottom:16px;">🧠</div>
           <h3 style="margin-bottom:8px;">Análise Indisponível</h3>
-          <p style="color:#666;margin-bottom:24px;">Adicione receitas e despesas para ativar o diagnóstico financeiro 360°</p>
+          <p style="color:var(--terminal-ink-soft);margin-bottom:24px;">Adicione receitas e despesas para ativar o diagnóstico financeiro 360°</p>
           <button onclick="VM.navigate('receitas')" class="btn-primary" style="width:auto;padding:10px 24px;">
             <i class="fas fa-plus"></i> Adicionar Receitas
           </button>
@@ -15546,14 +15546,14 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       const priorCor = { alta:'#ef4444', media:'#f59e0b', baixa:'#6b7280' }
 
       if (insights.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:24px;color:#555;font-size:0.85rem;">
+        container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--terminal-ink-soft);font-size:0.85rem;">
           <i class="fas fa-robot" style="font-size:2rem;margin-bottom:8px;opacity:0.3;display:block;"></i>
           Adicione mais lançamentos para eu gerar insights personalizados.
         </div>`
       } else {
         container.innerHTML = `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <span style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;">💡 Insights Personalizados — IA</span>
+            <span style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;">💡 Insights Personalizados — IA</span>
             <span style="background:rgba(47,191,113,0.1);color:#2FBF71;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;">${perfilLabel[perfil] || perfil}</span>
           </div>
           ${insights.map(ins => `
@@ -15613,7 +15613,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       const data = await this.api('GET', 'ia/score-historico')
       const hist = data.historico || []
       if (hist.length < 2) {
-        el.innerHTML = `<div class="card" style="margin-top:16px;text-align:center;padding:24px;color:#555;font-size:0.85rem;">
+        el.innerHTML = `<div class="card" style="margin-top:16px;text-align:center;padding:24px;color:var(--terminal-ink-soft);font-size:0.85rem;">
           <i class="fas fa-chart-line" style="font-size:2rem;margin-bottom:8px;opacity:0.3;display:block;"></i>
           O gráfico de evolução do score aparece após o 2º mês de uso.
         </div>`
@@ -15657,8 +15657,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              y: { min: 0, max: 100, grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#666', stepSize:25 } },
-              x: { grid: { display:false }, ticks: { color:'#666' } }
+              y: { min: 0, max: 100, grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#7A8B80', stepSize:25 } },
+              x: { grid: { display:false }, ticks: { color:'#7A8B80' } }
             }
           }
         })
@@ -15781,12 +15781,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <span style="font-size:1.1rem;">${icon}</span>
               <div>
                 <div style="font-size:0.85rem;font-weight:600;color:${cor};">${a.categoria}</div>
-                <div style="font-size:0.75rem;color:#888;">Média 3m: ${this.formatMoney(a.media_3m)} → Atual: ${this.formatMoney(a.total_atual)}</div>
+                <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">Média 3m: ${this.formatMoney(a.media_3m)} → Atual: ${this.formatMoney(a.total_atual)}</div>
               </div>
             </div>
             <div style="text-align:right;">
               <span style="font-size:1rem;font-weight:800;color:${cor};">+${a.variacao_pct}%</span>
-              <div style="font-size:0.7rem;color:#666;">acima da média</div>
+              <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">acima da média</div>
             </div>
           </div>
         `
@@ -15800,7 +15800,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <span style="margin-left:auto;background:rgba(255,196,0,0.15);color:#ffc400;font-size:0.72rem;padding:2px 9px;border-radius:20px;font-weight:700;">${data.total_alertas} alertas</span>
           </div>
           ${rows}
-          <p style="font-size:0.72rem;color:#555;margin:8px 0 0;text-align:right;">Comparado à média dos últimos 3 meses</p>
+          <p style="font-size:0.72rem;color:var(--terminal-ink-soft);margin:8px 0 0;text-align:right;">Comparado à média dos últimos 3 meses</p>
         </div>
       `
     } catch(_) {
@@ -15814,7 +15814,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">🛡️ Reserva de Emergência</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Sua proteção financeira para imprevistos</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Sua proteção financeira para imprevistos</div>
         </div>
       </div>
       <div id="reserva-container">
@@ -15859,25 +15859,25 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:28px;">
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:2rem;margin-bottom:8px;">🛡️</div>
-              <div style="font-size:1.4rem;font-weight:800;color:#888;">R$ 0</div>
-              <div style="color:#666;font-size:0.8rem;">Valor Guardado</div>
+              <div style="font-size:1.4rem;font-weight:800;color:var(--terminal-ink-soft);">R$ 0</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">Valor Guardado</div>
             </div>
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
-              <div style="font-size:1.4rem;font-weight:800;color:#888;">${this.formatMoney(valorIdeal)}</div>
-              <div style="color:#666;font-size:0.8rem;">Valor Ideal (6 meses)</div>
+              <div style="font-size:1.4rem;font-weight:800;color:var(--terminal-ink-soft);">${this.formatMoney(valorIdeal)}</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">Valor Ideal (6 meses)</div>
             </div>
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:2rem;margin-bottom:8px;">📊</div>
-              <div style="font-size:1.4rem;font-weight:800;color:#888;">${this.formatMoney(mediaGastos)}</div>
-              <div style="color:#666;font-size:0.8rem;">Média Gastos/Mês</div>
+              <div style="font-size:1.4rem;font-weight:800;color:var(--terminal-ink-soft);">${this.formatMoney(mediaGastos)}</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">Média Gastos/Mês</div>
             </div>
           </div>
 
           <div class="stat-card" style="text-align:center;padding:40px 20px;margin-bottom:28px;">
             <div style="font-size:4rem;margin-bottom:16px;">🛡️</div>
             <div style="font-size:1.2rem;font-weight:700;margin-bottom:8px;">Você ainda não tem uma reserva cadastrada</div>
-            <div style="color:#666;font-size:0.85rem;margin-bottom:24px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6;">
+            <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-bottom:24px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6;">
               Uma reserva de emergência é essencial para sua segurança financeira. Especialistas recomendam guardar entre 3 a 12 meses de despesas.
             </div>
             <button onclick="VM.modalReserva()" class="btn-primary" style="width:auto;padding:12px 28px;">
@@ -15895,22 +15895,22 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">🛡️</div>
               <div style="font-size:1.3rem;font-weight:800;color:#2FBF71;">${this.formatMoney(r.valor_atual)}</div>
-              <div style="color:#666;font-size:0.78rem;">Valor Guardado</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Valor Guardado</div>
             </div>
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">🎯</div>
               <div style="font-size:1.3rem;font-weight:800;color:#74b9ff;">${this.formatMoney(valorIdeal)}</div>
-              <div style="color:#666;font-size:0.78rem;">Meta (${objetivoMeses} meses)</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Meta (${objetivoMeses} meses)</div>
             </div>
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">📊</div>
               <div style="font-size:1.3rem;font-weight:800;">${this.formatMoney(mediaGastos)}</div>
-              <div style="color:#666;font-size:0.78rem;">Média Gastos/Mês</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Média Gastos/Mês</div>
             </div>
             <div class="stat-card" style="text-align:center;">
               <div style="font-size:1.8rem;margin-bottom:6px;">📅</div>
               <div style="font-size:1.3rem;font-weight:800;color:${barColor};">${mesesCobertos.toFixed(1)} meses</div>
-              <div style="color:#666;font-size:0.78rem;">Cobertura Atual</div>
+              <div style="color:var(--terminal-ink-soft);font-size:0.78rem;">Cobertura Atual</div>
             </div>
           </div>
 
@@ -15919,7 +15919,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
               <div>
                 <div style="font-weight:700;font-size:1rem;">${r.nome || 'Reserva de Emergência'}</div>
-                <div style="font-size:0.8rem;color:#888;margin-top:2px;">${statusIcon} ${statusMsg}</div>
+                <div style="font-size:0.8rem;color:var(--terminal-ink-soft);margin-top:2px;">${statusIcon} ${statusMsg}</div>
               </div>
               <div style="display:flex;gap:8px;">
                 <button onclick="VM.modalReservaDeposito(${r.id}, ${r.valor_atual})" class="btn-primary" style="padding:8px 16px;font-size:0.8rem;">
@@ -15947,12 +15947,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   return `<div style="position:absolute;left:${pLeft}%;top:50%;transform:translate(-50%,-50%);z-index:2;">
                     <div style="width:3px;height:28px;background:${atingido?'#fff':'rgba(255,255,255,0.3)'};border-radius:2px;"></div>
                   </div>
-                  <div style="position:absolute;left:${pLeft}%;top:100%;transform:translateX(-50%);margin-top:4px;font-size:0.6rem;color:${atingido?barColor:'#555'};font-weight:${atingido?'700':'400'};white-space:nowrap;">${mk.l}</div>`
+                  <div style="position:absolute;left:${pLeft}%;top:100%;transform:translateX(-50%);margin-top:4px;font-size:0.6rem;color:${atingido?barColor:'#7A8B80'};font-weight:${atingido?'700':'400'};white-space:nowrap;">${mk.l}</div>`
                 }).join('')}
               </div>
             </div>
             <!-- Labels abaixo do termômetro -->
-            <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#888;margin-top:22px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:22px;margin-bottom:8px;">
               <span>${this.formatMoney(r.valor_atual)} guardados</span>
               <span style="color:${barColor};font-weight:700;">${cobertura}% (${mesesCobertos.toFixed(1)} meses)</span>
               <span>Meta: ${this.formatMoney(valorIdeal)}</span>
@@ -15965,10 +15965,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               return `
               <div style="margin-top:10px;padding:14px 16px;background:rgba(255,196,0,0.07);border:1px solid rgba(255,196,0,0.15);border-radius:10px;font-size:0.82rem;color:#cca800;">
                 <div style="margin-bottom:8px;"><i class="fas fa-info-circle"></i> Faltam <strong>${this.formatMoney(falta)}</strong> para completar sua reserva de ${objetivoMeses} meses.</div>
-                <div style="font-size:0.75rem;color:#888;margin-bottom:6px;font-weight:600;">💡 Meta de aporte mensal para atingir em:</div>
+                <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:6px;font-weight:600;">💡 Meta de aporte mensal para atingir em:</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   ${aportes.map(m => `<div style="background:rgba(255,196,0,0.1);border-radius:8px;padding:6px 10px;text-align:center;min-width:80px;">
-                    <div style="font-size:0.65rem;color:#888;">${m} meses</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">${m} meses</div>
                     <div style="font-size:0.82rem;font-weight:700;color:#ffc400;">${this.formatMoney(falta/m)}/mês</div>
                   </div>`).join('')}
                 </div>
@@ -15989,7 +15989,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
             <!-- Histórico de movimentações -->
             <div style="margin-top:14px;" id="res-historico-container">
-              <button onclick="VM.carregarHistoricoReserva(${r.id})" style="width:100%;padding:8px;background:rgba(255,255,255,0.04);color:#888;border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;font-size:0.78rem;">
+              <button onclick="VM.carregarHistoricoReserva(${r.id})" style="width:100%;padding:8px;background:rgba(255,255,255,0.04);color:var(--terminal-ink-soft);border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;font-size:0.78rem;">
                 <i class="fas fa-history"></i> Ver histórico de movimentações
               </button>
             </div>
@@ -15997,13 +15997,13 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
           <!-- MARCOS -->
           <div class="stat-card" style="margin-bottom:24px;">
-            <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">🏅 Marcos da Reserva</div>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--terminal-ink-soft);letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">🏅 Marcos da Reserva</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;">
               ${[{m:1,l:'1 mês',i:'🛡️'},{m:3,l:'3 meses',i:'💪'},{m:6,l:'6 meses',i:'🏆'},{m:12,l:'12 meses',i:'👑'}].map(marco => {
                 const atingido = mesesCobertos >= marco.m
                 return `<div style="text-align:center;padding:14px 10px;border-radius:12px;background:${atingido?'rgba(47,191,113,0.1)':'rgba(255,255,255,0.03)'};border:1px solid ${atingido?'rgba(47,191,113,0.3)':'rgba(255,255,255,0.06)'};">
                   <div style="font-size:1.8rem;margin-bottom:6px;${atingido?'':'filter:grayscale(80%);opacity:0.4;'}">${marco.i}</div>
-                  <div style="font-size:0.78rem;font-weight:700;color:${atingido?'#2FBF71':'#555'};">${marco.l}</div>
+                  <div style="font-size:0.78rem;font-weight:700;color:${atingido?'#2FBF71':'#7A8B80'};">${marco.l}</div>
                   <div style="font-size:0.7rem;color:${atingido?'#2FBF71':'#444'};margin-top:2px;">${atingido?'✓ Atingido':mediaGastos>0?'Meta: '+this.formatMoney(marco.m*mediaGastos):'Lançe despesas para calcular'}</div>
                 </div>`
               }).join('')}
@@ -16017,15 +16017,15 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 <span style="font-size:1.4rem;">💰</span>
                 <div>
                   <div style="font-weight:700;font-size:0.9rem;">Caixinha CDI detectada</div>
-                  <div style="font-size:0.75rem;color:#888;">Você tem ${caixinhas.length} investimento(s) de liquidez diária</div>
+                  <div style="font-size:0.75rem;color:var(--terminal-ink-soft);">Você tem ${caixinhas.length} investimento(s) de liquidez diária</div>
                 </div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                 ${caixinhas.map(c => `
                   <div style="padding:10px;background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:8px;">
-                    <div style="font-size:0.75rem;color:#888;margin-bottom:2px;">${c.nome||'Caixinha'}</div>
+                    <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:2px;">${c.nome||'Caixinha'}</div>
                     <div style="font-weight:700;color:#2FBF71;font-size:0.9rem;">${this.formatMoney(c.valor_atual||c.valor_investido||0)}</div>
-                    ${c.percentual_cdi ? `<div style="font-size:0.68rem;color:#888;">${c.percentual_cdi}% CDI</div>` : ''}
+                    ${c.percentual_cdi ? `<div style="font-size:0.68rem;color:var(--terminal-ink-soft);">${c.percentual_cdi}% CDI</div>` : ''}
                   </div>
                 `).join('')}
               </div>
@@ -16042,7 +16042,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           ` : mediaGastos > 0 && (r?.valor_atual || 0) > 0 ? `
             <div class="stat-card" style="margin-bottom:24px;border-color:rgba(116,185,255,0.2);">
               <div style="font-weight:700;font-size:0.88rem;margin-bottom:10px;">💡 Sugestão: Onde guardar sua reserva</div>
-              <div style="font-size:0.8rem;color:#888;margin-bottom:12px;">CDI atual: <strong style="color:#74b9ff;">${cdiAtual.toFixed(2)}% a.a.</strong></div>
+              <div style="font-size:0.8rem;color:var(--terminal-ink-soft);margin-bottom:12px;">CDI atual: <strong style="color:#74b9ff;">${cdiAtual.toFixed(2)}% a.a.</strong></div>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 ${[
                   { nome: 'Caixinha CDI (inter/nubank)', pct: '100% CDI', destaque: true, obs: 'Liquidez diária, sem IR para curto prazo' },
@@ -16052,7 +16052,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:${s.destaque?'rgba(47,191,113,0.08)':'rgba(255,255,255,0.03)'};border:1px solid ${s.destaque?'rgba(47,191,113,0.2)':'rgba(255,255,255,0.05)'};border-radius:8px;">
                     <div>
                       <div style="font-size:0.8rem;font-weight:600;${s.destaque?'color:#2FBF71;':''}">${s.nome}</div>
-                      <div style="font-size:0.68rem;color:#666;">${s.obs}</div>
+                      <div style="font-size:0.68rem;color:var(--terminal-ink-soft);">${s.obs}</div>
                     </div>
                     <div style="font-size:0.8rem;font-weight:700;color:#74b9ff;">${s.pct}</div>
                   </div>
@@ -16072,7 +16072,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   renderEducacaoReserva() {
     return `
       <div class="stat-card">
-        <div style="font-size:0.85rem;font-weight:600;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;">📚 Como Funciona uma Reserva de Emergência</div>
+        <div style="font-size:0.85rem;font-weight:600;color:var(--terminal-ink-soft);letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;">📚 Como Funciona uma Reserva de Emergência</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
           <div style="padding:16px;background:rgba(116,185,255,0.07);border:1px solid rgba(116,185,255,0.15);border-radius:12px;">
             <div style="font-size:1.5rem;margin-bottom:10px;">🤔</div>
@@ -16110,7 +16110,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="modal" style="max-width:480px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <h3 style="font-size:1.1rem;font-weight:700;">${isEdit ? '✏️ Editar' : '🛡️ Criar'} Reserva de Emergência</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <form id="reserva-form">
             <div class="form-group">
@@ -16172,7 +16172,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.1rem;font-weight:700;">💰 Depositar na Reserva</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(47,191,113,0.07);border:1px solid rgba(47,191,113,0.15);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.82rem;color:#2FBF71;">
             Saldo atual: <strong>${this.formatMoney(valorAtual)}</strong>
@@ -16249,7 +16249,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="font-size:1.1rem;font-weight:700;">📤 Usar Reserva de Emergência</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <div style="background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.82rem;color:#ff6b6b;">
             ⚠️ Você está retirando dinheiro da sua proteção financeira. Utilize apenas em emergências reais e reponha assim que possível.<br>
@@ -16322,17 +16322,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
   async carregarHistoricoReserva(id) {
     const el = document.getElementById('res-historico-container')
     if (!el) return
-    el.innerHTML = '<div style="text-align:center;padding:16px;color:#888;font-size:0.82rem;"><i class="fas fa-spinner fa-spin"></i> Carregando histórico...</div>'
+    el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--terminal-ink-soft);font-size:0.82rem;"><i class="fas fa-spinner fa-spin"></i> Carregando histórico...</div>'
     try {
       const d = await this.api('GET', 'reserva/historico')
       const hist = d.historico || []
       if (hist.length === 0) {
-        el.innerHTML = '<div style="text-align:center;color:#555;font-size:0.8rem;padding:12px;">Nenhuma movimentação registrada ainda.</div>'
+        el.innerHTML = '<div style="text-align:center;color:var(--terminal-ink-soft);font-size:0.8rem;padding:12px;">Nenhuma movimentação registrada ainda.</div>'
         return
       }
       el.innerHTML = `
         <div style="margin-top:8px;">
-          <div style="font-size:0.78rem;font-weight:600;color:#888;margin-bottom:8px;">📜 Histórico de Movimentações</div>
+          <div style="font-size:0.78rem;font-weight:600;color:var(--terminal-ink-soft);margin-bottom:8px;">📜 Histórico de Movimentações</div>
           <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
             ${hist.map(h => {
               const isDeposito = h.tipo === 'deposito'
@@ -16344,9 +16344,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 <span style="font-size:1rem;">${icone}</span>
                 <div style="flex:1;min-width:0;">
                   <div style="font-size:0.78rem;font-weight:600;color:${cor};">${isDeposito?'+':isSaque?'-':''}${this.formatMoney(h.valor || h.amount || 0)}</div>
-                  <div style="font-size:0.68rem;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${h.descricao || h.notes || h.tipo} • ${this.formatDate(data)}</div>
+                  <div style="font-size:0.68rem;color:var(--terminal-ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${h.descricao || h.notes || h.tipo} • ${this.formatDate(data)}</div>
                 </div>
-                <div style="text-align:right;flex-shrink:0;font-size:0.68rem;color:#555;">${this.formatMoney(h.saldo_depois || 0)}</div>
+                <div style="text-align:right;flex-shrink:0;font-size:0.68rem;color:var(--terminal-ink-soft);">${this.formatMoney(h.saldo_depois || 0)}</div>
               </div>`
             }).join('')}
           </div>
@@ -16388,7 +16388,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">🏆 Conquistas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Sua jornada de evolução financeira</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Sua jornada de evolução financeira</div>
         </div>
         <button onclick="VM.verificarNovasConquistas()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-sync-alt"></i> Verificar Novas
@@ -16519,7 +16519,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                onmouseout="this.style.transform='';this.style.boxShadow='${shimmer.includes('box-shadow')?`0 0 18px ${cor}33`:'none'}'">
             ${!bloqueada && naoVisualizadas > 0 && !c.visualizado ? '<div style="position:absolute;top:10px;right:10px;width:8px;height:8px;background:#2FBF71;border-radius:50%;"></div>' : ''}
             <div style="font-size:${isLendario?'2.8':'2.2'}rem;margin-bottom:8px;${bloqueada?'filter:grayscale(80%);':''}${isLendario&&!bloqueada?'animation:pulse 2s infinite;':''}">${c.icone || (bloqueada?'🔒':'🏆')}</div>
-            <div style="font-weight:700;font-size:0.85rem;margin-bottom:4px;${bloqueada?'color:#555;':isLendario?'color:#ffc400;':isEpico?'color:#a29bfe;':''}">${c.titulo}</div>
+            <div style="font-weight:700;font-size:0.85rem;margin-bottom:4px;${bloqueada?'color:var(--terminal-ink-soft);':isLendario?'color:#ffc400;':isEpico?'color:#a29bfe;':''}">${c.titulo}</div>
             <div style="font-size:0.7rem;color:${bloqueada?'#444':'#777'};margin-bottom:8px;line-height:1.4;">${c.descricao}</div>
             ${prog && !c.conquistada ? `
               <div style="margin:0 0 8px;background:rgba(255,255,255,0.06);border-radius:20px;height:6px;overflow:hidden;">
@@ -16530,7 +16530,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="display:flex;justify-content:center;gap:5px;flex-wrap:wrap;">
               <span style="font-size:0.65rem;background:${cor}22;color:${cor};padding:2px 7px;border-radius:50px;border:1px solid ${cor}33;">${raridadeLabel[c.raridade]||c.raridade}</span>
               <span style="font-size:0.65rem;color:${bloqueada?'#444':'#ffc400'};">⭐ ${c.pontos} pts</span>
-              ${!bloqueada && c.data_conquista ? `<span style="font-size:0.62rem;color:#555;">${this.formatDate(c.data_conquista)}</span>` : ''}
+              ${!bloqueada && c.data_conquista ? `<span style="font-size:0.62rem;color:var(--terminal-ink-soft);">${this.formatDate(c.data_conquista)}</span>` : ''}
             </div>
           </div>
         `
@@ -16545,28 +16545,28 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin-bottom:24px;">
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:6px;">🏆</div>
-            <div style="font-size:1.6rem;font-weight:800;color:#2FBF71;">${conquistadas.length}<span style="font-size:0.8rem;color:#555;">/${todas.length}</span></div>
-            <div style="color:#888;font-size:0.75rem;">Desbloqueadas</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#2FBF71;">${conquistadas.length}<span style="font-size:0.8rem;color:var(--terminal-ink-soft);">/${todas.length}</span></div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Desbloqueadas</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:6px;">⭐</div>
             <div style="font-size:1.6rem;font-weight:800;color:#ffc400;">${pontos_total}</div>
-            <div style="color:#888;font-size:0.75rem;">Pontos</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Pontos</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:6px;">🌟</div>
             <div style="font-size:1.6rem;font-weight:800;color:#a29bfe;">${conquistadas.filter(c=>c.raridade==='epico').length}</div>
-            <div style="color:#888;font-size:0.75rem;">Épicas</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Épicas</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:6px;">👑</div>
             <div style="font-size:1.6rem;font-weight:800;color:#ffc400;">${conquistadas.filter(c=>c.raridade==='lendario').length}</div>
-            <div style="color:#888;font-size:0.75rem;">Lendárias</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Lendárias</div>
           </div>
           <div class="stat-card" style="text-align:center;">
             <div style="font-size:2rem;margin-bottom:6px;">📊</div>
             <div style="font-size:1.6rem;font-weight:800;color:#74b9ff;">${Math.round(conquistadas.length/Math.max(1,todas.length)*100)}%</div>
-            <div style="color:#888;font-size:0.75rem;">Progresso</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">Progresso</div>
           </div>
         </div>
 
@@ -16574,7 +16574,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="card" style="margin-bottom:20px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
             <div style="font-weight:700;font-size:0.9rem;">Jornada de Conquistas</div>
-            <div style="font-size:0.8rem;color:#888;">${conquistadas.length} de ${todas.length} desbloqueadas</div>
+            <div style="font-size:0.8rem;color:var(--terminal-ink-soft);">${conquistadas.length} de ${todas.length} desbloqueadas</div>
           </div>
           <div style="background:rgba(255,255,255,0.06);border-radius:20px;height:12px;overflow:hidden;margin-bottom:8px;">
             <div style="height:100%;width:${Math.round(conquistadas.length/Math.max(1,todas.length)*100)}%;background:linear-gradient(90deg,#2FBF71,#74b9ff);border-radius:20px;transition:width 0.8s;"></div>
@@ -16583,7 +16583,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             ${['lendario','epico','raro','comum'].map(r => `
               <div style="display:flex;align-items:center;gap:4px;">
                 <div style="width:8px;height:8px;border-radius:50%;background:${raridadeCores[r]};"></div>
-                <span style="font-size:0.7rem;color:#666;">${raridadeLabel[r]}: ${conquistadas.filter(c=>c.raridade===r).length}</span>
+                <span style="font-size:0.7rem;color:var(--terminal-ink-soft);">${raridadeLabel[r]}: ${conquistadas.filter(c=>c.raridade===r).length}</span>
               </div>`).join('')}
           </div>
         </div>
@@ -16601,7 +16601,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                     <div style="background:rgba(255,255,255,0.06);border-radius:20px;height:5px;overflow:hidden;margin-top:5px;">
                       <div style="height:100%;width:${c.progresso.pct}%;background:${raridadeCores[c.raridade]||'#74b9ff'};border-radius:20px;"></div>
                     </div>
-                    <div style="font-size:0.65rem;color:#888;margin-top:3px;">${c.progresso.atual}/${c.progresso.total} — ${c.progresso.pct}%</div>
+                    <div style="font-size:0.65rem;color:var(--terminal-ink-soft);margin-top:3px;">${c.progresso.atual}/${c.progresso.total} — ${c.progresso.pct}%</div>
                   </div>
                   <div style="font-size:0.7rem;color:#ffc400;flex-shrink:0;">⭐ ${c.pontos} pts</div>
                 </div>
@@ -16625,7 +16625,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;" id="conq-filtros">
           ${[{k:'todas',l:'Todas'},{k:'desbloqueadas',l:'✅ Desbloqueadas'},{k:'proximas',l:'🚀 Próximas'},{k:'bloqueadas',l:'🔒 Bloqueadas'}].map(f => `
             <button onclick="VM._conqFiltroEstado('${f.k}')" id="conq-filtro-${f.k}"
-              style="padding:5px 12px;border-radius:20px;border:1px solid ${filtroAtivo===f.k?'#74b9ff':'rgba(255,255,255,0.08)'};background:${filtroAtivo===f.k?'rgba(116,185,255,0.12)':'transparent'};color:${filtroAtivo===f.k?'#74b9ff':'#666'};font-size:0.74rem;cursor:pointer;">
+              style="padding:5px 12px;border-radius:20px;border:1px solid ${filtroAtivo===f.k?'#74b9ff':'rgba(255,255,255,0.08)'};background:${filtroAtivo===f.k?'rgba(116,185,255,0.12)':'transparent'};color:${filtroAtivo===f.k?'#74b9ff':'#7A8B80'};font-size:0.74rem;cursor:pointer;">
               ${f.l}
             </button>
           `).join('')}
@@ -16634,7 +16634,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <!-- CONQUISTAS DESBLOQUEADAS -->
         ${conquistadasFiltradas.length > 0 ? `
           <div style="margin-bottom:28px;">
-            <div style="font-size:0.8rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">✅ Desbloqueadas (${conquistadasFiltradas.length})</div>
+            <div style="font-size:0.8rem;font-weight:700;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">✅ Desbloqueadas (${conquistadasFiltradas.length})</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;">
               ${conquistadasFiltradas.map(c => renderCard(c)).join('')}
             </div>
@@ -16644,7 +16644,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <!-- CONQUISTAS BLOQUEADAS -->
         ${disponiveisFiltradas.length > 0 ? `
           <div>
-            <div style="font-size:0.8rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">🔒 Para Desbloquear (${disponiveisFiltradas.length})</div>
+            <div style="font-size:0.8rem;font-weight:700;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">🔒 Para Desbloquear (${disponiveisFiltradas.length})</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;">
               ${disponiveisFiltradas.map(c => renderCard(c)).join('')}
             </div>
@@ -16652,7 +16652,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         ` : ''}
 
         ${listaFiltrada.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#555;">
+          <div style="text-align:center;padding:40px;color:var(--terminal-ink-soft);">
             <div style="font-size:2.5rem;margin-bottom:12px;">🔍</div>
             <div>Nenhuma conquista neste filtro</div>
           </div>
@@ -16729,7 +16729,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     }
 
     const renderPage = async () => {
-      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
+      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>`
       const data = await this.api('GET', `orcamentos?mes=${mesSel}&ano=${anoSel}`)
       const orcs = data.orcamentos || []
       const sem  = data.semOrcamento || []
@@ -16772,7 +16772,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
           <div>
             <div style="font-size:1.1rem;font-weight:700;">📊 Orçamentos por Categoria</div>
-            <div style="color:#666;font-size:0.82rem;margin-top:2px;">Limites mensais com alertas progressivos e rollover</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-top:2px;">Limites mensais com alertas progressivos e rollover</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <select id="sel-mes" style="background:#111827;border:1px solid #1f2937;color:#e0e0e0;border-radius:8px;padding:8px 12px;font-size:0.82rem;" onchange="VM._orcMesChange()">
@@ -16806,7 +16806,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               ${buildProgressBar(globalOrc.percentual, '#818CF8')}
               <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-top:4px;">
                 <span style="color:#818CF8;font-weight:700;">${globalOrc.percentual}%</span>
-                <span style="color:#555;">Restam: ${this.fmt(globalOrc.restante)}${globalOrc.rollover>0?` (+${this.fmt(globalOrc.rollover)} rollover)`:''}</span>
+                <span style="color:var(--terminal-ink-soft);">Restam: ${this.fmt(globalOrc.restante)}${globalOrc.rollover>0?` (+${this.fmt(globalOrc.rollover)} rollover)`:''}</span>
               </div>
             </div>
             <div style="display:flex;gap:8px;">
@@ -16821,7 +16821,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <!-- Resumo dos orçamentos por categoria -->
         <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
-            <div style="font-size:0.72rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Soma das Categorias</div>
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Soma das Categorias</div>
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
               <span style="font-size:0.82rem;color:#94a3b8;">Gasto: <strong style="color:${corGlobal};">${this.fmt(totalGasto)}</strong></span>
               <span style="font-size:0.82rem;color:#94a3b8;">Limite: <strong style="color:#e0e0e0;">${this.fmt(totalLimite)}</strong></span>
@@ -16838,7 +16838,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             ].map(s => `
               <div style="text-align:center;">
                 <div style="font-size:1.5rem;font-weight:800;color:${s.cor};">${s.val}</div>
-                <div style="font-size:0.7rem;color:#555;">${s.label}</div>
+                <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">${s.label}</div>
               </div>`).join('')}
           </div>
         </div>
@@ -16862,7 +16862,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   </div>
                 </div>
                 <div style="display:flex;gap:4px;">
-                  <button onclick="VM._editarOrcamento(${o.id},'${o.categoria}',${o.limite},${o.alerta_percentual})" style="background:rgba(255,255,255,0.06);border:1px solid #333;color:#aaa;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                  <button onclick="VM._editarOrcamento(${o.id},'${o.categoria}',${o.limite},${o.alerta_percentual})" style="background:rgba(255,255,255,0.06);border:1px solid var(--terminal-line);color:#aaa;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
                   <button onclick="VM._deletarOrcamento(${o.id},'${o.label.replace(/'/g,"\\'")}',${o.gasto})" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                 </div>
               </div>
@@ -16879,7 +16879,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <!-- Percentual e restante -->
               <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-top:2px;">
                 <span style="color:${cfg.cor};font-weight:700;">${o.percentual}%</span>
-                <span style="color:#555;">Restam: <strong style="color:${o.restante_real<0?'#F43F5E':'#94a3b8'};">${this.fmt(Math.abs(o.restante_real||o.restante))}${o.restante_real<0?' excedido':''}</strong></span>
+                <span style="color:var(--terminal-ink-soft);">Restam: <strong style="color:${o.restante_real<0?'#F43F5E':'#94a3b8'};">${this.fmt(Math.abs(o.restante_real||o.restante))}${o.restante_real<0?' excedido':''}</strong></span>
               </div>
 
               <!-- Rollover (se houver) -->
@@ -16903,7 +16903,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:40px;text-align:center;margin-bottom:20px;">
           <div style="font-size:3rem;margin-bottom:12px;">📊</div>
           <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px;">Nenhum orçamento em ${mesNomes[mesSel]}/${anoSel}</div>
-          <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Crie orçamentos por categoria para controlar seus gastos proativamente.</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-bottom:20px;">Crie orçamentos por categoria para controlar seus gastos proativamente.</div>
           <button onclick="VM._abrirNovoOrcamento()" class="btn-primary" style="padding:10px 24px;">
             <i class="fas fa-plus"></i> Criar Primeiro Orçamento
           </button>
@@ -16913,10 +16913,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <!-- Categorias sem orçamento com sugestão -->
         ${sem.length > 0 ? `
         <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;">
-          <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">💡 Categorias sem orçamento</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">💡 Categorias sem orçamento</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
             ${sem.map(s => `
-              <button onclick="VM._abrirNovoOrcamento('${s.categoria}'${s.sugestao?`,${s.sugestao}`:''})" style="background:rgba(255,255,255,0.04);border:1px solid #1f2937;color:#888;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.78rem;transition:all 0.2s;" onmouseover="this.style.borderColor='#10B981';this.style.color='#10B981'" onmouseout="this.style.borderColor='#1f2937';this.style.color='#888'">
+              <button onclick="VM._abrirNovoOrcamento('${s.categoria}'${s.sugestao?`,${s.sugestao}`:''})" style="background:rgba(255,255,255,0.04);border:1px solid #1f2937;color:var(--terminal-ink-soft);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:0.78rem;transition:all 0.2s;" onmouseover="this.style.borderColor='#10B981';this.style.color='#10B981'" onmouseout="this.style.borderColor='#1f2937';this.style.color='#888'">
                 ${s.label}${s.sugestao?` · ${this.fmt(s.sugestao)}/mês`:''} <span style="color:#10B981;margin-left:4px;">+</span>
               </button>`).join('')}
           </div>
@@ -16946,25 +16946,25 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">📊 Novo Orçamento</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Defina o limite mensal para uma categoria · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:20px;">Defina o limite mensal para uma categoria · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Categoria</label>
             <select id="orc-cat" onchange="VM._onOrcCatChange(this.value)" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
               ${Object.entries(catLabel).map(([v,l]) => `<option value="${v}" ${v===catSel?'selected':''}>${l}</option>`).join('')}
             </select>
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite (R$)</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Limite (R$)</label>
             <input id="orc-limite" type="number" min="1" step="0.01" value="${sugVal}" placeholder="Ex: 500,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
             <div id="orc-sugestao-hint" style="font-size:0.7rem;color:#818CF8;margin-top:3px;${sugVal?'':'display:none'}">
               💡 Sugerido baseado nos últimos 3 meses (+10% margem)
             </div>
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
             <input id="orc-alerta" type="number" min="50" max="100" value="80" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button onclick="VM._salvarOrcamento(${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
@@ -16992,18 +16992,18 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     this._editarOrcamento = (id, cat, limite, alerta) => {
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">✏️ Editar Orçamento</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">${catLabel[cat] || cat}</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:20px;">${catLabel[cat] || cat}</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <input type="hidden" id="orc-edit-id" value="${id}">
           <input type="hidden" id="orc-cat" value="${cat}">
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite (R$)</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Limite (R$)</label>
             <input id="orc-limite" type="number" min="1" step="0.01" value="${limite}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Alertar ao atingir (%)</label>
             <input id="orc-alerta" type="number" min="50" max="100" value="${alerta}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-            <div style="font-size:0.7rem;color:#555;margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
+            <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">Alertas progressivos automáticos em 70%, 90% e 100%</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button onclick="VM._salvarOrcamentoById(${id},${mesSel},${anoSel})" class="btn-primary" style="flex:1;justify-content:center;padding:10px;">💾 Salvar</button>
@@ -17054,10 +17054,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">🌐 Orçamento Global</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Limite total de gastos para o mês · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:20px;">Limite total de gastos para o mês · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][mesSel-1]}/${anoSel}</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Limite Global (R$)</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Limite Global (R$)</label>
             <input id="orc-global-limite" type="number" min="1" step="0.01" value="${atual?.limite||''}" placeholder="Ex: 5000,00" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
           </div>
           <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:10px;padding:12px;">
@@ -17065,7 +17065,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <input type="checkbox" id="orc-global-rollover" ${atual?.rollover_ativo?'checked':''} style="width:18px;height:18px;accent-color:#fbbf24;cursor:pointer;">
               🔄 Ativar Rollover
             </label>
-            <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+            <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:6px;padding-left:28px;">
               O saldo não gasto do mês anterior é somado ao limite do próximo mês.
             </div>
           </div>
@@ -17274,7 +17274,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     const MESES_NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
     const renderRec = async () => {
-      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i></div>`
+      content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:80px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i></div>`
       const data = await this.api('GET', 'recorrencias')
       // Salva referência no objeto para uso fora do escopo (delete/edit modais)
       this._renderRecCallback = renderRec
@@ -17290,7 +17290,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
           <div>
             <div style="font-size:1.1rem;font-weight:700;">🔄 Recorrências Automáticas</div>
-            <div style="color:#666;font-size:0.82rem;">Transações fixas ou variáveis geradas todo mês</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.82rem;">Transações fixas ou variáveis geradas todo mês</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button onclick="VM._processarRecorrencias()" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#74b9ff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:0.78rem;"><i class="fas fa-play"></i> Processar Mês Atual</button>
@@ -17310,7 +17310,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:14px 16px;">
               <div style="font-size:1.4rem;margin-bottom:6px;">${s.icon}</div>
               <div style="font-size:1.4rem;font-weight:800;color:${s.cor};">${s.val}</div>
-              <div style="font-size:0.72rem;color:#555;">${s.label}</div>
+              <div style="font-size:0.72rem;color:var(--terminal-ink-soft);">${s.label}</div>
             </div>`).join('')}
         </div>
 
@@ -17318,19 +17318,19 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:40px;text-align:center;">
             <div style="font-size:3rem;margin-bottom:12px;">🔄</div>
             <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px;">Nenhuma recorrência cadastrada</div>
-            <div style="color:#666;font-size:0.85rem;margin-bottom:20px;">Cadastre suas contas fixas ou variáveis para controlar todo mês.</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-bottom:20px;">Cadastre suas contas fixas ou variáveis para controlar todo mês.</div>
             <button onclick="VM._abrirNovaRecorrencia()" class="btn-primary" style="padding:10px 24px;"><i class="fas fa-plus"></i> Criar Primeira Recorrência</button>
           </div>
         ` : `
           <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch;">
             <table style="width:100%;min-width:640px;border-collapse:collapse;font-size:0.82rem;">
               <thead><tr style="border-bottom:1px solid #1f2937;">
-                <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Descrição</th>
-                <th style="padding:12px 16px;text-align:left;color:#888;font-size:0.72rem;text-transform:uppercase;">Tipo</th>
-                <th style="padding:12px 16px;text-align:right;color:#888;font-size:0.72rem;text-transform:uppercase;">Valor</th>
-                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Dia</th>
-                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Status</th>
-                <th style="padding:12px 16px;text-align:center;color:#888;font-size:0.72rem;text-transform:uppercase;">Ações</th>
+                <th style="padding:12px 16px;text-align:left;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Descrição</th>
+                <th style="padding:12px 16px;text-align:left;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Tipo</th>
+                <th style="padding:12px 16px;text-align:right;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Valor</th>
+                <th style="padding:12px 16px;text-align:center;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Dia</th>
+                <th style="padding:12px 16px;text-align:center;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Status</th>
+                <th style="padding:12px 16px;text-align:center;color:var(--terminal-ink-soft);font-size:0.72rem;text-transform:uppercase;">Ações</th>
               </tr></thead>
               <tbody>
                 ${recs.map((r, idx) => {
@@ -17347,7 +17347,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                         ${r.descricao}
                         ${isVar ? '<span style="background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:1px 7px;font-size:0.65rem;font-weight:700;">&#8597; Variável</span>' : ''}
                       </div>
-                      <div style="font-size:0.7rem;color:#555;">${r.categoria} · Dia ${r.dia_vencimento}</div>
+                      <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">${r.categoria} · Dia ${r.dia_vencimento}</div>
                       ${r.ativa && !r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">&#128197; Próximo: ' + valorLabel + ' · dia ' + Math.min(r.dia_vencimento||1, new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()) + '</div>' : r.ativa && r.valor_variavel ? '<div style="font-size:0.67rem;color:#475569;margin-top:2px;">&#128197; Próximo: valor a definir</div>' : ''}
                     </td>
                     <td style="padding:12px 16px;">
@@ -17369,8 +17369,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                           <i class="fas fa-paper-plane"></i>${jaGerada ? ' &#10003;' : ''}
                         </button>
                         <button data-action="historico" data-id="${r.id}" data-desc="${encodeURIComponent(r.descricao)}" title="Ver histórico" style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2);color:#818CF8;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-history"></i></button>
-                        <button data-action="toggle" data-id="${r.id}" data-ativa="${r.ativa?1:0}" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
-                        <button data-action="editar" data-rec="${recJson}" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
+                        <button data-action="toggle" data-id="${r.id}" data-ativa="${r.ativa?1:0}" title="${r.ativa?'Pausar':'Ativar'}" style="background:rgba(255,255,255,0.05);border:1px solid var(--terminal-line);color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-${r.ativa?'pause':'play'}"></i></button>
+                        <button data-action="editar" data-rec="${recJson}" title="Editar" style="background:rgba(255,255,255,0.05);border:1px solid var(--terminal-line);color:#aaa;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-edit"></i></button>
                         <button data-action="deletar" data-id="${r.id}" data-desc="${encodeURIComponent(r.descricao)}" style="background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#F43F5E;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:0.7rem;"><i class="fas fa-trash"></i></button>
                       </div>
                     </td>
@@ -17406,17 +17406,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     this._abrirNovaRecorrencia = () => {
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">🔄 Nova Recorrência</div>
-        <div style="color:#666;font-size:0.82rem;margin-bottom:20px;">Transação que se repete todo mês — fixa ou com valor variável</div>
+        <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:20px;">Transação que se repete todo mês — fixa ou com valor variável</div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Tipo</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Tipo</label>
             <select id="rec-tipo" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
               <option value="despesa">💸 Despesa</option>
               <option value="receita">💰 Receita</option>
             </select>
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Descrição</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Descrição</label>
             <input id="rec-desc" type="text" placeholder="Ex: Aluguel, Salário, Obra..." style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
           </div>
 
@@ -17427,27 +17427,27 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                 style="width:18px;height:18px;accent-color:#fbbf24;cursor:pointer;">
               ↕ Valor Variável (define na hora de lançar)
             </label>
-            <div style="font-size:0.75rem;color:#888;margin-top:6px;padding-left:28px;">
+            <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:6px;padding-left:28px;">
               Use para contas cujo valor muda todo mês, ex: conta de água, obra, comissão.
             </div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div>
-              <label id="rec-valor-label" style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Valor (R$)</label>
+              <label id="rec-valor-label" style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Valor (R$)</label>
               <input id="rec-valor" type="number" min="0" step="0.01" placeholder="0,00"
                 style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
-              <div id="rec-valor-hint" style="font-size:0.7rem;color:#888;margin-top:3px;display:none;">
+              <div id="rec-valor-hint" style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;display:none;">
                 Valor de referência (será confirmado no lançamento)
               </div>
             </div>
             <div>
-              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Dia do mês</label>
+              <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Dia do mês</label>
               <input id="rec-dia" type="number" min="1" max="31" placeholder="1-31" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
             </div>
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Categoria</label>
             <select id="rec-cat" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
               ${['Moradia','Alimentação','Transporte','Saúde','Educação','Lazer','Assinaturas','Salário','Freelance','Outros'].map(c => `<option value="${c.toLowerCase()}">${c}</option>`).join('')}
             </select>
@@ -17535,30 +17535,30 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       // Histórico HTML
       const histHtml = hist.length > 0 ? `
         <div style="margin-top:16px;">
-          <div style="font-size:0.72rem;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">📊 Histórico de lançamentos</div>
+          <div style="font-size:0.72rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">📊 Histórico de lançamentos</div>
           <div style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;">
             ${hist.map(h => `
               <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border-radius:8px;padding:7px 12px;font-size:0.8rem;">
                 <span style="color:#94a3b8;">${MESES[(h.mes||1)-1]}/${h.ano}</span>
                 <span style="font-weight:700;color:${corTipo};">${this.fmt(h.valor)}</span>
-                ${h.observacao ? `<span style="color:#555;font-size:0.7rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${h.observacao}">${h.observacao}</span>` : ''}
+                ${h.observacao ? `<span style="color:var(--terminal-ink-soft);font-size:0.7rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${h.observacao}">${h.observacao}</span>` : ''}
               </div>
             `).join('')}
           </div>
         </div>
-      ` : `<div style="color:#555;font-size:0.78rem;margin-top:12px;">📭 Nenhum lançamento anterior</div>`
+      ` : `<div style="color:var(--terminal-ink-soft);font-size:0.78rem;margin-top:12px;">📭 Nenhum lançamento anterior</div>`
 
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">
           <i class="fas fa-paper-plane" style="color:${corTipo};"></i> Lançar: ${descricao}
         </div>
-        <div style="font-size:0.78rem;color:#888;margin-bottom:16px;">
+        <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:16px;">
           ${isVar ? '↕ Recorrência variável — confirme o valor deste mês' : '🔒 Recorrência fixa — confirme o lançamento'}
         </div>
 
         <!-- Mês de destino -->
         <div style="margin-bottom:14px;">
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">📅 Mês de lançamento</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:6px;">📅 Mês de lançamento</label>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <select id="lancar-mes" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;">
               ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -17578,12 +17578,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             value="${isVar ? (ultimoVal || '') : ultimoVal}"
             placeholder="${isVar ? 'Informe o valor deste mês' : ''}"
             style="background:#0d1117;border:1px solid ${isVar?'rgba(251,191,36,0.4)':'#2a2a3e'};color:#e0e0e0;border-radius:8px;padding:11px 14px;font-size:1rem;font-weight:600;width:100%;">
-          ${isVar && ultimoVal ? `<div style="font-size:0.7rem;color:#888;margin-top:3px;">Último lançado: ${this.fmt(ultimoVal)}</div>` : ''}
+          ${isVar && ultimoVal ? `<div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:3px;">Último lançado: ${this.fmt(ultimoVal)}</div>` : ''}
         </div>
 
         <!-- Observação opcional -->
         <div style="margin-bottom:14px;">
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Observação (opcional)</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Observação (opcional)</label>
           <input id="lancar-obs" type="text" placeholder="Ex: Obra do 3º andar, Mês cheio..."
             style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
         </div>
@@ -17780,7 +17780,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       this.showModal(`
         <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">📊 Histórico: ${descricao}</div>
-        <div style="font-size:0.78rem;color:#888;margin-bottom:16px;">${hist.length} lançamento(s) registrado(s)${isVar?' · Valor variável':''}</div>
+        <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:16px;">${hist.length} lançamento(s) registrado(s)${isVar?' · Valor variável':''}</div>
 
         ${hist.length > 0 ? `
         <!-- Resumo -->
@@ -17792,7 +17792,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           ].map(s => `
             <div style="background:#0d1117;border:1px solid #1f2937;border-radius:10px;padding:12px;text-align:center;">
               <div style="font-size:1.1rem;font-weight:800;color:${s.cor};">${s.val}</div>
-              <div style="font-size:0.68rem;color:#555;margin-top:3px;">${s.label}</div>
+              <div style="font-size:0.68rem;color:var(--terminal-ink-soft);margin-top:3px;">${s.label}</div>
             </div>`).join('')}
         </div>
 
@@ -17802,17 +17802,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid #1f2937;border-radius:8px;padding:10px 14px;">
               <div>
                 <div style="font-size:0.82rem;font-weight:600;color:#e0e0e0;">${MESES[(h.mes||1)-1]} ${h.ano}</div>
-                ${h.observacao ? `<div style="font-size:0.7rem;color:#555;margin-top:2px;">${h.observacao}</div>` : ''}
+                ${h.observacao ? `<div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:2px;">${h.observacao}</div>` : ''}
               </div>
               <div style="text-align:right;">
                 <div style="font-size:1rem;font-weight:700;color:${corTipo};">${this.fmt(h.valor)}</div>
-                <div style="font-size:0.65rem;color:#555;margin-top:1px;">${h.lancado_em ? new Date(h.lancado_em).toLocaleDateString('pt-BR') : ''}</div>
+                <div style="font-size:0.65rem;color:var(--terminal-ink-soft);margin-top:1px;">${h.lancado_em ? new Date(h.lancado_em).toLocaleDateString('pt-BR') : ''}</div>
               </div>
             </div>
           `).join('')}
         </div>
         ` : `
-        <div style="text-align:center;padding:30px;color:#555;">
+        <div style="text-align:center;padding:30px;color:var(--terminal-ink-soft);">
           <div style="font-size:2.5rem;margin-bottom:10px;">📭</div>
           <div>Nenhum lançamento registrado ainda</div>
         </div>
@@ -17835,11 +17835,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       }
       this.showModal(`
         <div style="font-size:1.05rem;font-weight:700;margin-bottom:16px;">📅 Gerar Recorrências para Mês Futuro</div>
-        <div style="color:#888;font-size:0.82rem;margin-bottom:16px;">
+        <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:16px;">
           Cria despesas e receitas <b>fixas</b> em meses futuros. Recorrências variáveis devem ser lançadas individualmente.
         </div>
         <div style="margin-bottom:16px;">
-          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:6px;">Mês de destino</label>
+          <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:6px;">Mês de destino</label>
           <select id="rec-mes-futuro" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;width:100%;font-size:0.85rem;">
             ${options}
           </select>
@@ -17908,17 +17908,17 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
             <div>
               <div style="font-size:0.9rem;font-weight:700;">📅 Fluxo de Caixa Futuro <span style="background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);font-size:0.65rem;padding:2px 8px;border-radius:20px;margin-left:8px;">PRO</span></div>
-              <div style="font-size:0.75rem;color:#555;margin-top:2px;">Projeção dos próximos 6 meses com base nas recorrências ativas</div>
+              <div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-top:2px;">Projeção dos próximos 6 meses com base nas recorrências ativas</div>
             </div>
           </div>
           <div style="overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:0.78rem;min-width:500px;">
               <thead><tr style="border-bottom:1px solid #1f2937;">
-                <th style="padding:8px 12px;text-align:left;color:#888;font-size:0.7rem;text-transform:uppercase;">Mês</th>
+                <th style="padding:8px 12px;text-align:left;color:var(--terminal-ink-soft);font-size:0.7rem;text-transform:uppercase;">Mês</th>
                 <th style="padding:8px 12px;text-align:right;color:#10B981;font-size:0.7rem;text-transform:uppercase;">Entradas</th>
                 <th style="padding:8px 12px;text-align:right;color:#F43F5E;font-size:0.7rem;text-transform:uppercase;">Saídas</th>
-                <th style="padding:8px 12px;text-align:right;color:#888;font-size:0.7rem;text-transform:uppercase;">Saldo</th>
-                <th style="padding:8px 12px;text-align:left;color:#888;font-size:0.7rem;text-transform:uppercase;">Distribuição</th>
+                <th style="padding:8px 12px;text-align:right;color:var(--terminal-ink-soft);font-size:0.7rem;text-transform:uppercase;">Saldo</th>
+                <th style="padding:8px 12px;text-align:left;color:var(--terminal-ink-soft);font-size:0.7rem;text-transform:uppercase;">Distribuição</th>
               </tr></thead>
               <tbody>
                 ${fluxo.map(f => {
@@ -17964,7 +17964,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       return
     }
 
-    content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:#555;"><i class="fas fa-spinner fa-spin"></i> Calculando projeção...</div>`
+    content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:80px;color:var(--terminal-ink-soft);"><i class="fas fa-spinner fa-spin"></i> Calculando projeção...</div>`
 
     let data
     try {
@@ -18011,7 +18011,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         container.innerHTML = `
           <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;">
             <div style="font-size:2.5rem;">📊</div>
-            <div style="color:#888;font-size:0.9rem;text-align:center;max-width:320px;line-height:1.5;">
+            <div style="color:var(--terminal-ink-soft);font-size:0.9rem;text-align:center;max-width:320px;line-height:1.5;">
               <strong style="color:#94a3b8;">Nenhum dado histórico ainda.</strong><br>
               Lance suas receitas e despesas dos últimos meses para ver a projeção com dados reais.
             </div>
@@ -18070,8 +18070,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             tooltip: { mode: 'index', intersect: false }
           },
           scales: {
-            y: { ticks: { color: '#666', callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: '#1a1a2e' } },
-            x: { ticks: { color: '#666', maxTicksLimit: 8 }, grid: { display: false } }
+            y: { ticks: { color: '#7A8B80', callback: v => `R$${(v/1000).toFixed(1)}k` }, grid: { color: '#1a1a2e' } },
+            x: { ticks: { color: '#7A8B80', maxTicksLimit: 8 }, grid: { display: false } }
           }
         }
       })
@@ -18081,7 +18081,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
         <div>
           <div style="font-size:1.1rem;font-weight:700;">🔮 Projeção Financeira</div>
-          <div style="color:#666;font-size:0.82rem;">Baseada nos últimos 6 meses do seu histórico real</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.82rem;">Baseada nos últimos 6 meses do seu histórico real</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${[6,12].map(p => `
@@ -18130,32 +18130,32 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <!-- KPIs -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px;">
         <div style="background:#111827;border:1px solid ${t.cor}44;border-radius:10px;padding:16px 18px;">
-          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tendência</div>
+          <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tendência</div>
           <div style="font-size:1.3rem;font-weight:800;color:${t.cor};">${t.icon} ${t.label}</div>
         </div>
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
-          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Média Mensal</div>
+          <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Média Mensal</div>
           <div style="font-size:1.3rem;font-weight:800;color:${data.media_mensal>=0?'#10B981':'#F43F5E'};">${this.fmt(data.media_mensal)}</div>
-          <div style="font-size:0.7rem;color:#555;">saldo médio/mês</div>
+          <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">saldo médio/mês</div>
         </div>
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
-          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 6 meses</div>
+          <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 6 meses</div>
           <div style="font-size:1.3rem;font-weight:800;color:${data.resumo?.projecao_6m>=0?'#10B981':'#F43F5E'};">${this.fmt(data.resumo?.projecao_6m||0)}</div>
         </div>
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
-          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 12 meses</div>
+          <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Projeção 12 meses</div>
           <div style="font-size:1.3rem;font-weight:800;color:${data.resumo?.projecao_12m>=0?'#10B981':'#F43F5E'};">${this.fmt(data.resumo?.projecao_12m||0)}</div>
         </div>
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;">
-          <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Confiança</div>
+          <div style="font-size:0.65rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Confiança</div>
           <div style="font-size:1.3rem;font-weight:800;color:${data.confianca>=70?'#10B981':data.confianca>=40?'#F59E0B':'#F43F5E'};">${data.confianca}%</div>
-          <div style="font-size:0.7rem;color:#555;">${data.confianca>=70?'Alta':data.confianca>=40?'Média':'Baixa'}</div>
+          <div style="font-size:0.7rem;color:var(--terminal-ink-soft);">${data.confianca>=70?'Alta':data.confianca>=40?'Média':'Baixa'}</div>
         </div>
       </div>
 
       <!-- Gráfico -->
       <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:20px;margin-bottom:16px;">
-        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">📈 Evolução Patrimonial</div>
+        <div style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">📈 Evolução Patrimonial</div>
         <div id="proj-chart-container" style="height:220px;"></div>
       </div>
 
@@ -18177,7 +18177,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       <!-- Cenários Otimista/Pessimista (P4) -->
       <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;margin-bottom:16px;">
-        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">📐 Cenários — 12 Meses</div>
+        <div style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">📐 Cenários — 12 Meses</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
           ${(() => {
             const med = data.media_mensal || 0
@@ -18200,7 +18200,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       <!-- Insights -->
       <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;">
-        <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">💡 Insights Personalizados</div>
+        <div style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">💡 Insights Personalizados</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${(data.insights||[]).map(ins => `
             <div style="background:rgba(255,255,255,0.02);border:1px solid #1f2937;border-radius:8px;padding:12px 14px;font-size:0.84rem;color:#94a3b8;line-height:1.5;">
@@ -18236,7 +18236,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
         <!-- SIMULADOR DE CENÁRIOS -->
         <div style="margin-top:20px;background:rgba(47,191,113,0.05);border:1px solid rgba(47,191,113,0.2);border-radius:16px;padding:20px;">
-          <div style="font-size:0.75rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">🎛️ Simulador de Cenários</div>
+          <div style="font-size:0.75rem;color:var(--terminal-ink-soft);text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">🎛️ Simulador de Cenários</div>
           <p style="font-size:0.82rem;color:#aaa;margin:0 0 16px;">Ajuste os controles e veja como mudanças impactam sua projeção de 12 meses.</p>
           
           <div style="display:grid;gap:16px;">
@@ -18388,14 +18388,14 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     if (!el) return
     el.innerHTML = `
       <div style="background:rgba(0,0,0,0.3);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.05);">
-        <div style="font-size:0.78rem;color:#888;margin-bottom:12px;">Com essas mudanças: <strong style="color:#ddd;">${deltaStr}</strong></div>
+        <div style="font-size:0.78rem;color:var(--terminal-ink-soft);margin-bottom:12px;">Com essas mudanças: <strong style="color:#ddd;">${deltaStr}</strong></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:#888;margin-bottom:4px;">Saldo em 6 meses</div>
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:4px;">Saldo em 6 meses</div>
             <div style="font-size:1.2rem;font-weight:800;color:${cor6};">${fmt(proj6)}</div>
           </div>
           <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:#888;margin-bottom:4px;">Saldo em 12 meses</div>
+            <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-bottom:4px;">Saldo em 12 meses</div>
             <div style="font-size:1.2rem;font-weight:800;color:${cor12};">${fmt(proj12)}</div>
           </div>
         </div>
@@ -18468,7 +18468,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div>
         <div style="text-align:center;margin-bottom:20px;">
           <div style="font-size:1.4rem;font-weight:800;margin-bottom:4px;">Escolha seu plano</div>
-          <div style="color:#888;font-size:0.85rem;">Cancele quando quiser · Sem burocracia</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;">Cancele quando quiser · Sem burocracia</div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
           ${planos.map(p => {
@@ -18481,7 +18481,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   <div style="font-size:1.6rem;">${p.emoji}</div>
                   <div style="font-size:0.85rem;font-weight:700;margin-top:4px;">${p.nome}</div>
                   <div style="font-size:1.3rem;font-weight:800;color:${p.cor};margin-top:4px;">${p.preco}</div>
-                  <div style="font-size:0.65rem;color:#666;">${p.periodo}</div>
+                  <div style="font-size:0.65rem;color:var(--terminal-ink-soft);">${p.periodo}</div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
                   ${p.features.map(f => typeof f === 'string'
@@ -18493,12 +18493,12 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   ? `<div style="text-align:center;padding:8px;background:${p.cor}15;border:1px solid ${p.cor}33;border-radius:8px;font-size:0.75rem;font-weight:700;color:${p.cor};">✓ Plano Atual</div>`
                   : podeUpgrade
                   ? `<button onclick="VM.closeModal();VM.openUpgradeModal('${p.id}')" style="width:100%;background:${p.corBtn};color:#fff;border:none;border-radius:8px;padding:9px;font-size:0.8rem;font-weight:700;cursor:pointer;">${p.textoBtn}</button>`
-                  : `<div style="text-align:center;padding:8px;border:1px solid #1f2937;border-radius:8px;font-size:0.75rem;color:#555;">${p.textoBtn}</div>`
+                  : `<div style="text-align:center;padding:8px;border:1px solid #1f2937;border-radius:8px;font-size:0.75rem;color:var(--terminal-ink-soft);">${p.textoBtn}</div>`
                 }
               </div>`
           }).join('')}
         </div>
-        <div style="text-align:center;color:#555;font-size:0.72rem;">🔒 Pagamento seguro via Asaas · Pix, Boleto ou Cartão · SSL 256-bit</div>
+        <div style="text-align:center;color:var(--terminal-ink-soft);font-size:0.72rem;">🔒 Pagamento seguro via Asaas · Pix, Boleto ou Cartão · SSL 256-bit</div>
       </div>
     `)
     // Expandir o modal para caber os 3 planos
@@ -18537,11 +18537,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div>
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">CPF (obrigatório)</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">CPF (obrigatório)</label>
           <input id="asm-cpf" type="text" placeholder="000.000.000-00" maxlength="14" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;" oninput="this.value=this.value.replace(/\\D/g,'').replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{2})/,'$1.$2.$3-$4').slice(0,14)">
         </div>
         <div>
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">Forma de Pagamento</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:6px;">Forma de Pagamento</label>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
             ${[
               { val:'PIX', icon:'fas fa-qrcode', label:'Pix', desc:'Aprovação imediata' },
@@ -18550,9 +18550,9 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             ].map((f,i) => `
               <label style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;background:${i===0?'rgba(59,130,246,0.1)':'rgba(255,255,255,0.03)'};border:2px solid ${i===0?'#3B82F6':'#1f2937'};border-radius:8px;cursor:pointer;text-align:center;transition:all 0.2s;" id="pay-opt-${f.val}" onclick="VM._selPagamento('${f.val}')">
                 <input type="radio" name="forma-pag" value="${f.val}" ${i===0?'checked':''} style="display:none;">
-                <i class="${f.icon}" style="font-size:1.2rem;color:${i===0?'#3B82F6':'#666'}" id="pay-icon-${f.val}"></i>
-                <span style="font-size:0.72rem;font-weight:700;color:${i===0?'#e0e0e0':'#666'}" id="pay-lbl-${f.val}">${f.label}</span>
-                <span style="font-size:0.62rem;color:#555;">${f.desc}</span>
+                <i class="${f.icon}" style="font-size:1.2rem;color:${i===0?'#3B82F6':'#7A8B80'}" id="pay-icon-${f.val}"></i>
+                <span style="font-size:0.72rem;font-weight:700;color:${i===0?'#e0e0e0':'#7A8B80'}" id="pay-lbl-${f.val}">${f.label}</span>
+                <span style="font-size:0.62rem;color:var(--terminal-ink-soft);">${f.desc}</span>
               </label>`).join('')}
           </div>
         </div>
@@ -18560,7 +18560,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <button id="btn-assinar" onclick="VM._confirmarAssinatura('${planoAlvo}')" class="btn-primary" style="width:100%;justify-content:center;padding:12px;font-size:0.95rem;">
           🔒 Assinar com Segurança
         </button>
-        <div style="font-size:0.7rem;color:#555;text-align:center;">Cancelamento a qualquer momento · Dados protegidos · SSL 256-bit</div>
+        <div style="font-size:0.7rem;color:var(--terminal-ink-soft);text-align:center;">Cancelamento a qualquer momento · Dados protegidos · SSL 256-bit</div>
       </div>
     `)
     this._formaPag = 'PIX'
@@ -18576,8 +18576,8 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         const sel = f === forma
         opt.style.background = sel ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.03)'
         opt.style.borderColor = sel ? '#3B82F6' : '#1f2937'
-        if (icon) icon.style.color = sel ? '#3B82F6' : '#666'
-        if (lbl) lbl.style.color = sel ? '#e0e0e0' : '#666'
+        if (icon) icon.style.color = sel ? '#3B82F6' : '#7A8B80'
+        if (lbl) lbl.style.color = sel ? '#e0e0e0' : '#7A8B80'
       }
     })
   },
@@ -18609,7 +18609,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div style="text-align:center;padding:8px 0;">
           <div style="font-size:2rem;margin-bottom:8px;">🔲</div>
           <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">Pagar via Pix</div>
-          <div style="color:#666;font-size:0.82rem;margin-bottom:16px;">Copie o código abaixo e pague no seu banco</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:16px;">Copie o código abaixo e pague no seu banco</div>
           <div style="background:#0d1117;border:1px solid #2a2a3e;border-radius:8px;padding:12px;font-size:0.72rem;color:#94a3b8;word-break:break-all;margin-bottom:12px;text-align:left;">${r.pix_copia_cola}</div>
           <button onclick="navigator.clipboard.writeText('${r.pix_copia_cola}');VM.toast('✅ Código copiado!')" class="btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;">📋 Copiar Código Pix</button>
           ${r.checkout_url ? `<a href="${r.checkout_url}" target="_blank" style="display:block;text-align:center;color:#74b9ff;font-size:0.8rem;">Abrir página de pagamento →</a>` : ''}
@@ -18696,7 +18696,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             </div>
             <button onclick="VM.modalNovaReserva()" 
               style="background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:8px;"
-              ${!canCreate ? 'disabled style="background:#1f2937;color:#555;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:not-allowed;font-size:0.9rem;"' : ''}>
+              ${!canCreate ? 'disabled style="background:#1f2937;color:var(--terminal-ink-soft);border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:not-allowed;font-size:0.9rem;"' : ''}>
               ＋ Nova Reserva
             </button>
           </div>
@@ -20036,7 +20036,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         <div class="modal" style="max-width:420px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
             <h3 style="font-size:1rem;font-weight:700;">✂️ Registrar Redução</h3>
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           <p style="color:#94A3B8;font-size:0.85rem;margin:0 0 16px;">Gasto recorrente: <strong style="color:#f1f5f9;">${this.escapeHtml(nome)}</strong><br>Valor atual médio: <strong style="color:#F43F5E;">R$ ${fmtVal}</strong></p>
           <div class="form-group">
@@ -21105,10 +21105,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="text-align:center;padding:40px 20px;">
               <div style="font-size:3rem;margin-bottom:12px;">🤖</div>
               <div style="font-size:1.1rem;font-weight:700;color:#2FBF71;margin-bottom:8px;">Olá! Sou o Assistente VerdeMais</div>
-              <div style="font-size:0.85rem;color:#666;max-width:400px;margin:0 auto;line-height:1.6;">
+              <div style="font-size:0.85rem;color:var(--terminal-ink-soft);max-width:400px;margin:0 auto;line-height:1.6;">
                 Posso responder perguntas sobre seu saldo, gastos, metas, investimentos, dívidas, reservas e muito mais!
                 <br><br>
-                <strong style="color:#888;">Experimente perguntar:</strong>
+                <strong style="color:var(--terminal-ink-soft);">Experimente perguntar:</strong>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px;">
                 ${sugestoesPadrao.map(s => `<button onclick="VM.assistenteSend('${s}')" style="background:#1a2a1a;border:1px solid #2FBF71;color:#2FBF71;padding:6px 14px;border-radius:20px;font-size:0.8rem;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='#2FBF71';this.style.color='#000'" onmouseout="this.style.background='#1a2a1a';this.style.color='#2FBF71'">${s}</button>`).join('')}
@@ -21119,7 +21119,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
         <!-- Sugestões rápidas -->
         <div id="chat-sugestoes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-          ${sugestoesPadrao.slice(0, 4).map(s => `<button onclick="VM.assistenteSend('${s}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:#888;padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`).join('')}
+          ${sugestoesPadrao.slice(0, 4).map(s => `<button onclick="VM.assistenteSend('${s}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:var(--terminal-ink-soft);padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`).join('')}
         </div>
 
         <!-- Input Area -->
@@ -21137,7 +21137,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <i class="fas fa-paper-plane"></i>
           </button>
           <button onclick="VM.assistenteLimpar()" title="Limpar histórico"
-            style="background:#1a2a1a;border:1px solid #2a3a2a;color:#555;width:44px;height:44px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;">
+            style="background:#1a2a1a;border:1px solid #2a3a2a;color:var(--terminal-ink-soft);width:44px;height:44px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;">
             <i class="fas fa-trash"></i>
           </button>
         </div>
@@ -21256,11 +21256,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             </div>
             <!-- Seletor de banco/template -->
             <div style="margin-bottom:14px;">
-              <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:6px;">🏦 Banco / Template (detecta colunas automaticamente)</label>
+              <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:6px;">🏦 Banco / Template (detecta colunas automaticamente)</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;" id="imp-banco-chips">
                 ${(window.__impTemplates||[{nome:'Nubank',banco:'nubank'},{nome:'Itaú',banco:'itau'},{nome:'Bradesco',banco:'bradesco'},{nome:'Inter',banco:'inter'},{nome:'C6 Bank',banco:'c6'},{nome:'Genérico',banco:'generico'}]).map(t => `
                   <button onclick="VM._impSelecionarBanco('${t.banco}','${t.nome}')" id="imp-banco-${t.banco}"
-                    style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:#888;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;">
+                    style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:var(--terminal-ink-soft);border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;">
                     ${t.nome}
                   </button>`).join('')}
                 <button onclick="VM._impSalvarTemplate()" title="Salvar template atual"
@@ -21268,7 +21268,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   💾 Salvar template
                 </button>
               </div>
-              <div id="imp-banco-info" style="font-size:0.7rem;color:#555;margin-top:5px;"></div>
+              <div id="imp-banco-info" style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:5px;"></div>
             </div>
 
             <textarea id="imp-csv" placeholder="Cole aqui o conteúdo do CSV..." rows="10"
@@ -21394,7 +21394,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         window.__impTemplateSelecionado = null
       } else {
         info.innerHTML = `ℹ️ Detecção automática de colunas`
-        info.style.color = '#555'
+        info.style.color = '#7A8B80'
         window.__impTemplateSelecionado = null
       }
     }
@@ -21404,31 +21404,31 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     const banco = window.__impBancoSelecionado || 'custom'
     this.showModal(`
       <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px;">💾 Salvar Template de Banco</div>
-      <div style="color:#666;font-size:0.82rem;margin-bottom:16px;">Defina como as colunas do seu CSV estão nomeadas</div>
+      <div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:16px;">Defina como as colunas do seu CSV estão nomeadas</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <div>
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Nome do banco</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Nome do banco</label>
           <input id="tpl-nome" type="text" placeholder="Ex: Bradesco, Banco do Brasil" value="${banco!=='custom'?banco:''}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
         </div>
         <div>
-          <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Identificador (banco ID)</label>
+          <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Identificador (banco ID)</label>
           <input id="tpl-banco" type="text" placeholder="ex: bradesco" value="${banco!=='custom'?banco:''}" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:9px 12px;font-size:0.85rem;width:100%;">
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Data</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Coluna Data</label>
             <input id="tpl-col-data" type="text" value="data" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Descrição</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Coluna Descrição</label>
             <input id="tpl-col-desc" type="text" value="descricao" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Coluna Valor</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Coluna Valor</label>
             <input id="tpl-col-valor" type="text" value="valor" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
           </div>
           <div>
-            <label style="font-size:0.75rem;color:#888;display:block;margin-bottom:4px;">Separador</label>
+            <label style="font-size:0.75rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Separador</label>
             <select id="tpl-sep" style="background:#0d1117;border:1px solid #2a2a3e;color:#e0e0e0;border-radius:8px;padding:8px 10px;font-size:0.82rem;width:100%;">
               <option value=";">Ponto-e-vírgula (;)</option>
               <option value=",">Vírgula (,)</option>
@@ -21467,7 +21467,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           const tpls = window.__impTemplates || []
           chipsEl.innerHTML = tpls.map(t => `
             <button onclick="VM._impSelecionarBanco('${t.banco}','${t.nome}')" id="imp-banco-${t.banco}"
-              style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:#888;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;">
+              style="background:rgba(255,255,255,0.05);border:1px solid #1f2937;color:var(--terminal-ink-soft);border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.75rem;">
               ${t.nome}
             </button>`).join('') +
             `<button onclick="VM._impSalvarTemplate()" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;">💾 Salvar template</button>`
@@ -22175,7 +22175,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
         const sug = document.getElementById('chat-sugestoes')
         if (sug) {
           sug.innerHTML = resp.sugestoes.slice(0, 4).map(s => 
-            `<button onclick="VM.assistenteSend('${s.replace(/'/g, "\\'")}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:#888;padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`
+            `<button onclick="VM.assistenteSend('${s.replace(/'/g, "\\'")}')" style="background:#1a2a1a;border:1px solid #2a3a2a;color:var(--terminal-ink-soft);padding:4px 12px;border-radius:16px;font-size:0.77rem;cursor:pointer;" onmouseover="this.style.borderColor='#2FBF71';this.style.color='#2FBF71'" onmouseout="this.style.borderColor='#2a3a2a';this.style.color='#888'">${s}</button>`
           ).join('')
         }
       }
@@ -22247,7 +22247,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="modal-overlay" onclick="VM.closeModal(event)">
         <div class="modal-card" style="max-width:440px;">
           <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
-            <button onclick="VM.closeModal()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;">✕</button>
+            <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
           ${html}
         </div>
@@ -22302,7 +22302,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">📉 Análise de Cartões</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Como sua fatura evoluiu e quanto já está comprometido</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Como sua fatura evoluiu e quanto já está comprometido</div>
         </div>
         <button onclick="VM.navigate('cartoes')" class="btn-secondary" style="width:auto;padding:10px 16px;">← Cartões</button>
       </div>
@@ -22480,7 +22480,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   <div style="width:${(c.total / tot) * 100}%;height:100%;background:${SERIES[Math.min(i, 2)]};"></div>
                 </div>
               </div>`
-            }).join('') : '<div style="color:#666;font-size:0.82rem;">Sem lançamentos neste mês.</div>'}
+            }).join('') : '<div style="color:var(--terminal-ink-soft);font-size:0.82rem;">Sem lançamentos neste mês.</div>'}
           </div>
           <div style="background:${SUP};border:1px solid #1f2937;border-radius:16px;padding:20px;">
             <div style="font-weight:700;margin-bottom:4px;">Cobranças que se repetem</div>
@@ -22492,7 +22492,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
                   <div style="font-size:0.7rem;color:#8b8b9e;">${r.meses} meses · ${fmt(r.custo_anual)}/ano</div>
                 </div>
                 <strong style="font-size:0.84rem;white-space:nowrap;">${fmt(r.valor)}</strong>
-              </div>`).join('') : '<div style="color:#666;font-size:0.82rem;">Nada se repetindo por enquanto.</div>'}
+              </div>`).join('') : '<div style="color:var(--terminal-ink-soft);font-size:0.82rem;">Nada se repetindo por enquanto.</div>'}
           </div>
         </div>`
 
@@ -22556,7 +22556,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">💰 Aportes</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Dinheiro que saiu da conta e virou patrimônio seu</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Dinheiro que saiu da conta e virou patrimônio seu</div>
         </div>
       </div>
       <div id="aportes-container"><div class="skeleton" style="height:180px;border-radius:16px;"></div></div>`
@@ -22588,24 +22588,24 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:22px;">
           <div class="stat-card">
-            <div style="color:#888;font-size:0.8rem;">💰 Aportado em ${MESES[this._apMes - 1]}/${this._apAno}</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">💰 Aportado em ${MESES[this._apMes - 1]}/${this._apAno}</div>
             <div style="font-size:1.7rem;font-weight:800;color:#818cf8;">${this.formatMoney(r.total_mes || 0)}</div>
-            <div style="color:#666;font-size:0.75rem;">${r.qtd_mes || 0} aporte(s)</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">${r.qtd_mes || 0} aporte(s)</div>
           </div>
           <div class="stat-card">
-            <div style="color:#888;font-size:0.8rem;">📅 Aportado em ${this._apAno}</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">📅 Aportado em ${this._apAno}</div>
             <div style="font-size:1.7rem;font-weight:800;color:#34d399;">${this.formatMoney(r.total_ano || 0)}</div>
-            <div style="color:#666;font-size:0.75rem;">${r.qtd_ano || 0} aporte(s) no ano</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">${r.qtd_ano || 0} aporte(s) no ano</div>
           </div>
           <div class="stat-card" onclick="VM.navigate('investimentos')" style="cursor:pointer;">
-            <div style="color:#888;font-size:0.8rem;">📈 Virou investimento</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">📈 Virou investimento</div>
             <div style="font-size:1.7rem;font-weight:800;color:#2FBF71;">${this.formatMoney(r.patrimonio_investimentos || 0)}</div>
-            <div style="color:#666;font-size:0.75rem;">valor atual da carteira →</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">valor atual da carteira →</div>
           </div>
           <div class="stat-card" onclick="VM.navigate('reservas-esp')" style="cursor:pointer;">
-            <div style="color:#888;font-size:0.8rem;">🛡️ Virou reserva</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.8rem;">🛡️ Virou reserva</div>
             <div style="font-size:1.7rem;font-weight:800;color:#60a5fa;">${this.formatMoney(r.patrimonio_reservas || 0)}</div>
-            <div style="color:#666;font-size:0.75rem;">guardado em caixinhas →</div>
+            <div style="color:var(--terminal-ink-soft);font-size:0.75rem;">guardado em caixinhas →</div>
           </div>
         </div>
 
@@ -22616,7 +22616,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             ${evol.map(e => `
               <div style="flex:1;max-width:70px;min-width:26px;display:flex;flex-direction:column;align-items:center;gap:4px;" title="${e.ym}: ${this.formatMoney(e.total)}">
                 <div style="width:100%;background:linear-gradient(180deg,#818cf8,#6366f1);border-radius:4px 4px 0 0;height:${Math.max(3, (Number(e.total) / maxEvol) * 96)}px;"></div>
-                <div style="font-size:0.62rem;color:#666;">${String(e.ym).slice(5)}</div>
+                <div style="font-size:0.62rem;color:var(--terminal-ink-soft);">${String(e.ym).slice(5)}</div>
               </div>`).join('')}
           </div>
         </div>` : ''}
@@ -22630,7 +22630,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             return `
             <div style="margin-bottom:12px;">
               <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px;">
-                <span>${x.destino} <span style="color:#666;">(${x.qtd})</span></span>
+                <span>${x.destino} <span style="color:var(--terminal-ink-soft);">(${x.qtd})</span></span>
                 <strong>${this.formatMoney(x.total)} · ${pct}%</strong>
               </div>
               <div style="background:#1a1a2e;border-radius:6px;height:8px;overflow:hidden;">
@@ -22646,11 +22646,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1a1a2e;gap:12px;">
               <div style="min-width:0;">
                 <div style="font-weight:600;">${a.descricao}</div>
-                <div style="color:#666;font-size:0.76rem;">${this.formatDate ? this.formatDate(a.data) : a.data}${a.subcategoria ? ' · ' + a.subcategoria : ''}</div>
+                <div style="color:var(--terminal-ink-soft);font-size:0.76rem;">${this.formatDate ? this.formatDate(a.data) : a.data}${a.subcategoria ? ' · ' + a.subcategoria : ''}</div>
               </div>
               <div style="font-weight:700;color:#818cf8;white-space:nowrap;">${this.formatMoney(a.valor)}</div>
             </div>`).join('') : `
-            <div style="text-align:center;color:#555;padding:26px 0;">
+            <div style="text-align:center;color:var(--terminal-ink-soft);padding:26px 0;">
               Nenhum aporte neste mês.<br>
               <span style="font-size:0.8rem;">Um aporte aparece aqui quando você cadastra um investimento ou marca uma despesa como aporte patrimonial.</span>
             </div>`}
@@ -22667,7 +22667,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">⚡ Antecipação de Contas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Registre pagamentos antecipados — com ou sem desconto. Integrado ao Diagnóstico 360°.</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Registre pagamentos antecipados — com ou sem desconto. Integrado ao Diagnóstico 360°.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button onclick="VM._modalNovaAntecipacao()" class="btn-primary" style="width:auto;padding:10px 18px;">
@@ -23078,7 +23078,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header">
         <div>
           <div class="section-title">📋 Recebimentos Parcelados</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Controle parcelas a receber (vendas, contratos, serviços).</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Controle parcelas a receber (vendas, contratos, serviços).</div>
         </div>
         <button onclick="VM._modalNovoRecebimento()" class="btn-primary" style="width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Novo Recebimento
@@ -23381,7 +23381,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
         <div>
           <div class="section-title">👥 Despesas Compartilhadas</div>
-          <div style="color:#666;font-size:0.85rem;margin-top:2px;">Divida despesas com amigos e família</div>
+          <div style="color:var(--terminal-ink-soft);font-size:0.85rem;margin-top:2px;">Divida despesas com amigos e família</div>
         </div>
         <button onclick="VM._abrirModalNovaCompPartilhada()" class="btn-primary" style="display:flex;align-items:center;gap:8px;width:auto;padding:10px 20px;">
           <i class="fas fa-plus"></i> Nova Divisão
@@ -23451,10 +23451,10 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
 
       if (lista.length === 0) {
         listaEl.innerHTML = `
-          <div style="text-align:center;padding:60px 20px;color:#555;">
+          <div style="text-align:center;padding:60px 20px;color:var(--terminal-ink-soft);">
             <div style="font-size:3rem;margin-bottom:16px;">👥</div>
-            <div style="font-size:1rem;font-weight:700;color:#888;margin-bottom:8px;">${filtroStatus === 'pending' ? 'Nenhuma pendência!' : filtroStatus === 'settled' ? 'Nenhuma quitada' : 'Nenhuma despesa compartilhada'}</div>
-            <div style="font-size:0.84rem;color:#555;margin-bottom:20px;">Compartilhe uma despesa existente ou crie uma nova</div>
+            <div style="font-size:1rem;font-weight:700;color:var(--terminal-ink-soft);margin-bottom:8px;">${filtroStatus === 'pending' ? 'Nenhuma pendência!' : filtroStatus === 'settled' ? 'Nenhuma quitada' : 'Nenhuma despesa compartilhada'}</div>
+            <div style="font-size:0.84rem;color:var(--terminal-ink-soft);margin-bottom:20px;">Compartilhe uma despesa existente ou crie uma nova</div>
             <button onclick="VM._abrirModalNovaCompPartilhada()" class="btn-primary" style="width:auto;padding:10px 24px;">
               <i class="fas fa-plus"></i> Compartilhar Despesa
             </button>
@@ -23475,7 +23475,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
               <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-bottom:2px;">${this.escapeHtml(item.descricao || '—')}</div>
               <div style="font-size:0.76rem;color:#64748B;">
                 Com: <strong style="color:#a78bfa;">${this.escapeHtml(item.partner_name)}</strong>
-                ${item.partner_email ? `<span style="color:#555;"> · ${this.escapeHtml(item.partner_email)}</span>` : ''}
+                ${item.partner_email ? `<span style="color:var(--terminal-ink-soft);"> · ${this.escapeHtml(item.partner_email)}</span>` : ''}
                 · ${dataFmt} · ${item.categoria || '—'}
               </div>
             </div>
@@ -23566,15 +23566,15 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
           Usar despesa existente
         </button>
         <button id="dc-modo-nova" onclick="VM._dcToggleModo('nova')"
-          style="flex:1;padding:10px;border-radius:10px;border:1px solid #333;background:transparent;color:#666;cursor:pointer;font-size:0.82rem;">
+          style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--terminal-line);background:transparent;color:var(--terminal-ink-soft);cursor:pointer;font-size:0.82rem;">
           Criar despesa nova
         </button>
       </div>
 
       <!-- Modo: despesa existente -->
       <div id="dc-form-existente">
-        <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Despesa pendente</label>
-        <select id="dc-expense-id" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;margin-bottom:12px;">
+        <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Despesa pendente</label>
+        <select id="dc-expense-id" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;margin-bottom:12px;">
           <option value="">Selecione uma despesa...</option>
           ${despesasOpcoes}
         </select>
@@ -23584,20 +23584,20 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <div id="dc-form-nova" style="display:none;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
           <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Descrição</label>
-            <input id="dc-descricao" type="text" placeholder="Ex: Jantar" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+            <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Descrição</label>
+            <input id="dc-descricao" type="text" placeholder="Ex: Jantar" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
           </div>
           <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Valor total (R$)</label>
-            <input id="dc-valor" type="number" step="0.01" min="0.01" placeholder="0,00" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+            <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Valor total (R$)</label>
+            <input id="dc-valor" type="number" step="0.01" min="0.01" placeholder="0,00" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
           </div>
           <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Data</label>
-            <input id="dc-data" type="date" value="${today}" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+            <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Data</label>
+            <input id="dc-data" type="date" value="${today}" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
           </div>
           <div>
-            <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Categoria</label>
-            <input id="dc-categoria" type="text" value="Alimentação" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+            <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Categoria</label>
+            <input id="dc-categoria" type="text" value="Alimentação" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
           </div>
         </div>
       </div>
@@ -23605,19 +23605,19 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
       <!-- Campos comuns -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <div>
-          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">Nome do parceiro *</label>
-          <input id="dc-partner-name" type="text" placeholder="Ex: João" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">Nome do parceiro *</label>
+          <input id="dc-partner-name" type="text" placeholder="Ex: João" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
         </div>
         <div>
-          <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:4px;">E-mail do parceiro (opt.)</label>
-          <input id="dc-partner-email" type="email" placeholder="joao@email.com" style="width:100%;background:#1a1a2e;border:1px solid #333;color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
+          <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:4px;">E-mail do parceiro (opt.)</label>
+          <input id="dc-partner-email" type="email" placeholder="joao@email.com" style="width:100%;background:#1a1a2e;border:1px solid var(--terminal-line);color:#f1f5f9;border-radius:8px;padding:10px;font-size:0.85rem;box-sizing:border-box;">
         </div>
       </div>
       <div style="margin-bottom:16px;">
-        <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:6px;">Minha parte: <span id="dc-pct-label" style="color:#2FBF71;font-weight:700;">50%</span></label>
+        <label style="font-size:0.78rem;color:var(--terminal-ink-soft);display:block;margin-bottom:6px;">Minha parte: <span id="dc-pct-label" style="color:#2FBF71;font-weight:700;">50%</span></label>
         <input id="dc-pct" type="range" min="0" max="100" value="50" style="width:100%;accent-color:#a78bfa;"
           oninput="document.getElementById('dc-pct-label').textContent=this.value+'%'">
-        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#555;margin-top:4px;">
+        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--terminal-ink-soft);margin-top:4px;">
           <span>Tudo deles (0%)</span><span>50/50</span><span>Tudo meu (100%)</span>
         </div>
       </div>
@@ -23636,11 +23636,11 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     if (modo === 'existente') {
       eEl.style.display = 'block'; nEl.style.display = 'none'
       bE.style.border = '2px solid #a78bfa'; bE.style.background = 'rgba(167,139,250,0.15)'; bE.style.color = '#a78bfa'; bE.style.fontWeight = '700'
-      bN.style.border = '1px solid #333'; bN.style.background = 'transparent'; bN.style.color = '#666'; bN.style.fontWeight = '400'
+      bN.style.border = '1px solid var(--terminal-line)'; bN.style.background = 'transparent'; bN.style.color = '#7A8B80'; bN.style.fontWeight = '400'
     } else {
       eEl.style.display = 'none'; nEl.style.display = 'block'
       bN.style.border = '2px solid #a78bfa'; bN.style.background = 'rgba(167,139,250,0.15)'; bN.style.color = '#a78bfa'; bN.style.fontWeight = '700'
-      bE.style.border = '1px solid #333'; bE.style.background = 'transparent'; bE.style.color = '#666'; bE.style.fontWeight = '400'
+      bE.style.border = '1px solid var(--terminal-line)'; bE.style.background = 'transparent'; bE.style.color = '#7A8B80'; bE.style.fontWeight = '400'
     }
   },
 
@@ -23710,7 +23710,7 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
             <div style="display:flex;gap:6px;align-items:center;">
               ${criticos.length > 0 ? `<span style="background:rgba(255,107,107,0.15);color:#ff6b6b;font-size:0.7rem;padding:2px 9px;border-radius:20px;font-weight:700;">${criticos.length} crítico${criticos.length!==1?'s':''}</span>` : ''}
               ${atencao.length  > 0 ? `<span style="background:rgba(255,196,0,0.15);color:#ffc400;font-size:0.7rem;padding:2px 9px;border-radius:20px;font-weight:700;">${atencao.length} atenção</span>` : ''}
-              <button onclick="VM.navigate('ia')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#888;border-radius:8px;padding:4px 10px;font-size:0.7rem;cursor:pointer;">Ver análise completa →</button>
+              <button onclick="VM.navigate('ia')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--terminal-ink-soft);border-radius:8px;padding:4px 10px;font-size:0.7rem;cursor:pointer;">Ver análise completa →</button>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">

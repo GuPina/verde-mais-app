@@ -147,19 +147,19 @@ async function loadStats() {
       }
     })
   } else if (chartWrap) {
-    chartWrap.parentElement.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:0.85rem;">Sem cadastros nos últimos 14 dias</div>'
+    chartWrap.parentElement.innerHTML = '<div style="text-align:center;color:var(--terminal-line-strong);padding:40px;font-size:0.85rem;">Sem cadastros nos últimos 14 dias</div>'
   }
 
   // Top conquistas
   var tc = data.topConquistas || []
   var tcEl = document.getElementById('top-conquistas')
   if (tc.length === 0) {
-    tcEl.innerHTML = '<div style="color:#444;text-align:center;padding:20px;">Nenhuma conquista ainda</div>'
+    tcEl.innerHTML = '<div style="color:var(--terminal-line-strong);text-align:center;padding:20px;">Nenhuma conquista ainda</div>'
   } else {
     var tcHtml = ''
     tc.forEach(function(item, i) {
       tcHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1a1a2e;">'
-      tcHtml += '<span style="color:#888;font-size:0.75rem;width:20px;">#' + (i + 1) + '</span>'
+      tcHtml += '<span style="color:var(--terminal-ink-soft);font-size:0.75rem;width:20px;">#' + (i + 1) + '</span>'
       tcHtml += '<span style="font-size:1.2rem;">' + (item.icone || '🏆') + '</span>'
       tcHtml += '<span style="flex:1;font-size:0.82rem;">' + (item.titulo || '') + '</span>'
       tcHtml += '<span class="pill pill-green">' + item.total + 'x</span>'
@@ -178,7 +178,7 @@ function renderUsersTable(users, tbodyId) {
   var tbody = document.getElementById(tbodyId)
   if (!tbody) return
   if (!users || users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#444;padding:24px;">Nenhum usuário</td></tr>'
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--terminal-line-strong);padding:24px;">Nenhum usuário</td></tr>'
     return
   }
   var html = ''
@@ -197,8 +197,8 @@ function renderUsersTable(users, tbodyId) {
     var dataCad = (user.data_criacao || '').slice(0, 10)
 
     html += '<tr>'
-    html += '<td style="color:#555;">#' + id + '</td>'
-    html += '<td><strong>' + (user.nome || '') + '</strong><br><span style="font-size:0.7rem;color:#555;">' + email + '</span></td>'
+    html += '<td style="color:var(--terminal-ink-soft);">#' + id + '</td>'
+    html += '<td><strong>' + (user.nome || '') + '</strong><br><span style="font-size:0.7rem;color:var(--terminal-ink-soft);">' + email + '</span></td>'
     html += '<td><div style="display:flex;align-items:center;gap:6px;">'
     html += '<span class="pill ' + planoCls + '" id="pill-' + id + '-' + tbodyId + '">' + plano.toUpperCase() + '</span>'
     html += '<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:0.7rem;" title="Alterar plano" '
@@ -210,7 +210,7 @@ function renderUsersTable(users, tbodyId) {
     html += '<td style="color:#a29bfe;">' + inv + '</td>'
     html += '<td style="color:#ffc400;">' + metas + '</td>'
     html += '<td style="color:#fdcb6e;">' + conq + '</td>'
-    html += '<td style="color:#555;font-size:0.75rem;">' + dataCad + '</td>'
+    html += '<td style="color:var(--terminal-ink-soft);font-size:0.75rem;">' + dataCad + '</td>'
     html += '<td><button class="btn btn-danger btn-sm" onclick="deleteUser(' + id + ', \'' + nome + '\')">'
     html += '🗑️</button></td>'
     html += '</tr>'
@@ -257,10 +257,10 @@ function openPlanModal(userId, nome, planoAtual, tbodyId) {
   ]
 
   var html = '<div style="background:#0f0f1f;border:1px solid #1f2937;border-radius:16px;padding:32px;width:100%;max-width:420px;position:relative;margin:16px;">'
-  html += '<button onclick="document.getElementById(\'plan-modal-overlay\').remove()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#555;font-size:1.4rem;cursor:pointer;line-height:1;">✕</button>'
+  html += '<button onclick="document.getElementById(\'plan-modal-overlay\').remove()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--terminal-ink-soft);font-size:1.4rem;cursor:pointer;line-height:1;">✕</button>'
   html += '<div style="font-size:1.3rem;font-weight:700;margin-bottom:4px;">👑 Gerenciar Plano</div>'
-  html += '<div style="color:#888;font-size:0.82rem;margin-bottom:22px;">Usuário: <strong style="color:#e0e0e0;">' + nome + '</strong> <span style="color:#555;">· ID ' + userId + '</span></div>'
-  html += '<div style="font-size:0.75rem;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">Selecionar plano</div>'
+  html += '<div style="color:var(--terminal-ink-soft);font-size:0.82rem;margin-bottom:22px;">Usuário: <strong style="color:#e0e0e0;">' + nome + '</strong> <span style="color:var(--terminal-ink-soft);">· ID ' + userId + '</span></div>'
+  html += '<div style="font-size:0.75rem;color:var(--terminal-ink-soft);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">Selecionar plano</div>'
   html += '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px;">'
 
   plans.forEach(function(plan) {
@@ -271,14 +271,14 @@ function openPlanModal(userId, nome, planoAtual, tbodyId) {
     html += '<input type="radio" name="novo-plano" value="' + plan.value + '"' + (isActive ? ' checked' : '') + ' style="accent-color:' + plan.color + ';width:16px;height:16px;">'
     html += '<div>'
     html += '<div style="font-weight:700;color:' + plan.color + ';">' + plan.label + '</div>'
-    html += '<div style="font-size:0.74rem;color:#666;margin-top:2px;">' + plan.desc + '</div>'
+    html += '<div style="font-size:0.74rem;color:var(--terminal-ink-soft);margin-top:2px;">' + plan.desc + '</div>'
     html += '</div></label>'
   })
 
   html += '</div>'
   html += '<div style="display:flex;gap:10px;">'
   html += '<button onclick="savePlan(' + userId + ', \'' + nome + '\', \'' + tbodyId + '\')" id="btn-save-plan" style="flex:1;background:linear-gradient(135deg,#2FBF71,#208040);color:#fff;border:none;border-radius:10px;padding:12px;font-size:0.9rem;font-weight:700;cursor:pointer;">💾 Salvar</button>'
-  html += '<button onclick="document.getElementById(\'plan-modal-overlay\').remove()" style="background:rgba(255,255,255,0.07);color:#aaa;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:0.9rem;cursor:pointer;">Cancelar</button>'
+  html += '<button onclick="document.getElementById(\'plan-modal-overlay\').remove()" style="background:rgba(255,255,255,0.07);color:#aaa;border:1px solid var(--terminal-line);border-radius:10px;padding:12px 16px;font-size:0.9rem;cursor:pointer;">Cancelar</button>'
   html += '</div>'
   html += '</div>'
 
@@ -325,7 +325,7 @@ async function loadTables() {
   var listHtml = ''
   var tables = data.tables || []
   tables.forEach(function(t) {
-    listHtml += '<div style="padding:9px 14px;cursor:pointer;font-size:0.82rem;color:#888;border-bottom:1px solid #1a1a2e;" '
+    listHtml += '<div style="padding:9px 14px;cursor:pointer;font-size:0.82rem;color:var(--terminal-ink-soft);border-bottom:1px solid #1a1a2e;" '
     listHtml += 'onmouseover="this.style.background=\'rgba(47,191,113,0.07)\';this.style.color=\'#2FBF71\'" '
     listHtml += 'onmouseout="this.style.background=\'\';this.style.color=\'#888\'" '
     listHtml += 'onclick="loadTable(\'' + t + '\')" id="tbl-' + t + '">' + t + '</div>'
@@ -338,7 +338,7 @@ async function loadTable(name, offset) {
   currentTable = name
   browserOffset = offset
   document.getElementById('browser-title').textContent = '📋 ' + name
-  document.getElementById('browser-content').innerHTML = '<div style="color:#888;padding:20px;text-align:center;"><span class="loader"></span> Carregando...</div>'
+  document.getElementById('browser-content').innerHTML = '<div style="color:var(--terminal-ink-soft);padding:20px;text-align:center;"><span class="loader"></span> Carregando...</div>'
 
   document.querySelectorAll('[id^="tbl-"]').forEach(function(el) {
     el.style.color = el.id === 'tbl-' + name ? '#2FBF71' : '#888'
@@ -359,7 +359,7 @@ async function loadTable(name, offset) {
   var rows = data.rows || []
 
   if (rows.length === 0) {
-    document.getElementById('browser-content').innerHTML = '<div style="color:#444;padding:24px;text-align:center;">Tabela vazia</div>'
+    document.getElementById('browser-content').innerHTML = '<div style="color:var(--terminal-line-strong);padding:24px;text-align:center;">Tabela vazia</div>'
     document.getElementById('browser-info').textContent = '0 registros'
     document.getElementById('btn-prev').disabled = true
     document.getElementById('btn-next').disabled = true
@@ -391,7 +391,7 @@ async function loadTable(name, offset) {
 }
 
 function formatCell(v) {
-  if (v === null || v === undefined) return '<span style="color:#333;font-style:italic;">null</span>'
+  if (v === null || v === undefined) return '<span style="color:var(--terminal-line);font-style:italic;">null</span>'
   var s = String(v)
   if (s.length > 60) return s.slice(0, 60) + '…'
   return s.replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -417,13 +417,13 @@ async function runSQL() {
 
   var rows = data.rows || []
   if (rows.length === 0) {
-    el.innerHTML = '<div style="color:#666;margin-top:12px">Nenhum resultado. (' + (data.count || 0) + ' linhas)</div>'
+    el.innerHTML = '<div style="color:var(--terminal-ink-soft);margin-top:12px">Nenhum resultado. (' + (data.count || 0) + ' linhas)</div>'
     return
   }
 
   var cols = Object.keys(rows[0])
   var resHtml = '<div style="margin-top:12px;">'
-  resHtml += '<div style="color:#888;font-size:0.75rem;margin-bottom:8px;">' + data.count + ' resultado(s)</div>'
+  resHtml += '<div style="color:var(--terminal-ink-soft);font-size:0.75rem;margin-bottom:8px;">' + data.count + ' resultado(s)</div>'
   resHtml += '<div class="table-wrap"><table><thead><tr>'
   cols.forEach(function(col) { resHtml += '<th>' + col + '</th>' })
   resHtml += '</tr></thead><tbody>'
@@ -467,18 +467,18 @@ async function loadConquistas() {
     var rarCls = rarCor[r.raridade] || 'pill-green'
     var desbl = r.desbloqueadas > 0
       ? '<span class="pill pill-green">' + r.desbloqueadas + 'x</span>'
-      : '<span style="color:#333;">—</span>'
+      : '<span style="color:var(--terminal-line);">—</span>'
     html += '<tr>'
     html += '<td style="font-size:1.3rem;text-align:center;">' + (r.icone || '🏆') + '</td>'
     html += '<td style="font-family:monospace;color:#74b9ff;font-size:0.78rem;">' + (r.codigo || '') + '</td>'
     html += '<td><strong>' + (r.titulo || '') + '</strong></td>'
-    html += '<td style="color:#888;max-width:260px;white-space:normal;line-height:1.4;">' + (r.descricao || '') + '</td>'
+    html += '<td style="color:var(--terminal-ink-soft);max-width:260px;white-space:normal;line-height:1.4;">' + (r.descricao || '') + '</td>'
     html += '<td style="color:#ffc400;text-align:center;">' + (r.pontos || 0) + '</td>'
     html += '<td><span class="pill ' + rarCls + '">' + (r.raridade || '') + '</span></td>'
     html += '<td style="text-align:center;">' + desbl + '</td>'
     html += '</tr>'
   })
-  document.getElementById('conquistas-body').innerHTML = html || '<tr><td colspan="7" style="text-align:center;color:#444;padding:20px;">Nenhuma conquista</td></tr>'
+  document.getElementById('conquistas-body').innerHTML = html || '<tr><td colspan="7" style="text-align:center;color:var(--terminal-line-strong);padding:20px;">Nenhuma conquista</td></tr>'
 }
 
 // ─── Refresh ──────────────────────────────────────────────────────────────────
@@ -549,12 +549,12 @@ async function loadMetrics() {
       <div style="font-size:1.5rem;margin-bottom:8px;">${k.icon}</div>
       <div class="stat-num" style="color:${k.cor};font-size:1.6rem;">${k.value}</div>
       <div class="stat-label" style="font-size:0.7rem;margin-top:4px;">${k.label}</div>
-      <div style="font-size:0.68rem;color:#444;margin-top:4px;">${k.meta}</div>
+      <div style="font-size:0.68rem;color:var(--terminal-line-strong);margin-top:4px;">${k.meta}</div>
       ${k.pct !== null ? `
         <div style="margin-top:10px;height:4px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
           <div style="height:100%;width:${k.pct}%;background:${k.cor};border-radius:4px;transition:width 1s ease;"></div>
         </div>
-        <div style="font-size:0.65rem;color:#555;margin-top:3px;">${k.pct}% da meta</div>
+        <div style="font-size:0.65rem;color:var(--terminal-ink-soft);margin-top:3px;">${k.pct}% da meta</div>
       ` : ''}
     </div>
   `).join('')
@@ -618,7 +618,7 @@ async function loadMetrics() {
   const maxFuncs = Math.max(...(funcionalidades || []).map(f => f.cnt), 1)
   funcsEl.innerHTML = (funcionalidades || []).slice(0, 8).map(f => `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-      <div style="width:90px;font-size:0.78rem;color:#888;flex-shrink:0;">${f.func}</div>
+      <div style="width:90px;font-size:0.78rem;color:var(--terminal-ink-soft);flex-shrink:0;">${f.func}</div>
       <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
         <div style="height:100%;width:${Math.round(f.cnt/maxFuncs*100)}%;background:linear-gradient(90deg,#2FBF71,#059669);border-radius:3px;"></div>
       </div>
@@ -652,7 +652,7 @@ async function loadMetrics() {
           <div style="font-size:0.82rem;font-weight:600;">${t.icon} ${tgt.label}</div>
           <div style="display:flex;align-items:center;gap:12px;">
             <span style="font-size:0.82rem;color:${t.cor};font-weight:700;">${valFmt}</span>
-            <span style="font-size:0.72rem;color:#555;">${metaFmt}</span>
+            <span style="font-size:0.72rem;color:var(--terminal-ink-soft);">${metaFmt}</span>
             <span style="font-size:0.72rem;font-weight:700;background:${pct >= 80 ? 'rgba(16,185,129,0.15)' : pct >= 40 ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)'};color:${pct >= 80 ? '#10B981' : pct >= 40 ? '#F59E0B' : '#F43F5E'};padding:2px 8px;border-radius:4px;">${pct}%</span>
           </div>
         </div>
@@ -667,21 +667,21 @@ async function loadMetrics() {
   document.getElementById('metrics-mrr-detail').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px;">
       <div style="background:#0d1117;border-radius:10px;padding:14px;text-align:center;">
-        <div style="font-size:0.7rem;color:#555;margin-bottom:6px;text-transform:uppercase;">Premium (R$19,90)</div>
+        <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;text-transform:uppercase;">Premium (R$19,90)</div>
         <div style="font-size:1.4rem;font-weight:800;color:#3B82F6;">R$ ${receita.mrr_premium.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:#444;">${usuarios.premium} usuários</div>
+        <div style="font-size:0.72rem;color:var(--terminal-line-strong);">${usuarios.premium} usuários</div>
       </div>
       <div style="background:#0d1117;border-radius:10px;padding:14px;text-align:center;">
-        <div style="font-size:0.7rem;color:#555;margin-bottom:6px;text-transform:uppercase;">Pro (R$39,90)</div>
+        <div style="font-size:0.7rem;color:var(--terminal-ink-soft);margin-bottom:6px;text-transform:uppercase;">Pro (R$39,90)</div>
         <div style="font-size:1.4rem;font-weight:800;color:#8B5CF6;">R$ ${receita.mrr_pro.toFixed(2)}</div>
-        <div style="font-size:0.72rem;color:#444;">${usuarios.pro} usuários</div>
+        <div style="font-size:0.72rem;color:var(--terminal-line-strong);">${usuarios.pro} usuários</div>
       </div>
     </div>
     <div style="margin-top:14px;padding:14px;background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
       <span style="font-size:0.82rem;font-weight:600;">MRR Total</span>
       <span style="font-size:1.5rem;font-weight:900;color:#10B981;">R$ ${receita.mrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
     </div>
-    <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.78rem;color:#555;">
+    <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.78rem;color:var(--terminal-ink-soft);">
       <span>ARR Estimado: R$ ${receita.arr.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</span>
       <span>LTV Médio: R$ ${receita.ltv_estimado.toFixed(0)}</span>
     </div>

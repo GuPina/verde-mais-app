@@ -1,32 +1,71 @@
 /* VerdeMais - App Styles */
 :root {
-  /* Core palette (Design System VerdeMais) */
-  --bg-primary:   #0F172A;
-  --bg-secondary: #1E293B;
-  --bg-tertiary:  #111827;
-  --verde: #208040;
-  --verde-claro: #2FBF71;
-  --verde-dark:  #059669;
-  --accent-blue: #3B82F6;
-  --accent-amber:#F59E0B;
-  --accent-rose: #F43F5E;
-  --bg: #0f0f1a;
-  --bg-card: rgba(255,255,255,0.04);
-  --bg-card-hover: rgba(255,255,255,0.07);
-  --border: rgba(255,255,255,0.08);
-  --border-green: rgba(47,191,113,0.25);
-  --text: #F8FAFC;
-  --text-muted: #64748B;
-  --text-secondary: #94A3B8;
+  /* ══════════════════════════════════════════════════════════════════════
+     CONVERGÊNCIA DE TOKENS
+     ══════════════════════════════════════════════════════════════════════
+     Este bloco tinha uma paleta INTEIRA e própria, e o app acabou com dois
+     sistemas de design brigando. O mais visível era a temperatura dos
+     neutros: o fundo daqui era #0f0f1a (azulado) e o das telas novas é
+     #0A0F0C (esverdeado). Dois cinzas de temperaturas diferentes, no mesmo
+     app, é o que faz uma interface parecer levemente fora de esquadro sem
+     que ninguém saiba dizer por quê.
+
+     Havia também dois verdes (#2FBF71 e #3DDC84), dois vermelhos (#F43F5E e
+     #FF6B6B) e dois cinzas de texto apagado — o daqui azulado, o de lá verde.
+
+     Cada nome antigo agora APONTA para o token do sistema Terminal. Nenhuma
+     chamada em app.js precisou mudar: `var(--verde-claro)` continua válido e
+     passou a devolver a cor certa. É uma linha de CSS para cada centena de
+     usos, e é por isso que este bloco vem antes de qualquer outra correção.
+
+     O que os nomes antigos significam, para quem for mexer: eles são
+     APELIDOS, não fonte. A fonte é terminal-public.css e terminal-ds.css.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* Superfícies */
+  --bg:           var(--terminal-bg);
+  --bg-primary:   var(--terminal-surface);
+  --bg-secondary: #182019;   /* um degrau acima da superfície, na mesma família */
+  --bg-tertiary:  var(--terminal-bg);
+  --bg-card:      var(--terminal-surface);
+  --bg-card-hover: #16201a;
+
+  /* Marca */
+  --verde:       var(--terminal-primary-line);
+  --verde-claro: var(--terminal-primary);
+  --verde-dark:  var(--terminal-primary-soft);
+
+  /* Sinais */
+  --accent-blue:  var(--terminal-info);
+  --accent-amber: var(--terminal-accent);
+  --accent-rose:  var(--terminal-negative);
+
+  /* Linhas */
+  --border:       var(--terminal-line);
+  --border-green: var(--terminal-primary-line);
+
+  /* Texto. `--text-muted` era #64748B, contraste 4,22 sobre o fundo — abaixo
+     do mínimo de 4,5 para texto pequeno, que é justamente onde ele era usado.
+     O token do sistema dá 5,37. */
+  --text:           var(--terminal-ink);
+  --text-secondary: var(--terminal-ink-mid);
+  --text-muted:     var(--terminal-ink-soft);
+
   --sidebar-w: 240px;
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 24px;
+
+  /* Raios. Eram 8/14/20/24 aqui e 6/10/14 lá — oito valores diferentes para o
+     mesmo tipo de superfície. Agora os quatro nomes apontam para três
+     degraus, e um card de 18px deixa de aparecer ao lado de um painel de
+     10px na mesma tela. */
+  --radius-sm: var(--terminal-radius-sm);
+  --radius-md: var(--terminal-radius);
+  --radius-lg: var(--terminal-radius-lg);
+  --radius-xl: var(--terminal-radius-lg);
+
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
   --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
   --shadow-lg: 0 20px 50px rgba(0,0,0,0.5);
-  --shadow-green: 0 8px 24px rgba(47,191,113,0.25);
+  --shadow-green: 0 8px 24px rgba(61,220,132,0.22);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -57,7 +96,7 @@ body {
 .auth-card {
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border-green);
-  border-radius: 24px;
+  border-radius: var(--terminal-radius-lg);
   padding: 48px 40px;
   width: 100%;
   max-width: 440px;
@@ -72,7 +111,7 @@ body {
 .auth-logo .logo-icon {
   width: 56px; height: 56px;
   background: linear-gradient(135deg, #2FBF71, #208040);
-  border-radius: 16px;
+  border-radius: var(--terminal-radius-lg);
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 1.8rem; margin-bottom: 12px;
 }
@@ -84,7 +123,7 @@ body {
   width: 100%;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--terminal-radius);
   padding: 12px 16px;
   color: white;
   font-size: 0.95rem;
@@ -99,7 +138,7 @@ body {
   width: 100%;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--terminal-radius);
   padding: 12px 16px;
   color: white;
   font-size: 0.95rem;
@@ -113,7 +152,7 @@ body {
   background: linear-gradient(135deg, #2FBF71, #208040);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--terminal-radius);
   padding: 14px;
   font-size: 1rem;
   font-weight: 700;
@@ -129,7 +168,7 @@ body {
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--border);
   color: white;
-  border-radius: 10px;
+  border-radius: var(--terminal-radius);
   padding: 10px 18px;
   cursor: pointer;
   transition: all 0.2s;
@@ -142,7 +181,7 @@ body {
   background: rgba(255,80,80,0.1);
   border: 1px solid rgba(255,80,80,0.3);
   color: #ff6b6b;
-  border-radius: 8px;
+  border-radius: var(--terminal-radius-sm);
   padding: 6px 14px;
   cursor: pointer;
   font-size: 0.8rem;
@@ -154,7 +193,7 @@ body {
   background: rgba(47,191,113,0.1);
   border: 1px solid rgba(47,191,113,0.3);
   color: #2FBF71;
-  border-radius: 8px;
+  border-radius: var(--terminal-radius-sm);
   padding: 6px 14px;
   cursor: pointer;
   font-size: 0.8rem;
@@ -187,7 +226,7 @@ body {
 .sidebar-logo-icon {
   width: 36px; height: 36px;
   background: linear-gradient(135deg, #2FBF71, #208040);
-  border-radius: 10px;
+  border-radius: var(--terminal-radius);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.1rem;
 }
@@ -195,7 +234,7 @@ body {
 .nav-item {
   display: flex; align-items: center; gap: 12px;
   padding: 11px 14px;
-  border-radius: 12px;
+  border-radius: var(--terminal-radius);
   cursor: pointer;
   transition: all 0.2s;
   color: var(--text-muted);
@@ -217,7 +256,7 @@ body {
   transition: max-height 0.3s ease, opacity 0.25s ease;
   padding: 0 6px;
 }
-.nav-group-header:hover { background: rgba(255,255,255,0.03); border-radius: 8px; }
+.nav-group-header:hover { background: rgba(255,255,255,0.03); border-radius: var(--terminal-radius-sm); }
 
 /* Bottom nav FAB central */
 .bottom-nav-fab {
@@ -233,7 +272,7 @@ body {
   margin-top: auto;
   padding: 16px;
   background: rgba(255,255,255,0.03);
-  border-radius: 14px;
+  border-radius: var(--terminal-radius);
   border: 1px solid var(--border);
   cursor: pointer;
   transition: all 0.2s;
@@ -262,7 +301,7 @@ body {
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: var(--terminal-radius-lg);
   padding: 24px;
   transition: all 0.2s;
 }
@@ -271,7 +310,7 @@ body {
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--terminal-radius-lg);
   padding: 20px 24px;
   transition: all 0.2s;
 }
@@ -331,7 +370,7 @@ body {
 .modal {
   background: #16213e;
   border: 1px solid var(--border-green);
-  border-radius: 24px;
+  border-radius: var(--terminal-radius-lg);
   padding: 32px;
   width: 100%; max-width: 520px;
   /* Desktop: altura máxima com scroll interno */
@@ -394,7 +433,7 @@ body {
   background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
-  border-radius: 8px;
+  border-radius: var(--terminal-radius-sm);
 }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
@@ -410,11 +449,11 @@ body {
 .tab-bar {
   display: flex; gap: 4px;
   background: rgba(255,255,255,0.04);
-  border-radius: 12px; padding: 4px;
+  border-radius: var(--terminal-radius); padding: 4px;
   margin-bottom: 24px;
 }
 .tab {
-  flex: 1; padding: 9px 16px; border-radius: 10px;
+  flex: 1; padding: 9px 16px; border-radius: var(--terminal-radius);
   border: none; cursor: pointer;
   font-size: 0.85rem; font-weight: 600;
   background: transparent; color: var(--text-muted);
@@ -566,7 +605,7 @@ body {
 .button-premium--sm {
   padding: 8px 16px;
   font-size: 0.82rem;
-  border-radius: 10px;
+  border-radius: var(--terminal-radius);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -580,7 +619,7 @@ body {
   z-index: 9999;
   background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
   border: 1px solid rgba(255,196,0,0.4);
-  border-radius: 20px;
+  border-radius: var(--terminal-radius-lg);
   padding: 18px 28px;
   display: flex;
   align-items: center;
@@ -800,7 +839,7 @@ body {
   transform: translateX(-50%);
   background: rgba(15,23,42,0.95);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
+  border-radius: var(--terminal-radius-sm);
   padding: 6px 10px;
   font-size: 0.72rem;
   color: var(--text-secondary);
@@ -883,7 +922,7 @@ a[onclick] {
   min-height: 56px;
   cursor: pointer;
   padding: 6px 4px;
-  border-radius: 12px;
+  border-radius: var(--terminal-radius);
   background: none;
   border: none;
   color: #666;
@@ -1147,7 +1186,7 @@ a[onclick] {
 .chat-sugestao-btn {
   background: var(--bg-main, #f1f5f9);
   border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: 20px;
+  border-radius: var(--terminal-radius-lg);
   padding: 4px 10px;
   font-size: 0.72rem;
   cursor: pointer;
@@ -1199,7 +1238,7 @@ a[onclick] {
 .modal-card {
   background: #16213e;
   border: 1px solid var(--border-green);
-  border-radius: 24px;
+  border-radius: var(--terminal-radius-lg);
   padding: 28px;
   width: 100%; max-width: 440px;
   max-height: 90vh;

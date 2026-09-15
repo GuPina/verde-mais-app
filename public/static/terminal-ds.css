@@ -487,3 +487,108 @@
 .vm-dialog__msg--longo .ds-table { margin: var(--ds-4) 0 0; }
 .vm-dialog__msg--longo .ds-table th,
 .vm-dialog__msg--longo .ds-table td { padding: 7px var(--ds-3); border-bottom: 1px solid var(--terminal-line); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   A PONTE DOS BOTÕES
+   ══════════════════════════════════════════════════════════════════════════
+   O app tinha três sistemas de botão vivos ao mesmo tempo: `.ds-btn` (228
+   usos), `.td-button` (261) e `.btn-primary`/`.btn-secondary` (191). Não eram
+   variações do mesmo desenho — eram desenhos diferentes. O primário novo é
+   verde chapado com raio de 6px; o antigo era gradiente 135°, raio 12px,
+   texto branco, e subia 2px com um brilho verde no hover. Lado a lado na
+   mesma tela, pareciam de dois produtos.
+
+   Reescrever 191 chamadas espalhadas por 23 mil linhas de app.js seria caro e
+   arriscado. Isto aqui faz o mesmo trabalho em CSS: as classes antigas passam
+   a herdar o tratamento do `.ds-btn`. Quem chamava continua chamando.
+
+   Duas coisas não vieram junto, de propósito:
+
+   • O GRADIENTE. Um botão sólido tem uma cor e uma borda; o gradiente
+     acrescenta uma segunda cor que não está em lugar nenhum do sistema, e é
+     o que mais denuncia que aquela tela é de outra safra.
+
+   • A SOMBRA VERDE NO HOVER. Ela existia para dar peso ao botão. O sistema
+     novo resolve isso com 1px de deslocamento — mais barato e mais discreto,
+     e não pinta luz onde não há fonte de luz.
+
+   `!important` aparece só onde a regra antiga tem especificidade igual e vem
+   depois na cascata. Não é preguiça: é o mínimo para a ponte vencer sem
+   reordenar os arquivos de estilo, o que mexeria em tudo.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.btn-primary, .btn-secondary, .btn-danger, .td-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ds-2);
+  min-height: 40px; padding: 10px var(--ds-4);
+  border: 1px solid var(--terminal-line);
+  border-radius: var(--terminal-radius-sm) !important;
+  background: var(--terminal-surface);
+  color: var(--terminal-ink);
+  font: 700 13px/1 var(--terminal-font);
+  cursor: pointer; text-decoration: none;
+  transition: transform 120ms cubic-bezier(.2,0,.2,1), background-color 140ms ease,
+              border-color 140ms ease, color 140ms ease;
+}
+.btn-primary:hover, .btn-secondary:hover, .btn-danger:hover, .td-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--terminal-line-strong);
+  box-shadow: none;
+}
+.btn-primary:active, .btn-secondary:active, .btn-danger:active, .td-button:active {
+  transform: scale(.965) translateY(0);
+}
+.btn-primary:focus-visible, .btn-secondary:focus-visible,
+.btn-danger:focus-visible, .td-button:focus-visible {
+  outline: 2px solid var(--terminal-accent); outline-offset: 2px;
+}
+.btn-primary[disabled], .btn-secondary[disabled], .btn-danger[disabled], .td-button[disabled] {
+  opacity: .45; cursor: not-allowed; transform: none;
+}
+
+/* O primário: verde chapado, texto no fundo escuro. Contraste 10,83 — o
+   gradiente com texto branco dava 3,4 na ponta clara. */
+.btn-primary, .td-button--primary {
+  background: var(--terminal-primary) !important;
+  border-color: var(--terminal-primary);
+  color: var(--terminal-bg) !important;
+}
+.btn-danger, .td-button--danger {
+  background: color-mix(in srgb, var(--terminal-negative) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--terminal-negative) 40%, transparent);
+  color: var(--terminal-negative) !important;
+}
+
+/* `.btn-primary` nasce com `width: 100%`, o que faz sentido num formulário e
+   nenhum numa barra de ações — e é por isso que 37 das 41 chamadas carregam um
+   `style="width:auto"` para desfazer. Largura é decisão de layout, não do
+   botão, e o certo seria inverter o padrão.
+   
+   Não inverti aqui. As 4 chamadas que não passam largura incluem um "Simular"
+   no fim de um formulário, que hoje ocupa a linha inteira de propósito.
+   Trocar o padrão consertaria 37 lugares e quebraria 4 — e quebrar 4 coisas
+   que funcionam para limpar código que ninguém vê é um mau negócio.
+   `.btn-primary--auto` existe para a migração ir acontecendo por tela. */
+.btn-primary--auto { width: auto; }
+
+/* ── Alvo de toque ─────────────────────────────────────────────────────────
+   No dedo, o alvo mínimo confortável é 44px. Havia botões com
+   `padding: 5px 12px; font-size: 0.72rem` — cerca de 26px de altura, que erra
+   com frequência e não dá para o usuário saber por quê.
+
+   A altura cresce no celular e só lá: no mouse, 40px já é folgado, e subir
+   tudo para 44 no desktop inflaria as barras de ação sem ganho. O padding
+   horizontal e o tamanho da fonte ficam como estão — o que falta é área
+   vertical, não volume. */
+@media (pointer: coarse), (max-width: 860px) {
+  .ds-btn, .btn-primary, .btn-secondary, .btn-danger, .td-button,
+  .terminal-btn, .og-esc, .pj-sim__b {
+    min-height: 44px;
+  }
+  .ds-btn--sm, .btn-secondary[style*="font-size:0.72rem"] { min-height: 44px; }
+  .ds-icon-btn, .td-icon-btn { width: 44px; height: 44px; }
+  /* Campo de formulário segue a mesma régua: um select de 32px ao lado de um
+     botão de 44 desalinha e ainda é difícil de acertar. */
+  .form-select, .form-input, select, input[type="text"], input[type="number"], input[type="date"] {
+    min-height: 44px;
+  }
+}

@@ -3,6 +3,10 @@
   --terminal-surface: #111814;
   --terminal-ink: #E8F3EA;
   --terminal-ink-soft: #7A8B80;
+  /* O degrau que faltava entre o texto principal e o apagado. Sem ele, quem
+     precisava de "menos que o principal, mais que uma legenda" inventava um
+     cinza — e inventou #94A3B8, azulado, fora da família. */
+  --terminal-ink-mid: #A9BDB0;
   --terminal-line: #1E2A22;
   --terminal-primary: #3DDC84;
   --terminal-primary-soft: #1E4A32;
