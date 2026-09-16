@@ -11,7 +11,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:status": "node scripts/migrate.mjs --status",
     "db:importar-d1": "node scripts/migrar-d1-para-neon.mjs",
-    "cron": "node dist-node/cron.js"
+    "cron": "node dist-node/cron.js",
+    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outdir=dist-tests --out-extension:.js=.mjs --log-level=error && node --test dist-tests/*.mjs"
   },
   "dependencies": {
     "hono": "^4.12.5",

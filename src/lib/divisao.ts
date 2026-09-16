@@ -37,7 +37,7 @@
  *    caixa, `nao_classificado`, que a tela mostra e oferece resolver.
  */
 
-import { vinculoDe, raizCategoria } from './identidade'
+import { vinculoDe, raizCategoria, categoriaCanonica } from './identidade'
 
 const cent = (v: number) => Math.round((Number(v) || 0) * 100) / 100
 
@@ -75,8 +75,19 @@ const POUPANCA = [
   'cdb', 'lci', 'lca', 'fundo', 'aporte',
 ]
 
-/** Nomes que são, eles próprios, a confissão de que ninguém classificou. */
-const VAZIO = new Set(['outro', 'sem categoria', 'divero', 'geral', ''])
+/**
+ * Nomes que são, eles próprios, a confissão de que ninguém classificou.
+ *
+ * A comparação é contra `raizCategoria`, então as entradas ficam no singular
+ * que ela produz — e é por isso que a lista é montada a partir das grafias
+ * correntes em vez de escrita já normalizada à mão. Até 16/09/2026 havia um
+ * `'divero'` aqui, erro de digitação de `'diverso'` que nenhuma categoria
+ * jamais igualaria.
+ */
+const VAZIO = new Set(
+  ['Outros', 'Outro', 'Sem categoria', 'Diversos', 'Diverso', 'Geral', '']
+    .map(n => raizCategoria(n))
+)
 
 function bate(raiz: string, lista: string[]): boolean {
   return lista.some(t => raiz === t || raiz.startsWith(t + ' ') || raiz.includes(' ' + t))
@@ -115,17 +126,52 @@ export function fatiaDe(d: DespesaDivisivel): Fatia {
   //    até acabar, exatamente como uma parcela de empréstimo.
   if (d.cartao_id && Number(d.numero_parcelas || 1) > 1) return 'dividas'
 
-  const raiz = raizCategoria(d.categoria || '')
+  // 3. O nome que a pessoa escreveu, lido ao pé da letra.
+  const bruta = d.categoria || ''
+  const raiz = raizCategoria(bruta)
   if (!raiz || VAZIO.has(raiz)) return 'nao_classificado'
 
+  const direta = porPalavra(raiz)
+  if (direta) return direta
+
+  // 4. Só então, traduzido para o vocabulário do sistema.
+  //
+  // A tradução é RESGATE, nunca correção: ela só é consultada para o que
+  // acabou de cair fora. Tentar traduzir antes parece mais limpo e destrói a
+  // divisão — medido em 16/09/2026, `categoriaCanonica` manda "Delivery",
+  // "iFood" e "Lanche" para Alimentação, e Alimentação é necessidade; um único
+  // `||` a mais na linha acima virava iFood em despesa essencial, e a diferença
+  // entre necessidade e desejo é a tela inteira do 50/30/20.
+  //
+  // Sem a etapa 4, porém, as listas só reconheciam quem já escrevia como elas:
+  // o mesmo mês digitado como as pessoas digitam ("Contas da casa", "Compras
+  // do mês", "Posto") derrubava o gasto essencial de R$ 3.900 para R$ 1.800 e o
+  // alvo de reserva de R$ 23.400 para R$ 10.800 — o pilar Fôlego dizendo "você
+  // está coberto" anos antes da hora.
+  //
+  // Nesta ordem, nada que já era classificado muda de fatia. Só o que estava
+  // perdido pode ser achado.
+  const canonica = categoriaCanonica(bruta)
+  if (canonica) {
+    const raizCanonica = raizCategoria(canonica)
+    if (raizCanonica && !VAZIO.has(raizCanonica)) {
+      const viaDicionario = porPalavra(raizCanonica)
+      if (viaDicionario) return viaDicionario
+    }
+  }
+
+  return 'nao_classificado'
+}
+
+/** As quatro listas de palavras, na ordem. `null` quando nenhuma reconhece. */
+function porPalavra(raiz: string): Fatia | null {
   if (bate(raiz, POUPANCA)) return 'poupanca'
   // Um nome de categoria que fala de dívida, quando não há vínculo, ainda
   // conta — mas só quando é inequívoco.
   if (bate(raiz, ['financiamento', 'emprestimo', 'consorcio', 'divida'])) return 'dividas'
   if (bate(raiz, NECESSIDADE)) return 'necessidades'
   if (bate(raiz, DESEJO)) return 'desejos'
-
-  return 'nao_classificado'
+  return null
 }
 
 export interface Divisao {

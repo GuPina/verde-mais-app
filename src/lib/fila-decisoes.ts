@@ -52,7 +52,11 @@ export interface Identidade {
   vinculo: string | null
 }
 
-const SEM_DONO = new Set(['outros', 'outro', 'sem categoria', 'diversos', 'geral', ''])
+/** Mesma regra do VAZIO de divisao.ts: comparado contra a raiz, montado da grafia. */
+const SEM_DONO = new Set(
+  ['Outros', 'Outro', 'Sem categoria', 'Diversos', 'Diverso', 'Geral', '']
+    .map(n => raizCategoria(n))
+)
 
 function mediana(a: number[]): number {
   if (!a.length) return 0

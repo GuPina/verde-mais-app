@@ -48,6 +48,14 @@ export interface MesFechado {
   ano: number
   label: string
   receitas: number
+  /**
+   * O que entrou SEM vir de uma recorrência de receita que ainda está ativa.
+   *
+   * `receitas` continua sendo a verdade do mês — é ela que alimenta o saldo, a
+   * oscilação e o teste de "o mês tem os dois lados lançados". Esta aqui existe
+   * só para a média da renda: ver o comentário em `renda()`.
+   */
+  receitas_avulsas: number
   despesas: number
   saldo: number
   /** Parcela ou recorrência: já está contratado, não é hábito. */
@@ -102,6 +110,21 @@ export async function janelaHistorica(
   const mesAtual = hoje.getMonth() + 1
   const anoAtual = hoje.getFullYear()
 
+  // Quais recorrências de receita `renda()` vai somar adiante. As linhas que
+  // ELAS geraram precisam sair da média, senão o mesmo salário entra duas
+  // vezes — uma como linha lançada, outra como recorrência. As de recorrência
+  // já encerrada ficam: elas não estão na soma de `renda()`, e o que entrou no
+  // passado entrou de verdade.
+  const ativasQ = await db.prepare(
+    `SELECT id FROM recorrencias
+     WHERE user_id = ? AND ativa = 1 AND tipo = 'receita'
+       AND (data_fim IS NULL OR data_fim > date('now'))`
+  ).bind(userId).all()
+  const ativas = ((ativasQ.results as any[]) || []).map(r => Number(r.id)).filter(Boolean)
+  const foraDaMedia = ativas.length
+    ? ` AND (recorrencia_id IS NULL OR recorrencia_id NOT IN (${ativas.join(',')}))`
+    : ''
+
   const meses: MesFechado[] = []
   for (let i = limite; i >= 1; i--) {
     let m = mesAtual - i, a = anoAtual
@@ -112,6 +135,13 @@ export async function janelaHistorica(
       `SELECT COALESCE(SUM(valor),0) as total FROM receitas
        WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?`
     ).bind(userId, mesStr, String(a)).first() as any
+
+    const avu = foraDaMedia
+      ? await db.prepare(
+          `SELECT COALESCE(SUM(valor),0) as total FROM receitas
+           WHERE user_id = ? AND strftime('%m', data) = ? AND strftime('%Y', data) = ?${foraDaMedia}`
+        ).bind(userId, mesStr, String(a)).first() as any
+      : rec
 
     const desp = await db.prepare(
       `SELECT COALESCE(SUM(valor),0) as total FROM despesas
@@ -133,7 +163,7 @@ export async function janelaHistorica(
     const r = cent(rec?.total), d = cent(desp?.total), dd = cent(det?.total)
     meses.push({
       mes: m, ano: a, label: `${MESES[m - 1]}/${a}`,
-      receitas: r, despesas: d, saldo: cent(r - d),
+      receitas: r, receitas_avulsas: cent(avu?.total), despesas: d, saldo: cent(r - d),
       despesas_deterministicas: dd,
       despesas_variaveis: cent(Math.max(0, d - dd)),
     })
@@ -203,6 +233,24 @@ export interface Renda {
   meses_labels: string[]
 }
 
+/**
+ * A renda mensal de referência.
+ *
+ * `mensal = média do que varia + soma do que se repete`. Parece óbvio e não é:
+ * a recorrência de receita do VerdeMais **materializa** linhas em `receitas`
+ * (recorrencias.ts, linhas 513, 587 e 659). Somar a média das linhas lançadas
+ * com o valor das recorrências ativas contava o mesmo salário duas vezes —
+ * medido em 16/09/2026: salário de R$ 5.000 virava renda de R$ 10.000.
+ *
+ * E `renda.mensal` é o denominador de quase tudo: comprometimento, sobra,
+ * os quatro pilares do score, os percentuais do 50/30/20, o piso de 1% dos
+ * alertas. O erro não aparecia em lugar nenhum — ele deixava todos os números
+ * bonitos ao mesmo tempo, que é a única forma de erro que ninguém desconfia.
+ *
+ * Por isso a média usa `receitas_avulsas`: o que entrou sem vir de uma
+ * recorrência que ainda está ativa. Recorrência encerrada continua contando na
+ * média, porque ela não entra na soma abaixo e o dinheiro entrou de verdade.
+ */
 export async function renda(db: D1Database, userId: number, janela: JanelaHistorica): Promise<Renda> {
   const rec = await db.prepare(
     `SELECT COALESCE(SUM(valor),0) as total FROM recorrencias
@@ -210,7 +258,7 @@ export async function renda(db: D1Database, userId: number, janela: JanelaHistor
        AND (data_fim IS NULL OR data_fim > date('now'))`
   ).bind(userId).first() as any
 
-  const vals = janela.base.map(m => m.receitas)
+  const vals = janela.base.map(m => m.receitas_avulsas ?? m.receitas)
   const media = mediaPesada(vals)
   const saldos = janela.base.map(m => m.saldo)
   const mSaldo = mediaPesada(saldos)

@@ -6,6 +6,7 @@ const emReais = (v: number) =>
   `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 import { requireAuth } from './auth'
 import { faturaDaCompra, faturaDaParcela, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
+import { ehDataISO } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 
 type Bindings  = { DB: D1Database }
@@ -45,11 +46,17 @@ function inteiroEntre(valor: unknown, campo: string, min: number, max: number) {
   return { value: n }
 }
 
+/**
+ * `new Date('2026-02-31T12:00:00')` NÃO é inválida em JavaScript: o motor
+ * empurra para 3 de março e devolve um horário legítimo. O teste anterior
+ * passava, e a string original — o 31 de fevereiro — seguia para
+ * `periodoFatura` e `faturaDaParcela`, que é onde a data vira dinheiro.
+ * `ehDataISO` conta os dias do mês de verdade, bissexto incluído.
+ */
 function dataIso(valor: unknown, campo = 'data_compra') {
   const data = String(valor ?? '').trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return { error: `${campo} deve estar no formato AAAA-MM-DD` }
-  const d = new Date(data + 'T12:00:00')
-  if (Number.isNaN(d.getTime())) return { error: `${campo} inválida` }
+  if (!ehDataISO(data)) return { error: `${campo} não existe no calendário.` }
   return { value: data }
 }
 

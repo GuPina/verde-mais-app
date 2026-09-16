@@ -35,3 +35,4 @@ core
 *.core
 dist-node/
 d1-dump.sql
+dist-tests/

@@ -2,6 +2,7 @@
 // Melhorias v5: detecção de investimentos, recorrências, OCR via OpenAI Vision
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { ehDataISO, normalizarData } from '../lib/validacao'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -192,13 +193,36 @@ function parseValor(raw: string): number | null {
   return Math.abs(v) === 0 ? 0.01 : Math.abs(v)  // centavos mínimos viram 0.01 se zerado pelo parse
 }
 
+/**
+ * A data de uma linha de CSV/OFX.
+ *
+ * Aceita mais formas que o formulário manual (dia e mês com um dígito,
+ * separador por hífen), porque extrato de banco vem como vem — mas o
+ * julgamento final é o MESMO de `src/lib/validacao.ts`. Sem essa última linha,
+ * este parser devolvia `2026-02-31` com cara de data boa, e o resto do sistema
+ * respondia duas coisas diferentes sobre a mesma linha: `faturaDaCompra` a
+ * colocava na fatura de março e `somarMeses(+1)` na de 3 de abril, pulando
+ * março inteiro.
+ *
+ * O caminho de maior volume e menor confiança do app era o único sem portão.
+ */
 function parseData(raw: string): string | null {
   if (!raw) return null
   const s = raw.trim().replace(/"/g, '')
+
+  const direto = normalizarData(s)
+  if (direto) return direto
+
   const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
-  if (m1) return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`
+  if (m1) {
+    const iso = `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`
+    return ehDataISO(iso) ? iso : null
+  }
   const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
-  if (m2) return `${m2[1]}-${m2[2].padStart(2,'0')}-${m2[3].padStart(2,'0')}`
+  if (m2) {
+    const iso = `${m2[1]}-${m2[2].padStart(2,'0')}-${m2[3].padStart(2,'0')}`
+    return ehDataISO(iso) ? iso : null
+  }
   return null
 }
 

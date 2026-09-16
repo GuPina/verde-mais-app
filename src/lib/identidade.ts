@@ -293,10 +293,19 @@ export const VOCABULARIO: string[] = [
 ]
 
 /**
- * Sinônimos observados nesta base e os óbvios do domínio. A chave é a forma
- * normalizada; o valor, a categoria da lista enxuta.
+ * Sinônimos observados nesta base e os óbvios do domínio. O valor é a
+ * categoria da lista enxuta.
+ *
+ * As chaves são escritas em português corrente — inclusive no plural, que é
+ * como as pessoas nomeiam categoria. Elas NÃO estão na forma que a busca usa:
+ * `categoriaCanonica` procura por `raizCategoria(texto)`, que singulariza. Por
+ * isso o mapa é reindexado logo abaixo, e não escrito já normalizado à mão:
+ * escrever `'roupa'` aqui obrigaria quem edita esta lista a conhecer o
+ * normalizador de cor, e foi exatamente esse acoplamento que deixou 18 das 107
+ * chaves inalcançáveis até 16/09/2026 — entre elas `roupas`, `impostos`,
+ * `seguros`, `taxas`, `onibus` e `contas da casa`.
  */
-const SINONIMOS: Record<string, string> = {
+const SINONIMOS_ESCRITOS: Record<string, string> = {
   // Moradia
   'casa': 'Moradia', 'aluguel': 'Moradia', 'condominio': 'Moradia', 'agua': 'Moradia',
   'luz': 'Moradia', 'energia': 'Moradia', 'gas': 'Moradia', 'internet': 'Moradia',
@@ -309,11 +318,17 @@ const SINONIMOS: Record<string, string> = {
   'carro': 'Transporte', 'automotivo': 'Transporte', 'veiculo': 'Transporte',
   'uber': 'Transporte', 'taxi': 'Transporte', 'onibus': 'Transporte',
   'estacionamento': 'Transporte', 'pedagio': 'Transporte', 'ipva': 'Impostos e taxas',
+  'mecanica': 'Transporte', 'oficina': 'Transporte', 'manutencao do carro': 'Transporte',
   'gasolina': 'Combustível', 'etanol': 'Combustível', 'alcool': 'Combustível',
   'diesel': 'Combustível', 'posto': 'Combustível', 'abastecimento': 'Combustível',
   // Saúde
   'farmacia': 'Saúde', 'medico': 'Saúde', 'plano de saude': 'Saúde',
   'dentista': 'Saúde', 'remedio': 'Saúde', 'academia': 'Saúde', 'terapia': 'Saúde',
+  // Operadora de plano de saúde é o nome que as pessoas dão à categoria, e
+  // não reconhecê-la sai caro: o plano é despesa essencial, e cair em "não
+  // classificado" encolhe o alvo de reserva em seis vezes o valor dele.
+  'unimed': 'Saúde', 'hapvida': 'Saúde', 'amil': 'Saúde', 'sulamerica': 'Saúde',
+  'bradesco saude': 'Saúde', 'notredame': 'Saúde', 'intermedica': 'Saúde',
   // Educação
   'curso': 'Educação', 'cursos': 'Educação', 'faculdade': 'Educação',
   'pos graduacao': 'Educação', 'pos': 'Educação', 'escola': 'Educação',
@@ -355,6 +370,11 @@ const SINONIMOS: Record<string, string> = {
  * "Pós-Graduação" virava "po graduacao" — o "s" de "pós" é raiz, não plural —
  * e a categoria deixava de casar com Educação.
  *
+ * O plural em -ais/-eis/-ois/-uis vem de -al/-el/-ol/-ul e precisa voltar para
+ * lá: cortar só o "s" transformava "pessoais" em "pessoai", e com isso
+ * "Cuidados pessoais" — que está na própria lista do VOCABULARIO — não casava
+ * nem consigo mesma.
+ *
  * Esta é a MESMA função que a Projeção usa para dizer que "Financiamento" e
  * "Financiamentos" são o mesmo assunto. Duas implementações do que conta como
  * "mesmo nome" seria o começo de mais uma divergência entre telas.
@@ -365,9 +385,42 @@ export function raizCategoria(nome: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .split(' ')
-    .map(p => (p.length > 3 ? p.replace(/(oes|aes|ns|s)$/, '') : p))
+    .map(p => (p.length > 3 ? singular(p) : p))
     .join(' ')
 }
+
+function singular(p: string): string {
+  // "animais" → "animal", "papeis" → "papel", "lencois" → "lencol".
+  //
+  // Exige 5 letras porque em palavra curta o -ais também é plural de -ai:
+  // "pais" é o plural de "pai", não de "pal", e "mais" e "seis" não são
+  // plural de nada. Acima de quatro letras o -al é a origem esmagadoramente
+  // mais provável, e categoria de uma sílaba não existe.
+  if (p.length >= 5) {
+    const vogais = p.match(/^(.*[aeou])is$/)
+    if (vogais) return vogais[1] + 'l'
+  }
+  return p.replace(/(oes|aes|ns|s)$/, '')
+}
+
+/**
+ * O mesmo mapa, reindexado pela forma que a busca realmente usa.
+ *
+ * A grafia original fica também, para o caso de `raizCategoria` um dia deixar
+ * de mexer numa chave que hoje ela altera. Colisão — duas grafias que caem na
+ * mesma raiz apontando para categorias diferentes — é resolvida pela primeira,
+ * e a lista é pequena e ordenada o bastante para isso ser uma decisão e não um
+ * acidente.
+ */
+const SINONIMOS: Record<string, string> = (() => {
+  const m: Record<string, string> = {}
+  for (const [escrita, categoria] of Object.entries(SINONIMOS_ESCRITOS)) {
+    const raiz = raizCategoria(escrita)
+    if (raiz && m[raiz] === undefined) m[raiz] = categoria
+    if (m[escrita] === undefined) m[escrita] = categoria
+  }
+  return m
+})()
 
 /**
  * A qual das ~20 esta categoria corresponde — ou null, se ela não se parece

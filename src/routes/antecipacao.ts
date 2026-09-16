@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
 import { somarMeses } from '../lib/fatura'
+import { ehDataISO } from '../lib/validacao'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -30,12 +31,10 @@ function parseValorNaoNeg(v: any): number | null {
   return Number.isFinite(n) && n >= 0 && n <= MAX_VALOR ? Math.round(n * 100) / 100 : null
 }
 // data YYYY-MM-DD válida
+/** Mesma armadilha do `dataIso` de cartoes.ts: `new Date` aceita 31/02. */
 function dataValida(s: any): boolean {
   if (!s) return false
-  const str = String(s)
-  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) return false
-  const d = new Date(str.slice(0, 10) + 'T12:00:00')
-  return !Number.isNaN(d.getTime())
+  return ehDataISO(String(s).slice(0, 10))
 }
 
 // Reverte os efeitos de uma antecipação confirmada (AN2): apaga a despesa
