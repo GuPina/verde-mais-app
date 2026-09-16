@@ -53,15 +53,68 @@
       const d = this._d || {}
       const sc = d.score || {}
 
-      if (!sc.disponivel) return void (content.innerHTML = this._shell(this._semDados(sc, d)))
+      if (!sc.disponivel) {
+        return void (content.innerHTML = this._shell(`
+          ${this._semDados(sc, d)}
+          ${this._alertas(d)}
+        `))
+      }
 
       content.innerHTML = this._shell(`
         ${this._nota(d, sc)}
+        ${this._confianca(d)}
         ${this._pilares(sc)}
         ${this._alertas(d)}
         ${this._recomendacoes(d, sc)}
         ${this._rodape(d)}
       `)
+    },
+
+    // ── O quanto esta tela sabe de si mesma ──────────────────────────────────
+    //
+    // Fica logo abaixo da nota de propósito. Uma nota sozinha convida a
+    // acreditar; uma nota com o seu próprio grau de certeza ao lado convida a
+    // conferir — e diz onde conferir primeiro.
+    _confianca(d) {
+      const c = d.confianca
+      if (!c || !c.fatores?.length) return ''
+
+      const cor = c.nota >= 70 ? 'var(--terminal-primary)'
+        : c.nota >= 45 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'
+      const rotulo = { alta: 'confiança alta', media: 'confiança média',
+                       baixa: 'confiança baixa', insuficiente: 'confiança insuficiente' }[c.nivel] || ''
+
+      const barras = c.fatores.map(f => `
+        <div class="dg-conf__fator${c.limitante && f.chave === c.limitante.chave ? ' is-gargalo' : ''}">
+          <div class="dg-conf__topo">
+            <span class="dg-conf__rot">${esc(f.rotulo)}</span>
+            <span class="dg-conf__num">${f.nota}</span>
+          </div>
+          <div class="dg-conf__trilho">
+            <i style="width:${Math.max(2, f.nota)}%;background:${
+              f.nota >= 70 ? 'var(--terminal-primary)'
+                : f.nota >= 40 ? 'var(--terminal-accent)' : 'var(--terminal-negative)'};"></i>
+          </div>
+          <p>${esc(f.leitura)}</p>
+        </div>`).join('')
+
+      const gargalo = c.limitante && c.limitante.saida
+        ? `<p class="dg-conf__saida"><b>Onde você ganha mais:</b> ${esc(c.limitante.saida)}</p>`
+        : ''
+
+      return `<section class="td-panel dg-conf dg-sec">
+        <header class="dg-conf__cab">
+          <div>
+            <span class="td-eyebrow">O quanto eu sei</span>
+            <h2>Esta leitura está <em style="color:${cor}">${c.nota}% certa</em>.</h2>
+          </div>
+          <span class="dg-nota__nivel ${c.nota >= 70 ? 'is-ok' : c.nota >= 45 ? 'is-warn' : 'is-neg'}">${esc(rotulo)}</span>
+        </header>
+        <p class="dg-fonte">A nota acima vale o que valem os dados por trás dela. Estes são os
+          quatro elos, e a corrente vale o mais fraco — não a média deles.</p>
+        <div class="dg-conf__grade">${barras}</div>
+        ${gargalo}
+      </section>`
     },
 
     // ── A nota, e o que ela não é ────────────────────────────────────────────
@@ -269,15 +322,32 @@
       return `<div class="dg-ref"><span>${esc(lbl)}</span><b>${val}</b><small>${esc(sub)}</small></div>`
     },
 
+    // ── Quando o app não sabe o suficiente ───────────────────────────────────
+    //
+    // Não fica mudo: fica específico. Some o agregado — a nota e as
+    // recomendações precificadas — e ficam os fatos, que continuam valendo
+    // (os alertas são sobre contrato assinado, não sobre a janela), mais a
+    // conta exata do que falta para o agregado voltar.
     _semDados(sc, d) {
       const n = d.contexto?.meses_fechados ?? 0
+      const c = d.confianca
+      const culpados = (c?.fatores || []).filter(f => f.cala)
+
+      const lista = culpados.length ? `<ul class="dg-vazio__lista">${culpados.map(f => `
+        <li><b>${esc(f.rotulo)}.</b> ${esc(f.leitura)}${f.saida ? ` <span>${esc(f.saida)}</span>` : ''}</li>`).join('')}</ul>` : ''
+
+      const destino = culpados.some(f => f.chave === 'amostra') ? 'despesas' : 'organizador'
+      const botao = destino === 'despesas' ? 'Lançar o que falta' : 'Abrir a Central de Organização'
+
       return `<article class="td-panel dg-vazio">
         <i class="fas fa-seedling"></i>
         <h2>Ainda não dá para te dar uma nota.</h2>
-        <p>${esc(sc.motivo_indisponivel || `Com ${n} meses fechados não dá para dizer o que é normal para você.`)}</p>
-        <p class="dg-vazio__p2">Isto é de propósito. Uma nota tirada de um mês e meio de dados
-          pareceria precisa e não seria — e você tomaria decisão em cima dela.</p>
-        <button class="ds-btn ds-btn--primary" onclick="VM.navigate('despesas')">Lançar o que falta</button>
+        <p>${esc(sc.motivo_indisponivel || c?.motivo || `Com ${n} meses fechados não dá para dizer o que é normal para você.`)}</p>
+        ${lista}
+        <p class="dg-vazio__p2">Isto é de propósito. Uma nota tirada de dado pela metade pareceria
+          precisa e não seria — e você tomaria decisão em cima dela. Os alertas abaixo continuam
+          valendo: eles são sobre contrato assinado, não sobre média de mês.</p>
+        <button class="ds-btn ds-btn--primary" onclick="VM.navigate('${destino}')">${botao}</button>
       </article>`
     },
 

@@ -4,6 +4,7 @@ import {
   janelaHistorica, renda as calcRenda, dividas as calcDividas, prestacoes as calcPrestacoes,
   comprometimento as calcComprometimento, patrimonio as calcPatrimonio, reserva as calcReserva,
   score as calcScore, gastos as calcGastos,
+  baseDeReserva, confianca as calcConfianca,
 } from '../lib/metricas'
 import { requireAuth } from './auth'
 
@@ -477,13 +478,36 @@ projecao.get('/', requireAuth, async (c) => {
   const prest = await calcPrestacoes(c.env.DB, user.id)
   const comp = calcComprometimento(prest.total, rendaM.mensal)
   const patr = await calcPatrimonio(c.env.DB, user.id, divs.total)
-  const res = calcReserva(patr.reserva, janela, 6)
+
+  // A base entra aqui pelo mesmo motivo que entra no Diagnóstico: sem ela,
+  // `calcReserva` cai no fallback conservador (todo o fluxo de saída) e esta
+  // tela mostrava um alvo de reserva DIFERENTE do que o Diagnóstico mostra,
+  // sobre exatamente os mesmos meses. Era a doença que a camada existe para
+  // curar, sobrevivendo numa chamada com um argumento a menos.
+  const base = await baseDeReserva(c.env.DB, user.id, janela)
+  const res = calcReserva(patr.reserva, janela, 6, base)
 
   const sobraProximoMes = projecoes.length ? Number(projecoes[0].receitas) - Number(projecoes[0].despesas) : 0
 
   const sc = calcScore({
     reserva: res, comprometimento: comp, sobra_proximo_mes: sobraProximoMes,
     renda: rendaM.mensal, patrimonio: patr, janela,
+  })
+
+  // ── A confiança, agora com os quatro elos ─────────────────────────────────
+  //
+  // Esta tela já tinha uma medida de confiança, e ela olhava só amostra ×
+  // estabilidade: dizia "alta" para 12 meses de dados em que metade do gasto
+  // estava sem categoria. Amostra e estabilidade continuam lá dentro, agora
+  // acompanhadas do que faltava — cobertura e ambiguidade — e vindo da mesma
+  // função que o Diagnóstico e o Dashboard chamam.
+  const conf = calcConfianca({
+    janela,
+    gasto_total: base.gasto_total,
+    gasto_nao_classificado: base.gasto_nao_classificado,
+    valor_em_disputa: base.valor_em_disputa,
+    lancamentos_em_disputa: base.lancamentos_em_disputa,
+    renda: rendaM,
   })
 
   // ── Plano de quitação ──────────────────────────────────────────────────────
@@ -709,9 +733,15 @@ projecao.get('/', requireAuth, async (c) => {
     saldo_atual: 0,
     saldo_atual_desc: 'A linha começa do zero: ela mostra quanto você acumula a partir de hoje, não quanto você tem no banco.',
     resultado_6m_fechados: Math.round(resultado6mFechados * 100) / 100,
-    confianca,
+    confianca: conf.nota,
     confianca_detalhe: {
-      nivel: confianca >= 70 ? 'alta' : confianca >= 40 ? 'média' : 'baixa',
+      nivel: conf.nivel === 'media' ? 'média' : conf.nivel === 'insuficiente' ? 'baixa' : conf.nivel,
+      // Os quatro elos, iguais aos do Diagnóstico.
+      fatores: conf.fatores,
+      limitante: conf.limitante,
+      suficiente: conf.suficiente,
+      /** A medida antiga desta tela, mantida para comparação. */
+      confianca_estatistica: confianca,
       meses_usados: baseFinal.length,
       meses_labels: baseFinal.map(m => m.label),
       janela_maxima: JANELA_MESES,

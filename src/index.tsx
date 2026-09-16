@@ -669,7 +669,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260915-1">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260903-1">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
-  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260914-6">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20260916-2">
   <link rel="stylesheet" href="/static/terminal-ds.css?v=20260915-1">
   <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
@@ -683,7 +683,7 @@ function appShell() {
     </div>
   </div>
   <script src="/static/terminal-auth.js?v=20260827-2"></script>
-  <script src="/static/terminal-dashboard.js?v=20260903-1"></script>
+  <script src="/static/terminal-dashboard.js?v=20260916-2"></script>
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
   <script src="/static/terminal-metas.js?v=20260829-1"></script>
   <script src="/static/terminal-orcamentos.js?v=20260829-1"></script>
@@ -701,7 +701,7 @@ function appShell() {
   <script src="/static/terminal-emprestimos.js?v=20260910-4"></script>
   <script src="/static/terminal-antecipacao.js?v=20260909-1"></script>
   <script src="/static/terminal-recebimentos.js?v=20260909-1"></script>
-  <script src="/static/terminal-diagnostico.js?v=20260914-4"></script>
+  <script src="/static/terminal-diagnostico.js?v=20260916-2"></script>
   <script src="/static/terminal-projecao.js?v=20260914-5"></script>
   <script src="/static/terminal-comparativo.js?v=20260831-1"></script>
   <script src="/static/terminal-relatorios.js?v=20260831-7"></script>

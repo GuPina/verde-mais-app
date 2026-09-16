@@ -37,7 +37,8 @@
 
 import { competenciaData, filtroNaoCancelada, filtroSemAporte } from './competencia'
 import { raizCategoria } from './identidade'
-import { gastoEssencial, type DespesaDivisivel } from './divisao'
+import { gastoEssencial, dividir, type DespesaDivisivel } from './divisao'
+import { montarFila, type DespesaCrua } from './fila-decisoes'
 
 const cent = (v: number) => Math.round((Number(v) || 0) * 100) / 100
 
@@ -552,6 +553,15 @@ export interface BaseDeReserva {
   /** Todo o fluxo de saída, para a tela poder mostrar a diferença. */
   total: number
   meses: number
+  /**
+   * O que a confiança precisa saber sobre estas mesmas linhas. Sai daqui, e
+   * não de uma consulta própria, porque `baseDeReserva` já pagou o SELECT:
+   * medir o quanto se sabe não pode custar mais caro que saber.
+   */
+  gasto_total: number
+  gasto_nao_classificado: number
+  valor_em_disputa: number
+  lancamentos_em_disputa: number
 }
 
 export interface Reserva {
@@ -586,12 +596,17 @@ export async function baseDeReserva(
   db: D1Database, userId: number, janela: JanelaHistorica,
 ): Promise<BaseDeReserva> {
   const chaves = janela.base.map(m => `${m.ano}-${String(m.mes).padStart(2, '0')}`)
-  if (!chaves.length) return { essencial: 0, total: 0, meses: 0 }
+  const VAZIA: BaseDeReserva = {
+    essencial: 0, total: 0, meses: 0,
+    gasto_total: 0, gasto_nao_classificado: 0,
+    valor_em_disputa: 0, lancamentos_em_disputa: 0,
+  }
+  if (!chaves.length) return VAZIA
   const ph = chaves.map(() => '?').join(',')
 
   const r = await db.prepare(
     `SELECT d.id, d.descricao, d.categoria, d.valor, d.observacoes, d.recorrencia_id,
-            d.numero_parcelas, d.cartao_id
+            d.numero_parcelas, d.cartao_id, d.data, d.status
      FROM despesas d
      WHERE d.user_id = ? AND d.status IN ('pago','pendente')
        AND ${filtroSemAporte('d')} AND ${filtroNaoCancelada('d')}
@@ -607,7 +622,26 @@ export async function baseDeReserva(
 
   const meses = chaves.length
   const total = cent(linhas.reduce((s, d) => s + d.valor, 0) / meses)
-  return { essencial: cent(gastoEssencial(linhas) / meses), total, meses }
+
+  // As mesmas linhas, lidas mais duas vezes: uma para saber quanto ficou fora
+  // das quatro fatias, outra para saber quanto está em disputa. As duas são
+  // funções puras sobre o que já está na memória — nenhuma consulta a mais.
+  const div = dividir(linhas, 0)
+  const cruas: DespesaCrua[] = ((r.results as any[]) || []).map(x => ({
+    id: Number(x.id), descricao: x.descricao ?? null, categoria: x.categoria ?? null,
+    valor: Number(x.valor) || 0, data: x.data ?? null, status: x.status ?? null,
+    observacoes: x.observacoes ?? null, recorrencia_id: x.recorrencia_id ?? null,
+  }))
+  const fila = montarFila(cruas, { sem_parecidas: true })
+
+  return {
+    essencial: cent(gastoEssencial(linhas) / meses),
+    total, meses,
+    gasto_total: cent(div.total),
+    gasto_nao_classificado: cent(div.nao_classificado),
+    valor_em_disputa: fila.resumo.valor_em_disputa,
+    lancamentos_em_disputa: fila.resumo.lancamentos_em_disputa,
+  }
 }
 
 /**
@@ -1061,4 +1095,219 @@ export function recomendacoes(dados: EntradaScore & {
   // mais", não "o que é mais caro". A linha de ordem fica sempre por último,
   // porque ela só faz sentido lida depois das duas que ela compara.
   return fora.sort((a, b) => (a.ordem ? 1 : 0) - (b.ordem ? 1 : 0) || b.devolve - a.devolve)
+}
+
+// ─── 9. Confiança ────────────────────────────────────────────────────────────
+
+/**
+ * O QUANTO O SISTEMA SABE — e não o que ele acha.
+ *
+ * Todo número deste arquivo era apresentado com a mesma cara: uma nota
+ * construída sobre 3 meses com 40% do gasto em "Outros" saía idêntica a uma
+ * construída sobre 12 meses limpos. A Projeção era a única tela com uma medida
+ * de confiança, e ela media volatilidade do saldo — que é um fato sobre a vida
+ * da pessoa, não sobre a qualidade do dado.
+ *
+ * A confiança aqui é uma CADEIA de quatro elos, e uma cadeia vale o que vale o
+ * elo mais fraco. Por isso a combinação é média geométrica ponderada e não
+ * média simples: zero em qualquer um zera o conjunto, que é o comportamento
+ * correto — sem meses não há normal, sem classificação não há divisão, e com
+ * metade do dinheiro em disputa não há soma.
+ *
+ * ── A DISTINÇÃO QUE IMPORTA ─────────────────────────────────────────────────
+ *
+ * Três elos são DEFEITO DE DADO e podem calar a nota: amostra curta, gasto sem
+ * classificação, dinheiro em disputa. Cada um tem um caminho de conserto que
+ * cabe numa frase, e o app sabe dizer qual é.
+ *
+ * O quarto — estabilidade — é FATO DA VIDA. Renda de comissionado oscila, e
+ * isso limita o que se pode prever, mas não torna nenhum número errado. Ele
+ * baixa a confiança e NUNCA cala a nota: esconder o diagnóstico de quem tem
+ * renda irregular seria negar a ferramenta a quem mais precisa dela.
+ */
+
+export interface FatorConfianca {
+  chave: 'amostra' | 'cobertura' | 'ambiguidade' | 'estabilidade'
+  rotulo: string
+  /**
+   * 0 a 100: o quanto ESTE elo está pronto — 0 no piso, 100 sem ressalva.
+   *
+   * Não é a medida crua. 70% do gasto classificado não vale 70 aqui: o piso é
+   * 60%, então 70% é um quarto do caminho entre "inaceitável" e "perfeito", e
+   * vale 25. A medida crua, em português e com o valor em reais, está na
+   * `leitura` — que é o que a tela mostra. Um elo que exibisse 70 quando está a
+   * dez pontos de calar a nota inteira seria um medidor que mente baixo.
+   */
+  nota: number
+  peso: number
+  /** O que este elo está vendo, em números e em português. */
+  leitura: string
+  /** O que fazer para melhorar — null quando não há o que fazer. */
+  saida: string | null
+  /** Se este elo sozinho basta para o app se calar. */
+  cala: boolean
+}
+
+export interface Confianca {
+  nota: number
+  nivel: 'alta' | 'media' | 'baixa' | 'insuficiente'
+  /** Falso quando algum elo de dado furou o piso: a nota não deve virar número. */
+  suficiente: boolean
+  fatores: FatorConfianca[]
+  /** O pior elo consertável — é nele que o usuário ganha mais mexendo. */
+  limitante: FatorConfianca | null
+  /** Quando insuficiente, a frase que substitui o número. */
+  motivo: string | null
+}
+
+export interface EntradaConfianca {
+  janela: JanelaHistorica
+  /** Gasto do período, e quanto dele ficou fora das quatro fatias. */
+  gasto_total: number
+  gasto_nao_classificado: number
+  /** Dinheiro parado em conflito, duplicata ou sem dono. */
+  valor_em_disputa: number
+  lancamentos_em_disputa: number
+  renda: Renda
+}
+
+/** Pisos por elo. Furar um deles cala a nota: abaixo disso o app não sabe. */
+const PISO_MESES = 3
+const MESES_CHEIOS = 6
+const PISO_COBERTURA = 0.6
+const TETO_DISPUTA = 0.4
+/** Acima de 60% da renda de oscilação mensal, previsão vira chute. */
+const LIMITE_VOLATILIDADE = 0.6
+/**
+ * A estabilidade nunca desce abaixo disto na corrente.
+ *
+ * Ela é o único elo que não é defeito de dado, e por isso não pode ter o poder
+ * de zerar o conjunto — zerar significa "sem isto não há o que calcular", e com
+ * renda de comissionado há: há tudo, com menos poder de previsão. Deixá-la
+ * zerar escondia o diagnóstico inteiro de quem vive de comissão, que é
+ * exatamente quem mais precisa dele.
+ */
+const PISO_ESTABILIDADE = 0.15
+
+const pct1 = (v: number) => Math.round(v * 1000) / 10
+
+/** Do piso até o ideal, em 0..1. Abaixo do piso é zero — e o piso cala. */
+function doPisoAteOIdeal(valor: number, piso: number, ideal: number): number {
+  if (valor <= piso) return 0
+  return Math.max(0.05, Math.min(1, (valor - piso) / (ideal - piso)))
+}
+
+export function confianca(e: EntradaConfianca): Confianca {
+  const meses = e.janela.base.length
+  const gasto = Math.max(0, e.gasto_total)
+
+  // ── Elo 1: amostra ────────────────────────────────────────────────────────
+  const fAmostra: FatorConfianca = {
+    chave: 'amostra', rotulo: 'Meses observados', peso: 0.30,
+    nota: Math.round(doPisoAteOIdeal(meses, PISO_MESES - 1, MESES_CHEIOS) * 100),
+    leitura: meses === 0
+      ? 'Nenhum mês fechado com os dois lados lançados.'
+      : `${meses} ${meses === 1 ? 'mês fechado' : 'meses fechados'} com receita e despesa lançadas.`,
+    saida: meses >= MESES_CHEIOS ? null
+      : `Faltam ${MESES_CHEIOS - meses} ${MESES_CHEIOS - meses === 1 ? 'mês' : 'meses'} para a janela cheia.`,
+    cala: meses < PISO_MESES,
+  }
+
+  // ── Elo 2: cobertura ──────────────────────────────────────────────────────
+  //
+  // Fração do gasto que caiu numa das quatro fatias. Dinheiro sem classificação
+  // não some da conta — some da ANÁLISE, e some justo para o lado otimista: o
+  // que não é reconhecido como necessidade não entra no alvo da reserva.
+  const coberto = gasto > 0 ? Math.max(0, gasto - e.gasto_nao_classificado) / gasto : 0
+  const fCobertura: FatorConfianca = {
+    chave: 'cobertura', rotulo: 'Gasto classificado', peso: 0.30,
+    nota: gasto > 0 ? Math.round(doPisoAteOIdeal(coberto, PISO_COBERTURA, 1) * 100) : 0,
+    leitura: gasto <= 0
+      ? 'Nenhuma despesa no período.'
+      : `${pct1(coberto)}% do gasto tem categoria que o sistema reconhece` +
+        (e.gasto_nao_classificado > 0 ? ` — ${fmt(e.gasto_nao_classificado)} não têm.` : '.'),
+    saida: coberto >= 0.95 ? null
+      : 'Dar categoria ao que está como "Outros" ou sem nome, na Central de Organização.',
+    cala: gasto > 0 && coberto < PISO_COBERTURA,
+  }
+
+  // ── Elo 3: ambiguidade ────────────────────────────────────────────────────
+  //
+  // O mesmo gasto com dois nomes, ou duas categorias para a mesma coisa: a soma
+  // existe, mas não se sabe de que lado ela cai. Só entram as decisões do
+  // primeiro degrau da fila — as que fazem o número de HOJE estar errado.
+  const disputa = gasto > 0 ? Math.min(1, e.valor_em_disputa / gasto) : 0
+  const fAmbiguidade: FatorConfianca = {
+    chave: 'ambiguidade', rotulo: 'Dinheiro sem dúvida', peso: 0.20,
+    nota: Math.round(doPisoAteOIdeal(1 - disputa, 1 - TETO_DISPUTA, 1) * 100),
+    leitura: e.valor_em_disputa <= 0
+      ? 'Nenhum lançamento em conflito ou sem dono.'
+      : `${fmt(e.valor_em_disputa)} em ${e.lancamentos_em_disputa} ` +
+        `${e.lancamentos_em_disputa === 1 ? 'lançamento' : 'lançamentos'} ` +
+        `com conflito, duplicata ou sem dono — ${pct1(disputa)}% do gasto.`,
+    saida: e.valor_em_disputa <= 0 ? null
+      : 'Resolver a fila de decisões da Central de Organização.',
+    cala: disputa > TETO_DISPUTA,
+  }
+
+  // ── Elo 4: estabilidade ───────────────────────────────────────────────────
+  //
+  // Este NÃO cala e não pode zerar. Renda que oscila é fato da vida de quem
+  // vive de comissão, não defeito de lançamento: limita o que dá para prever e
+  // não torna número nenhum errado.
+  const volatilidade = e.renda.mensal > 0 ? e.renda.oscilacao / e.renda.mensal : 1
+  const estabilidade = meses === 0 ? 0
+    : Math.max(PISO_ESTABILIDADE, Math.min(1, 1 - volatilidade / LIMITE_VOLATILIDADE))
+  const fEstabilidade: FatorConfianca = {
+    chave: 'estabilidade', rotulo: 'Regularidade do mês', peso: 0.20,
+    nota: Math.round(estabilidade * 100),
+    leitura: e.renda.mensal <= 0
+      ? 'Sem renda de referência para comparar.'
+      : `O resultado do mês oscila ${fmt(e.renda.oscilacao)}, ${pct1(volatilidade)}% da renda.`,
+    saida: estabilidade >= 0.8 ? null
+      : 'Nada a corrigir aqui: é o seu mês que varia, e a projeção já conta com isso.',
+    cala: false,
+  }
+
+  const fatores = [fAmostra, fCobertura, fAmbiguidade, fEstabilidade]
+
+  // ── A combinação ──────────────────────────────────────────────────────────
+  //
+  // Média geométrica ponderada, e não média simples: uma cadeia vale o que vale
+  // o elo mais fraco, e um zero em qualquer elo de DADO zera o conjunto — que é
+  // o comportamento correto. Sem meses não há normal; sem classificação não há
+  // divisão; com metade do dinheiro em disputa não há soma. Média simples
+  // deixaria três elos bons comprarem o silêncio de um elo quebrado.
+  let log = 0
+  let somaPesos = 0
+  let zerou = false
+  for (const f of fatores) {
+    const x = Math.max(0, Math.min(1, f.nota / 100))
+    if (x <= 0) { zerou = true; break }
+    log += f.peso * Math.log(x)
+    somaPesos += f.peso
+  }
+  const nota = zerou || somaPesos <= 0 ? 0 : Math.round(100 * Math.exp(log / somaPesos))
+
+  const calando = fatores.filter(f => f.cala)
+  const suficiente = calando.length === 0 && nota > 0
+
+  // O limitante sai só dos elos que a pessoa PODE consertar: apontar
+  // "estabilidade" como gargalo mandaria alguém arrumar o próprio salário.
+  const consertaveis = fatores.filter(f => f.chave !== 'estabilidade')
+  const pior = consertaveis.reduce<FatorConfianca | null>(
+    (p, f) => (!p || f.nota < p.nota ? f : p), null)
+
+  return {
+    nota,
+    nivel: !suficiente ? 'insuficiente' : nota >= 70 ? 'alta' : nota >= 45 ? 'media' : 'baixa',
+    suficiente,
+    fatores,
+    limitante: pior && pior.nota < 100 ? pior : null,
+    motivo: suficiente ? null
+      : calando.length
+        ? calando.map(f => f.leitura).join(' ') +
+          (calando.find(f => f.saida) ? ' ' + calando.find(f => f.saida)!.saida : '')
+        : 'Ainda não há dado suficiente para uma leitura honesta.',
+  }
 }

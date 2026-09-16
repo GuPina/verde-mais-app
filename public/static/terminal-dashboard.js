@@ -352,6 +352,23 @@
         const obligationSummary = obligations.resumo || {}
         const commitment = Number(obligations.comprometimento_ajustado_pct ?? obligationSummary.comprometimento_pct_atual ?? 0)
         const installment = Number(obligationSummary.total_parcelas_ativas ?? resumo.parcelas_emp_fin ?? 0)
+        // ── A linha de baixo do termômetro ───────────────────────────────
+        //
+        // O Dashboard é onde a pessoa bate o olho e segue a vida, então aqui a
+        // confiança não vira painel: vira uma linha. Quando ela não é
+        // suficiente o número some — mostrar "62/100" com metade do gasto sem
+        // categoria é exatamente o que fazia a nota parecer precisa sem ser.
+        const scoreDelta = (data, score) => {
+          const c = data.confianca
+          if (score === null) return '<span class="td-kpi__delta">Disponível no Premium</span>'
+          if (c && !c.suficiente) {
+            return '<span class="td-kpi__delta td-kpi__delta--muted">Dado insuficiente — ver Diagnóstico</span>'
+          }
+          const qualidade = score >= 80 ? 'Muito bom' : score >= 60 ? 'Bom caminho' : 'Pede atenção'
+          if (!c) return `<span class="td-kpi__delta">${qualidade}</span>`
+          return `<span class="td-kpi__delta">${qualidade} · ${c.nota}% de confiança</span>`
+        }
+
         const score = data.score_saude
         const savings = resumo.taxa_poupanca
         const newAccount = [resumo.total_receitas, resumo.total_despesas, resumo.total_investimentos, resumo.total_devedor, data.metas?.ativas]
@@ -402,7 +419,7 @@
                 <article class="td-kpi"><span>Saldo do mês</span><strong>${money(resumo.saldo_liquido)}</strong>${savings === null ? '<span class="td-kpi__delta td-kpi__delta--muted">Taxa de poupança —</span>' : `<span class="td-kpi__delta ${Number(savings) >= 0 ? 'td-kpi__delta--positive' : 'td-kpi__delta--negative'}">Taxa de poupança ${Number(savings).toFixed(1)}%</span>`}</article>
                 <article class="td-kpi"><span>Receitas</span><strong>${money(resumo.total_receitas)}</strong>${delta(resumo.var_receitas_pct, false)}</article>
                 <article class="td-kpi"><span>Despesas</span><strong>${money(resumo.total_despesas)}</strong>${delta(resumo.var_despesas_pct, true)}</article>
-                <article class="td-kpi td-kpi--score" onclick="${data.score_bloqueado ? "VM.upsellModal('score_saude')" : "VM.navigate('ia')"}"><span>Score de saúde</span><strong>${score === null ? '—' : `${Number(score)}<small>/100</small>`}</strong><span class="td-kpi__delta">${score === null ? 'Disponível no Premium' : score >= 80 ? 'Muito bom' : score >= 60 ? 'Bom caminho' : 'Pede atenção'}</span></article>
+                <article class="td-kpi td-kpi--score" onclick="${data.score_bloqueado ? "VM.upsellModal('score_saude')" : "VM.navigate('diagnostico')"}"><span>Score de saúde</span><strong>${score === null ? '—' : (data.confianca && !data.confianca.suficiente) ? '—' : `${Number(score)}<small>/100</small>`}</strong>${scoreDelta(data, score)}</article>
               </div>
             </section>
 

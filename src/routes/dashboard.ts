@@ -3,7 +3,7 @@ import {
   janelaHistorica, renda as calcRenda, dividas as calcDividas,
   prestacoes as calcPrestacoes, comprometimento as calcComprometimento,
   patrimonio as calcPatrimonio, reserva as calcReserva, baseDeReserva,
-  score as calcScore,
+  score as calcScore, confianca as calcConfianca,
 } from '../lib/metricas'
 import { requireAuth } from './auth'
 import { getLimites, podeUsar, MSG_UPGRADE } from './planos'
@@ -356,6 +356,18 @@ dashboard.get('/', requireAuth, async (c) => {
     janela: janelaScore,
   })
 
+  // A MESMA confiança do Diagnóstico, da mesma função, sobre a mesma janela.
+  // Dois números de confiança diferentes em duas telas seria repetir a doença
+  // que a camada de métricas foi criada para curar.
+  const confScore = calcConfianca({
+    janela: janelaScore,
+    gasto_total: baseRes.gasto_total,
+    gasto_nao_classificado: baseRes.gasto_nao_classificado,
+    valor_em_disputa: baseRes.valor_em_disputa,
+    lancamentos_em_disputa: baseRes.lancamentos_em_disputa,
+    renda: rendaScore,
+  })
+
   const score = scoreSaude.total
   // O formato antigo de `fatores` continua saindo, para o front não quebrar —
   // mas alimentado pelos pilares, que é o que agora existe de verdade.
@@ -657,6 +669,9 @@ dashboard.get('/', requireAuth, async (c) => {
     // termômetro, o Diagnóstico mostra de onde vêm os pontos, e os dois leem
     // daqui. Não há como um dizer 15 e o outro 17.
     score_detalhe: lim.score_saude ? scoreSaude : null,
+    // O quanto essa nota sabe de si mesma — o mesmo objeto que o Diagnóstico
+    // abre em quatro barras. Aqui o Dashboard usa só a nota e o nível.
+    confianca: lim.score_saude ? confScore : null,
     plano: user.plano,
     limites: {
       // B5-fix: Infinity não é serializável em JSON — converter para -1 (sem limite)

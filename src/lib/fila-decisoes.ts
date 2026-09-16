@@ -151,6 +151,15 @@ export interface Fila {
     pendentes: number
     lancamentos_afetados: number
     valor_afetado: number
+    /**
+     * Só o dinheiro das decisões do primeiro degrau — conflito, duplicata e
+     * sem-dono. É o recorte que a confiança usa: `valor_afetado` inclui
+     * vocabulário e parecidas, que são arrumação de nome e não fazem número
+     * nenhum estar errado hoje. Medir ambiguidade com ele castigaria quem
+     * apenas escreve "Saúde" e "Saúde/Farmácia" em telas diferentes.
+     */
+    valor_em_disputa: number
+    lancamentos_em_disputa: number
   }
 }
 
@@ -399,13 +408,19 @@ export function montarFila(despesas: DespesaCrua[], opcoes: FilaOpcoes = {}): Fi
   // — um total maior que a própria conta, que é o tipo de número que faz o
   // usuário parar de confiar na tela inteira.
   const idsAfetados = new Set<number>()
+  const idsEmDisputa = new Set<number>()
   for (const d of decisoes) {
     const alvoIds = (d.alvo as any)?.ids as number[] | undefined
-    if (alvoIds) for (const i of alvoIds) idsAfetados.add(i)
+    if (!alvoIds) continue
+    for (const i of alvoIds) {
+      idsAfetados.add(i)
+      if (PESO[d.tipo] === 0) idsEmDisputa.add(i)
+    }
   }
-  const valorAfetado = cent(
-    despesas.filter(d => idsAfetados.has(d.id)).reduce((s, d) => s + (Number(d.valor) || 0), 0)
+  const somar = (ids: Set<number>) => cent(
+    despesas.filter(d => ids.has(d.id)).reduce((s, d) => s + (Number(d.valor) || 0), 0)
   )
+  const valorAfetado = somar(idsAfetados)
 
   return {
     decisoes: limitadas,
@@ -419,6 +434,8 @@ export function montarFila(despesas: DespesaCrua[], opcoes: FilaOpcoes = {}): Fi
       pendentes: decisoes.length,
       lancamentos_afetados: idsAfetados.size,
       valor_afetado: valorAfetado,
+      valor_em_disputa: somar(idsEmDisputa),
+      lancamentos_em_disputa: idsEmDisputa.size,
     },
   }
 }

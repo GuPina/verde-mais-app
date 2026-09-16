@@ -44,6 +44,7 @@ import {
   prestacoes as calcPrestacoes, comprometimento as calcComprometimento,
   patrimonio as calcPatrimonio, reserva as calcReserva, baseDeReserva,
   score as calcScore, recomendacoes as calcRecomendacoes,
+  confianca as calcConfianca,
 } from '../lib/metricas'
 import { requireAuth } from './auth'
 
@@ -103,7 +104,35 @@ diagnostico.get('/', requireAuth, async (c) => {
     renda: rendaM.mensal, patrimonio: patr, janela,
   }
   const sc = calcScore(entradas)
-  const recs = calcRecomendacoes({ ...entradas, dividas: divs, prestacoes: prest })
+
+  // ── O quanto esta nota sabe de si mesma ───────────────────────────────────
+  //
+  // A fila de decisões já media o tamanho da dúvida — `valor_em_disputa` — e
+  // nenhuma tela perguntava a ela. O Diagnóstico dava nota, alerta e conselho
+  // com a mesma cara séria sobre 3 meses sujos ou 12 limpos.
+  //
+  // Abaixo do piso, a nota não vira número: o app diz o que falta para ela
+  // valer. Segurar uma recomendação de quitar R$ 18.000 calculada sobre uma
+  // base em que 40% do dinheiro está em disputa não é cautela — é a única
+  // resposta honesta possível.
+  //
+  // O que NÃO cala são os alertas. Eles não são inferência sobre a janela: são
+  // fatos sobre contrato assinado e taxa contratada — "você deve R$ 12.000 a 8%
+  // ao mês e tem R$ 5.000 rendendo 0,9%" continua verdade com três meses sujos.
+  // Abaixo do piso o app não fica mudo, fica específico: perde o agregado e
+  // mantém os fatos, dizendo o que consertar para o agregado voltar.
+  const conf = calcConfianca({
+    janela,
+    gasto_total: base.gasto_total,
+    gasto_nao_classificado: base.gasto_nao_classificado,
+    valor_em_disputa: base.valor_em_disputa,
+    lancamentos_em_disputa: base.lancamentos_em_disputa,
+    renda: rendaM,
+  })
+
+  const recs = conf.suficiente
+    ? calcRecomendacoes({ ...entradas, dividas: divs, prestacoes: prest })
+    : []
 
   // ── O piso de materialidade ───────────────────────────────────────────────
   //
@@ -218,7 +247,10 @@ diagnostico.get('/', requireAuth, async (c) => {
   let historico: Array<{ mes: string; score: number }> = []
   let variacao: { pontos: number; desde: string; pilar: string | null } | null = null
   try {
-    if (sc.disponivel) {
+    // Nota de confiança baixa não entra no histórico: gravá-la faria o gráfico
+    // do mês seguinte comparar uma medição com um palpite, e o degrau
+    // apareceria como progresso.
+    if (sc.disponivel && conf.suficiente) {
       await db.prepare(
         `INSERT INTO score_historico (user_id, mes, score_geral)
          VALUES (?, ?, ?)
@@ -232,7 +264,7 @@ diagnostico.get('/', requireAuth, async (c) => {
     historico = ((h.results as any[]) || []).map(r => ({
       mes: String(r.mes), score: Number(r.score_geral) || 0,
     }))
-    if (historico.length >= 2) {
+    if (historico.length >= 2 && conf.suficiente) {
       const anterior = historico[historico.length - 2]
       const pontos = Math.round((sc.total - anterior.score) * 10) / 10
       // Qual pilar mais explica a mudança: o de maior distância do peso cheio
@@ -248,7 +280,12 @@ diagnostico.get('/', requireAuth, async (c) => {
   }
 
   return c.json({
-    score: sc,
+    score: conf.suficiente ? sc : {
+      ...sc,
+      disponivel: false,
+      motivo_indisponivel: conf.motivo,
+    },
+    confianca: conf,
     variacao,
     historico,
     alertas,
@@ -272,6 +309,8 @@ diagnostico.get('/', requireAuth, async (c) => {
       gasto_total: res.gasto_total,
       sobra_proximo_mes: sobra,
       meses_fechados: janela.base.length,
+      gasto_nao_classificado: base.gasto_nao_classificado,
+      valor_em_disputa: base.valor_em_disputa,
       atipicos: janela.atipicos.map(a => ({ label: a.label, motivo: a.motivo })),
     },
   })
