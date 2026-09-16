@@ -4209,12 +4209,17 @@ const VM = {
     this.api('GET', `despesas?${qs}`).then(data => {
       const rows = data.despesas || []
       if (!rows.length) { this.toast('Nenhum dado para exportar', 'warning'); return }
-      const header = ['ID','Descrição','Categoria','Data','Vencimento','Valor','Status','Tipo','Meio Pagamento','Parcela','Total Parcelas']
+      // "Data" aqui é a data de competência — para cartão, o vencimento da
+      // fatura. Sem a coluna de compra, o CSV tinha o mesmo defeito que a tela:
+      // uma compra de agosto parcelada aparecia como setembro e não havia como
+      // saber quando foi feita.
+      const header = ['ID','Descrição','Categoria','Data','Data da compra','Vencimento','Valor','Status','Tipo','Meio Pagamento','Parcela','Total Parcelas']
       const lines = [header.join(';'), ...rows.map(r => [
         r.id,
         `"${(r.descricao||'').replace(/"/g,'""')}"`,
         r.categoria,
         r.data,
+        (r.data_compra || r.data || '').slice(0, 10),
         r.vencimento || '',
         String(r.valor).replace('.',','),
         r.status,
@@ -4538,6 +4543,31 @@ const VM = {
                      </span>`
                   : ''
                 const catCor = catColors[d.categoria] || '#636e72'
+                // ── Quando a compra foi feita ─────────────────────────────
+                //
+                // Para despesa de cartão, `data` guarda o VENCIMENTO DA FATURA,
+                // não o dia da compra — é o que faz a despesa aparecer no mês
+                // em que o dinheiro sai. A data real da compra vive em
+                // `card_charges.data_compra` e a API já a devolve; a tela é que
+                // nunca a mostrou.
+                //
+                // O efeito era uma coluna que significava coisas diferentes
+                // dependendo da linha, sem avisar: "10/09" numa compra de
+                // agosto parcelada em 18 vezes. Agora a linha de baixo diz
+                // quando foi, e a de cima ganha um título explicando o que é.
+                //
+                // Só aparece quando há diferença. Em despesa que não é de
+                // cartão as duas datas são a mesma, e repetir não informa nada.
+                const compraInfo = (() => {
+                  const dc = (d.data_compra || '').slice(0, 10)
+                  const dd = (d.data || '').slice(0, 10)
+                  if (!dc || dc === dd) return { linha: '', titulo: '' }
+                  return {
+                    linha: `<div style="font-size:0.68rem;margin-top:2px;color:var(--terminal-ink-soft);">comprado em ${this.formatDate(dc)}</div>`,
+                    titulo: ' title="Vencimento da fatura do cartão — a compra foi feita em outra data"',
+                  }
+                })()
+
                 const vencInfo = d.vencimento && d.status !== 'pago' && d.status !== 'cancelado' ? (() => {
                   const diff = Math.ceil((new Date(d.vencimento) - new Date()) / 86400000)
                   const urgente = diff <= 2 && diff >= 0
@@ -4560,7 +4590,8 @@ const VM = {
                     </span>
                   </td>
                   <td style="color:var(--terminal-ink-soft);font-size:0.83rem;">
-                    <div>${this.formatDate(d.data)}</div>
+                    <div${compraInfo.titulo}>${this.formatDate(d.data)}</div>
+                    ${compraInfo.linha}
                     ${d.status === 'pago' && d.data_pagamento ? `<div style="font-size:0.68rem;margin-top:2px;color:#2FBF71;">✅ pago em ${this.formatDate(d.data_pagamento)}</div>` : ''}
                     ${vencInfo}
                   </td>
