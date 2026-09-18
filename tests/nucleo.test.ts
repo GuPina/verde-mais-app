@@ -237,3 +237,35 @@ test('a âncora vale mesmo quando a série não começa em 1/N', () => {
   }
   assert.equal(vistas.size, 8)
 })
+
+// ─── 7. O reparo de parcelamento importado ───────────────────────────────────
+//
+// Numa linha vinda de importação, `data_compra` é o vencimento, não a compra —
+// então a regra de ciclo não se aplica. Mas a parcela 9 de 10 pertence à fatura
+// da parcela 1 mais oito meses, e isso é CONTAGEM, não ciclo. As três compras
+// que sumiram de outubro na conta do Gustavo eram todas importadas.
+function serieImportada(mes1: number, ano1: number, n: number) {
+  const fora: Array<{ parcela: number; mes: number; ano: number }> = []
+  for (let k = 0; k < n; k++) {
+    let m = mes1 + k
+    const a = ano1 + Math.floor((m - 1) / 12)
+    m = ((m - 1) % 12) + 1
+    fora.push({ parcela: k + 1, mes: m, ano: a })
+  }
+  return fora
+}
+
+test('parcelamento importado: uma fatura por parcela, atravessando o ano', () => {
+  // O caso real: 10 parcelas começando em 2/2026 — a 9ª cai em 10/2026, que é
+  // o mês que tinha ficado vazio, e a 10ª em 11/2026, onde estavam as duas.
+  const serie = serieImportada(2, 2026, 10)
+  const meses = new Set(serie.map(s => `${s.ano}-${s.mes}`))
+  assert.equal(meses.size, 10, 'duas parcelas caíram na mesma fatura')
+  assert.deepEqual(serie[8], { parcela: 9, mes: 10, ano: 2026 })
+  assert.deepEqual(serie[9], { parcela: 10, mes: 11, ano: 2026 })
+
+  // E a virada de ano continua inteira.
+  const virada = serieImportada(11, 2026, 4)
+  assert.deepEqual(virada.map(v => `${v.mes}/${v.ano}`),
+    ['11/2026', '12/2026', '1/2027', '2/2027'])
+})

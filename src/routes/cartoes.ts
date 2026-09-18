@@ -1866,6 +1866,54 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
     }
   }
 
+  // ── Parte 1b: parcelamento IMPORTADO, endireitado pela contagem ───────────
+  //
+  // Numa linha vinda de importação de fatura, `data_compra` guarda o
+  // vencimento: a fatura importada diz em que fatura a compra caiu, não quando
+  // ela foi feita. Por isso a parte 1 pula essas linhas — recalcular o ciclo a
+  // partir de uma data que não é a da compra seria inventar.
+  //
+  // Só que para um PARCELAMENTO não é preciso saber a data da compra. A parcela
+  // 9 de 10 pertence à fatura da parcela 1 mais oito meses, e isso é contagem
+  // de fatura, não aritmética de ciclo. A âncora é a primeira parcela do grupo,
+  // cuja fatura é confiável: o bug que empilhava parcelas empurra as de índice
+  // alto para a frente e nunca move a primeira.
+  //
+  // Sem esta parte, as parcelas de outubro de 2026 do Gustavo não voltavam: as
+  // três compras afetadas — MP*CAIXAECONOMICAFEDERAL 4 Parcela, PgConta VICTOR
+  // Anual e PgConta VICTOR 2 — são todas importadas, e o reparo as ignorava
+  // enquanto a própria tela apontava o buraco.
+  const gruposImportados: Record<string, any[]> = {}
+  for (const r of todas) {
+    if (!r.purchase_group_id || !(Number(r.total_parcelas) > 1) || !importado(r)) continue
+    ;(gruposImportados[r.purchase_group_id] ||= []).push(r)
+  }
+  for (const itens of Object.values(gruposImportados)) {
+    const ord = itens.slice().sort((a, b) => (Number(a.parcela_atual) || 0) - (Number(b.parcela_atual) || 0))
+    const primeira = ord[0]
+    if (!primeira || !primeira.billing_month || !primeira.billing_year) continue
+    const nPrimeira = Number(primeira.parcela_atual) || 1
+    for (const r of ord) {
+      const k = (Number(r.parcela_atual) || 1) - nPrimeira
+      if (k < 0) continue
+      let mes = Number(primeira.billing_month) + k
+      const ano = Number(primeira.billing_year) + Math.floor((mes - 1) / 12)
+      mes = ((mes - 1) % 12) + 1
+      const venc = vencimentoFatura(mes, ano, r.dia_vencimento, r.dia_fechamento)
+      const precisa = Number(r.billing_month) !== mes
+        || Number(r.billing_year) !== ano
+        || String(r.data_vencimento || '').slice(0, 10) !== venc
+      if (!precisa) continue
+      acoes.push({ charge_id: r.charge_id, expense_id: r.expense_id,
+        motivo: 'parcela_na_fatura_errada',
+        de: String(r.data_compra).slice(0, 10), para: venc,
+        fatura_de: `${r.billing_month}/${r.billing_year}`, fatura_para: `${mes}/${ano}`,
+        // A linha continua sendo importada: `data_compra` acompanha o
+        // vencimento, que é o que a marca como tal e a mantém fora da parte 2.
+        data_compra: venc, mes, ano, vencimento: venc })
+    }
+  }
+
   // ── Parte 2: fatura fora do ciclo, com a data da compra confiável ─────────
   const jaTratado = new Set(acoes.map(a => a.charge_id))
   for (const r of todas) {
