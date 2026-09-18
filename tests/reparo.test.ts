@@ -117,3 +117,70 @@ test('o reparo não desfaz o próprio trabalho', () => {
     'o reparo quis mexer numa série já correta — é a parte 2 desfazendo a parte 1: ' +
     acoes.map((a: any) => `${a.charge_id} ${a.fatura_de}→${a.fatura_para}`).join(', '))
 })
+
+// ─── O caso que sobreviveu a duas correções ──────────────────────────────────
+//
+// Dados reais da conta do Gustavo, lidos do app em 18/09/2026. PgConta VICTOR
+// Anual, 12 parcelas importadas no Itaú. Onze têm `data_compra` igual ao
+// vencimento, como toda linha importada. A parcela 9 tem data_compra 08/10 e
+// vencimento 08/11 — o UPDATE moveu a fatura dela e deixou a data_compra para
+// trás.
+//
+// Essa diferença é EXATAMENTE o que `importado()` mede. O grupo era rasgado em
+// dois: as onze sadias pela regra de importado, fechando certo entre si; a
+// quebrada sozinha pela regra de compra, fechando certo como grupo de uma. As
+// duas metades sem erro, outubro vazio, e a tela dizendo "está tudo no lugar".
+const PGCONTA_VICTOR_ANUAL = [
+  { p: 1,  fat: [2, 2026],  data: '2026-02-08', dc: '2026-02-08' },
+  { p: 2,  fat: [3, 2026],  data: '2026-03-08', dc: '2026-03-08' },
+  { p: 3,  fat: [4, 2026],  data: '2026-04-08', dc: '2026-04-08' },
+  { p: 4,  fat: [5, 2026],  data: '2026-05-08', dc: '2026-05-08' },
+  { p: 5,  fat: [6, 2026],  data: '2026-06-08', dc: '2026-06-08' },
+  { p: 6,  fat: [7, 2026],  data: '2026-07-08', dc: '2026-07-08' },
+  { p: 7,  fat: [8, 2026],  data: '2026-08-08', dc: '2026-08-08' },
+  { p: 8,  fat: [9, 2026],  data: '2026-09-08', dc: '2026-09-08' },
+  // A parcela que escapava da checagem por estar quebrada:
+  { p: 9,  fat: [11, 2026], data: '2026-11-08', dc: '2026-10-08' },
+  { p: 10, fat: [11, 2026], data: '2026-11-08', dc: '2026-11-08' },
+  { p: 11, fat: [12, 2026], data: '2026-12-08', dc: '2026-12-08' },
+  { p: 12, fat: [1, 2027],  data: '2027-01-08', dc: '2027-01-08' },
+]
+
+test('a parcela 9 volta para outubro — o caso real, ponta a ponta', () => {
+  const linhas = PGCONTA_VICTOR_ANUAL.map(x => ({
+    charge_id: `v-${x.p}`, expense_id: 9000 + x.p,
+    descricao: `PgConta VICTOR - Anual Parcela (${x.p}/12)`, valor: 645.44,
+    data_compra: x.dc, data_vencimento: x.data,
+    billing_month: x.fat[0], billing_year: x.fat[1],
+    parcela_atual: x.p, total_parcelas: 12, purchase_group_id: 'victor-anual',
+    dia_fechamento: 1, dia_vencimento: 8, cartao_nome: 'Itaú',
+  }))
+
+  // A armadilha, registrada: onze linhas parecem importadas e uma não.
+  assert.equal(linhas.filter(importado).length, 11)
+  assert.equal(importado(linhas.find(l => l.parcela_atual === 9)!), false)
+
+  const acoes = planejarReparo(linhas)
+  assert.ok(acoes.length > 0, 'o reparo não viu nada — foi o que aconteceu de verdade')
+
+  const daNove = acoes.find((a: any) => a.charge_id === 'v-9')
+  assert.ok(daNove, 'a parcela 9 não entrou no plano')
+  assert.equal(daNove.fatura_para, '10/2026', 'a parcela 9 precisa voltar para outubro')
+
+  // Aplicado o plano: doze parcelas, doze faturas, nenhuma repetida, sem buraco.
+  const depois = new Map(linhas.map(l => [l.charge_id, l.billing_year * 12 + l.billing_month]))
+  for (const a of acoes) depois.set(a.charge_id, a.ano * 12 + a.mes)
+  const meses = [...depois.values()].sort((x, y) => x - y)
+  assert.equal(new Set(meses).size, 12, 'sobrou fatura com duas parcelas')
+  for (let i = 1; i < meses.length; i++) {
+    assert.equal(meses[i] - meses[i - 1], 1, 'sobrou mês sem parcela')
+  }
+
+  // E uma segunda passada não quer mudar mais nada.
+  const aplicadas = linhas.map(l => {
+    const a = acoes.find((x: any) => x.charge_id === l.charge_id)
+    return a ? { ...l, billing_month: a.mes, billing_year: a.ano,
+                 data_vencimento: a.vencimento, data_compra: a.data_compra } : l
+  })
+  assert.equal(planejarReparo(aplicadas).length, 0, 'o reparo não converge')
+})
