@@ -231,55 +231,78 @@
       else vm.toast(r?.error || 'Erro ao corrigir.', 'error')
     },
 
+    /**
+     * O que está fora da fatura certa — e o botão que recoloca.
+     *
+     * A tabela mostra exatamente o que o reparo vai mudar, porque as duas
+     * coisas vêm da mesma lista (`reparos`, montada no servidor pela mesma
+     * função que o POST executa). Antes a tabela mostrava `problemas`, que é
+     * outra conta: ela exclui lançamento importado, então o parcelamento
+     * importado fora de ordem — o que apaga um mês inteiro da fatura — saía
+     * como aviso amarelo e não entrava no número do botão.
+     */
     async diagnostico() {
       const vm = this._vm
       vm.showModal('<div class="td-loading"><span></span><span></span><span></span></div>')
       const d = await vm.api('GET', 'cartoes/diagnostico').catch(e => ({ error: e.response?.data?.error }))
       if (d?.error) { vm.closeModal(); return vm.toast(d.error, 'error') }
 
-      const probs = d.problemas || []
+      const reparos = d.reparos || []
       const buracos = d.parcelamentos_com_buraco || []
-      if (!probs.length && !buracos.length) {
+
+      if (!reparos.length) {
         return vm.showModal(`<div class="ct-diag">
           <div class="ct-diag__head"><span class="ct-diag__ico is-ok"><i class="fas fa-circle-check"></i></span>
             <div><strong>Está tudo no lugar</strong><small>${d.total_analisado} lançamentos conferidos contra o ciclo de cada cartão.</small></div></div>
+          ${buracos.length ? `<div class="ds-note" style="margin:14px 0">
+            <i class="fas fa-circle-info ds-note__ico"></i>
+            <div>${buracos.length} parcelamento(s) têm mês pulado ou duas parcelas no mesmo mês, mas nenhuma linha
+              precisa ser movida para consertar — a numeração da série já está coerente com as faturas.</div></div>` : ''}
           <button class="ds-btn ds-btn--block" onclick="VM.closeModal()">Fechar</button>
         </div>`)
       }
+
+      const porMotivo = reparos.reduce((a, r) => (a[r.motivo] = (a[r.motivo] || 0) + 1, a), {})
+      const resumo = [
+        porMotivo.parcela_na_fatura_errada ? `${porMotivo.parcela_na_fatura_errada} parcela(s) na fatura errada` : '',
+        porMotivo.data_da_parcela ? `${porMotivo.data_da_parcela} com a data transbordada` : '',
+        porMotivo.fatura_fora_do_ciclo ? `${porMotivo.fatura_fora_do_ciclo} fora do ciclo do cartão` : '',
+      ].filter(Boolean).join(' · ')
 
       vm.showModal(`<div class="ct-diag">
         <div class="ct-diag__head">
           <span class="ct-diag__ico is-warn"><i class="fas fa-triangle-exclamation"></i></span>
           <div>
-            <strong>${probs.length} lançamento${probs.length === 1 ? '' : 's'} fora da fatura correta</strong>
-            <small>De ${d.total_analisado} conferidos.${d.importados_ignorados ? ` ${d.importados_ignorados} lançamentos de fatura importada foram deixados de fora — neles a data da compra não é confiável.` : ''}</small>
+            <strong>${reparos.length} lançamento${reparos.length === 1 ? '' : 's'} para recolocar</strong>
+            <small>${esc(resumo)}. De ${d.total_analisado} conferidos.</small>
           </div>
         </div>
 
         ${buracos.length ? `<div class="ds-note ds-note--warn" style="margin-bottom:14px">
           <i class="fas fa-calendar-xmark ds-note__ico"></i>
-          <div><strong>${buracos.length} parcelamento(s) com mês pulado.</strong> Compra feita em dia 29, 30 ou 31 pulava um mês e colocava duas parcelas no seguinte. É por isso que uma mensalidade pode não aparecer no mês esperado.</div>
+          <div><strong>${buracos.length} parcelamento(s) com mês pulado ou duas parcelas no mesmo mês.</strong>
+            É o mesmo estrago visto do outro lado: a parcela que saiu de um mês foi parar no seguinte.
+            Recolocar as linhas abaixo devolve uma parcela por fatura.</div>
         </div>` : ''}
 
         <div class="ds-tablewrap ct-diag__tabela"><table class="ds-table">
-          <thead><tr><th>Lançamento</th><th>Comprado em</th><th>Está na fatura</th><th>Deveria estar</th></tr></thead>
-          <tbody>${probs.slice(0, 60).map(p => `<tr>
-            <td><strong>${esc(String(p.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''))}</strong>
+          <thead><tr><th>Lançamento</th><th>Está na fatura</th><th>Vai para</th></tr></thead>
+          <tbody>${reparos.slice(0, 60).map(p => `<tr>
+            <td class="ct-diag__desc"><strong>${esc(p.descricao || '')}</strong>
                 ${p.parcela ? `<span class="ds-pill">${esc(p.parcela)}</span>` : ''}
                 <br><small class="ds-muted">${esc(p.cartao || '')} · ${money(p.valor)}</small>
                 <br><small class="ds-muted">${esc(p.explica || '')}</small></td>
-            <td class="ds-mono">${esc(String(p.data_compra || '').split('-').reverse().join('/'))}</td>
-            <td class="ds-mono" style="color:var(--terminal-negative)">${esc(p.gravado?.fatura || '—')}</td>
-            <td class="ds-mono" style="color:var(--terminal-primary)">${esc(p.correto?.fatura || '—')}</td>
+            <td class="ds-mono" style="color:var(--terminal-negative);white-space:nowrap">${esc(p.fatura_de || '—')}</td>
+            <td class="ds-mono" style="color:var(--terminal-primary);white-space:nowrap">${esc(p.fatura_para || '—')}</td>
           </tr>`).join('')}</tbody>
         </table></div>
-        ${probs.length > 60 ? `<p class="ds-micro" style="margin:10px 0 0">Mostrando 60 de ${probs.length}. O reparo vale para todos.</p>` : ''}
+        ${reparos.length > 60 ? `<p class="ds-micro" style="margin:10px 0 0">Mostrando 60 de ${reparos.length}. O reparo vale para todos.</p>` : ''}
 
         <div class="ct-diag__acoes">
-          <button class="ds-btn ds-btn--primary" style="flex:1" onclick="VMTerminalCartoes.reparar()"><i class="fas fa-wrench"></i> Recolocar na fatura certa (${d.reparavel})</button>
+          <button class="ds-btn ds-btn--primary" style="flex:1" onclick="VMTerminalCartoes.reparar()"><i class="fas fa-wrench"></i> Recolocar na fatura certa (${reparos.length})</button>
           <button class="ds-btn" onclick="VM.closeModal()">Agora não</button>
         </div>
-        <p class="ds-micro" style="margin:10px 0 0">O reparo recalcula fatura e vencimento a partir da data da compra. Não muda valor, descrição, categoria nem o que já está pago.</p>
+        <p class="ds-micro" style="margin:10px 0 0">Muda só a fatura e o vencimento. Não mexe em valor, descrição, categoria nem no que já está pago.</p>
       </div>`)
     },
 

@@ -1699,6 +1699,10 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
     }
   }
 
+  // As linhas como o reparo as vê — consulta compartilhada, sem LIMIT, para
+  // que o número do botão não seja tirado de uma amostra de 500.
+  const todasAsLinhas = await linhasDeFatura(c.env.DB, user.id)
+
   const problemas: any[] = []
   const importados: any[] = []
   for (const r of (linhas.results as any[]) || []) {
@@ -1787,46 +1791,87 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
     }]
   })
 
+  // ── O que o botão vai realmente fazer ─────────────────────────────────────
+  //
+  // Sai de `planejarReparo`, a MESMA função que o POST de reparo executa — e
+  // não de uma contagem própria desta rota. A contagem própria era o defeito:
+  // ela só enxergava `problemas`, que exclui linha importada, então o
+  // parcelamento importado fora de ordem (o caso que apagou outubro) aparecia
+  // como aviso amarelo e ficava fora do número do botão. A tela dizia
+  // "6 parcelamentos com mês pulado" e logo abaixo "Recolocar na fatura certa
+  // (2)", e os 2 eram dois lançamentos triviais de julho.
+  const porCharge = new Map(todasAsLinhas.map(r => [r.charge_id, r]))
+  const reparos = planejarReparo(todasAsLinhas).map(a => {
+    const r: any = porCharge.get(a.charge_id) || {}
+    return {
+      ...a,
+      descricao: String(r.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
+      parcela: r.parcela_atual && r.total_parcelas ? `${r.parcela_atual}/${r.total_parcelas}` : null,
+      cartao: r.cartao_nome || null,
+      valor: Number(r.valor) || 0,
+      explica: a.motivo === 'parcela_na_fatura_errada'
+        ? `A parcela ${r.parcela_atual} de ${r.total_parcelas} pertence à fatura ${a.fatura_para} — está na ${a.fatura_de}.`
+        : a.motivo === 'data_da_parcela'
+          ? 'A data desta parcela nasceu transbordada (compra no dia 29, 30 ou 31) e puxou a fatura junto.'
+          : `O ciclo do cartão põe esta compra na fatura ${a.fatura_para} — está na ${a.fatura_de}.`,
+    }
+  })
+
   return c.json({
     total_analisado: ((linhas.results as any[]) || []).length,
     problemas,
     total_problemas: problemas.length,
-    // Não são erro: só não dá para reconferir o ciclo a partir deles.
+    // Não são erro por si: só não dá para reconferir o CICLO a partir deles.
+    // Parcelamento importado fora de ordem continua reparável, por contagem.
     importados_ignorados: importados.length,
     parcelamentos_com_buraco: parcelamentosComBuraco,
-    reparavel: problemas.filter(p => p.tipo !== 'sem_data_compra').length,
+    reparos,
+    reparavel: reparos.length,
   })
 })
 
-// ─── POST /api/cartoes/reparar-faturas ───────────────────────────────────────
-// Conserta os dois estragos, cada um com o remédio certo — e nada além disso.
-//
-// Antes esta rota recalculava a fatura de TODO lançamento a partir da
-// data_compra. Rodada sobre uma base com faturas importadas, ela empurraria
-// dezenas de lançamentos corretos para a fatura seguinte, porque na
-// importação data_compra guarda o VENCIMENTO, não a data da compra. Agora ela
-// pula esses, e trata separado o parcelamento que pulou mês — que recalcular
-// fatura não resolve, porque a data da própria parcela nasceu errada.
-cartoes.post('/reparar-faturas', requireAuth, async (c) => {
-  const user = c.get('user')
-  const body = await c.req.json().catch(() => ({}))
-  const simular = body.simular === true
-
-  const linhas = await c.env.DB.prepare(
-    `SELECT cc.id as charge_id, cc.expense_id, cc.data_compra, cc.billing_month,
-            cc.billing_year, cc.data_vencimento, cc.parcela_atual, cc.total_parcelas,
-            cc.purchase_group_id, ct.dia_fechamento, ct.dia_vencimento
+/**
+ * As linhas de fatura de um usuário — a MESMA consulta para conferir e para
+ * reparar.
+ *
+ * O diagnóstico lia 500 linhas com um SELECT próprio e o reparo lia todas com
+ * outro. Duas consultas e duas contas para a mesma pergunta: o botão dizia
+ * "recolocar na fatura certa (2)" sobre uma base de 500, enquanto o reparo
+ * trabalharia sobre 646.
+ */
+async function linhasDeFatura(db: D1Database, userId: number) {
+  const r = await db.prepare(
+    `SELECT cc.id as charge_id, cc.expense_id, cc.descricao, cc.valor,
+            cc.data_compra, cc.billing_month, cc.billing_year, cc.data_vencimento,
+            cc.parcela_atual, cc.total_parcelas, cc.purchase_group_id,
+            ct.nome as cartao_nome, ct.dia_fechamento, ct.dia_vencimento
      FROM card_charges cc
      JOIN cartoes ct ON ct.id = cc.card_id
      WHERE ct.user_id = ? AND ct.ativo = 1 AND cc.status != 'cancelado'
        AND cc.data_compra IS NOT NULL`
-  ).bind(user.id).all()
-  const todas = (linhas.results as any[]) || []
+  ).bind(userId).all()
+  return ((r.results as any[]) || [])
+}
 
-  /** Importado: data_compra é o vencimento, não serve para recalcular ciclo. */
-  const importado = (r: any) =>
-    String(r.data_compra).slice(0, 10) === String(r.data_vencimento || '').slice(0, 10)
+/** Importado: data_compra é o vencimento, não serve para recalcular ciclo. */
+export function importado(r: any) {
+  return String(r.data_compra).slice(0, 10) === String(r.data_vencimento || '').slice(0, 10)
+}
 
+/**
+ * O que precisa ser recolocado — a única função que decide isso.
+ *
+ * Era código dentro do POST de reparo, e o GET de diagnóstico tinha a SUA
+ * própria noção de "problema" para contar no botão. As duas discordavam, e
+ * discordavam justamente onde doía: o parcelamento importado fora de ordem —
+ * o caso que apagou outubro — era invisível para o diagnóstico e reparável
+ * pelo reparo. O usuário via "6 parcelamentos com mês pulado" logo acima de um
+ * botão escrito "Recolocar na fatura certa (2)", e os 2 eram outra coisa.
+ *
+ * Agora o botão e o reparo leem a mesma lista. O número no botão é, por
+ * construção, o número de linhas que vão mudar.
+ */
+export function planejarReparo(todas: any[]) {
   const acoes: any[] = []
 
   // ── Parte 1: parcelamentos com a data da parcela transbordada ─────────────
@@ -1936,6 +1981,27 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
     }
   }
 
+  return acoes
+}
+
+// ─── POST /api/cartoes/reparar-faturas ───────────────────────────────────────
+// Conserta os dois estragos, cada um com o remédio certo — e nada além disso.
+//
+// Antes esta rota recalculava a fatura de TODO lançamento a partir da
+// data_compra. Rodada sobre uma base com faturas importadas, ela empurraria
+// dezenas de lançamentos corretos para a fatura seguinte, porque na
+// importação data_compra guarda o VENCIMENTO, não a data da compra. Agora ela
+// pula esses, e trata separado o parcelamento que pulou mês — que recalcular
+// fatura não resolve, porque a data da própria parcela nasceu errada.
+cartoes.post('/reparar-faturas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({}))
+  const simular = body.simular === true
+
+  const todas = await linhasDeFatura(c.env.DB, user.id)
+
+  const acoes = planejarReparo(todas)
+
   if (simular) {
     return c.json({
       success: true, simulacao: true, total: acoes.length,
@@ -2038,7 +2104,12 @@ cartoes.get('/duplicatas', requireAuth, async (c) => {
       fatura: `${itens[0].billing_month}/${itens[0].billing_year}`,
       descricao: String(itens[0].descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
       valor_total: Math.round(itens.reduce((s, x) => s + (Number(x.valor) || 0), 0) * 100) / 100,
-      reparo_alcanca: !itens.some(importado),
+      // O reparo alcança PARCELAMENTO mesmo quando a linha é importada: a
+      // parcela 9 de 10 pertence à fatura da parcela 1 mais oito meses, e isso
+      // é contagem, não ciclo — ver a parte 1b de /reparar-faturas. Enquanto
+      // isto era `!itens.some(importado)`, a tela listava o problema e ESCONDIA
+      // o botão de resolver, mandando corrigir à mão pela tela de Despesas.
+      reparo_alcanca: true,
       parcelas: itens.map(x => ({
         charge_id: x.charge_id, expense_id: x.expense_id,
         rotulo: `${x.parcela_atual}/${x.total_parcelas}`,
@@ -2098,7 +2169,12 @@ cartoes.get('/duplicatas', requireAuth, async (c) => {
     }
     if (faltando.length) {
       buracos.push({
-        reparo_alcanca: !itens.some(importado),
+        // O reparo alcança PARCELAMENTO mesmo quando a linha é importada: a
+      // parcela 9 de 10 pertence à fatura da parcela 1 mais oito meses, e isso
+      // é contagem, não ciclo — ver a parte 1b de /reparar-faturas. Enquanto
+      // isto era `!itens.some(importado)`, a tela listava o problema e ESCONDIA
+      // o botão de resolver, mandando corrigir à mão pela tela de Despesas.
+      reparo_alcanca: true,
         cartao: itens[0].cartao,
         descricao: String(itens[0].descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
         parcelas: itens.length, total_parcelas: Number(itens[0].total_parcelas) || 0,
@@ -2119,9 +2195,9 @@ cartoes.get('/duplicatas', requireAuth, async (c) => {
         'Confira as duas antes — o VerdeMais não apaga lançamento sozinho.',
       buraco: 'Um mês ficou sem parcela. É o outro lado do empilhamento, e o mesmo ' +
         'reparo de faturas resolve.',
-      importado: 'Este veio de importação: a data guardada é a do vencimento, não a da ' +
-        'compra, então não dá para recalcular o ciclo a partir dela sem inventar. ' +
-        'Corrija a parcela pela tela de Despesas.',
+      importado: 'Este veio de importação de fatura: a data guardada é a do vencimento, ' +
+        'não a da compra. Para um parcelamento isso não impede o reparo — a ordem das ' +
+        'parcelas basta para saber a fatura de cada uma.',
     },
   })
 })
