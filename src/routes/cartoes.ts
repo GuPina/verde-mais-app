@@ -5,7 +5,7 @@ import { limiteDoCartao, limitesDosCartoes } from '../lib/limite-cartao'
 const emReais = (v: number) =>
   `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 import { requireAuth } from './auth'
-import { faturaDaCompra, faturaDaParcela, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
+import { faturaDaCompra, faturaDaParcela, faturaDaParcelaAncorada, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
 import { ehDataISO } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 
@@ -1686,6 +1686,19 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
      LIMIT 500`
   ).bind(user.id).all()
 
+  // A âncora de cada parcelamento: a primeira parcela do grupo, a única cujo
+  // `data_compra` é mesmo a data da compra.
+  const ancoras = new Map<string, { data_compra: string; parcela_atual: number }>()
+  for (const r of (linhas.results as any[]) || []) {
+    if (!r.purchase_group_id || !(Number(r.total_parcelas) > 1) || !r.data_compra) continue
+    const n = Number(r.parcela_atual) || 1
+    const atual = ancoras.get(r.purchase_group_id)
+    if (!atual || n < atual.parcela_atual) {
+      ancoras.set(r.purchase_group_id,
+        { data_compra: String(r.data_compra).slice(0, 10), parcela_atual: n })
+    }
+  }
+
   const problemas: any[] = []
   const importados: any[] = []
   for (const r of (linhas.results as any[]) || []) {
@@ -1703,7 +1716,16 @@ cartoes.get('/diagnostico', requireAuth, async (c) => {
       importados.push({ charge_id: r.charge_id, descricao: r.descricao })
       continue
     }
-    const esperado = faturaDaCompra(String(r.data_compra).slice(0, 10), r.dia_fechamento, r.dia_vencimento)
+    // Para uma parcela, a fatura esperada NÃO sai do `data_compra` dela — ele
+    // já é uma data deslocada, e recalcular a partir dele é a própria regra que
+    // empilha duas parcelas num mês. O detector usava essa regra para decidir o
+    // que estava errado, então acusava como torto o que estava certo e vice-versa.
+    const ancoraDesta = (Number(r.total_parcelas) > 1 && r.purchase_group_id)
+      ? ancoras.get(r.purchase_group_id) : null
+    const esperado = ancoraDesta
+      ? faturaDaParcelaAncorada(ancoraDesta.data_compra, ancoraDesta.parcela_atual,
+          r.parcela_atual, r.dia_fechamento, r.dia_vencimento)
+      : faturaDaCompra(String(r.data_compra).slice(0, 10), r.dia_fechamento, r.dia_vencimento)
     const faturaErrada = Number(r.billing_month) !== esperado.mes || Number(r.billing_year) !== esperado.ano
     const vencErrado = String(r.data_vencimento || '').slice(0, 10) !== esperado.vencimento
     // A despesa e o charge têm que contar a mesma história.
@@ -1848,6 +1870,12 @@ cartoes.post('/reparar-faturas', requireAuth, async (c) => {
   const jaTratado = new Set(acoes.map(a => a.charge_id))
   for (const r of todas) {
     if (importado(r) || jaTratado.has(r.charge_id)) continue
+    // PARCELAMENTO NÃO PASSA POR AQUI. A parte 1 é dona da série inteira e usa
+    // a regra ancorada; esta parte usa `faturaDaCompra(data_compra)`, que numa
+    // parcela é a regra errada. Sem esta linha, o reparo desfazia o próprio
+    // trabalho: toda parcela que a parte 1 considerou CERTA não entrava em
+    // `jaTratado`, caía aqui, e era movida de volta para a fatura empilhada.
+    if (Number(r.total_parcelas) > 1 && r.purchase_group_id) continue
     const dc = String(r.data_compra).slice(0, 10)
     const f = faturaDaCompra(dc, r.dia_fechamento, r.dia_vencimento)
     const precisa = Number(r.billing_month) !== f.mes

@@ -172,3 +172,68 @@ test('fatura: 24 parcelas caem em 24 faturas distintas, em qualquer dia', () => 
     }
   }
 })
+
+// ─── 6. Editar a categoria não pode mover a parcela de fatura ────────────────
+//
+// 18/09/2026: Gustavo trocou umas despesas de "Financiamento" para "Moradia"
+// e as parcelas de OUTUBRO sumiram. O UPDATE de despesa recalculava a fatura de
+// cada parcela irmã com `faturaDaCompra(data_compra_dela)` — e o `data_compra`
+// de uma parcela não é a data da compra: é `somarMeses(compra, n-1)`, já com
+// clamp. Recalcular a partir dela cruza dois arredondamentos independentes,
+// empilha duas parcelas numa fatura e esvazia a anterior.
+//
+// Pior: o laço rodava em QUALQUER edição com cartão. O formulário reenvia o
+// `cartao_id`, então trocar só a categoria bastava.
+
+import { faturaDaCompra, faturaDaParcelaAncorada, somarMeses } from '../src/lib/fatura'
+
+test('a regra velha empilha parcelas; a ancorada não, em nenhuma combinação', () => {
+  let empilhadasVelha = 0, empilhadasNova = 0
+  let exemplo: string | null = null
+
+  for (let dia = 1; dia <= 31; dia++) {
+    for (let mes = 1; mes <= 12; mes++) {
+      const ultimo = new Date(Date.UTC(2026, mes, 0)).getUTCDate()
+      if (dia > ultimo) continue
+      const compra = `2026-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+      for (const fechamento of [1, 5, 10, 15, 20, 25, 28, 30, 31]) {
+        const velha = new Set<string>(), nova = new Set<string>()
+        for (let n = 1; n <= 12; n++) {
+          // Como o UPDATE fazia: a data já deslocada da parcela, recalculada.
+          const dataDaParcela = somarMeses(compra, n - 1)
+          const v = faturaDaCompra(dataDaParcela, fechamento, 10)
+          velha.add(`${v.ano}-${v.mes}`)
+          // Como passa a fazer: a série contada a partir da primeira.
+          const a = faturaDaParcelaAncorada(compra, 1, n, fechamento, 10)
+          nova.add(`${a.ano}-${a.mes}`)
+        }
+        if (velha.size < 12) {
+          empilhadasVelha++
+          if (!exemplo) exemplo = `${compra}, fechamento ${fechamento}: ${velha.size} faturas para 12 parcelas`
+        }
+        if (nova.size < 12) empilhadasNova++
+      }
+    }
+  }
+
+  // A guarda de que o teste está medindo alguma coisa: se a regra velha parar
+  // de falhar, é o teste que quebrou, não o bug que sumiu.
+  assert.ok(empilhadasVelha > 0, 'a regra velha deveria falhar — o teste não está medindo nada')
+  assert.equal(empilhadasNova, 0,
+    `a regra ancorada empilhou em ${empilhadasNova} combinações`)
+  // 53 combinações de (data da compra × dia de fechamento) na varredura, medido
+  // em 18/09/2026 — entre elas 2026-01-28 com fechamento 30, que dá 11 faturas
+  // para 12 parcelas. Uma delas era a de outubro do Gustavo.
+  assert.ok(empilhadasVelha >= 50, `só ${empilhadasVelha} combinações quebradas (${exemplo})`)
+})
+
+test('a âncora vale mesmo quando a série não começa em 1/N', () => {
+  // Compra importada com parcelas já pagas: o grupo pode começar em 3/10.
+  const compra = '2026-01-31'
+  const vistas = new Set<string>()
+  for (let n = 3; n <= 10; n++) {
+    const f = faturaDaParcelaAncorada(compra, 3, n, 31, 10)
+    vistas.add(`${f.ano}-${f.mes}`)
+  }
+  assert.equal(vistas.size, 8)
+})

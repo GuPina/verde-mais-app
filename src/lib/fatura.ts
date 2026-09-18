@@ -167,3 +167,36 @@ export function faturaDaParcela(
     data_parcela: somarMeses(dataCompra, Math.max(0, Math.trunc(Number(indice) || 0))),
   }
 }
+
+/**
+ * A fatura de uma parcela quando só se tem a linha dela, não a compra.
+ *
+ * `card_charges.data_compra` de uma parcela NÃO guarda a data da compra: guarda
+ * `somarMeses(compra, n-1)`, uma data já deslocada e já com clamp aplicado.
+ * Recalcular a fatura a partir dela — `faturaDaCompra(data_compra)` — cruza o
+ * clamp de data com o clamp de fechamento e empilha duas parcelas numa fatura,
+ * deixando o mês anterior vazio. É o mesmo defeito que `faturaDaParcela`
+ * resolveu nos geradores, e que sobreviveu em quatro chamadas: as duas do
+ * UPDATE de despesa, o detector de faturas e a parte 2 do reparo.
+ *
+ * Em 18/09/2026 isso apagou as parcelas de outubro de Gustavo. Ele só tinha
+ * trocado a CATEGORIA de umas despesas — mas o formulário reenvia o cartão, o
+ * bloco de cartão rodou, e cada parcela irmã teve a fatura recalculada pela
+ * regra velha.
+ *
+ * A âncora é a primeira parcela do grupo: `somarMeses(x, 0) === x`, então o
+ * `data_compra` dela É a data da compra. O índice é a distância até ela, e não
+ * `parcela_atual - 1`, porque em compra importada com parcelas já pagas o
+ * grupo pode começar em 3/10.
+ */
+export function faturaDaParcelaAncorada(
+  dataCompraDaPrimeira: string,
+  parcelaDaPrimeira: number | null | undefined,
+  parcelaDesta: number | null | undefined,
+  diaFechamento: number,
+  diaVencimento: number,
+) {
+  const base = Math.max(1, Math.trunc(Number(parcelaDaPrimeira) || 1))
+  const esta = Math.max(1, Math.trunc(Number(parcelaDesta) || 1))
+  return faturaDaParcela(dataCompraDaPrimeira, diaFechamento, diaVencimento, Math.max(0, esta - base))
+}

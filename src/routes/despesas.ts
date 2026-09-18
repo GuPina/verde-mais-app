@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
-import { faturaDaCompra, faturaDaParcela, somarMeses } from '../lib/fatura'
+import { faturaDaCompra, faturaDaParcela, faturaDaParcelaAncorada, somarMeses } from '../lib/fatura'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
@@ -723,6 +723,25 @@ despesas.get('/categorias', requireAuth, async (c) => {
 })
 
 // PUT /api/despesas/:id
+/**
+ * A primeira parcela do grupo — a única cujo `data_compra` é a data da compra.
+ *
+ * Ver `faturaDaParcelaAncorada` em src/lib/fatura.ts: recalcular a fatura de
+ * uma parcela a partir do `data_compra` DELA empilha duas num mês e esvazia o
+ * anterior. Toda conta de fatura de parcela precisa passar por aqui.
+ */
+async function ancoraDoGrupo(db: D1Database, groupId: string | null) {
+  if (!groupId) return null
+  const r = await db.prepare(
+    `SELECT data_compra, parcela_atual FROM card_charges
+     WHERE purchase_group_id = ? AND data_compra IS NOT NULL
+     ORDER BY COALESCE(parcela_atual, 1) ASC LIMIT 1`
+  ).bind(groupId).first() as any
+  return r?.data_compra
+    ? { data_compra: String(r.data_compra).slice(0, 10), parcela_atual: Number(r.parcela_atual) || 1 }
+    : null
+}
+
 despesas.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
@@ -831,7 +850,20 @@ despesas.put('/:id', requireAuth, async (c) => {
     // `data`, que para cartão é o vencimento — por isso a compra vem do
     // charge, e só o `data_compra` explícito a substitui.
     const dataCompra = normalizarData(body.data_compra) || chargeAtual?.data_compra || dataISO
-    const f = faturaDaCompra(dataCompra, cartaoEdit.dia_fechamento, cartaoEdit.dia_vencimento)
+
+    // Se esta linha é uma parcela, a fatura dela NÃO sai do `data_compra` dela
+    // — ver faturaDaParcelaAncorada(). Sai da primeira parcela do grupo mais a
+    // distância até ela. Recalcular a partir da própria data foi o que apagou
+    // as parcelas de outubro numa edição que só trocava a categoria.
+    const anc = (chargeAtual && Number(chargeAtual.total_parcelas) > 1)
+      ? await ancoraDoGrupo(c.env.DB, chargeAtual.purchase_group_id)
+      : null
+    const f = anc
+      ? faturaDaParcelaAncorada(anc.data_compra, anc.parcela_atual,
+          chargeAtual.parcela_atual, cartaoEdit.dia_fechamento, cartaoEdit.dia_vencimento)
+      : faturaDaCompra(dataCompra, cartaoEdit.dia_fechamento, cartaoEdit.dia_vencimento)
+    // Uma parcela também não muda de data: a data dela é a da série.
+    const dataDoCharge = anc ? (f as any).data_parcela : dataCompra
 
     await c.env.DB.prepare(
       `UPDATE despesas SET cartao_id = ?, billing_month = ?, billing_year = ?,
@@ -843,7 +875,7 @@ despesas.put('/:id', requireAuth, async (c) => {
         `UPDATE card_charges SET card_id = ?, descricao = ?, valor = ?, data_compra = ?,
          data_vencimento = ?, billing_month = ?, billing_year = ?, status = ?
          WHERE expense_id = ?`
-      ).bind(cartaoIdEdit, descricao, valorEditNum, dataCompra, f.vencimento,
+      ).bind(cartaoIdEdit, descricao, valorEditNum, dataDoCharge, f.vencimento,
              f.mes, f.ano, status === 'pago' ? 'pago' : 'pendente', id).run()
     } else {
       // A despesa virou de cartão agora: o charge precisa nascer, senão ela
@@ -906,25 +938,41 @@ despesas.put('/:id', requireAuth, async (c) => {
     }
 
     // Trocar o cartão vale para o grupo todo: uma compra não fica metade num
-    // cartão e metade noutro. Cada parcela recalcula a SUA fatura, a partir
-    // da própria data de compra.
+    // cartão e metade noutro.
+    //
+    // ESTE LAÇO APAGOU AS PARCELAS DE OUTUBRO EM 18/09/2026. Ele recalculava a
+    // fatura de cada irmã com `faturaDaCompra(data_compra_dela)` — e o
+    // `data_compra` de uma parcela já é uma data deslocada e com clamp, então a
+    // conta cruzava dois arredondamentos e empilhava duas parcelas numa fatura,
+    // deixando o mês anterior sem nada. E ele roda em QUALQUER edição com
+    // cartão, inclusive uma que só troca a categoria: o formulário reenvia o
+    // `cartao_id`, e `usaCartao && cartaoIdEdit` é verdadeiro.
+    //
+    // Agora a série é contada a partir da primeira parcela, como nos geradores.
     if (usaCartao && cartaoIdEdit) {
       const cartaoG = await c.env.DB.prepare('SELECT * FROM cartoes WHERE id = ? AND user_id = ?')
         .bind(cartaoIdEdit, user.id).first() as any
+      const ancG = await ancoraDoGrupo(c.env.DB, despesaAtual.purchase_group_id)
       for (const irma of (irmas.results as any[]) || []) {
-        const ch = await c.env.DB.prepare('SELECT data_compra FROM card_charges WHERE expense_id = ?')
-          .bind(irma.id).first() as any
+        const ch = await c.env.DB.prepare(
+          'SELECT data_compra, parcela_atual, total_parcelas FROM card_charges WHERE expense_id = ?'
+        ).bind(irma.id).first() as any
         const dc = ch?.data_compra
         if (!dc) continue
-        const fg = faturaDaCompra(dc, cartaoG.dia_fechamento, cartaoG.dia_vencimento)
+        const ehParcela = Number(ch.total_parcelas) > 1 && !!ancG
+        const fg = ehParcela
+          ? faturaDaParcelaAncorada(ancG!.data_compra, ancG!.parcela_atual,
+              ch.parcela_atual, cartaoG.dia_fechamento, cartaoG.dia_vencimento)
+          : faturaDaCompra(String(dc).slice(0, 10), cartaoG.dia_fechamento, cartaoG.dia_vencimento)
         await c.env.DB.prepare(
           `UPDATE despesas SET cartao_id = ?, billing_month = ?, billing_year = ?,
            vencimento = ?, data = ? WHERE id = ? AND user_id = ?`
         ).bind(cartaoIdEdit, fg.mes, fg.ano, fg.vencimento, fg.vencimento, irma.id, user.id).run()
         await c.env.DB.prepare(
-          `UPDATE card_charges SET card_id = ?, data_vencimento = ?, billing_month = ?, billing_year = ?
-           WHERE expense_id = ?`
-        ).bind(cartaoIdEdit, fg.vencimento, fg.mes, fg.ano, irma.id).run()
+          `UPDATE card_charges SET card_id = ?, data_compra = ?, data_vencimento = ?,
+           billing_month = ?, billing_year = ? WHERE expense_id = ?`
+        ).bind(cartaoIdEdit, ehParcela ? (fg as any).data_parcela : String(dc).slice(0, 10),
+               fg.vencimento, fg.mes, fg.ano, irma.id).run()
       }
     }
 
