@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { sqlLimiteDisponivel } from '../lib/limite-cartao'
 import { requireAuth } from './auth'
+import { corrigir, type ParcelaRecebivel } from '../lib/recebiveis'
 import { somarMeses } from '../lib/fatura'
 import { ehDataISO } from '../lib/validacao'
 
@@ -537,7 +538,34 @@ antecipacao.get('/recebimentos', requireAuth, async (c) => {
      ORDER BY r.created_at DESC`
   ).bind(user.id).all<any>()
 
-  return c.json({ recebimentos: rows.results || [] })
+  const recs = (rows.results || []) as any[]
+
+  // ── O total deixa de ser o que está gravado ───────────────────────────────
+  //
+  // `valor_total` é o CONTRATADO, sem índice, e continua sendo — é o piso, e
+  // não muda nunca. O que a tela mostra como total é ele mais a correção já
+  // recebida, que sobe a cada parcela lançada acima do mínimo. Enquanto os dois
+  // eram o mesmo campo, a tela dizia "Total: R$ 39.009,35" para um contrato com
+  // cinco parcelas já recebidas acima disso.
+  //
+  // A conta sai de lib/recebiveis.ts, e é a mesma que a tela do contrato usa.
+  if (recs.length) {
+    const todas = await c.env.DB.prepare(
+      `SELECT recebimento_id, numero_parcela, valor, valor_previsto, status
+       FROM recebimentos_parcelas WHERE user_id=?`
+    ).bind(user.id).all<any>()
+    const porContrato = new Map<number, ParcelaRecebivel[]>()
+    for (const p of (todas.results || []) as any[]) {
+      const k = Number(p.recebimento_id)
+      if (!porContrato.has(k)) porContrato.set(k, [])
+      porContrato.get(k)!.push(p)
+    }
+    for (const r of recs) {
+      r.correcao = corrigir(Number(r.valor_total) || 0, porContrato.get(Number(r.id)) || [])
+    }
+  }
+
+  return c.json({ recebimentos: recs })
 })
 
 // ── POST /api/recebimentos — criar recebimento parcelado ──────────────────
@@ -581,9 +609,9 @@ antecipacao.post('/recebimentos', requireAuth, async (c) => {
   for (let i = 0; i < nParcelas; i++) {
     const dataParcela = somarMeses(String(dataInicio).slice(0, 10), i)
     batch.push(c.env.DB.prepare(
-      `INSERT INTO recebimentos_parcelas (recebimento_id, user_id, numero_parcela, valor, data_prevista)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(recId, user.id, i + 1, vParcela, dataParcela))
+      `INSERT INTO recebimentos_parcelas (recebimento_id, user_id, numero_parcela, valor, valor_previsto, data_prevista)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(recId, user.id, i + 1, vParcela, vParcela, dataParcela))
   }
   if (batch.length > 0) await c.env.DB.batch(batch)
 
@@ -608,7 +636,12 @@ antecipacao.get('/recebimentos/:id/parcelas', requireAuth, async (c) => {
     `SELECT * FROM recebimentos_parcelas WHERE recebimento_id=? ORDER BY numero_parcela ASC`
   ).bind(id).all<any>()
 
-  return c.json({ recebimento: rec, parcelas: parcelas.results || [] })
+  const lista = (parcelas.results || []) as any[]
+  return c.json({
+    recebimento: rec,
+    parcelas: lista,
+    correcao: corrigir(Number(rec.valor_total) || 0, lista),
+  })
 })
 
 // ── PATCH /api/recebimentos/parcelas/:id/receber ─────────────────────────
@@ -629,11 +662,14 @@ antecipacao.patch('/recebimentos/parcelas/:id/valor', requireAuth, async (c) => 
   ).bind(parcelaId, user.id).first()
   if (!parcela) return c.json({ error: 'Parcela não encontrada ou já recebida' }, 404)
 
+  // Parcela pendente: mexer no valor é mexer no PREVISTO, não no recebido.
+  // Os dois andam juntos aqui, senão a correção da parcela nasceria como a
+  // diferença entre o novo previsto e o previsto antigo.
   await c.env.DB.prepare(
-    `UPDATE recebimentos_parcelas SET valor=? WHERE id=? AND user_id=?`
-  ).bind(valorNovo, parcelaId, user.id).run()
+    `UPDATE recebimentos_parcelas SET valor=?, valor_previsto=? WHERE id=? AND user_id=?`
+  ).bind(valorNovo, valorNovo, parcelaId, user.id).run()
 
-  return c.json({ success: true, message: 'Valor da parcela atualizado!' })
+  return c.json({ success: true, message: 'Valor previsto da parcela atualizado!' })
 })
 
 antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) => {
@@ -659,13 +695,21 @@ antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) =
   const dataRec = data_recebimento || new Date().toISOString().split('T')[0]
   if (data_recebimento && !dataValida(data_recebimento)) return c.json({ error: 'Data de recebimento inválida.' }, 400)
   // RP2: valor_real, quando informado, precisa ser > 0 (não cria receita negativa)
-  let valorEfetivo = Number(parcela.valor)
+  // O previsto é o MÍNIMO contratual desta parcela. Antes da migração 0009 ele
+  // vivia no mesmo campo que o recebido e era destruído no primeiro lançamento
+  // acima do combinado — e com ele ia embora a única forma de saber quanto o
+  // índice acrescentou.
+  const valorPrevisto = parcela.valor_previsto == null
+    ? Number(parcela.valor)
+    : Number(parcela.valor_previsto)
+
+  let valorEfetivo = valorPrevisto
   if (valor_real !== undefined && valor_real !== null && valor_real !== '') {
     const vr = parseValorPos(valor_real)
     if (vr === null) return c.json({ error: 'Valor recebido deve ser maior que zero.' }, 400)
     valorEfetivo = vr
   }
-  const diferenca = Math.round((valorEfetivo - parcela.valor) * 100) / 100
+  const diferenca = Math.round((valorEfetivo - valorPrevisto) * 100) / 100
 
   // Criar receita automaticamente se solicitado
   let receitaId = null
@@ -681,12 +725,15 @@ antecipacao.patch('/recebimentos/parcelas/:id/receber', requireAuth, async (c) =
     receitaId = res.meta.last_row_id
   }
 
-  // Atualiza a parcela com o valor real recebido
+  // `valor` passa a ser o recebido; `valor_previsto` fica como estava — é ele
+  // que guarda o mínimo contratado e sustenta a conta da correção.
   await c.env.DB.prepare(
     `UPDATE recebimentos_parcelas
-     SET status='recebida', data_recebimento=?, receita_id=?, valor=?, observacoes=?
+     SET status='recebida', data_recebimento=?, receita_id=?, valor=?,
+         valor_previsto=COALESCE(valor_previsto, ?), observacoes=?
      WHERE id=? AND user_id=?`
-  ).bind(dataRec, receitaId, valorEfetivo, observacoes || parcela.observacoes || null, parcelaId, user.id).run()
+  ).bind(dataRec, receitaId, valorEfetivo, valorPrevisto,
+         observacoes || parcela.observacoes || null, parcelaId, user.id).run()
 
   // Verificar se todas as parcelas foram recebidas
   const pendentes = await c.env.DB.prepare(

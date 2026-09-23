@@ -28,23 +28,63 @@
       const recs = this._recs
       if (!recs.length) return void (content.innerHTML = this._shell(this._empty()))
 
-      const totalContratado = recs.reduce((s, r) => s + Number(r.valor_total || 0), 0)
-      const totalRecebido = recs.reduce((s, r) => s + Number(r.total_recebido || 0), 0)
-      const aReceber = Math.max(0, totalContratado - totalRecebido)
-      const pct = totalContratado > 0 ? Math.round((totalRecebido / totalContratado) * 100) : 0
+      // ── As duas contas de um contrato corrigido por índice ─────────────────
+      //
+      // `contratado` é o que está escrito no contrato, sem índice: o piso, que
+      // não muda nunca. `corrigido` é ele mais a correção já recebida, e é este
+      // que vale como total — era aqui que a tela travava em R$ 39.009,35 com
+      // cinco parcelas já recebidas acima disso.
+      //
+      // As duas saem de lib/recebiveis.ts, no servidor. O `|| {}` cobre o
+      // primeiro carregamento depois do deploy, antes de a migração rodar.
+      const c = recs.map(r => r.correcao || {})
+      const soma = (k) => c.reduce((a, x) => a + (Number(x[k]) || 0), 0)
+      const contratado = soma('contratado') || recs.reduce((a, r) => a + Number(r.valor_total || 0), 0)
+      const correcao = soma('correcao')
+      const corrigido = soma('corrigido') || contratado
+      const recebido = soma('recebido') || recs.reduce((a, r) => a + Number(r.total_recebido || 0), 0)
+      const aReceber = Math.max(0, corrigido - recebido)
+      const pct = corrigido > 0 ? Math.round((recebido / corrigido) * 100) : 0
+      const correcaoPct = contratado > 0 ? Math.round((correcao / contratado) * 10000) / 100 : 0
+      const abaixo = c.flatMap(x => x.abaixo_do_minimo || [])
 
       content.innerHTML = this._shell(`
         <section class="fe-hero">
           <div class="fe-hero__main">
-            <span class="td-eyebrow">A receber</span>
+            <span class="td-eyebrow">A receber, no mínimo</span>
             <div class="fe-hero__big">${money(aReceber)}</div>
-            <p>${recs.length} contrato${recs.length === 1 ? '' : 's'} · ${money(totalRecebido)} já recebido de ${money(totalContratado)}</p>
+            <p>${recs.length} contrato${recs.length === 1 ? '' : 's'} · ${money(recebido)} já recebido de ${money(corrigido)}</p>
           </div>
           <div class="fe-hero__gauge">
             <div class="to-bar" style="height:12px"><span style="width:${Math.min(100, pct)}%;background:var(--terminal-primary)"></span></div>
             <div class="fe-hero__nums"><span class="to-status to-status--ok">${pct}% recebido</span></div>
           </div>
         </section>
+
+        <section class="rc-contas">
+          <div class="rc-conta">
+            <span class="rc-conta__lbl">Contratado, sem correção</span>
+            <strong class="rc-conta__val">${money(contratado)}</strong>
+            <small>O mínimo do contrato. Este número não se mexe.</small>
+          </div>
+          <div class="rc-conta rc-conta--ganho">
+            <span class="rc-conta__lbl">Recebido a mais do que o combinado</span>
+            <strong class="rc-conta__val">${correcao > 0 ? '+' : ''}${money(correcao)}</strong>
+            <small>${correcaoPct > 0 ? `${String(correcaoPct).replace('.', ',')}% sobre o contratado · ` : ''}o que o índice já te devolveu</small>
+          </div>
+          <div class="rc-conta rc-conta--total">
+            <span class="rc-conta__lbl">Total corrigido</span>
+            <strong class="rc-conta__val">${money(corrigido)}</strong>
+            <small>Sobe a cada parcela lançada acima do mínimo.</small>
+          </div>
+        </section>
+
+        ${abaixo.length ? `<div class="ds-note ds-note--warn rc-alerta">
+          <i class="fas fa-triangle-exclamation ds-note__ico"></i>
+          <div><strong>${abaixo.length} parcela${abaixo.length === 1 ? '' : 's'} abaixo do mínimo contratual.</strong>
+            ${abaixo.map(a => `#${a.numero}: recebeu ${money(a.recebido)} contra ${money(a.previsto)} previstos`).join(' · ')}.
+            Não entra${abaixo.length === 1 ? '' : 'm'} na correção — confira o lançamento.</div>
+        </div>` : ''}
 
         <div class="mr-toolbar">
           <div><span class="td-eyebrow">Contratos</span><h2>${recs.length} recebimento${recs.length === 1 ? '' : 's'}</h2></div>
@@ -56,6 +96,7 @@
     },
 
     _card(r) {
+      const cr = r.correcao || {}
       const total = Number(r.total_parcelas_count) || Number(r.numero_parcelas) || 0
       const receb = Number(r.parcelas_recebidas) || 0
       const pct = total > 0 ? Math.round((receb / total) * 100) : 0
@@ -67,12 +108,16 @@
             <strong>${esc(r.descricao)}</strong>
             <small>${esc(TIPO_LBL[r.tipo] || r.tipo || 'Recebimento')}${r.pagador ? ' · ' + esc(r.pagador) : ''}</small>
           </div>
-          <span class="fe-badge">${money(r.valor_parcela)}</span>
+          <span class="fe-badge" title="Mínimo contratual de cada parcela — o índice entra por cima">${money(r.valor_parcela)}<small>/mín</small></span>
         </div>
         <div class="fe-card__saldo">
-          <div><span class="fe-lbl">Já recebido</span><span class="fe-val fe-val--big">${money(r.total_recebido)}</span></div>
-          <div><span class="fe-lbl">Total</span><span class="fe-val">${money(r.valor_total)}</span></div>
+          <div><span class="fe-lbl">Já recebido</span><span class="fe-val fe-val--big">${money(cr.recebido ?? r.total_recebido)}</span></div>
+          <div><span class="fe-lbl">Total corrigido</span><span class="fe-val">${money(cr.corrigido ?? r.valor_total)}</span></div>
         </div>
+        ${Number(cr.correcao) > 0 ? `<p class="fe-card__correcao">
+          <span>contratado ${money(cr.contratado)}</span>
+          <b>+${money(cr.correcao)} de correção</b>
+        </p>` : ''}
         <div class="to-bar" style="height:8px"><span style="width:${Math.min(100, pct)}%;background:${cor}"></span></div>
         <div class="fe-card__meta">
           <span class="to-status to-status--${pct >= 50 ? 'ok' : 'warn'}">${receb}/${total} parcelas</span>
@@ -153,25 +198,42 @@
       const vm = this._vm
       const data = await vm.api('GET', `antecipacao/recebimentos/${id}/parcelas`).catch(() => ({ parcelas: [] }))
       const ps = data.parcelas || []
+      const cr = data.correcao || {}
       const rows = ps.map(p => {
         const rec = p.status === 'recebida'
+        const previsto = p.valor_previsto == null ? Number(p.valor) : Number(p.valor_previsto)
+        const excedente = rec ? Math.round((Number(p.valor) - previsto) * 100) / 100 : 0
         return `<div class="ap-row">
           <span class="ap-row__date">#${p.numero_parcela} · ${dfmt(p.data_prevista)}</span>
-          <span class="ap-row__main"><strong>${money(p.valor)}</strong><small>${rec ? 'recebida ' + dfmt(p.data_recebimento) : 'pendente'}</small></span>
+          <span class="ap-row__main"><strong>${money(p.valor)}</strong><small>${
+            rec
+              ? 'recebida ' + dfmt(p.data_recebimento) +
+                (excedente > 0 ? ` · <b style="color:var(--terminal-primary)">+${money(excedente)} de INCC</b>` : '')
+              : `mínimo contratual · ${dfmt(p.data_prevista)}`
+          }</small></span>
           ${rec ? '<span class="ap-row__val" style="color:var(--terminal-primary)">✓</span>'
-                : `<button class="td-button td-button--sm td-button--primary" onclick="VMTerminalRecebimentos.receber(${Number(id)}, ${Number(p.id)}, ${Number(p.valor)})">Receber</button>`}
+                : `<button class="td-button td-button--sm td-button--primary" onclick="VMTerminalRecebimentos.receber(${Number(id)}, ${Number(p.id)}, ${previsto})">Receber</button>`}
         </div>`
       }).join('')
+
+      // O rodapé do modal repete a conta do contrato: quem abriu as parcelas
+      // está justamente conferindo de onde vem a correção.
+      const resumo = cr.contratado ? `<div class="rc-modal-resumo">
+        <div><span>Contratado</span><strong>${money(cr.contratado)}</strong></div>
+        <div><span>Correção recebida</span><strong style="color:var(--terminal-primary)">+${money(cr.correcao)}</strong></div>
+        <div><span>Total corrigido</span><strong>${money(cr.corrigido)}</strong></div>
+      </div>` : ''
       vm.showModal(`<div style="font-family:var(--terminal-font);color:var(--terminal-ink);min-width:min(480px,92vw)">
         <div style="font-size:16px;font-weight:640">Parcelas — ${esc(nome)}</div>
-        <div style="color:var(--terminal-ink-soft);font-size:12px;margin:4px 0 14px">Marque cada parcela ao receber — vira receita automaticamente</div>
-        <div class="ap-list" style="max-height:56vh;overflow:auto">${rows || '<div class="td-empty-row"><span>Sem parcelas.</span></div>'}</div>
+        <div style="color:var(--terminal-ink-soft);font-size:12px;margin:4px 0 14px">As pendentes mostram o mínimo do contrato. Lance o valor que entrou de verdade — a diferença vira correção.</div>
+        <div class="ap-list" style="max-height:52vh;overflow:auto">${rows || '<div class="td-empty-row"><span>Sem parcelas.</span></div>'}</div>
+        ${resumo}
         <div style="margin-top:14px"><button class="td-button" onclick="VM.closeModal()">Fechar</button></div>
       </div>`)
     },
     async receber(recId, parcelaId, valor) {
       const vm = this._vm
-      const txt = await window.VM.vmPrompt('Se recebeu valor diferente do previsto, ajuste aqui.', { titulo: 'Registrar recebimento', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', valor: String(valor), icone: '💰', textoBotao: 'Registrar', dica: `Previsto: ${money(valor)}` })
+      const txt = await window.VM.vmPrompt('Lance o valor que entrou de verdade. O que vier acima do mínimo é contabilizado como correção do índice.', { titulo: 'Registrar recebimento', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', valor: String(valor), icone: '💰', textoBotao: 'Registrar', dica: `Mínimo contratual: ${money(valor)}` })
       if (txt === null) return
       const valor_real = parseFloat(txt)
       if (!(valor_real > 0)) return vm.toast('Valor inválido.', 'error')
