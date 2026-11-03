@@ -243,6 +243,7 @@
       const aba = (chave, rotulo, n) => `<button class="rp-aba${this._filtro === chave ? ' is-ativa' : ''}"
         onclick="VMTerminalRecebimentos.verParcelas(${Number(id)}, ${JSON.stringify(esc(nome))}, '${chave}')">${rotulo} <b>${n}</b></button>`
 
+      // 620px: quatro números no rodapé não cabem em 440 sem transbordar.
       vm.showModal(`<div class="rp-modal">
         <header class="rp-cab">
           <div>
@@ -271,7 +272,7 @@
         </footer>` : ''}
 
         <div class="rp-rodape"><button class="ds-btn" onclick="VM.closeModal()">Fechar</button></div>
-      </div>`)
+      </div>`, { largura: 620 })
     },
 
     /**

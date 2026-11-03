@@ -1975,8 +1975,12 @@
    cabia. "#1 · 30 de abr" quebrava em duas linhas, o modal ganhava rolagem
    horizontal e o rodapé era cortado no meio de "TOTAL CORRIGIDO". Aqui nada
    depende de largura fixa: o número é etiqueta, o resto flui. */
+/* Sem largura própria: quem manda é o `.modal-card`, e pedir mais do que ele
+   permite é justamente o que criava a rolagem horizontal. */
 .rp-modal { font-family: var(--terminal-font); color: var(--terminal-ink);
-  width: min(560px, 94vw); display: flex; flex-direction: column; max-height: 82vh; }
+  width: 100%; max-width: 100%; min-width: 0;
+  display: flex; flex-direction: column; max-height: 76vh; }
+.rp-modal * { min-width: 0; }
 
 .rp-cab { display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--ds-4); flex-wrap: wrap; margin-bottom: var(--ds-4); }

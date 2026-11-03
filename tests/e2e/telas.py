@@ -62,9 +62,18 @@ with sync_playwright() as p:
             pg.wait_for_timeout(1200)
             texto = pg.inner_text('body').strip()
             quebrado = pg.locator('.td-error, .error-state').count()
+            # Rolagem horizontal é sempre defeito: ou um elemento pede largura
+            # que o contêiner não tem, ou alguém cravou um px onde devia ser %.
+            # Foi assim que a lista de parcelas saiu com o rodapé cortado — o
+            # `.modal-card` tinha max-width:440px no estilo INLINE, e nenhuma
+            # folha de estilo conseguia baixar esse teto.
+            transbordo = pg.evaluate(
+                "() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1")
             pg.screenshot(path=f'/tmp/claude-0/qa/shots/{t}.png', full_page=True)
             reais = [m for m in msgs if 'favicon' not in m and 'net::ERR' not in m]
             marca = '  '
+            if transbordo:
+                falhas.append((t, 'a página rola para o lado')); marca = '🔴'
             if quebrado:
                 falhas.append((t, 'estado de erro renderizado na tela')); marca = '🔴'
             elif len(texto) < 220:

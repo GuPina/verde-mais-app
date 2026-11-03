@@ -22271,12 +22271,25 @@ ${parcelas.map(p => `<tr class="${p.status}"><td>${p.numero}</td><td>${new Date(
     this.toast('⭐ Resposta favoritada!', 'success')
   },
 
-  showModal(html) {
+  /**
+   * Abre um modal.
+   *
+   * O `max-width:440px` vivia cravado aqui, no estilo INLINE — o que faz dele
+   * um teto que nenhuma folha de estilo consegue baixar, porque inline ganha de
+   * classe. Uma tela que precisasse de mais largura não espremia: ela
+   * transbordava, e o usuário ganhava uma barra de rolagem horizontal com o
+   * rodapé cortado no meio. Foi o que aconteceu com a lista de parcelas.
+   *
+   * Agora a largura é um argumento. Quem não passa nada continua em 440px,
+   * então as 51 chamadas existentes seguem iguais.
+   */
+  showModal(html, opcoes) {
     const container = document.getElementById('modal-container')
     if (!container) return
+    const largura = Number(opcoes?.largura) > 0 ? Math.round(Number(opcoes.largura)) : 440
     container.innerHTML = `
       <div class="modal-overlay" onclick="VM.closeModal(event)">
-        <div class="modal-card" style="max-width:440px;">
+        <div class="modal-card" style="max-width:${largura}px;">
           <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
             <button onclick="VM.closeModal()" style="background:none;border:none;color:var(--terminal-ink-soft);font-size:1.2rem;cursor:pointer;">✕</button>
           </div>
