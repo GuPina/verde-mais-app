@@ -1969,3 +1969,59 @@
   .rc-modal-resumo { grid-template-columns: 1fr; gap: var(--ds-2); }
   .rc-modal-resumo div { flex-direction: row; justify-content: space-between; align-items: baseline; }
 }
+
+/* ── Recebimentos · a lista de parcelas ────────────────────────────────────
+   Tinha layout emprestado da Antecipação: grid de 70px para a data, que não
+   cabia. "#1 · 30 de abr" quebrava em duas linhas, o modal ganhava rolagem
+   horizontal e o rodapé era cortado no meio de "TOTAL CORRIGIDO". Aqui nada
+   depende de largura fixa: o número é etiqueta, o resto flui. */
+.rp-modal { font-family: var(--terminal-font); color: var(--terminal-ink);
+  width: min(560px, 94vw); display: flex; flex-direction: column; max-height: 82vh; }
+
+.rp-cab { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--ds-4); flex-wrap: wrap; margin-bottom: var(--ds-4); }
+.rp-cab h3 { margin: 0; font-size: 16px; font-weight: 640; letter-spacing: -.01em; }
+.rp-cab p { margin: 5px 0 0; font-size: 12px; line-height: 1.5; color: var(--terminal-ink-soft); }
+.rp-cab p b { color: var(--terminal-primary); font-weight: 600; }
+
+.rp-abas { display: flex; gap: 6px; margin-bottom: var(--ds-3); flex-wrap: wrap; }
+.rp-aba { padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--terminal-line); background: transparent;
+  color: var(--terminal-ink-soft); font: 500 12px/1.3 var(--terminal-font); }
+.rp-aba b { font-family: var(--terminal-mono); font-size: 11px; opacity: .75; margin-left: 3px; }
+.rp-aba:hover { border-color: var(--terminal-ink-soft); color: var(--terminal-ink); }
+.rp-aba.is-ativa { border-color: var(--terminal-primary-line); color: var(--terminal-primary);
+  background: color-mix(in srgb, var(--terminal-primary) 9%, transparent); }
+
+.rp-lista { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1;
+  min-height: 120px; border-top: 1px solid var(--terminal-line); }
+.rp-linha { display: flex; align-items: center; gap: var(--ds-3); padding: 11px 2px;
+  border-bottom: 1px solid var(--terminal-line); }
+.rp-num { flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 8px; border: 1px solid var(--terminal-line);
+  font: 600 11px/1 var(--terminal-mono); color: var(--terminal-ink-soft); }
+.rp-linha.is-recebida .rp-num { border-color: var(--terminal-primary-line);
+  color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 8%, transparent); }
+.rp-corpo { flex: 1; min-width: 0; }
+.rp-corpo strong { display: block; font-size: 14px; font-weight: 600; }
+.rp-corpo small { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.45;
+  color: var(--terminal-ink-soft); }
+.rp-corpo small b { color: var(--terminal-primary); font-weight: 600; }
+.rp-ok { flex: none; color: var(--terminal-primary); font-size: 13px; }
+.rp-acao { flex: none; }
+.rp-vazio { padding: var(--ds-6) 0; text-align: center; font-size: 13px;
+  color: var(--terminal-ink-soft); }
+
+.rp-resumo { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--ds-3);
+  margin-top: var(--ds-4); padding-top: var(--ds-4); border-top: 1px solid var(--terminal-line); }
+.rp-resumo div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rp-resumo span { font: 600 9px/1.3 var(--terminal-mono); letter-spacing: .07em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); }
+.rp-resumo strong { font-size: 13.5px; white-space: nowrap; }
+.rp-resumo .is-verde { color: var(--terminal-primary); }
+.rp-rodape { margin-top: var(--ds-4); }
+
+@media (max-width: 520px) {
+  .rp-resumo { grid-template-columns: 1fr 1fr; gap: var(--ds-3) var(--ds-4); }
+  .rp-cab { flex-direction: column; }
+}

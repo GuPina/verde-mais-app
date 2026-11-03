@@ -183,3 +183,64 @@ test('coerência: Dashboard, Diagnóstico e Projeção contam a mesma história'
   assert.equal(new Set(score).size, 1, `score diverge entre telas: ${score.join(' vs ')}`)
   assert.equal(new Set(conf).size, 1, `confiança diverge entre telas: ${conf.join(' vs ')}`)
 })
+
+// Reorganizar é a operação mais perigosa desta tela: ela APAGA as parcelas
+// pendentes para recriá-las. A trava que importa é a cláusula de status no
+// DELETE — sem ela, um contrato com cinco recebimentos lançados como receita
+// perderia os cinco, e o extrato do mês passado mudaria sozinho.
+test('reorganizar: refaz o que falta e não encosta no que já entrou', async (t) => {
+  const MINIMO = 1147.33, CONTRATADO = 39009.35
+  const rec = await api('POST', 'antecipacao/recebimentos', {
+    descricao: 'Reorg E2E', valor_total: CONTRATADO, numero_parcelas: 34,
+    valor_parcela: MINIMO, data_inicio: '2026-04-30', tipo: 'contrato',
+  })
+  assert.ok(rec.status < 300)
+  const id = rec.body.id
+
+  const ps = (await api('GET', `antecipacao/recebimentos/${id}/parcelas`)).body.parcelas
+  const recebidos = [1147.33, 1160.00, 1221.63]
+  for (let i = 0; i < recebidos.length; i++) {
+    const r = await api('PATCH', `antecipacao/recebimentos/parcelas/${ps[i].id}/receber`,
+                        { valor_real: recebidos[i] })
+    assert.ok(r.status < 300)
+  }
+  const antes = (await api('GET', `antecipacao/recebimentos/${id}/parcelas`)).body
+  const recebidasAntes = antes.parcelas.filter(p => p.status === 'recebida')
+    .map(p => `${p.numero_parcela}:${cent(p.valor)}:${cent(p.valor_previsto)}`).sort().join(' ')
+  assert.equal(recebidasAntes.split(' ').length, 3)
+
+  // Simular não pode escrever nada.
+  const sim = await api('POST', `antecipacao/recebimentos/${id}/reorganizar`,
+    { numero_parcelas: 20, valor_parcela: 1400, simular: true })
+  assert.ok(sim.status < 300, JSON.stringify(sim.body))
+  assert.equal(sim.body.resumo.pendentes_antes, 31)
+  assert.equal(sim.body.resumo.pendentes_depois, 20)
+  assert.equal(cent(sim.body.resumo.a_receber), 28000)
+  const depoisDaSimulacao = (await api('GET', `antecipacao/recebimentos/${id}/parcelas`)).body.parcelas
+  assert.equal(depoisDaSimulacao.length, 34, 'a simulação escreveu no banco')
+
+  // Agora vale.
+  const r = await api('POST', `antecipacao/recebimentos/${id}/reorganizar`,
+    { numero_parcelas: 20, valor_parcela: 1400 })
+  assert.ok(r.status < 300, JSON.stringify(r.body))
+
+  const fim = (await api('GET', `antecipacao/recebimentos/${id}/parcelas`)).body
+  const recebidasDepois = fim.parcelas.filter(p => p.status === 'recebida')
+    .map(p => `${p.numero_parcela}:${cent(p.valor)}:${cent(p.valor_previsto)}`).sort().join(' ')
+  assert.equal(recebidasDepois, recebidasAntes, 'uma parcela recebida foi alterada ou apagada')
+
+  const pend = fim.parcelas.filter(p => p.status !== 'recebida')
+  assert.equal(pend.length, 20, 'não recriou 20 pendentes')
+  assert.ok(pend.every(p => cent(p.valor) === 1400 && cent(p.valor_previsto) === 1400),
+    'pendente nasceu com valor ou previsto errado')
+  // Numeradas depois da última recebida, sem colidir nem pular.
+  const nums = pend.map(p => Number(p.numero_parcela)).sort((a, b) => a - b)
+  assert.equal(nums[0], 4, `a primeira nova deveria ser a 4, veio ${nums[0]}`)
+  assert.equal(nums[nums.length - 1], 23)
+
+  // O contratado é referência histórica: não se mexe.
+  assert.equal(cent(fim.correcao.contratado), CONTRATADO, 'o contratado foi reescrito')
+  // E a correção já recebida continua de pé: 12,67 + 74,30 da 2ª e 3ª parcelas.
+  assert.equal(cent(fim.correcao.correcao), 86.97)
+  t.diagnostic(`a receber agora: ${cent(fim.correcao.a_receber)}`)
+})

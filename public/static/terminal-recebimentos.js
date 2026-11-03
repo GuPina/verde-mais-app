@@ -194,43 +194,144 @@
       if (r?.success) { vm.closeModal(); vm.toast(r.message || 'Recebimento criado.', 'success'); this.reload() }
       else vm.toast(r?.error || 'Erro ao criar.', 'error')
     },
-    async verParcelas(id, nome) {
+    /**
+     * As parcelas de um contrato.
+     *
+     * A versão anterior usava `.ap-row`, que é da tela de Antecipação: três
+     * colunas com a data presa em 70px. "#1 · 30 de abr" não cabia, quebrava em
+     * duas linhas e o modal ganhava barra de rolagem horizontal — com o rodapé
+     * cortado no meio de "TOTAL CORRIGIDO". Aqui a linha tem layout próprio, o
+     * número vira etiqueta, e nada depende de caber numa largura fixa.
+     *
+     * Com 34 parcelas a lista também pedia um filtro: quem abre esta tela quer
+     * ver o que falta receber, não rolar por 12 meses de recibo.
+     */
+    async verParcelas(id, nome, filtro) {
       const vm = this._vm
+      this._verId = Number(id); this._verNome = nome
+      this._filtro = filtro || this._filtro || 'pendentes'
       const data = await vm.api('GET', `antecipacao/recebimentos/${id}/parcelas`).catch(() => ({ parcelas: [] }))
       const ps = data.parcelas || []
       const cr = data.correcao || {}
-      const rows = ps.map(p => {
+      this._parcelas = ps
+
+      const recebidas = ps.filter(p => p.status === 'recebida')
+      const pendentes = ps.filter(p => p.status !== 'recebida')
+      const visiveis = this._filtro === 'recebidas' ? recebidas
+                     : this._filtro === 'todas' ? ps : pendentes
+
+      const linha = (p) => {
         const rec = p.status === 'recebida'
         const previsto = p.valor_previsto == null ? Number(p.valor) : Number(p.valor_previsto)
-        const excedente = rec ? Math.round((Number(p.valor) - previsto) * 100) / 100 : 0
-        return `<div class="ap-row">
-          <span class="ap-row__date">#${p.numero_parcela} · ${dfmt(p.data_prevista)}</span>
-          <span class="ap-row__main"><strong>${money(p.valor)}</strong><small>${
-            rec
-              ? 'recebida ' + dfmt(p.data_recebimento) +
-                (excedente > 0 ? ` · <b style="color:var(--terminal-primary)">+${money(excedente)} de INCC</b>` : '')
-              : `mínimo contratual · ${dfmt(p.data_prevista)}`
-          }</small></span>
-          ${rec ? '<span class="ap-row__val" style="color:var(--terminal-primary)">✓</span>'
-                : `<button class="td-button td-button--sm td-button--primary" onclick="VMTerminalRecebimentos.receber(${Number(id)}, ${Number(p.id)}, ${previsto})">Receber</button>`}
-        </div>`
-      }).join('')
+        const extra = rec ? Math.round((Number(p.valor) - previsto) * 100) / 100 : 0
+        return `<li class="rp-linha${rec ? ' is-recebida' : ''}">
+          <span class="rp-num">${p.numero_parcela}</span>
+          <span class="rp-corpo">
+            <strong>${money(p.valor)}</strong>
+            <small>${rec
+              ? `recebida em ${dfmt(p.data_recebimento)}` +
+                (extra > 0 ? ` · <b>+${money(extra)} de correção</b>` : '')
+              : `prevista para ${dfmt(p.data_prevista)} · mínimo do contrato`}</small>
+          </span>
+          ${rec
+            ? '<span class="rp-ok" title="recebida"><i class="fas fa-check"></i></span>'
+            : `<button class="ds-btn ds-btn--sm ds-btn--primary rp-acao"
+                 onclick="VMTerminalRecebimentos.receber(${Number(id)}, ${Number(p.id)}, ${previsto})">Receber</button>`}
+        </li>`
+      }
 
-      // O rodapé do modal repete a conta do contrato: quem abriu as parcelas
-      // está justamente conferindo de onde vem a correção.
-      const resumo = cr.contratado ? `<div class="rc-modal-resumo">
-        <div><span>Contratado</span><strong>${money(cr.contratado)}</strong></div>
-        <div><span>Correção recebida</span><strong style="color:var(--terminal-primary)">+${money(cr.correcao)}</strong></div>
-        <div><span>Total corrigido</span><strong>${money(cr.corrigido)}</strong></div>
-      </div>` : ''
-      vm.showModal(`<div style="font-family:var(--terminal-font);color:var(--terminal-ink);min-width:min(480px,92vw)">
-        <div style="font-size:16px;font-weight:640">Parcelas — ${esc(nome)}</div>
-        <div style="color:var(--terminal-ink-soft);font-size:12px;margin:4px 0 14px">As pendentes mostram o mínimo do contrato. Lance o valor que entrou de verdade — a diferença vira correção.</div>
-        <div class="ap-list" style="max-height:52vh;overflow:auto">${rows || '<div class="td-empty-row"><span>Sem parcelas.</span></div>'}</div>
-        ${resumo}
-        <div style="margin-top:14px"><button class="td-button" onclick="VM.closeModal()">Fechar</button></div>
+      const aba = (chave, rotulo, n) => `<button class="rp-aba${this._filtro === chave ? ' is-ativa' : ''}"
+        onclick="VMTerminalRecebimentos.verParcelas(${Number(id)}, ${JSON.stringify(esc(nome))}, '${chave}')">${rotulo} <b>${n}</b></button>`
+
+      vm.showModal(`<div class="rp-modal">
+        <header class="rp-cab">
+          <div>
+            <h3>${esc(nome)}</h3>
+            <p>${recebidas.length} recebida${recebidas.length === 1 ? '' : 's'} ·
+               ${pendentes.length} a receber${cr.correcao > 0 ? ` · <b>+${money(cr.correcao)}</b> de correção até agora` : ''}</p>
+          </div>
+          <button class="ds-btn ds-btn--sm" onclick="VMTerminalRecebimentos.reorganizar(${Number(id)})">
+            <i class="fas fa-wand-magic-sparkles"></i> Reorganizar o que falta</button>
+        </header>
+
+        <nav class="rp-abas">
+          ${aba('pendentes', 'A receber', pendentes.length)}
+          ${aba('recebidas', 'Recebidas', recebidas.length)}
+          ${aba('todas', 'Todas', ps.length)}
+        </nav>
+
+        <ul class="rp-lista">${visiveis.map(linha).join('') ||
+          '<li class="rp-vazio">Nada nesta aba.</li>'}</ul>
+
+        ${cr.contratado ? `<footer class="rp-resumo">
+          <div><span>Contratado</span><strong>${money(cr.contratado)}</strong></div>
+          <div><span>Correção recebida</span><strong class="is-verde">+${money(cr.correcao)}</strong></div>
+          <div><span>Já recebido</span><strong>${money(cr.recebido)}</strong></div>
+          <div><span>A receber</span><strong>${money(cr.a_receber)}</strong></div>
+        </footer>` : ''}
+
+        <div class="rp-rodape"><button class="ds-btn" onclick="VM.closeModal()">Fechar</button></div>
       </div>`)
     },
+
+    /**
+     * Refaz o que falta: quantas parcelas e de quanto.
+     *
+     * Simula antes de escrever. Mexer no fluxo de um contrato é mexer em
+     * previsão de dinheiro, e a pessoa precisa ver o antes e o depois na mesma
+     * tela antes de confirmar — ainda mais porque a operação APAGA as pendentes
+     * atuais para recriá-las.
+     */
+    async reorganizar(id) {
+      const vm = this._vm
+      const rec = (this._recs || []).find(x => Number(x.id) === Number(id)) || {}
+      const pend = (this._parcelas || []).filter(p => p.status !== 'recebida')
+      const atual = pend.length ? Number(pend[0].valor_previsto ?? pend[0].valor) : Number(rec.valor_parcela || 0)
+
+      const qtd = await window.VM.vmPrompt(
+        `Hoje faltam ${pend.length} parcela(s). Quantas passam a faltar?`,
+        { titulo: 'Reorganizar o que falta', tipo: 'number', min: 1, step: '1',
+          valor: String(pend.length || 1), icone: '🔁', textoBotao: 'Continuar',
+          dica: 'O que já foi recebido não muda.' })
+      if (qtd === null) return
+      const numero_parcelas = parseInt(qtd, 10)
+      if (!(numero_parcelas >= 1)) return vm.toast('Quantidade inválida.', 'error')
+
+      const val = await window.VM.vmPrompt(
+        'Quanto passa a valer cada parcela que falta?',
+        { titulo: 'Reorganizar o que falta', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$',
+          valor: String(atual || ''), icone: '💰', textoBotao: 'Simular',
+          dica: `Valor atual: ${money(atual)}` })
+      if (val === null) return
+      const valor_parcela = parseFloat(val)
+      if (!(valor_parcela > 0)) return vm.toast('Valor inválido.', 'error')
+
+      const sim = await vm.api('POST', `antecipacao/recebimentos/${id}/reorganizar`,
+        { numero_parcelas, valor_parcela, simular: true }).catch(e => ({ error: e.response?.data?.error }))
+      if (!sim || sim.error) return vm.toast(sim?.error || 'Não foi possível simular.', 'error')
+      const r = sim.resumo
+
+      const ok = await window.VM.vmConfirm(
+        `<div style="text-align:left;line-height:1.7">
+          <b>${r.pendentes_antes}</b> parcela(s) de ${money(r.valor_antes)} viram
+          <b>${r.pendentes_depois}</b> de ${money(r.valor_depois)}.<br>
+          A receber: ${money(r.a_receber)} — de ${dfmt(r.primeira_nova)} a ${dfmt(r.ultima_nova)}.<br>
+          <span style="color:var(--terminal-primary)">As ${r.recebidas} já recebidas
+          (${money(r.total_recebido)}) não mudam.</span><br>
+          <small style="color:var(--terminal-ink-soft)">O contratado de ${money(r.contratado)}
+          segue como referência.</small>
+        </div>`)
+      if (!ok) return
+
+      const res = await vm.api('POST', `antecipacao/recebimentos/${id}/reorganizar`,
+        { numero_parcelas, valor_parcela }).catch(e => ({ error: e.response?.data?.error }))
+      if (res?.success) {
+        vm.toast(res.message || 'Fluxo reorganizado.', 'success')
+        await this._silentReload()
+        this.verParcelas(id, this._verNome || rec.descricao || '', 'pendentes')
+      } else vm.toast(res?.error || 'Erro ao reorganizar.', 'error')
+    },
+
     async receber(recId, parcelaId, valor) {
       const vm = this._vm
       const txt = await window.VM.vmPrompt('Lance o valor que entrou de verdade. O que vier acima do mínimo é contabilizado como correção do índice.', { titulo: 'Registrar recebimento', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', valor: String(valor), icone: '💰', textoBotao: 'Registrar', dica: `Mínimo contratual: ${money(valor)}` })

@@ -644,6 +644,123 @@ antecipacao.get('/recebimentos/:id/parcelas', requireAuth, async (c) => {
   })
 })
 
+// ── POST /api/recebimentos/:id/reorganizar ─────────────────────────────────
+//
+// Refaz o que FALTA receber, sem encostar no que já entrou.
+//
+// Um contrato longo não termina como começou: o índice reajusta, a cooperativa
+// renegocia, o número de parcelas muda. A Restituição do Gustavo nasceu 34 ×
+// R$ 1.147,33 e nada obriga as 29 que faltam a continuarem 29, nem a continuarem
+// valendo 1.147,33.
+//
+// ── A REGRA QUE NÃO SE NEGOCIA ─────────────────────────────────────────────
+//
+// Parcela RECEBIDA é fato consumado: não é apagada, não é renumerada, não tem o
+// valor mexido. Ela já virou receita lançada, e reescrever o passado aqui faria
+// o extrato do mês passado mudar sozinho. O que esta rota troca é só a previsão
+// do que ainda não aconteceu.
+//
+// O `valor_total` do contrato também não se mexe: é a referência histórica, o
+// que foi combinado lá atrás. O que muda é o PLANO — quantas faltam e de quanto.
+antecipacao.post('/recebimentos/:id/reorganizar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (id === null) return c.json({ error: 'ID inválido.' }, 400)
+  const body = await c.req.json().catch(() => ({}))
+  const { numero_parcelas, valor_parcela, data_inicio, simular } = body
+
+  const rec = await c.env.DB.prepare(
+    `SELECT * FROM recebimentos_parcelados WHERE id=? AND user_id=?`
+  ).bind(id, user.id).first() as any
+  if (!rec) return c.json({ error: 'Recebimento não encontrado' }, 404)
+
+  const nNovas = parseInt(numero_parcelas)
+  if (!Number.isInteger(nNovas) || nNovas < 1 || nNovas > 360)
+    return c.json({ error: 'Número de parcelas deve ser um inteiro entre 1 e 360.' }, 400)
+  const vNova = parseValorPos(valor_parcela)
+  if (vNova === null) return c.json({ error: 'Valor da parcela deve ser maior que zero.' }, 400)
+  if (data_inicio && !dataValida(data_inicio))
+    return c.json({ error: 'Data de início inválida.' }, 400)
+
+  const todas = await c.env.DB.prepare(
+    `SELECT id, numero_parcela, valor, valor_previsto, status, data_prevista, data_recebimento
+     FROM recebimentos_parcelas WHERE recebimento_id=? AND user_id=? ORDER BY numero_parcela ASC`
+  ).bind(id, user.id).all<any>()
+  const lista = (todas.results || []) as any[]
+  const recebidas = lista.filter(p => p.status === 'recebida')
+  const pendentes = lista.filter(p => p.status !== 'recebida')
+
+  // A primeira data nova: a que o usuário mandar, ou a da próxima pendente, ou
+  // um mês depois da última recebida. Nunca antes do que já aconteceu.
+  const ultimaRecebida = recebidas.length
+    ? String(recebidas[recebidas.length - 1].data_prevista).slice(0, 10) : null
+  const proximaPendente = pendentes.length
+    ? String(pendentes[0].data_prevista).slice(0, 10) : null
+  const inicio = data_inicio
+    || proximaPendente
+    || (ultimaRecebida ? somarMeses(ultimaRecebida, 1) : new Date().toISOString().slice(0, 10))
+
+  const base = recebidas.length
+    ? Math.max(...recebidas.map(p => Number(p.numero_parcela) || 0)) : 0
+  const novas = Array.from({ length: nNovas }, (_, i) => ({
+    numero_parcela: base + i + 1,
+    valor: vNova,
+    data_prevista: somarMeses(inicio, i),
+  }))
+
+  const totalRecebido = Math.round(
+    recebidas.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100
+  const aReceber = Math.round(vNova * nNovas * 100) / 100
+
+  const resumo = {
+    contratado: Number(rec.valor_total) || 0,
+    recebidas: recebidas.length,
+    total_recebido: totalRecebido,
+    pendentes_antes: pendentes.length,
+    valor_antes: pendentes.length ? Number(pendentes[0].valor_previsto ?? pendentes[0].valor) : null,
+    pendentes_depois: nNovas,
+    valor_depois: vNova,
+    a_receber: aReceber,
+    total_previsto: Math.round((totalRecebido + aReceber) * 100) / 100,
+    primeira_nova: novas[0]?.data_prevista || null,
+    ultima_nova: novas[novas.length - 1]?.data_prevista || null,
+  }
+
+  // Simular é o padrão do bom senso: a tela mostra o antes e o depois, e só
+  // escreve depois que a pessoa confirmou o que vai acontecer.
+  if (simular === true) return c.json({ success: true, simulacao: true, resumo, parcelas: novas })
+
+  // Apaga SÓ as pendentes. A cláusula de status é a trava: sem ela, um erro
+  // aqui apagaria recebimento já lançado como receita.
+  await c.env.DB.prepare(
+    `DELETE FROM recebimentos_parcelas
+     WHERE recebimento_id=? AND user_id=? AND status NOT IN ('recebida')`
+  ).bind(id, user.id).run()
+
+  const lote = novas.map(p => c.env.DB.prepare(
+    `INSERT INTO recebimentos_parcelas
+       (recebimento_id, user_id, numero_parcela, valor, valor_previsto, data_prevista, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'pendente')`
+  ).bind(id, user.id, p.numero_parcela, p.valor, p.valor, p.data_prevista))
+  if (lote.length) await c.env.DB.batch(lote)
+
+  // O cabeçalho do contrato acompanha o novo plano — menos o `valor_total`,
+  // que é o combinado original e continua sendo a referência da tela.
+  const fim = novas.length ? novas[novas.length - 1].data_prevista : rec.data_fim
+  await c.env.DB.prepare(
+    `UPDATE recebimentos_parcelados
+     SET numero_parcelas=?, valor_parcela=?, data_fim=?, status='ativo'
+     WHERE id=? AND user_id=?`
+  ).bind(recebidas.length + nNovas, vNova, fim, id, user.id).run()
+
+  return c.json({
+    success: true,
+    resumo,
+    message: `Fluxo reorganizado: ${nNovas} parcela(s) de ${vNova.toFixed(2)} a partir de ${inicio}. ` +
+             `As ${recebidas.length} já recebidas ficaram como estavam.`,
+  })
+})
+
 // ── PATCH /api/recebimentos/parcelas/:id/receber ─────────────────────────
 // ── PATCH /api/recebimentos/parcelas/:id/valor — ajustar valor previsto ─────
 antecipacao.patch('/recebimentos/parcelas/:id/valor', requireAuth, async (c) => {
