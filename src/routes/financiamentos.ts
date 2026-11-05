@@ -6,7 +6,7 @@ import { ensureTag, tagDespesa, COR_MODULO } from '../utils/tags-helper'
 import { normalizarDescricao } from '../lib/identidade'
 import { janelaHistorica, renda } from '../lib/metricas'
 import {
-  painel, indicadores, sugestoes, candidatos as candidatosFin, PAPEIS, ROTULO, type Papel,
+  painel, indicadores, sugestoes, candidatos as candidatosFin, agruparSeries, PAPEIS, ROTULO, type Papel,
 } from '../lib/imobiliario'
 import {
   finDeLinha, carregarPagos, carregarApelidos, carregarLinhas, vincular as vincularFin,
@@ -964,8 +964,11 @@ financiamentos.get('/:id/candidatos', requireAuth, async (c) => {
     c.env.DB.prepare(`SELECT chave FROM recorrencia_dispensas WHERE user_id = ? AND chave LIKE ?`).bind(user.id, `fin:${ctx.id}:%`).all(),
   ])
   const dispensadas = new Set(((disp.results || []) as any[]).map(x => String(x.chave)))
-  const lista = candidatosFin({ fin: ctx.fin, linhas, vinculados: pagos, apelidos, dispensadas })
-  return c.json({ financiamento: ctx.fin, papeis: PAPEIS.map(p => ({ papel: p, rotulo: ROTULO[p] })), candidatos: lista })
+  // Parcelas de uma compra entram juntas (até 400): cortar a lista no meio de
+  // uma série esconderia parcelas dela.
+  const lista = candidatosFin({ fin: ctx.fin, linhas, vinculados: pagos, apelidos, dispensadas, limite: 400 })
+  return c.json({ financiamento: ctx.fin, papeis: PAPEIS.map(p => ({ papel: p, rotulo: ROTULO[p] })),
+    candidatos: lista, series: agruparSeries(lista) })
 })
 
 // ─── POST /api/financiamentos/:id/vincular ───────────────────────────────────

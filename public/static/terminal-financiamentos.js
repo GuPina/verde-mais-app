@@ -382,7 +382,7 @@
       const fid = Number(d.financiamento.id)
       return `<ul class="fp-lanc">${d.lancamentos.slice(0, 120).map(l => `<li>
           <span class="fp-dot" style="--c:${COR[l.papel]}"></span>
-          <span class="fp-lanc__corpo"><strong>${esc(l.descricao)}</strong><small>${dfmt(l.data)} · ${l.status === 'pago' ? 'pago' : 'a pagar'}${l.automatica ? ' · gerada pelo financiamento' : ''}</small></span>
+          <span class="fp-lanc__corpo"><strong>${esc(l.descricao)}${Number(l.numero_parcelas) > 1 && !/\(\d+\/\d+\)/.test(l.descricao) ? ` <span class="fp-parc">${Number(l.parcela_atual)}/${Number(l.numero_parcelas)}</span>` : ''}</strong><small>${dfmt(l.data)} · ${l.status === 'pago' ? 'pago' : 'a pagar'}${l.automatica ? ' · gerada pelo financiamento' : ''}</small></span>
           <b>${money(l.valor)}</b>
           ${l.automatica ? `<span class="fp-lanc__papel">${PAPEL[l.papel]}</span>` : `<select class="fp-lanc__papel" onchange="VMTerminalFinanciamentos.trocarPapel(${fid}, ${Number(l.id)}, this.value)">
             ${Object.keys(PAPEL).map(k => `<option value="${k}" ${k === l.papel ? 'selected' : ''}>${PAPEL[k]}</option>`).join('')}</select>
@@ -415,34 +415,62 @@
       vm.showModal('<div class="rp-modal"><div class="rp-vazio">Procurando em Despesas…</div></div>', { largura: 720 })
       const d = await vm.api('GET', `financiamentos/${fid}/candidatos`).catch(e => ({ error: e.response?.data?.error }))
       if (!d || d.error) return vm.toast(d?.error || 'Não foi possível procurar.', 'error')
-      this._cand = d; this._resp = {}; this._papelEsc = {}
+      this._cand = d; this._resp = {}; this._papelEsc = {}; this._papelSerie = {}; this._abertas = new Set()
       this._pintarProcura()
     },
     _pintarProcura() {
       const d = this._cand, fid = Number(d.financiamento.id)
-      const item = (c) => {
+      const series = d.series || []
+      const naSerie = new Set(series.flatMap(x => x.ids))
+      const porId = new Map(d.candidatos.map(c => [c.id, c]))
+      const selPapel = (id, papel, fn) => `<select class="fp-lanc__papel" onchange="VMTerminalFinanciamentos.${fn}(${Number(id)}, this.value)">
+          ${Object.keys(PAPEL).map(k => `<option value="${k}" ${k === papel ? 'selected' : ''}>${PAPEL[k]}</option>`).join('')}</select>`
+      const item = (c, dentro) => {
         const r = this._resp[c.id], papel = this._papelEsc[c.id] || c.papel
-        return `<li class="rt-item rc-item${r === 'sim' ? ' is-sim' : r === 'nao' ? ' is-nao' : ''}">
-          <div class="rt-item__top"><strong>${esc(c.descricao)}</strong><span>${money(c.valor)}</span></div>
-          <small>${dfmt(c.data)}${c.categoria ? ' · ' + esc(c.categoria) : ''} · ${Number(c.pontos)} pontos · ${c.motivos.map(esc).join(' · ')}</small>
+        // O número só aparece quando o nome não traz o "(3/10)" — é o caso que confunde.
+        const parc = c.parcela && !/\d+\s*\/\s*\d+/.test(c.descricao) ? `<span class="fp-parc">parcela ${c.parcela.atual}/${c.parcela.total}</span>` : ''
+        return `<li class="rt-item rc-item${r === 'sim' ? ' is-sim' : r === 'nao' ? ' is-nao' : ''}${dentro ? ' fp-sub' : ''}">
+          <div class="rt-item__top"><strong>${esc(c.descricao)} ${parc}</strong><span>${money(c.valor)}</span></div>
+          <small>${dfmt(c.data)}${c.data_compra ? ` · comprado em ${dfmt(c.data_compra)}` : ''} · ${c.status === 'pago' ? 'pago' : 'a pagar'}${dentro ? '' : ` · ${Number(c.pontos)} pontos · ${c.motivos.map(esc).join(' · ')}`}</small>
           <div class="rt-acoes">
-            <select class="fp-lanc__papel" onchange="VMTerminalFinanciamentos._papel(${Number(c.id)}, this.value)">
-              ${Object.keys(PAPEL).map(k => `<option value="${k}" ${k === papel ? 'selected' : ''}>${PAPEL[k]}</option>`).join('')}</select>
+            ${dentro ? '' : selPapel(c.id, papel, '_papel')}
             <button class="ds-btn ds-btn--sm ${r === 'sim' ? 'ds-btn--primary' : ''}" onclick="VMTerminalFinanciamentos._marcar(${Number(c.id)}, 'sim')"><i class="fas fa-check"></i> Sim</button>
             <button class="ds-btn ds-btn--sm ${r === 'nao' ? 'rc-nao-ativo' : ''}" onclick="VMTerminalFinanciamentos._marcar(${Number(c.id)}, 'nao')"><i class="fas fa-xmark"></i> Não</button>
           </div></li>`
       }
+      const serie = (sr, k) => {
+        const xs = sr.ids.map(id => porId.get(id)).filter(Boolean)
+        const sims = xs.filter(x => this._resp[x.id] === 'sim').length, naos = xs.filter(x => this._resp[x.id] === 'nao').length
+        const aberta = this._abertas?.has(sr.chave)
+        const papel = this._papelSerie?.[sr.chave] || sr.papel
+        return `<li class="fp-serie${sims === xs.length ? ' is-sim' : naos === xs.length ? ' is-nao' : ''}">
+          <div class="rt-item__top"><strong>${esc(sr.descricao)} <span class="fp-parc">${sr.total_parcelas}x</span></strong><span>${money(sr.valor_total)}</span></div>
+          <small>${xs.length} de ${sr.total_parcelas} parcelas nesta lista${sr.data_compra ? ` · comprado em ${dfmt(sr.data_compra)}` : ''} · ${sr.pagas} paga${sr.pagas === 1 ? '' : 's'}, ${sr.a_pagar} a pagar
+            ${sims || naos ? ` · <b>${sims} sim, ${naos} não</b>` : ''}</small>
+          ${sr.repetidas.length ? `<small class="fp-alerta">⚠ Parcela ${sr.repetidas.join(', ')} aparece mais de uma vez nesta compra — provável lançamento duplicado. “Sim na compra” liga só uma de cada; abra as parcelas para conferir.</small>` : ''}
+          ${sr.ausentes.length ? `<small>Fora da lista: ${sr.ausentes.length > 8 ? `${sr.ausentes.length} parcelas` : `parcela${sr.ausentes.length > 1 ? 's' : ''} ${sr.ausentes.join(', ')}`} (já ligadas, apagadas ou ainda não lançadas).</small>` : ''}
+          <div class="rt-acoes">
+            ${selPapel(k, papel, '_papelDaSerie')}
+            <button class="ds-btn ds-btn--sm ${sims === xs.length ? 'ds-btn--primary' : ''}" onclick="VMTerminalFinanciamentos._serie(${k}, 'sim')"><i class="fas fa-check"></i> Sim, a compra toda</button>
+            <button class="ds-btn ds-btn--sm ${naos === xs.length ? 'rc-nao-ativo' : ''}" onclick="VMTerminalFinanciamentos._serie(${k}, 'nao')"><i class="fas fa-xmark"></i> Não</button>
+            <button class="tl-link" onclick="VMTerminalFinanciamentos._abrirSerie(${k})">${aberta ? 'esconder' : 'ver'} as ${xs.length} parcelas</button>
+          </div>
+          ${aberta ? `<ul class="fp-serie__parc">${xs.map(x => item(x, true)).join('')}</ul>` : ''}
+        </li>`
+      }
+      const avulsos = d.candidatos.filter(c => !naSerie.has(c.id))
       const sims = Object.values(this._resp).filter(v => v === 'sim').length
       const naos = Object.values(this._resp).filter(v => v === 'nao').length
-      const nComPapel = (p) => d.candidatos.filter(c => (this._papelEsc[c.id] || c.papel) === p).length
       this._vm.showModal(`<div class="rp-modal rt-modal">
         <header class="rp-cab"><div>
           <h3>Lançamentos de ${esc(d.financiamento.descricao)}?</h3>
-          <p>Despesas dos últimos 5 anos e as futuras que parecem deste financiamento — inclusive entrada parcelada. Confira o papel de cada uma e marque sim ou não.</p>
+          <p>Despesas dos últimos 5 anos e as futuras que parecem deste financiamento. As parcelas de uma mesma compra vêm juntas — pelo número da parcela gravado na despesa, mesmo quando o nome não tem “(3/10)”. Cada parcela é somada uma vez, pelo seu valor; o status (pago ou a pagar) vem de Despesas.</p>
+        </div></header>
+        <div class="rp-lista rt-lista">
+          ${series.length ? `<h4 class="rt-sec">Compras parceladas · ${series.length}</h4><ul>${series.map(serie).join('')}</ul>` : ''}
+          ${avulsos.length ? `<h4 class="rt-sec">Lançamentos avulsos · ${avulsos.length}</h4><ul>${avulsos.map(c => item(c, false)).join('')}</ul>` : ''}
+          ${!d.candidatos.length ? '<div class="rp-vazio">Nada parecido sem vínculo.</div>' : ''}
         </div>
-        <button class="ds-btn ds-btn--sm" onclick="VMTerminalFinanciamentos._todos()">Marcar todos como sim</button></header>
-        <p class="fp-nota">${Object.keys(PAPEL).map(k => nComPapel(k) ? `${PAPEL[k]}: ${nComPapel(k)}` : '').filter(Boolean).join(' · ') || ''}</p>
-        <div class="rp-lista rt-lista"><ul>${d.candidatos.map(item).join('') || '<li class="rp-vazio">Nada parecido sem vínculo.</li>'}</ul></div>
         <label class="rc-aprender"><input type="checkbox" id="fp-aprender" ${this._aprender === false ? '' : 'checked'} style="accent-color:var(--terminal-primary)"
           onchange="VMTerminalFinanciamentos._aprender = this.checked">
           Aprender os nomes confirmados (os próximos lançamentos com esse nome entram sozinhos)</label>
@@ -451,6 +479,33 @@
           <button class="ds-btn" onclick="VM.closeModal()">Fechar</button>
         </div></div>`, { largura: 720 })
     },
+    _serie(k, r) {
+      const sr = (this._cand.series || [])[k]; if (!sr) return
+      const xs = sr.ids.map(id => this._cand.candidatos.find(c => c.id === id)).filter(Boolean)
+      const todos = xs.every(x => this._resp[x.id] === r)
+      const visto = new Set()
+      for (const x of xs) {
+        if (todos) { this._resp[x.id] = undefined; continue }
+        // Duplicada: só a primeira de cada número de parcela leva o "sim".
+        const num = x.parcela?.atual
+        if (r === 'sim' && num != null && visto.has(num)) { this._resp[x.id] = undefined; continue }
+        if (num != null) visto.add(num)
+        this._resp[x.id] = r
+        this._papelEsc[x.id] = this._papelSerie?.[sr.chave] || sr.papel
+      }
+      this._repintar()
+    },
+    _papelDaSerie(k, p) {
+      const sr = (this._cand.series || [])[k]; if (!sr) return
+      this._papelSerie = this._papelSerie || {}; this._papelSerie[sr.chave] = p
+      for (const id of sr.ids) this._papelEsc[id] = p
+    },
+    _abrirSerie(k) {
+      const sr = (this._cand.series || [])[k]; if (!sr) return
+      this._abertas = this._abertas || new Set()
+      this._abertas.has(sr.chave) ? this._abertas.delete(sr.chave) : this._abertas.add(sr.chave)
+      this._repintar()
+    },
     _repintar() {
       const l = document.querySelector('.rt-lista'), t = l ? l.scrollTop : 0
       this._pintarProcura()
@@ -458,7 +513,6 @@
     },
     _marcar(id, r) { this._resp[id] = this._resp[id] === r ? undefined : r; this._repintar() },
     _papel(id, p) { this._papelEsc[id] = p },
-    _todos() { for (const c of this._cand.candidatos) if (!this._resp[c.id]) this._resp[c.id] = 'sim'; this._repintar() },
     async _confirmar(fid) {
       const vm = this._vm, cs = this._cand.candidatos
       const itens = cs.filter(c => this._resp[c.id] === 'sim').map(c => ({ despesa_id: c.id, papel: this._papelEsc[c.id] || c.papel }))

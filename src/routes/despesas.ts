@@ -5,7 +5,7 @@ import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { autoVincular } from '../lib/recorrencias-db'
-import { registrarJurosDoGrupo, rendimentoMensalReserva } from '../lib/juros-db'
+import { registrarJurosDoGrupo, jurosDeUmaLinha, rendimentoMensalReserva } from '../lib/juros-db'
 import { separarJuros, compararComReserva } from '../lib/juros'
 
 type Bindings = { DB: D1Database }
@@ -236,7 +236,8 @@ despesas.get('/juros', requireAuth, async (c) => {
   const ano = /^\d{4}$/.test(c.req.query('ano') || '') ? c.req.query('ano')! : hoje.slice(0, 4)
   const mes = /^(0?[1-9]|1[0-2])$/.test(c.req.query('mes') || '') ? String(Number(c.req.query('mes'))).padStart(2, '0') : null
   const linhas = await c.env.DB.prepare(
-    `SELECT purchase_group_id, descricao, valor, valor_juros, COALESCE(data, vencimento) AS data, parcela_atual, numero_parcelas, status
+    `SELECT id, COALESCE(purchase_group_id, 'id:' || id) AS purchase_group_id, purchase_group_id IS NULL AS avulsa,
+            descricao, valor, valor_juros, COALESCE(data, vencimento) AS data, parcela_atual, numero_parcelas, status
        FROM despesas WHERE user_id = ? AND valor_juros IS NOT NULL AND COALESCE(status, '') <> 'cancelado'`
   ).bind(user.id).all()
   const rows = (linhas.results || []) as any[]
@@ -246,7 +247,8 @@ despesas.get('/juros', requireAuth, async (c) => {
   const grupos = new Map<string, any>()
   for (const r of rows) {
     const g = grupos.get(r.purchase_group_id) || { purchase_group_id: r.purchase_group_id, descricao: String(r.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
-      parcelas: Number(r.numero_parcelas) || 0, total: 0, juros: 0, juros_pagos: 0, primeira: r.data }
+      parcelas: Number(r.numero_parcelas) || 1, total: 0, juros: 0, juros_pagos: 0, primeira: r.data,
+      despesa_id: r.avulsa ? Number(r.id) : null }
     g.total += Number(r.valor); g.juros += Number(r.valor_juros || 0)
     if (r.status === 'pago') g.juros_pagos += Number(r.valor_juros || 0)
     if (String(r.data) < String(g.primeira)) g.primeira = r.data
@@ -274,6 +276,26 @@ despesas.post('/simular-parcelamento', requireAuth, async (c) => {
   const sep = separarJuros(aVista, pmts)!
   const rend = await rendimentoMensalReserva(c.env.DB)
   return c.json({ ...sep, juros: undefined, parcela: pmts[0], reserva: { ...compararComReserva(aVista, pmts, rend.mensal), cdi_anual: rend.cdi_anual, fonte: rend.fonte } })
+})
+
+// PATCH /api/despesas/:id/juros { valor_a_vista | null }
+// Compra no cartão em 1x (ou conta paga com cartão) que veio com acréscimo.
+// Se a despesa for parcela de uma compra, vale para a compra inteira.
+despesas.patch('/:id/juros', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'ID inválido' }, 400)
+  const d = await c.env.DB.prepare('SELECT id, purchase_group_id, numero_parcelas FROM despesas WHERE id = ? AND user_id = ?').bind(id, user.id).first() as any
+  if (!d) return c.json({ error: 'Despesa não encontrada' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const limpar = b.valor_a_vista === null || b.valor_a_vista === ''
+  const aVista = limpar ? null : Number(b.valor_a_vista)
+  if (!limpar && (!Number.isFinite(aVista) || !(aVista! > 0))) return c.json({ error: 'Valor inválido.' }, 400)
+  const r = d.purchase_group_id
+    ? await registrarJurosDoGrupo(c.env.DB, user.id, String(d.purchase_group_id), aVista)
+    : await jurosDeUmaLinha(c.env.DB, user.id, Number(d.id), aVista)
+  if (!r) return c.json({ error: 'Não foi possível calcular.' }, 400)
+  return c.json({ success: true, ...r })
 })
 
 // PATCH /api/despesas/grupo/:groupId/juros { valor_a_vista | null }
@@ -669,7 +691,11 @@ despesas.post('/', requireAuth, async (c) => {
   // Lançamento avulso que bate na regra de uma recorrência entra já vinculado
   // (só quando não há dúvida — ver lib/recorrencias-db).
   const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', ids)
-  const juros = valorAVista != null && groupId ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, valorAVista) : null
+  // Parcelada: juros distribuídos pela amortização. À vista no cartão (ou
+  // boleto pago com cartão): o acréscimo inteiro é juros/taxa dessa linha.
+  const juros = valorAVista == null ? null
+    : groupId ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, valorAVista)
+    : await jurosDeUmaLinha(c.env.DB, user.id, ids[0], valorAVista)
 
   return c.json({ 
     success: true, 

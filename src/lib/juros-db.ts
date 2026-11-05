@@ -46,3 +46,19 @@ export async function rendimentoMensalReserva(db: D1Database): Promise<{ mensal:
   } catch { /* sem tabela, fica o padrão */ }
   return { mensal: Math.pow(1 + anual / 100, 1 / 12) - 1, cdi_anual: Math.round(anual * 100) / 100, fonte }
 }
+
+/** Uma despesa só (sem grupo): todo o acréscimo sobre o valor sem juros é juros/taxa. */
+export async function jurosDeUmaLinha(
+  db: D1Database, userId: number, id: number, aVista: number | null,
+): Promise<(Separacao & { parcelas: number }) | { limpo: true } | null> {
+  const d = await db.prepare('SELECT valor FROM despesas WHERE id = ? AND user_id = ?').bind(id, userId).first() as any
+  if (!d) return null
+  if (aVista === null) {
+    await db.prepare('UPDATE despesas SET valor_juros = NULL WHERE id = ? AND user_id = ?').bind(id, userId).run()
+    return { limpo: true }
+  }
+  const sep = separarJuros(aVista, [Number(d.valor)])
+  if (!sep) return null
+  await db.prepare('UPDATE despesas SET valor_juros = ? WHERE id = ? AND user_id = ?').bind(sep.juros[0], id, userId).run()
+  return { ...sep, parcelas: 1 }
+}

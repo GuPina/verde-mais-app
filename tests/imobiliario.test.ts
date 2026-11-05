@@ -8,7 +8,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { candidatos, painel, indicadores, sugestoes, papelPorApelido, simularAmortizacao, type Fin, type Pago, type Linha } from '../src/lib/imobiliario'
+import { candidatos, agruparSeries, painel, indicadores, sugestoes, papelPorApelido, simularAmortizacao, type Fin, type Pago, type Linha } from '../src/lib/imobiliario'
 
 const HOJE = '2026-11-05'
 const FIN: Fin = {
@@ -149,4 +149,34 @@ test('amortização extra: reduzir prazo economiza mais juros que reduzir parcel
   assert.ok(prazo.meses_a_menos > 0)
   assert.ok(prazo.juros_economizados > parcela.juros_economizados)
   assert.ok(parcela.parcela_nova! < 300000 * 0.008 / (1 - Math.pow(1.008, -350)))
+})
+
+// ─── Parcelas de uma mesma compra ────────────────────────────────────────────
+
+test('parcelas sem "(3/10)" no nome são reconhecidas pelos campos e agrupadas por compra', () => {
+  const g1 = 'aaaa-1111', g2 = 'bbbb-2222'
+  const linhas: Linha[] = [
+    L('Entrada Apartamento (2/10)', '2026-11-07', 157.94, { parcela_atual: 2, numero_parcelas: 10, purchase_group_id: g1, status: 'pendente' }),
+    L('Entrada Apartamento', '2026-12-07', 157.94, { parcela_atual: 3, numero_parcelas: 10, purchase_group_id: g1, status: 'pendente' }),
+    L('Entrada Apartamento', '2026-11-07', 157.03, { parcela_atual: 3, numero_parcelas: 10, purchase_group_id: g2, status: 'pendente' }),
+    L('Entrada Apartamento (4/10)', '2026-12-07', 157.03, { parcela_atual: 4, numero_parcelas: 10, purchase_group_id: g2, status: 'pendente' }),
+    L('Entrada Apartamento', '2026-12-07', 157.03, { parcela_atual: 4, numero_parcelas: 10, purchase_group_id: g2, status: 'pendente' }),
+    L('Entrada Apartamento 5/7', '2026-11-07', 210.36, { parcela_atual: 5, numero_parcelas: 7, data_compra: '2026-10-26', status: 'pendente' }),
+    L('Entrada Apartamento 6/7', '2026-12-07', 210.36, { parcela_atual: 6, numero_parcelas: 7, data_compra: '2026-10-26', status: 'pendente' }),
+  ]
+  const c = candidatos({ fin: FIN, linhas, vinculados: [], apelidos: [] })
+  assert.equal(c.length, 7)
+  const sem = c.find(x => x.descricao === 'Entrada Apartamento' && x.valor === 157.94)!
+  assert.deepEqual(sem.parcela, { atual: 3, total: 10 }, 'parcela sem número no nome perdeu o 3/10')
+
+  const ss = agruparSeries(c)
+  assert.equal(ss.length, 3, 'duas compras em 10x e uma em 7x são três séries')
+  const s2 = ss.find(x => x.chave === `g:${g2}`)!
+  assert.deepEqual(s2.repetidas, [4], 'a 4/10 lançada duas vezes não foi apontada')
+  assert.equal(s2.valor_total, 471.09)
+  assert.deepEqual(s2.ausentes, [1, 2, 5, 6, 7, 8, 9, 10])
+  const s7 = ss.find(x => x.total_parcelas === 7)!
+  assert.equal(s7.descricao, 'Entrada Apartamento', 'o "5/7" ficou no nome da série')
+  assert.equal(s7.data_compra, '2026-10-26')
+  assert.equal(s7.papel, 'entrada')
 })

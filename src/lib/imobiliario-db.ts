@@ -22,18 +22,20 @@ export function finDeLinha(r: any): Fin {
 /** O que foi (ou será) pago neste financiamento: vínculos + parcelas que ele mesmo gerou. */
 export async function carregarPagos(db: DB, userId: number, finId: number): Promise<Pago[]> {
   const v = await db.prepare(
-    `SELECT d.id, d.descricao, d.valor, COALESCE(d.data, d.vencimento) AS data, d.status, v.papel
+    `SELECT d.id, d.descricao, d.valor, COALESCE(d.data, d.vencimento) AS data, d.status, v.papel, d.parcela_atual, d.numero_parcelas
        FROM financiamento_vinculos v JOIN despesas d ON d.id = v.despesa_id
       WHERE v.financiamento_id = ? AND v.user_id = ? AND COALESCE(d.status, '') <> 'cancelado'`
   ).bind(finId, userId).all()
   const auto = await db.prepare(
-    `SELECT id, descricao, valor, COALESCE(data, vencimento) AS data, status FROM despesas
+    `SELECT id, descricao, valor, COALESCE(data, vencimento) AS data, status, parcela_atual, numero_parcelas FROM despesas
       WHERE user_id = ? AND observacoes LIKE ? AND COALESCE(status, '') <> 'cancelado'
         AND id NOT IN (SELECT despesa_id FROM financiamento_vinculos WHERE user_id = ?)`
   ).bind(userId, `%Financiamento automático #${finId} %`, userId).all()
   const norm = (r: any, papel: Papel, automatica = false): Pago => ({
     id: Number(r.id), descricao: String(r.descricao || ''), valor: Number(r.valor) || 0,
     data: String(r.data || '').slice(0, 10), status: r.status ?? null, papel, automatica,
+    parcela_atual: r.parcela_atual == null ? null : Number(r.parcela_atual),
+    numero_parcelas: r.numero_parcelas == null ? null : Number(r.numero_parcelas),
   })
   return [
     ...((v.results || []) as any[]).map(r => norm(r, r.papel as Papel)),
@@ -52,6 +54,8 @@ export async function carregarApelidos(db: DB, userId: number, finId?: number) {
 export async function carregarLinhas(db: DB, userId: number, desde: string): Promise<Linha[]> {
   const r = await db.prepare(
     `SELECT d.id, d.descricao, d.valor, COALESCE(d.data, d.vencimento) AS data, d.categoria, d.observacoes, d.status,
+            d.parcela_atual, d.numero_parcelas, d.purchase_group_id,
+            (SELECT cc.data_compra FROM card_charges cc WHERE cc.expense_id = d.id LIMIT 1) AS data_compra,
             v.financiamento_id
        FROM despesas d LEFT JOIN financiamento_vinculos v ON v.despesa_id = d.id
       WHERE d.user_id = ? AND COALESCE(d.status, '') <> 'cancelado' AND COALESCE(d.data, d.vencimento) >= ?`

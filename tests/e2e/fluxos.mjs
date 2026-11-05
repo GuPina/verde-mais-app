@@ -541,3 +541,46 @@ test('juros do parcelamento: conta de 5 mil em 12x no cartão separa os juros; D
   const sim = (await api('POST', 'despesas/simular-parcelamento', { valor_a_vista: 5000, numero_parcelas: 12, valor_parcela: 473.33 })).body
   assert.equal(sim.reserva.melhor, 'reserva', JSON.stringify(sim))
 })
+
+test('juros em compra à vista no cartão (1x) e parcelas sem número no nome agrupadas no financiamento', async () => {
+  const cartao = await api('POST', 'cartoes', { nome: 'Cartão 1x', bandeira: 'visa', banco: 'E2E', limite_total: 20000, dia_fechamento: 25, dia_vencimento: 5 })
+  const cardId = cartao.body.id ?? cartao.body?.cartao?.id
+  // Conta de R$ 5.000 paga no cartão em 1x com taxa: R$ 5.150.
+  const c1 = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Boleto condomínio no cartão', categoria: 'Moradia', valor_total: 5150, numero_parcelas: 1, data_compra: '2026-11-03', valor_a_vista: 5000 })
+  assert.equal(c1.body.juros?.juros_total, 150, JSON.stringify(c1.body.juros))
+  // Pela tela de Despesas, cartão de crédito à vista.
+  const d1 = await api('POST', 'despesas', { descricao: 'IPVA no cartão', categoria: 'Transporte', valor: 2080, data: '2026-11-04', status: 'pendente',
+    meio_pagamento: 'cartao_credito', cartao_id: cardId, valor_a_vista: 2000 })
+  assert.equal(d1.body.juros?.juros_total, 80, JSON.stringify(d1.body))
+  // Despesa já lançada, sem grupo: informar depois pelo id.
+  const d2 = await api('POST', 'despesas', { descricao: 'Seguro carro no cartão', categoria: 'Transporte', valor: 1260, data: '2026-11-05', status: 'pendente', meio_pagamento: 'cartao_credito', cartao_id: cardId })
+  const inf = await api('PATCH', `despesas/${d2.body.ids[0]}/juros`, { valor_a_vista: 1200 })
+  assert.equal(inf.status, 200, JSON.stringify(inf.body))
+  assert.equal(inf.body.juros_total, 60)
+  const j = (await api('GET', 'despesas/juros?ano=2026&mes=11')).body
+  assert.ok(j.compras.some(x => x.despesa_id === d2.body.ids[0] && x.juros === 60 && x.parcelas === 1), JSON.stringify(j.compras.slice(0, 5)))
+
+  // Financiamento: duas compras de entrada em 10x, uma com parcela duplicada.
+  const fin = await api('POST', 'financiamentos', { descricao: 'Apto Teste Serie', tipo_bem: 'imovel', valor_imovel: 300000, valor_entrada: 30000,
+    valor_financiado: 240000, taxa_juros_anual: 9, numero_parcelas: 300, valor_parcela: 2300, sistema_amortizacao: 'sac', data_inicio: '2029-01-10' })
+  const fid = fin.body.id
+  const a = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Entrada Apto Teste Serie', categoria: 'Moradia', valor_total: 1579.4, numero_parcelas: 10, data_compra: '2026-10-14' })
+  const b = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Entrada Apto Teste Serie', categoria: 'Moradia', valor_total: 1570.3, numero_parcelas: 10, data_compra: '2026-10-11' })
+  // Duplica a parcela 3 da segunda compra (o mesmo lançamento entrou duas vezes).
+  const p3 = lista((await api('GET', `despesas?purchase_group_id=${b.body.purchase_group_id}&limit=50`)).body).find(d => Number(d.parcela_atual) === 3)
+  const dup = await api('POST', 'despesas', { descricao: 'Entrada Apto Teste Serie', categoria: 'Moradia', valor: p3.valor, data: String(p3.data).slice(0, 10), status: 'pendente' })
+  // A duplicada não tem grupo nem número: fica avulsa — a série de b continua inteira.
+  const cand = (await api('GET', `financiamentos/${fid}/candidatos`)).body
+  const sa = cand.series.find(x => x.chave === `g:${a.body.purchase_group_id}`)
+  const sb = cand.series.find(x => x.chave === `g:${b.body.purchase_group_id}`)
+  assert.ok(sa && sb, `séries não encontradas: ${JSON.stringify(cand.series.map(x => x.chave))}`)
+  assert.equal(sa.ids.length, 10)
+  assert.equal(sb.ids.length, 10)
+  assert.equal(sa.valor_total, 1579.4)
+  assert.ok(cand.candidatos.some(c => c.id === dup.body.ids[0] && !c.serie), 'a duplicada sem número entrou numa série')
+  const v = await api('POST', `financiamentos/${fid}/vincular`, { itens: [...sa.ids, ...sb.ids].map(id => ({ despesa_id: id, papel: 'entrada' })), nao: [dup.body.ids[0]] })
+  assert.equal(v.body.vinculados, 20)
+  const pn = (await api('GET', `financiamentos/${fid}/painel`)).body
+  const ent = pn.painel.blocos.find(x => x.papel === 'entrada')
+  assert.equal(Math.round((ent.pago + ent.pendente) * 100) / 100, 3149.7, 'cada parcela soma uma vez, pelo seu valor')
+})

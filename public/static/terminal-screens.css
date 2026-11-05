@@ -2203,3 +2203,14 @@ span.fp-lanc__papel { color: var(--terminal-ink-soft); }
   padding: 10px 14px; border: 1px solid rgba(240,166,74,.35); border-radius: 12px; background: rgba(240,166,74,.07); font-size: 0.85rem; line-height: 1.45; }
 .jp-banner b { color: #f0a64a; }
 .jp-banner .btn-secondary { padding: 6px 12px; font-size: 0.78rem; }
+.fp-parc { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--terminal-line);
+  font: 600 10.5px/1.4 var(--terminal-mono); color: var(--fp-parcela, #5aa9ff); vertical-align: 1px; }
+.fp-serie { display: flex; flex-direction: column; gap: 4px; padding: 12px 10px; margin-bottom: 8px; border: 1px solid var(--terminal-line);
+  border-left: 3px solid var(--terminal-line); border-radius: 10px; }
+.fp-serie.is-sim { border-left-color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 5%, transparent); }
+.fp-serie.is-nao { border-left-color: var(--terminal-negative); opacity: .65; }
+.fp-serie small { font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); }
+.fp-serie small b { color: var(--terminal-ink); }
+.fp-alerta { color: #f0a64a !important; }
+.fp-serie__parc { list-style: none; margin: 6px 0 0; padding: 0 0 0 8px; border-left: 1px dashed var(--terminal-line); }
+.rc-item.fp-sub { padding: 8px 6px; }

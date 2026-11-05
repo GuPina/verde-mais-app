@@ -83,6 +83,8 @@ export interface Pago {
   papel: Papel
   /** Gerada pelo próprio financiamento (parcela do contrato). */
   automatica?: boolean
+  parcela_atual?: number | null
+  numero_parcelas?: number | null
 }
 
 export const ehImobiliario = (f: Fin) =>
@@ -102,6 +104,11 @@ export interface Linha {
   status?: string | null
   /** Já ligada a algum financiamento. */
   financiamento_id?: number | null
+  parcela_atual?: number | null
+  numero_parcelas?: number | null
+  purchase_group_id?: string | null
+  /** Data real da compra (card_charges), quando foi no cartão. */
+  data_compra?: string | null
 }
 
 export interface CandidatoFin {
@@ -110,9 +117,70 @@ export interface CandidatoFin {
   valor: number
   data: string
   categoria: string | null
+  status: string | null
   papel: Papel
   pontos: number
   motivos: string[]
+  /** 3 de 10 — vem dos campos da despesa, não do texto: há parcelas sem "(3/10)" no nome. */
+  parcela: { atual: number; total: number } | null
+  /** A compra parcelada a que a linha pertence (mesma chave para todas as parcelas). */
+  serie: string | null
+  data_compra: string | null
+}
+
+export interface Serie {
+  chave: string
+  descricao: string
+  papel: Papel
+  total_parcelas: number
+  data_compra: string | null
+  valor_total: number
+  pagas: number
+  a_pagar: number
+  ids: number[]
+  /** Números de parcela que aparecem mais de uma vez nesta compra — provável lançamento duplicado. */
+  repetidas: number[]
+  /** Números de parcela que não estão na lista (já vinculados, apagados ou nunca lançados). */
+  ausentes: number[]
+}
+
+/**
+ * Junta as parcelas de uma mesma compra. A chave é o `purchase_group_id`;
+ * sem ele (importação antiga), a descrição sem o "(3/10)" + o total de
+ * parcelas + a data da compra. Duas compras de "Entrada Apartamento" em 10x,
+ * feitas em dias diferentes, são duas séries — não uma de 20.
+ */
+export function chaveSerie(l: { descricao?: string | null; numero_parcelas?: number | null; purchase_group_id?: string | null; data_compra?: string | null }) {
+  const n = Number(l.numero_parcelas) || 1
+  if (n <= 1) return null
+  if (l.purchase_group_id) return `g:${l.purchase_group_id}`
+  return `d:${normalizarDescricao(l.descricao || '')}|${n}|${String(l.data_compra || '').slice(0, 10)}`
+}
+
+export function agruparSeries(cands: CandidatoFin[]): Serie[] {
+  const m = new Map<string, CandidatoFin[]>()
+  for (const c of cands) if (c.serie) { if (!m.has(c.serie)) m.set(c.serie, []); m.get(c.serie)!.push(c) }
+  const out: Serie[] = []
+  for (const [chave, xs] of m) {
+    if (xs.length < 2) continue
+    xs.sort((a, b) => (a.parcela?.atual ?? 0) - (b.parcela?.atual ?? 0) || a.id - b.id)
+    const n = Math.max(...xs.map(x => x.parcela?.total ?? 0))
+    const cont = new Map<number, number>()
+    for (const x of xs) if (x.parcela) cont.set(x.parcela.atual, (cont.get(x.parcela.atual) || 0) + 1)
+    const papeis = new Map<Papel, number>()
+    for (const x of xs) papeis.set(x.papel, (papeis.get(x.papel) || 0) + x.pontos)
+    out.push({
+      chave, descricao: xs[0].descricao.replace(/\s*[\(\[]?\s*\d{1,3}\s*\/\s*\d{1,3}\s*[\)\]]?\s*$/, '').trim() || xs[0].descricao,
+      papel: [...papeis.entries()].sort((a, b) => b[1] - a[1])[0][0],
+      total_parcelas: n, data_compra: xs.find(x => x.data_compra)?.data_compra ?? null,
+      valor_total: cent(xs.reduce((s, x) => s + Math.abs(x.valor), 0)),
+      pagas: xs.filter(x => x.status === 'pago').length, a_pagar: xs.filter(x => x.status !== 'pago').length,
+      ids: xs.map(x => x.id),
+      repetidas: [...cont.entries()].filter(([, q]) => q > 1).map(([k]) => k).sort((a, b) => a - b),
+      ausentes: Array.from({ length: n }, (_, k) => k + 1).filter(k => !cont.has(k)),
+    })
+  }
+  return out.sort((a, b) => b.valor_total - a.valor_total)
 }
 
 /**
@@ -175,10 +243,15 @@ export function candidatos(opcoes: {
       if (fx && valor >= fx[0] * 0.7 && valor <= fx[1] * 1.3) { pontos += 10; motivos.push('valor na faixa dos já vinculados') }
       if (catImovel) { pontos += 10; motivos.push('categoria de moradia/financiamento') }
       // Valor e categoria sozinhos somam 20: sem um laço de nome (apelido,
-      // palavra do papel, nome do imóvel/banco/construtora) nunca chegam a 35.
-      if (pontos < 35) continue
+      // palavra do papel, nome do imóvel/banco/construtora) nunca chegam a 30.
+      // "ENTRADA" numa despesa de moradia (20 + 10) já basta para perguntar.
+      if (pontos < 30) continue
       if (!melhor || pontos > melhor.pontos) {
-        melhor = { id: l.id, descricao: String(l.descricao || ''), valor: cent(l.valor), data: ymd(l.data), categoria: l.categoria ?? null, papel: p, pontos: Math.min(100, pontos), motivos }
+        const nP = Number(l.numero_parcelas) || 1
+        melhor = { id: l.id, descricao: String(l.descricao || ''), valor: cent(l.valor), data: ymd(l.data), categoria: l.categoria ?? null,
+          status: l.status ?? null, papel: p, pontos: Math.min(100, pontos), motivos,
+          parcela: nP > 1 ? { atual: Number(l.parcela_atual) || 1, total: nP } : null,
+          serie: chaveSerie(l), data_compra: l.data_compra ? ymd(l.data_compra) : null }
       }
     }
     if (melhor) out.push(melhor)

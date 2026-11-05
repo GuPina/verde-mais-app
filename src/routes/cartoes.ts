@@ -854,7 +854,7 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
   }
 
   const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', despesaIds)
-  const juros = aVista != null && nparcelas > 1 ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
+  const juros = aVista != null ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
 
   return c.json({
     success: true,
@@ -1421,7 +1421,7 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
   }
 
   const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', ids)
-  const juros = aVista != null && nparcelas > 1 ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
+  const juros = aVista != null ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
   return c.json({ success: true, ids, recorrencia, juros, purchase_group_id: groupId, parcelas: nparcelas,
     message: nparcelas > 1 ? `${nparcelas} parcelas lançadas!` : 'Compra lançada!' }, 201)
 })
