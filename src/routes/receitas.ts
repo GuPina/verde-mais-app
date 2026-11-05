@@ -3,6 +3,7 @@ import { requireAuth } from './auth'
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { ensureTag, tagReceita, COR_MODULO } from '../utils/tags-helper'
+import { autoVincular } from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -301,7 +302,9 @@ receitas.post('/', requireAuth, async (c) => {
     }
   } catch (_) { /* best-effort — não bloqueia criação */ }
 
-  return c.json({ success: true, id: receitaId, message: 'Receita adicionada!' }, 201)
+  const recorrenciaAuto = await autoVincular(c.env.DB, user.id, 'receita', [receitaId])
+
+  return c.json({ success: true, id: receitaId, recorrencia: recorrenciaAuto, message: 'Receita adicionada!' }, 201)
 })
 
 // PUT /api/receitas/:id

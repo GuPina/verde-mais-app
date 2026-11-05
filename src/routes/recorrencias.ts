@@ -2,6 +2,15 @@ import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 import { normalizarData, ERRO_DATA } from '../lib/validacao'
+import { normalizarDescricao } from '../lib/identidade'
+import {
+  rastrear, linhaDoTempo, casaRegra, regraPadrao, temDono, CRITERIO,
+  type Regra, type Recorrencia, type TipoRec,
+} from '../lib/recorrencias'
+import {
+  hojeBR, somarMesesISO, regraDeLinha, recorrenciaDeLinha, carregarRegras, carregarDispensas,
+  carregarRecorrencias, carregarLancamentos, carregarVinculados, tabelaDe,
+} from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; plano: string } }
@@ -105,6 +114,308 @@ recorrencias.get('/resumo', requireAuth, async (c) => {
     }
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Rastreio, linha do tempo e regra de match — o motor está em lib/recorrencias.
+// As rotas fixas (/rastrear/...) vêm antes das de /:id por clareza de leitura.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const JANELA_RASTREIO_MESES = 13
+
+async function rastrearTipo(db: D1Database, userId: number, tipo: TipoRec, hoje: string) {
+  const [lancamentos, recs, regras, dispensadas] = await Promise.all([
+    carregarLancamentos(db, userId, tipo, somarMesesISO(hoje, -JANELA_RASTREIO_MESES)),
+    carregarRecorrencias(db, userId, tipo),
+    carregarRegras(db, userId),
+    carregarDispensas(db, userId),
+  ])
+  return rastrear({ tipo, lancamentos, recorrencias: recs, regras, dispensadas, hoje })
+}
+
+// ─── GET /api/recorrencias/rastrear?tipo=despesa|receita ─────────────────────
+// Só lê. Devolve as recorrências novas que o histórico sugere e os
+// lançamentos soltos que parecem pertencer a uma recorrência que já existe.
+recorrencias.get('/rastrear', requireAuth, async (c) => {
+  const user = c.get('user')
+  const q = c.req.query('tipo')
+  const tipos: TipoRec[] = q === 'despesa' || q === 'receita' ? [q] : ['despesa', 'receita']
+  const hoje = hojeBR()
+  const out: Record<string, any> = {}
+  for (const t of tipos) out[t] = await rastrearTipo(c.env.DB, user.id, t, hoje)
+  const novas = tipos.reduce((s, t) => s + out[t].novas.length, 0)
+  const soltas = tipos.reduce((s, t) => s + out[t].soltas.length, 0)
+  return c.json({ hoje, janela_meses: JANELA_RASTREIO_MESES, criterio: CRITERIO, novas, soltas, ...out })
+})
+
+// ─── POST /api/recorrencias/rastrear/criar ───────────────────────────────────
+// Transforma uma sugestão em recorrência: cria, vincula os lançamentos que a
+// originaram e grava a regra sugerida (que a pessoa pode ter ajustado).
+recorrencias.post('/rastrear/criar', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const b = await c.req.json().catch(() => ({})) as any
+
+  const tipo: TipoRec | null = b.tipo === 'despesa' || b.tipo === 'receita' ? b.tipo : null
+  if (!tipo) return c.json({ error: 'tipo deve ser despesa ou receita' }, 400)
+  const descricao = String(b.descricao ?? '').trim().slice(0, 120)
+  if (!descricao) return c.json({ error: 'Dê um nome à recorrência.' }, 400)
+  const dia = parseDia(b.dia_vencimento)
+  if (dia === null) return c.json({ error: 'dia_vencimento deve ser um inteiro entre 1 e 31.' }, 400)
+  const variavel = b.valor_variavel === true || b.valor_variavel === 1
+  const valor = parseValorPositivo(b.valor)
+  if (!variavel && valor === null) return c.json({ error: 'Informe um valor maior que zero para recorrências fixas.' }, 400)
+  const categoria = String(b.categoria ?? '').trim() || 'outros'
+  const regra = validarRegra(b.regra, descricao)
+  if (typeof regra === 'string') return c.json({ error: regra }, 400)
+
+  // Os lançamentos de origem: só os do usuário, ainda sem recorrência.
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 400)
+  const tabela = tabelaDe(tipo)
+  const col = tipo === 'despesa' ? 'COALESCE(data, vencimento)' : 'data'
+  let origem: any[] = []
+  if (ids.length) {
+    const r = await c.env.DB.prepare(
+      `SELECT id, ${col} AS data FROM ${tabela}
+        WHERE user_id = ? AND recorrencia_id IS NULL AND id IN (${ids.map(() => '?').join(',')})`
+    ).bind(user.id, ...ids).all()
+    origem = (r.results || []) as any[]
+  }
+  const datas = origem.map(o => String(o.data || '').slice(0, 10)).filter(Boolean).sort()
+  const dataInicio = datas[0] || hojeBR()
+  const ultimoMes = datas.length ? datas[datas.length - 1].slice(0, 7) + '-01' : null
+
+  const res = await c.env.DB.prepare(
+    `INSERT INTO recorrencias
+       (user_id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento,
+        valor_variavel, data_inicio, ultimo_gerado, ultimo_valor, notas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    user.id, tipo, descricao, valor ?? 0, categoria, dia,
+    String(b.meio_pagamento || 'outros'), variavel ? 1 : 0, dataInicio,
+    ultimoMes, valor ?? null, 'Criada pelo rastreio de recorrências',
+  ).run()
+  const recId = Number(res.meta.last_row_id)
+
+  if (origem.length) {
+    await c.env.DB.prepare(
+      `UPDATE ${tabela} SET recorrencia_id = ?, recorrente = 1
+        WHERE user_id = ? AND recorrencia_id IS NULL AND id IN (${origem.map(() => '?').join(',')})`
+    ).bind(recId, user.id, ...origem.map(o => Number(o.id))).run()
+  }
+  await salvarRegra(c.env.DB, user.id, recId, regra)
+  await verificarConquista(c.env.DB, user.id, 'primeira_recorrencia')
+
+  return c.json({ success: true, id: recId, vinculados: origem.length })
+})
+
+// ─── POST /api/recorrencias/rastrear/dispensar ───────────────────────────────
+// "Não é recorrência" / "não é desta". Guarda a chave para não sugerir de novo.
+recorrencias.post('/rastrear/dispensar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const b = await c.req.json().catch(() => ({})) as any
+  const chave = String(b.chave || '')
+  if (!/^(nova:(despesa|receita):.{1,200}|solta:\d+:\d+)$/.test(chave))
+    return c.json({ error: 'chave inválida' }, 400)
+  await c.env.DB.prepare(
+    `INSERT INTO recorrencia_dispensas (user_id, chave) VALUES (?, ?) ON CONFLICT (user_id, chave) DO NOTHING`
+  ).bind(user.id, chave).run()
+  return c.json({ success: true })
+})
+
+// ─── DELETE /api/recorrencias/rastrear/dispensas ─────────────────────────────
+// Desfaz todos os "não é recorrência": o próximo rastreio volta a sugerir.
+recorrencias.delete('/rastrear/dispensas', requireAuth, async (c) => {
+  const user = c.get('user')
+  const r = await c.env.DB.prepare(`DELETE FROM recorrencia_dispensas WHERE user_id = ?`).bind(user.id).run()
+  return c.json({ success: true, removidas: Number(r.meta?.changes ?? 0) })
+})
+
+// ─── GET /api/recorrencias/:id/linha-do-tempo?passados=12&futuros=6 ──────────
+// Mês a mês, a partir dos lançamentos REAIS (com o valor que ficou depois de
+// qualquer ajuste em Despesas/Receitas), mais os soltos que parecem desta.
+recorrencias.get('/:id/linha-do-tempo', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const rec = recorrenciaDeLinha(row)
+  const passados = Math.min(Math.max(1, parseInt(c.req.query('passados') || '12', 10) || 12), 36)
+  const futuros = Math.min(Math.max(0, parseInt(c.req.query('futuros') || '6', 10) || 6), 24)
+  const hoje = hojeBR()
+
+  const [vinculados, rast, regras] = await Promise.all([
+    carregarVinculados(c.env.DB, user.id, rec),
+    rastrearTipo(c.env.DB, user.id, rec.tipo, hoje),
+    carregarRegras(c.env.DB, user.id),
+  ])
+  const soltas = rast.soltas.filter(s => s.recorrencia_id === id)
+  const linha = linhaDoTempo({ recorrencia: rec, vinculados, soltas, hoje, meses_passados: passados, meses_futuros: futuros })
+
+  return c.json({
+    recorrencia: { ...rec, meio_pagamento: row.meio_pagamento, notas: row.notas },
+    regra: regras.get(id) || regraPadrao(rec),
+    regra_personalizada: regras.has(id),
+    soltas,
+    ...linha,
+  })
+})
+
+// ─── GET/PUT/DELETE /api/recorrencias/:id/regra ──────────────────────────────
+recorrencias.get('/:id/regra', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const salva = await c.env.DB.prepare(`SELECT * FROM recorrencia_regras WHERE recorrencia_id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  return c.json({ regra: salva ? regraDeLinha(salva) : regraPadrao(recorrenciaDeLinha(row)), personalizada: !!salva })
+})
+
+recorrencias.put('/:id/regra', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const regra = validarRegra(b, row.descricao)
+  if (typeof regra === 'string') return c.json({ error: regra }, 400)
+  await salvarRegra(c.env.DB, user.id, id, regra)
+  return c.json({ success: true, regra, ...(await testarRegra(c.env.DB, user.id, recorrenciaDeLinha(row), regra)) })
+})
+
+recorrencias.delete('/:id/regra', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  await c.env.DB.prepare(`DELETE FROM recorrencia_regras WHERE recorrencia_id = ? AND user_id = ?`).bind(id, user.id).run()
+  return c.json({ success: true })
+})
+
+// ─── POST /api/recorrencias/:id/regra/testar ─────────────────────────────────
+// Antes de salvar: quais lançamentos dos últimos meses esta regra pegaria.
+recorrencias.post('/:id/regra/testar', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const regra = validarRegra(b, row.descricao)
+  if (typeof regra === 'string') return c.json({ error: regra }, 400)
+  return c.json({ regra, ...(await testarRegra(c.env.DB, user.id, recorrenciaDeLinha(row), regra)) })
+})
+
+// ─── POST /api/recorrencias/:id/vincular ─────────────────────────────────────
+// Liga lançamentos soltos a esta recorrência. Com `substituir`, o lançamento
+// PREVISTO que a recorrência gerou naquele mês (despesa pendente, com o nome
+// da recorrência) sai — o real ocupa o lugar dele. Pago nunca é tocado.
+recorrencias.post('/:id/vincular', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const ids = (Array.isArray(b.lancamento_ids) ? b.lancamento_ids : [b.lancamento_id])
+    .map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 200)
+  if (!ids.length) return c.json({ error: 'Informe o lançamento.' }, 400)
+
+  const tipo: TipoRec = row.tipo
+  const tabela = tabelaDe(tipo)
+  const col = tipo === 'despesa' ? 'COALESCE(data, vencimento)' : 'data'
+  let vinculados = 0, substituidos = 0
+  for (const lid of ids) {
+    const l = await c.env.DB.prepare(
+      `SELECT id, ${col} AS data FROM ${tabela} WHERE id = ? AND user_id = ? AND recorrencia_id IS NULL`
+    ).bind(lid, user.id).first() as any
+    if (!l) continue
+    if (b.substituir && tipo === 'despesa') {
+      const r = await c.env.DB.prepare(
+        `DELETE FROM despesas
+          WHERE user_id = ? AND recorrencia_id = ? AND status = 'pendente' AND descricao = ?
+            AND substr(COALESCE(data, vencimento), 1, 7) = ? AND id <> ?`
+      ).bind(user.id, id, row.descricao, String(l.data).slice(0, 7), lid).run()
+      substituidos += Number(r.meta?.changes ?? 0)
+    }
+    await c.env.DB.prepare(
+      `UPDATE ${tabela} SET recorrencia_id = ?, recorrente = 1 WHERE id = ? AND user_id = ? AND recorrencia_id IS NULL`
+    ).bind(id, lid, user.id).run()
+    vinculados++
+  }
+  return c.json({ success: true, vinculados, substituidos })
+})
+
+// ─── POST /api/recorrencias/:id/desvincular ──────────────────────────────────
+// O lançamento continua existindo; só deixa de contar como desta recorrência.
+recorrencias.post('/:id/desvincular', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = parseId(c.req.param('id'))
+  if (!id) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const row = await c.env.DB.prepare(`SELECT tipo FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, user.id).first() as any
+  if (!row) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const lid = parseId((await c.req.json().catch(() => ({})) as any).lancamento_id)
+  if (!lid) return c.json({ error: 'Informe o lançamento.' }, 400)
+  const r = await c.env.DB.prepare(
+    `UPDATE ${tabelaDe(row.tipo)} SET recorrencia_id = NULL WHERE id = ? AND user_id = ? AND recorrencia_id = ?`
+  ).bind(lid, user.id, id).run()
+  // Para o rastreio não sugerir de volta o que a pessoa acabou de tirar.
+  await c.env.DB.prepare(
+    `INSERT INTO recorrencia_dispensas (user_id, chave) VALUES (?, ?) ON CONFLICT (user_id, chave) DO NOTHING`
+  ).bind(user.id, `solta:${id}:${lid}`).run()
+  return c.json({ success: true, desvinculados: Number(r.meta?.changes ?? 0) })
+})
+
+// ── Regra: validação, gravação e teste ───────────────────────────────────────
+
+function validarRegra(b: any, descricaoPadrao: string): Regra | string {
+  b = b || {}
+  const texto = normalizarDescricao(String(b.texto ?? descricaoPadrao ?? ''))
+  if (texto.length < 3) return 'O texto da regra precisa ter pelo menos 3 letras depois de normalizado.'
+  const modo = b.modo ?? 'contem'
+  if (!['contem', 'comeca', 'igual'].includes(modo)) return 'modo deve ser contem, comeca ou igual'
+  let tol: number | null = null
+  if (b.tol_valor_pct !== null && b.tol_valor_pct !== '' && b.tol_valor_pct !== undefined) {
+    tol = Number(b.tol_valor_pct)
+    if (!Number.isFinite(tol) || tol < 0 || tol > 100) return 'A tolerância de valor vai de 0 a 100%.'
+  } else if (b.tol_valor_pct === undefined) tol = 10
+  const dias = b.tol_dias === undefined || b.tol_dias === '' ? 5 : Number(b.tol_dias)
+  if (!Number.isInteger(dias) || dias < 0 || dias > 15) return 'A folga de dias vai de 0 a 15.'
+  const cartao = b.cartao_id === undefined || b.cartao_id === null || b.cartao_id === '' ? null : parseId(b.cartao_id)
+  if (b.cartao_id && !cartao) return 'cartão inválido'
+  return { texto, modo, tol_valor_pct: tol, tol_dias: dias, cartao_id: cartao, auto_vincular: b.auto_vincular !== false && b.auto_vincular !== 0 }
+}
+
+async function salvarRegra(db: D1Database, userId: number, recId: number, r: Regra) {
+  await db.prepare(
+    `INSERT INTO recorrencia_regras (recorrencia_id, user_id, texto, modo, tol_valor_pct, tol_dias, cartao_id, auto_vincular, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS'))
+     ON CONFLICT (recorrencia_id) DO UPDATE SET
+       texto = EXCLUDED.texto, modo = EXCLUDED.modo, tol_valor_pct = EXCLUDED.tol_valor_pct,
+       tol_dias = EXCLUDED.tol_dias, cartao_id = EXCLUDED.cartao_id,
+       auto_vincular = EXCLUDED.auto_vincular, atualizado_em = EXCLUDED.atualizado_em`
+  ).bind(recId, userId, r.texto, r.modo, r.tol_valor_pct, r.tol_dias, r.cartao_id ?? null, r.auto_vincular ? 1 : 0).run()
+}
+
+/** Quais lançamentos dos últimos 13 meses a regra pegaria — e quais já são desta. */
+async function testarRegra(db: D1Database, userId: number, rec: Recorrencia, regra: Regra) {
+  const ls = await carregarLancamentos(db, userId, rec.tipo, somarMesesISO(hojeBR(), -JANELA_RASTREIO_MESES))
+  const pegaria: any[] = []
+  const quase: any[] = []
+  for (const l of ls) {
+    if (temDono(l)) continue
+    const m = casaRegra(l, rec, regra)
+    if (!m.texto) continue
+    const item = { id: l.id, descricao: l.descricao, data: l.data, valor: l.valor,
+      ja_vinculado: Number(l.recorrencia_id) === rec.id, de_outra: !!l.recorrencia_id && Number(l.recorrencia_id) !== rec.id, criterios: m }
+    ;(m.total ? pegaria : quase).push(item)
+  }
+  const ord = (a: any, b: any) => String(b.data).localeCompare(String(a.data))
+  return { pegaria: pegaria.sort(ord).slice(0, 60), quase: quase.sort(ord).slice(0, 30) }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S-R2: GET /api/recorrencias/:id/projecao?meses=6
@@ -419,21 +730,22 @@ recorrencias.delete('/:id', requireAuth, async (c) => {
   // exclusão de receita apagava receitas já recebidas do passado (jun/jul/dez).
   // Agora só toca o que ainda está por vir (data/vencimento >= hoje).
   if (recTipo === 'receita') {
+    // Só o que a PRÓPRIA recorrência gerou (descrição dela). Um lançamento
+    // real que o rastreio ou o vínculo automático ligou aqui — o salário
+    // importado, com a descrição do banco — é dinheiro que entrou e fica.
     await c.env.DB.prepare(
       `DELETE FROM receitas
        WHERE user_id = ? AND date(data) >= date(?)
-         AND (recorrencia_id = ?
-              OR (recorrencia_id IS NULL AND recorrente = 1
-                  AND (descricao = ? OR descricao = ?)))`
-    ).bind(user.id, hojeDel, id, descLike, descLike + ' (Auto)').run()
+         AND (descricao = ? OR descricao = ?)
+         AND (recorrencia_id = ? OR (recorrencia_id IS NULL AND recorrente = 1))`
+    ).bind(user.id, hojeDel, descLike, descLike + ' (Auto)', id).run()
   } else {
     await c.env.DB.prepare(
       `DELETE FROM despesas
        WHERE user_id = ? AND status = 'pendente' AND date(COALESCE(vencimento, data)) >= date(?)
-         AND (recorrencia_id = ?
-              OR (recorrencia_id IS NULL AND recorrente = 1
-                  AND (descricao = ? OR descricao = ?)))`
-    ).bind(user.id, hojeDel, id, descLike, descLike + ' (Auto)').run()
+         AND (descricao = ? OR descricao = ?)
+         AND (recorrencia_id = ? OR (recorrencia_id IS NULL AND recorrente = 1))`
+    ).bind(user.id, hojeDel, descLike, descLike + ' (Auto)', id).run()
   }
 
   await c.env.DB.prepare(

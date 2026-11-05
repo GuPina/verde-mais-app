@@ -2029,3 +2029,76 @@
   .rp-resumo { grid-template-columns: 1fr 1fr; gap: var(--ds-3) var(--ds-4); }
   .rp-cab { flex-direction: column; }
 }
+
+/* ── Recorrências: cartão clicável, linha do tempo, rastreio, regra ───────────
+   Tudo dentro do .rp-modal (sem largura própria; quem manda é o .modal-card),
+   pelo mesmo motivo da tela de parcelas: nada aqui pode criar rolagem lateral. */
+.tr-card--clicavel { cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.tr-card--clicavel:hover, .tr-card--clicavel:focus-visible { border-color: var(--terminal-primary-line); outline: none; }
+.tr-card__hint { font-size: 11px; color: var(--terminal-ink-soft); display: flex; gap: 6px; align-items: center; }
+.tr-card--clicavel:hover .tr-card__hint { color: var(--terminal-primary); }
+
+.tl-modal .tl-regra { font-size: 11.5px; overflow-wrap: anywhere; }
+.tl-modal .tl-regra i { color: var(--terminal-primary); margin-right: 4px; }
+.tl-mes { flex: none; width: 64px; font: 600 11px/1.2 var(--terminal-mono); color: var(--terminal-ink-soft);
+  text-transform: uppercase; letter-spacing: .04em; align-self: flex-start; padding-top: 3px; }
+.tl-linha { align-items: flex-start; }
+.tl-linha .rp-corpo small { overflow-wrap: anywhere; }
+.tl-estado { font-weight: 600; }
+.tl-estado.is-ok { color: var(--terminal-primary) !important; }
+.tl-estado.is-falta { color: var(--terminal-negative) !important; }
+.tl-estado.is-pend { color: var(--terminal-warning, #e8b84a) !important; }
+.tl-linha.is-prev strong { color: var(--terminal-ink-soft); font-weight: 500; }
+.tl-linha.is-falta .tl-mes { color: var(--terminal-negative); }
+.is-verde { color: var(--terminal-primary); }
+.is-verm { color: var(--terminal-negative); }
+.rp-corpo small b.is-verm { color: var(--terminal-negative); }
+.tl-tag { display: inline-block; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--terminal-line);
+  font: 600 10px/1.3 var(--terminal-mono); color: var(--terminal-ink-soft); white-space: nowrap; }
+.tl-tag.is-ok { color: var(--terminal-primary); border-color: var(--terminal-primary-line); }
+.tl-tag.is-pend { color: var(--terminal-warning, #e8b84a); }
+.tl-tag.is-falta { color: var(--terminal-negative); }
+.tl-link { background: none; border: 0; padding: 0 0 0 6px; margin: 0; min-height: 0; height: auto; box-shadow: none;
+  line-height: inherit; display: inline; cursor: pointer; font: inherit; font-size: 11px;
+  color: var(--terminal-ink-soft); text-decoration: underline; text-underline-offset: 2px; }
+.tl-link:hover { color: var(--terminal-ink); }
+.tl-poss { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px !important;
+  padding: 6px 8px; border: 1px dashed var(--terminal-line); border-radius: 8px; }
+.tl-aviso { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; margin-bottom: var(--ds-3); border-radius: 10px; font-size: 12.5px; line-height: 1.45;
+  border: 1px solid var(--terminal-primary-line); background: color-mix(in srgb, var(--terminal-primary) 7%, transparent); }
+.tl-aviso b { color: var(--terminal-primary); }
+.tl-aviso--leve { border-color: var(--terminal-line); background: transparent; }
+
+.rt-lista { border-top: 0; }
+.rt-lista ul { list-style: none; margin: 0 0 var(--ds-4); padding: 0; }
+.rt-sec { margin: var(--ds-3) 0 var(--ds-2); font: 600 10px/1.3 var(--terminal-mono); letter-spacing: .07em;
+  text-transform: uppercase; color: var(--terminal-ink-soft); }
+.rt-item { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; border-bottom: 1px solid var(--terminal-line); }
+.rt-item__top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rt-item__top strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.rt-item small { font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); overflow-wrap: anywhere; }
+.rt-item small b { color: var(--terminal-ink); }
+.rt-crit i { margin: 0 2px 0 6px; }
+.rt-crit i:first-child { margin-left: 0; }
+.rt-acoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.rt-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.rt-param { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--terminal-line); border-radius: 10px; }
+
+.rg-teste:empty { display: none; }
+.rg-teste { padding: 10px 12px; border: 1px solid var(--terminal-line); border-radius: 10px; font-size: 12px; max-height: 240px; overflow-y: auto; }
+.rg-teste__tit { margin: 4px 0 6px; color: var(--terminal-ink-soft); }
+.rg-teste__tit b { color: var(--terminal-primary); }
+.rg-teste ul { list-style: none; margin: 0 0 8px; padding: 0; }
+.rg-teste li { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 8px; padding: 4px 0;
+  border-bottom: 1px solid var(--terminal-line); align-items: baseline; }
+.rg-teste li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rg-teste li em { grid-column: 2 / -1; font-style: normal; font-size: 10.5px; color: var(--terminal-ink-soft); }
+@media (max-width: 520px) { .tl-mes { width: 52px; } }
+/* No celular o modal vira folha presa ao fundo, com teto de 88vh − 64px (a
+   barra de navegação) e 80px de respiro embaixo. Com 76vh próprios o conteúdo
+   passava do teto: a folha inteira rolava por cima da lista que já rola, e o
+   rodapé com os totais ficava escondido. Cabendo no teto, só a lista rola. */
+@media (max-width: 768px) {
+  .rp-modal { max-height: calc(88vh - 64px - 150px); }
+}

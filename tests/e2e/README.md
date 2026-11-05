@@ -10,7 +10,7 @@ mexem em dinheiro — criar, parcelar, receber, editar. É a parte que os testes
 scripts/e2e.sh
 ```
 
-O script cria um Postgres temporário, aplica as dez migrations, sobe o servidor
+O script cria um Postgres temporário, aplica as onze migrations, sobe o servidor
 numa porta livre, roda os fluxos e derruba tudo no fim — inclusive se um teste
 estourar. Nada toca banco de produção: ele se recusa a rodar se `DATABASE_URL`
 já estiver apontando para algum lugar.
@@ -26,6 +26,9 @@ já estiver apontando para algum lugar.
 | Recebimento | Total congelado no contratado enquanto o índice já corrigiu as parcelas |
 | Isolamento | Uma conta lendo, editando ou apagando lançamento de outra |
 | Coerência | Dashboard, Diagnóstico e Projeção divergindo sobre score e confiança |
+| Recorrências | Ajuste feito em Despesas sumindo da linha do tempo; despesa real vinculada às cegas num mês que já tinha a sua; compra em 12x sugerida como recorrência; excluir a recorrência apagando despesa real |
+| Assinaturas | Aumento de preço virando duas assinaturas; parcela virando assinatura |
+| Importação | Receita do extrato entrando solta quando bate na regra de uma recorrência |
 
 ## Por que o navegador não está aqui
 

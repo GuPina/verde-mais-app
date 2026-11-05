@@ -208,6 +208,8 @@
      */
     async verParcelas(id, nome, filtro) {
       const vm = this._vm
+      // As abas chamam sem o nome: aspas dentro do onclick quebravam o atributo.
+      nome = nome ?? (Number(id) === this._verId ? this._verNome : '')
       this._verId = Number(id); this._verNome = nome
       this._filtro = filtro || this._filtro || 'pendentes'
       const data = await vm.api('GET', `antecipacao/recebimentos/${id}/parcelas`).catch(() => ({ parcelas: [] }))
@@ -241,7 +243,7 @@
       }
 
       const aba = (chave, rotulo, n) => `<button class="rp-aba${this._filtro === chave ? ' is-ativa' : ''}"
-        onclick="VMTerminalRecebimentos.verParcelas(${Number(id)}, ${JSON.stringify(esc(nome))}, '${chave}')">${rotulo} <b>${n}</b></button>`
+        onclick="VMTerminalRecebimentos.verParcelas(${Number(id)}, null, '${chave}')">${rotulo} <b>${n}</b></button>`
 
       // 620px: quatro números no rodapé não cabem em 440 sem transbordar.
       vm.showModal(`<div class="rp-modal">

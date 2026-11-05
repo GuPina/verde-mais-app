@@ -4,6 +4,7 @@ import { faturaDaCompra, faturaDaParcela, faturaDaParcelaAncorada, somarMeses } 
 import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
+import { autoVincular } from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -590,9 +591,14 @@ despesas.post('/', requireAuth, async (c) => {
     const valorDesconto = valorParcela * totalParcelas
   }
 
+  // Lançamento avulso que bate na regra de uma recorrência entra já vinculado
+  // (só quando não há dúvida — ver lib/recorrencias-db).
+  const recorrencia = totalParcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', ids) : null
+
   return c.json({ 
     success: true, 
     ids, 
+    recorrencia,
     parcelas: totalParcelas,
     parcelas_total_original: totalParcelasLabel,
     message: totalParcelas > 1 ? `${totalParcelas} parcelas criadas! (${parcelaInicialLabel}/${totalParcelasLabel} a ${totalParcelas + parcelaInicialLabel - 1}/${totalParcelasLabel})` : 'Despesa adicionada!'

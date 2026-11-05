@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
+import { normalizarDescricao } from '../lib/identidade'
+import { temDono, medirPadrao, motivoRecusa, confiancaPadrao, CRITERIO } from '../lib/recorrencias'
+import { hojeBR, somarMesesISO } from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -161,20 +164,22 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   const user = c.get('user')
   const { usar_ia = true } = await c.req.json().catch(() => ({})) as any
 
-  // Buscar despesas dos últimos 13 meses
-  // Excluir despesas parceladas (numero_parcelas > 1) — não são assinaturas
+  // Despesas dos últimos 13 meses. A data é a de competência (no cartão, o
+  // vencimento da fatura), a mesma que as Recorrências usam.
   const result = await c.env.DB.prepare(`
-    SELECT id, descricao, valor, data, categoria, status
+    SELECT id, descricao, valor, COALESCE(data, vencimento) AS data, categoria, status,
+           observacoes, recorrencia_id, numero_parcelas, parcelado, cartao_id
     FROM despesas
     WHERE user_id = ?
-      AND data >= date('now', '-13 months')
+      AND COALESCE(data, vencimento) >= ?
       AND valor >= 3.0
-      AND status != 'cancelado'
-      AND (numero_parcelas IS NULL OR numero_parcelas <= 1)
-    ORDER BY data ASC
-  `).bind(user.id).all()
+      AND COALESCE(status, '') <> 'cancelado'
+    ORDER BY COALESCE(data, vencimento) ASC
+  `).bind(user.id, somarMesesISO(hojeBR(), -13)).all()
 
-  const expenses = result.results as any[]
+  const hoje = hojeBR()
+  const expenses = ((result.results || []) as any[])
+    .map(e => ({ ...e, id: Number(e.id), valor: Number(e.valor) || 0, data: String(e.data || '').slice(0, 10) }))
 
   if (expenses.length < 4) {
     return c.json({
@@ -184,113 +189,132 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     })
   }
 
-  // ── Agrupar por (descrição normalizada + bucket de valor) ────────────────
+  // ── Agrupar pela MESMA identidade das Recorrências ───────────────────────
+  // Antes: normalizador próprio + faixa de valor de R$ 0,50. A Netflix que
+  // subiu de 55,90 para 59,90 virava duas assinaturas, e "NETFLIX.COM" e
+  // "NETFLIX *COM" também. Agora a chave é `normalizarDescricao`, e parcelas,
+  // empréstimos e financiamentos saem por `temDono` — as mesmas regras do
+  // rastreio de recorrências, para as duas telas nunca discordarem.
+  type Occ = { id: number; data: string; valor: number; status: string; recorrencia_id: number | null }
   type Group = {
     normalized: string
     original: string
     amount: number
     categoria: string
-    occurrences: Array<{ id: number; date: Date; status: string }>
+    occurrences: Occ[]
     keywordMatch: boolean
     categoryMatch: boolean
     serviceType: string
     serviceNome: string
   }
 
-  const groups = new Map<string, Group>()
-
+  const porChave = new Map<string, any[]>()
   for (const exp of expenses) {
-    if (isExcluded(exp.descricao)) continue
+    if (temDono(exp)) continue
+    if (isExcluded(exp.descricao || '')) continue
+    const chave = normalizarDescricao(exp.descricao || '')
+    if (!chave) continue
+    if (!porChave.has(chave)) porChave.set(chave, [])
+    porChave.get(chave)!.push(exp)
+  }
 
-    const nDesc = normalizeDesc(exp.descricao)
-
-    // Match por palavra-chave
-    let kwMatch = false, kwType = 'unknown', kwNome = ''
-    for (const svc of SUBSCRIPTION_KEYWORDS) {
-      if (svc.keywords.some(kw => nDesc.includes(kw.toLowerCase()))) {
-        kwMatch = true; kwType = svc.type; kwNome = svc.nome; break
-      }
+  // Mesma chave, mais de uma cobrança por mês ("AMAZON": o Prime e as
+  // compras): separa por faixa de valor, e cada faixa é avaliada sozinha.
+  function fatiarPorValor(itens: any[]): any[][] {
+    const ord = [...itens].sort((a, b) => a.valor - b.valor)
+    const fatias: any[][] = []
+    for (const it of ord) {
+      const ult = fatias[fatias.length - 1]
+      const ref = ult ? ult[0].valor : 0
+      if (ult && ref > 0 && (it.valor - ref) / ref <= 0.15) ult.push(it)
+      else fatias.push([it])
     }
+    return fatias.map(f => f.sort((a, b) => a.data.localeCompare(b.data)))
+  }
 
-    // Match por categoria suspeita de assinatura
-    const catMatch = SUBSCRIPTION_CATEGORIES.some(c => exp.categoria?.toLowerCase().includes(c.toLowerCase()))
-
-    const bucket = Math.round(exp.valor * 2) / 2
-    const key = `${nDesc.substring(0, 40)}|${bucket}`
-
-    if (!groups.has(key)) {
-      groups.set(key, {
-        normalized: nDesc, original: exp.descricao,
-        amount: exp.valor, categoria: exp.categoria,
-        occurrences: [], keywordMatch: kwMatch, categoryMatch: catMatch,
-        serviceType: kwType, serviceNome: kwNome,
+  const groups: Group[] = []
+  for (const [chave, itens] of porChave) {
+    const p0 = medirPadrao(itens, hoje)
+    const fatias = p0 && p0.n / Math.max(1, p0.meses) > CRITERIO.por_mes_max ? fatiarPorValor(itens) : [itens]
+    for (const fatia of fatias) {
+      const nDesc = chave.toLowerCase()
+      let kwMatch = false, kwType = 'unknown', kwNome = ''
+      for (const svc of SUBSCRIPTION_KEYWORDS) {
+        // Palavra inteira: "oi" e "tim" (operadoras) dentro de "BOI" ou
+        // "TIMBRE" faziam qualquer coisa virar assinatura de telefone.
+        if (svc.keywords.some(kw => ` ${nDesc} `.includes(` ${normalizeDesc(kw)} `))) {
+          kwMatch = true; kwType = svc.type; kwNome = svc.nome; break
+        }
+      }
+      const cats = new Map<string, number>()
+      for (const e of fatia) if (e.categoria) cats.set(e.categoria, (cats.get(e.categoria) || 0) + 1)
+      const categoria = [...cats.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+      const catMatch = SUBSCRIPTION_CATEGORIES.some(cc => categoria.toLowerCase().includes(cc.toLowerCase()))
+      const ultimo = fatia[fatia.length - 1]
+      groups.push({
+        normalized: chave, original: ultimo.descricao,
+        amount: ultimo.valor,             // o preço de AGORA, não o de um ano atrás
+        categoria,
+        occurrences: fatia.map(e => ({ id: e.id, data: e.data, valor: e.valor, status: e.status, recorrencia_id: e.recorrencia_id ? Number(e.recorrencia_id) : null })),
+        keywordMatch: kwMatch, categoryMatch: catMatch, serviceType: kwType, serviceNome: kwNome,
       })
     }
-    const g = groups.get(key)!
-    g.occurrences.push({ id: exp.id, date: new Date(exp.data + 'T12:00:00'), status: exp.status })
-    if (kwMatch && !g.keywordMatch) { g.keywordMatch = true; g.serviceType = kwType; g.serviceNome = kwNome }
   }
 
   // ── Filtrar candidatos a assinatura ─────────────────────────────────────
-  const candidates: Array<{ group: Group; intervals: number[]; avgInterval: number; stdDev: number; frequencyLabel: string; confidence: number }> = []
+  const candidates: Array<{ group: Group; avgInterval: number; frequencyLabel: string; confidence: number; recorrenciaId: number | null }> = []
   const groupsForIA: Array<{ descricao: string; valor: number; ocorrencias: number; intervalo_medio: number }> = []
 
-  for (const [, group] of groups) {
+  for (const group of groups) {
     const occs = group.occurrences
     const kwMatch = group.keywordMatch
-
     if (!kwMatch && occs.length < 3) continue
 
+    // Mensal: o mesmo critério das Recorrências (ritmo, dia do mês, um por
+    // mês, ainda ativa). Anual e trimestral o motor mensal não cobre — ficam
+    // pelo intervalo médio, como antes.
+    const p = medirPadrao(occs, hoje)!
+    const motivo = motivoRecusa(p)
+    const isMonthly = motivo === null
+    const parou = p.dias_desde_ultima > CRITERIO.dias_para_inativa
     const intervals: number[] = []
     for (let i = 1; i < occs.length; i++) {
-      const diff = Math.ceil((occs[i].date.getTime() - occs[i - 1].date.getTime()) / (1000 * 60 * 60 * 24))
-      if (diff > 0) intervals.push(diff)
+      const d = Math.round((Date.parse(occs[i].data + 'T12:00:00Z') - Date.parse(occs[i - 1].data + 'T12:00:00Z')) / 86400000)
+      if (d > 0) intervals.push(d)
     }
+    const avgInterval = intervals.length ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 30
+    const isQuarterly = !isMonthly && occs.length >= 2 && avgInterval >= 80 && avgInterval <= 100 && p.dias_desde_ultima <= 110
+    const isAnnual = !isMonthly && occs.length >= 2 && avgInterval >= 330 && avgInterval <= 400 && p.dias_desde_ultima <= 400
 
-    let avgInterval = 30, stdDev = 0
-    let isMonthly = false, isBiweekly = false, isWeekly = false
-    let isAnnual = false, isQuarterly = false
-
-    if (intervals.length > 0) {
-      avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
-      const variance = intervals.reduce((s, v) => s + Math.pow(v - avgInterval, 2), 0) / intervals.length
-      stdDev = Math.sqrt(variance)
-
-      isWeekly    = avgInterval >= 6  && avgInterval <= 10 && stdDev < 4
-      isBiweekly  = avgInterval >= 12 && avgInterval <= 18 && stdDev < 5
-      isMonthly   = avgInterval >= 22 && avgInterval <= 40 && stdDev < 10
-      isQuarterly = avgInterval >= 80 && avgInterval <= 100 && stdDev < 12
-      isAnnual    = avgInterval >= 330 && avgInterval <= 400
-    }
-
-    const hasPattern = isMonthly || isBiweekly || isAnnual || isWeekly || isQuarterly
-    if (!kwMatch && !hasPattern && !group.categoryMatch) continue
+    const hasPattern = isMonthly || isAnnual || isQuarterly
+    // Hábito (Uber, mercado) e cobrança que já parou não são assinatura
+    // fantasma — a não ser que seja um serviço conhecido ainda cobrando.
+    if (!hasPattern && !(kwMatch && !parou)) continue
 
     let confidence = 0
     if (kwMatch)                            confidence += 45
-    if (isMonthly || isBiweekly)            confidence += 25
+    if (isMonthly)                          confidence += Math.round(confiancaPadrao(p) * 0.4)
     if (isAnnual)                           confidence += 20
-    if (isWeekly || isQuarterly)            confidence += 15
+    if (isQuarterly)                        confidence += 15
     if (occs.length >= 6)                   confidence += 15
     else if (occs.length >= 3)              confidence += 10
     else if (occs.length >= 2)              confidence += 5
-    if (stdDev < 3)                         confidence += 10
-    else if (stdDev < 7)                    confidence += 5
+    if (!p.valor_variavel)                  confidence += 10
     if (group.amount >= 10 && group.amount <= 500) confidence += 5
     if (group.categoryMatch && !kwMatch)    confidence += 15
 
     const minConf = kwMatch ? 45 : (group.categoryMatch ? 55 : 65)
     if (confidence < minConf) continue
 
-    const frequencyLabel = isAnnual ? 'anual'
-      : isQuarterly ? 'trimestral'
-      : isBiweekly ? 'quinzenal'
-      : isWeekly ? 'semanal'
-      : 'mensal'
+    const frequencyLabel = isAnnual ? 'anual' : isQuarterly ? 'trimestral' : 'mensal'
 
-    candidates.push({ group, intervals, avgInterval, stdDev, frequencyLabel, confidence: Math.min(100, confidence) })
+    // Já é uma recorrência? Os lançamentos dizem: vale a mais frequente.
+    const contagem = new Map<number, number>()
+    for (const o of occs) if (o.recorrencia_id) contagem.set(o.recorrencia_id, (contagem.get(o.recorrencia_id) || 0) + 1)
+    const recorrenciaId = [...contagem.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-    // Se não tem keyword match claro, adicionar para análise da IA
+    candidates.push({ group, avgInterval: isMonthly ? p.intervalo_mediano : avgInterval, frequencyLabel, confidence: Math.min(100, confidence), recorrenciaId })
+
     if (!kwMatch || confidence < 70) {
       groupsForIA.push({
         descricao: group.original,
@@ -306,7 +330,7 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   if (usar_ia && groupsForIA.length > 0) {
     const iaAnalysis = await classificarComIA(c.env, groupsForIA.slice(0, 20))
     for (const ia of iaAnalysis) {
-      iaResults.set(normalizeDesc(ia.descricao), ia)
+      iaResults.set(normalizarDescricao(ia.descricao || ''), ia)
     }
   }
 
@@ -324,7 +348,7 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   let insertedCount = 0
   const toInsertItems: any[] = []
 
-  for (const { group, avgInterval, frequencyLabel, confidence } of candidates) {
+  for (const { group, avgInterval, frequencyLabel, confidence, recorrenciaId } of candidates) {
     const occs = group.occurrences
 
     // Verificar resultado da IA
@@ -360,8 +384,9 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       amount: Math.round(group.amount * 100) / 100,
       frequency: occs.length,
       frequency_label: frequencyLabel,
-      first_occurrence: occs[0].date.toISOString().split('T')[0],
-      last_occurrence: occs[occs.length - 1].date.toISOString().split('T')[0],
+      first_occurrence: occs[0].data,
+      last_occurrence: occs[occs.length - 1].data,
+      recorrencia_id: recorrenciaId,
       average_interval_days: Math.round(avgInterval * 10) / 10,
       confidence: Math.min(100, finalConfidence),
       service_type: group.serviceType,
@@ -373,36 +398,45 @@ assinaturas.post('/scan', requireAuth, async (c) => {
     toInsertItems.push(item)
   }
 
-  // Upsert
+  // Upsert. A chave mudou de formato (o normalizador antigo era minúsculo e
+  // sem tirar ruído); procura pelas duas para não duplicar o que já existe.
   for (const item of toInsertItems) {
+    const chaveAntiga = normalizeDesc(item.original_description)
     const existing = await c.env.DB.prepare(`
       SELECT id, status FROM detected_subscriptions
-      WHERE user_id = ? AND normalized_description = ? AND ABS(amount - ?) < 1.0
-    `).bind(item.user_id, item.normalized_description, item.amount).first() as any
+      WHERE user_id = ? AND normalized_description IN (?, ?)
+        AND ABS(amount - ?) <= GREATEST(1.0, 0.2 * amount)
+      ORDER BY (status = 'detected') DESC, id DESC LIMIT 1
+    `).bind(item.user_id, item.normalized_description, chaveAntiga, item.amount).first() as any
 
     if (!existing) {
       await c.env.DB.prepare(`
         INSERT INTO detected_subscriptions
         (user_id, normalized_description, original_description, service_nome, amount, frequency,
          frequency_label, first_occurrence, last_occurrence, average_interval_days, confidence,
-         service_type, yearly_cost, ai_enhanced, ai_analysis)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         service_type, yearly_cost, ai_enhanced, ai_analysis, recorrencia_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         item.user_id, item.normalized_description, item.original_description,
         item.service_nome, item.amount, item.frequency, item.frequency_label,
         item.first_occurrence, item.last_occurrence, item.average_interval_days,
-        item.confidence, item.service_type, item.yearly_cost, item.ai_enhanced, item.ai_analysis
+        item.confidence, item.service_type, item.yearly_cost, item.ai_enhanced, item.ai_analysis,
+        item.recorrencia_id
       ).run()
       insertedCount++
     } else if (existing.status === 'detected') {
       await c.env.DB.prepare(`
         UPDATE detected_subscriptions SET
-          frequency = ?, last_occurrence = ?, confidence = ?, yearly_cost = ?,
-          ai_enhanced = ?, ai_analysis = ?,
+          normalized_description = ?, original_description = ?, amount = ?,
+          frequency = ?, frequency_label = ?, last_occurrence = ?, average_interval_days = ?,
+          confidence = ?, yearly_cost = ?, ai_enhanced = ?, ai_analysis = ?,
+          recorrencia_id = COALESCE(?, recorrencia_id),
           updated_at = datetime('now')
         WHERE id = ?
-      `).bind(item.frequency, item.last_occurrence, item.confidence, item.yearly_cost,
-        item.ai_enhanced, item.ai_analysis, existing.id).run()
+      `).bind(item.normalized_description, item.original_description, item.amount,
+        item.frequency, item.frequency_label, item.last_occurrence, item.average_interval_days,
+        item.confidence, item.yearly_cost, item.ai_enhanced, item.ai_analysis,
+        item.recorrencia_id, existing.id).run()
     }
   }
 
@@ -504,7 +538,7 @@ assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
     if (isNaN(id)) return c.json({ error: 'ID inválido' }, 400)
 
     const sub = await c.env.DB.prepare(
-      `SELECT id, service_nome, original_description, normalized_description, amount FROM detected_subscriptions WHERE id = ? AND user_id = ?`
+      `SELECT id, service_nome, original_description, normalized_description, amount, recorrencia_id FROM detected_subscriptions WHERE id = ? AND user_id = ?`
     ).bind(id, user.id).first() as any
     if (!sub) return c.json({ error: 'Assinatura não encontrada' }, 404)
 
@@ -533,6 +567,14 @@ assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
         const intersecN = tokensN.filter((t: string) => tokensB.some((b: string) => b.includes(t) || t.includes(b)))
         const scoreN = intersecN.length / Math.max(1, Math.max(tokensN.length, tokensB.length))
 
+        // A mesma régua do vínculo automático: a descrição normalizada da
+        // cobrança contém o nome normalizado da recorrência. E se o scan já
+        // viu os lançamentos ligados a ela, não há o que adivinhar.
+        const chaveRec = normalizarDescricao(r.descricao || '')
+        const chaveSub = normalizarDescricao(sub.original_description || '')
+        const textoBate = !!chaveRec && chaveRec.length >= 3 && chaveSub.includes(chaveRec)
+        const jaLigada = Number(sub.recorrencia_id) === Number(r.id)
+
         return {
           id: r.id,
           descricao: r.descricao,
@@ -542,7 +584,8 @@ assinaturas.get('/:id/buscar-recorrencias', requireAuth, async (c) => {
           meio_pagamento: r.meio_pagamento,
           ativa: r.ativa,
           frequency_label: 'mensal',
-          similaridade: Math.max(score, scoreN)
+          ja_vinculada: jaLigada,
+          similaridade: jaLigada ? 1 : textoBate ? Math.max(0.9, score, scoreN) : Math.max(score, scoreN)
         }
       })
       .filter(r => r.similaridade > 0.2)

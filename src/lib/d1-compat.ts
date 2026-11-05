@@ -33,7 +33,7 @@ const NOW_D = `to_char((now() AT TIME ZONE 'UTC'),'YYYY-MM-DD')`
 /** Tabelas sem coluna `id` — nelas o RETURNING id não pode ser aplicado. */
 const TABELAS_SEM_ID = new Set([
   'budget_rule_config', 'cdi_historico', 'despesa_tags', 'investimento_tags',
-  'meta_tags', 'reserva_tags', 'weekly_challenge_config',
+  'meta_tags', 'reserva_tags', 'weekly_challenge_config', 'recorrencia_regras',
 ])
 
 /** Alvos de conflito para INSERT OR REPLACE, extraídos das constraints UNIQUE. */

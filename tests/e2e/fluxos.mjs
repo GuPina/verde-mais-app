@@ -244,3 +244,114 @@ test('reorganizar: refaz o que falta e não encosta no que já entrou', async (t
   assert.equal(cent(fim.correcao.correcao), 86.97)
   t.diagnostic(`a receber agora: ${cent(fim.correcao.a_receber)}`)
 })
+
+// ── Recorrências: a linha do tempo lê o lançamento real, o rastreio acha o
+// que se repete, a regra vincula o que entra — e nada disso apaga dado real.
+test('recorrências: ajuste em Despesas aparece na linha do tempo; regra vincula; rastreio acha', async (t) => {
+  const criar = await api('POST', 'recorrencias', {
+    tipo: 'despesa', descricao: 'Netflix', valor: 55.9, categoria: 'assinaturas',
+    dia_vencimento: 15, data_inicio: '2026-06-01',
+  })
+  assert.equal(criar.status, 200, JSON.stringify(criar.body))
+  const recId = criar.body.id
+
+  for (const mes of [6, 7, 8]) {
+    const r = await api('POST', `recorrencias/${recId}/lancar`, { mes, ano: 2026 })
+    assert.equal(r.status, 200, `lançar ${mes}: ${JSON.stringify(r.body)}`)
+  }
+
+  // A pessoa abre Despesas e corrige agosto para o preço novo.
+  const ago = lista((await api('GET', 'despesas?mes=08&ano=2026')).body).find(d => Number(d.recorrencia_id) === recId)
+  assert.ok(ago, 'o lançamento de agosto não apareceu em Despesas')
+  const put = await api('PUT', `despesas/${ago.id}`, {
+    descricao: ago.descricao, categoria: ago.categoria, data: String(ago.data).slice(0, 10),
+    valor: 59.9, status: 'pago', data_pagamento: String(ago.data).slice(0, 10),
+  })
+  assert.equal(put.status, 200, JSON.stringify(put.body))
+
+  let lt = (await api('GET', `recorrencias/${recId}/linha-do-tempo`)).body
+  const mAgo = lt.passadas.find(m => m.mes === '2026-08')
+  assert.equal(cent(mAgo.lancamentos[0].valor), 59.9, 'a linha do tempo mostrou o valor antigo')
+  assert.equal(cent(mAgo.lancamentos[0].ajuste), 4)
+
+  // Entra uma despesa com o nome do banco: a regra padrão vincula sozinha.
+  const set = await api('POST', 'despesas', { descricao: 'NETFLIX.COM', categoria: 'assinaturas', valor: 56.9, data: '2026-09-16', status: 'pago' })
+  assert.equal(set.status, 201, JSON.stringify(set.body))
+  assert.equal(set.body.recorrencia?.vinculados?.length, 1, `não vinculou: ${JSON.stringify(set.body.recorrencia)}`)
+  const setId = set.body.ids[0]
+
+  // Uma segunda no mesmo mês não é vinculada às cegas — vira sugestão.
+  const dup = await api('POST', 'despesas', { descricao: 'NETFLIX.COM', categoria: 'assinaturas', valor: 56.9, data: '2026-09-18', status: 'pago' })
+  assert.equal(dup.body.recorrencia?.vinculados?.length, 0)
+  assert.equal(dup.body.recorrencia?.sugestoes?.[0]?.motivo, 'mes_ocupado')
+
+  lt = (await api('GET', `recorrencias/${recId}/linha-do-tempo`)).body
+  assert.equal(lt.passadas.find(m => m.mes === '2026-09').estado, 'pago')
+  assert.equal(lt.passadas.find(m => m.mes === '2026-10').estado, 'faltou')
+  assert.ok(lt.proximas.length >= 1 && lt.proximas.every(m => m.estado === 'previsto' || m.estado === 'pendente'))
+
+  // Rastreio: academia em 4 meses vira sugestão; o sofá em 12x, nunca.
+  for (const m of ['07', '08', '09', '10'])
+    await api('POST', 'despesas', { descricao: 'SMARTFIT ACADEMIA', categoria: 'saude', valor: 99.9, data: `2026-${m}-05`, status: 'pago' })
+  for (const m of ['07', '08', '09', '10'])
+    await api('POST', 'receitas', { descricao: 'SALARIO ACME LTDA', categoria: 'salario', valor: 6200, data: `2026-${m}-05` })
+
+  const rast = (await api('GET', 'recorrencias/rastrear')).body
+  t.diagnostic(`novas: ${rast.despesa.novas.map(n => n.chave).join(', ')} | ${rast.receita.novas.map(n => n.chave).join(', ')}`)
+  const acad = rast.despesa.novas.find(n => n.chave === 'SMARTFIT ACADEMIA')
+  assert.ok(acad, 'a academia não foi sugerida')
+  assert.ok(!rast.despesa.novas.some(n => /SOFA/.test(n.chave)), 'compra parcelada sugerida como recorrência')
+  assert.ok(rast.receita.novas.some(n => n.chave === 'SALARIO ACME LTDA'), 'o salário não foi sugerido em entradas')
+  assert.ok(rast.despesa.soltas.some(s => s.recorrencia_id === recId), 'a segunda Netflix de setembro não apareceu como solta')
+
+  const nova = await api('POST', 'recorrencias/rastrear/criar', {
+    tipo: 'despesa', descricao: acad.nome, valor: acad.padrao.valor_mediano, dia_vencimento: acad.padrao.dia_tipico,
+    categoria: acad.categoria, ids: acad.ids, regra: acad.regra,
+  })
+  assert.equal(nova.status, 200, JSON.stringify(nova.body))
+  assert.equal(nova.body.vinculados, 4)
+  const ltA = (await api('GET', `recorrencias/${nova.body.id}/linha-do-tempo`)).body
+  assert.equal(ltA.resumo.meses_pagos, 4)
+  assert.equal(ltA.regra_personalizada, true)
+  assert.ok(!(await api('GET', 'recorrencias/rastrear?tipo=despesa')).body.despesa.novas.some(n => n.chave === 'SMARTFIT ACADEMIA'))
+
+  // Regra: testar mostra o que pegaria; qualquer valor pega as duas Netflix.
+  const teste = await api('POST', `recorrencias/${recId}/regra/testar`, { texto: 'netflix', tol_valor_pct: null, tol_dias: 5 })
+  assert.equal(teste.status, 200, JSON.stringify(teste.body))
+  assert.ok(teste.body.pegaria.some(l => l.id === dup.body.ids[0]))
+  assert.equal((await api('PUT', `recorrencias/${recId}/regra`, { texto: 'x' })).status, 400, 'regra de 1 letra passou')
+
+  // Excluir a recorrência leva só o previsto que ela gerou — a despesa real
+  // que a regra vinculou continua lá.
+  assert.equal((await api('DELETE', `recorrencias/${recId}`)).status, 200)
+  const aindaLa = lista((await api('GET', 'despesas?mes=09&ano=2026')).body).some(d => d.id === setId)
+  assert.ok(aindaLa, 'excluir a recorrência apagou uma despesa real')
+})
+
+test('assinaturas fantasma: aumento de preço não vira duas assinaturas; parcela não é assinatura', async () => {
+  for (const [m, v] of [['07', 19.9], ['08', 19.9], ['09', 21.9], ['10', 21.9]])
+    await api('POST', 'despesas', { descricao: 'SPOTIFY BR', categoria: 'assinaturas', valor: v, data: `2026-${m}-12`, status: 'pago' })
+  const scan = await api('POST', 'assinaturas-fantasma/scan', { usar_ia: false })
+  assert.equal(scan.status, 200, JSON.stringify(scan.body).slice(0, 300))
+  const det = scan.body.detected || scan.body.assinaturas || []
+  const spot = det.filter(d => /spotify/i.test(d.normalized_description || d.original_description || ''))
+  assert.equal(spot.length, 1, `Spotify apareceu ${spot.length}x: ${JSON.stringify(spot.map(s => [s.normalized_description, s.amount]))}`)
+  assert.equal(cent(spot[0].amount), 21.9, 'a assinatura ficou com o preço antigo')
+  assert.ok(!det.some(d => /sofa/i.test(d.normalized_description || '')), 'compra parcelada virou assinatura')
+})
+
+test('importação: a receita do extrato entra já vinculada à recorrência dela', async () => {
+  const rec = await api('POST', 'recorrencias', {
+    tipo: 'receita', descricao: 'Aluguel Apto 12', valor: 1500, categoria: 'aluguel', dia_vencimento: 10, data_inicio: '2026-01-01',
+  })
+  assert.equal(rec.status, 200, JSON.stringify(rec.body))
+  const csv = 'data,descricao,valor\n2026-10-10,PIX RECEBIDO ALUGUEL APTO 12,1500.00\n2026-10-11,PIX RECEBIDO JOAO,80.00\n'
+  const imp = await api('POST', 'importacao/executar', {
+    csv, tipo: 'receitas', mapeamento: { data: 0, descricao: 1, valor: 2 },
+  })
+  assert.equal(imp.status, 200, JSON.stringify(imp.body))
+  assert.equal(imp.body.importados, 2)
+  assert.equal(imp.body.recorrencia?.vinculados?.length, 1, JSON.stringify(imp.body.recorrencia))
+  const lt = (await api('GET', `recorrencias/${rec.body.id}/linha-do-tempo`)).body
+  assert.equal(lt.passadas.find(m => m.mes === '2026-10').estado, 'recebido')
+})

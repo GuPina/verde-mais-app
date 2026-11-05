@@ -60,4 +60,6 @@ node "$RAIZ/tests/e2e/semear.mjs"
 set -a; . /tmp/vm-e2e-cred.env; set +a
 
 echo "── fluxos"
-E2E_BASE="http://localhost:$PORTA_APP/api" node --test "$RAIZ/tests/e2e/fluxos.mjs"
+# Falhou? O 500 do teste diz só "referência X"; a causa está no log do app.
+E2E_BASE="http://localhost:$PORTA_APP/api" node --test "$RAIZ/tests/e2e/fluxos.mjs" || {
+  echo "── últimas linhas de erro do servidor"; grep -iE "error|erro|exception" "$DIR/app.log" | tail -15; exit 1; }

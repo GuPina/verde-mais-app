@@ -3,6 +3,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { ehDataISO, normalizarData } from '../lib/validacao'
+import { maiorId, autoVincularDesde } from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY: string; OPENAI_BASE_URL: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -677,6 +678,10 @@ importacao.post('/executar', requireAuth, async (c) => {
 
     const { data: idxData, descricao: idxDesc, valor: idxValor, categoria: idxCat } = mapeamento
 
+    // Tudo o que entrar acima deste id passa pelo vínculo automático no fim.
+    const tipoRec = tipo === 'despesas' ? 'despesa' as const : 'receita' as const
+    const idAntesDoLote = await maiorId(c.env.DB, user.id, tipoRec)
+
     // Cartão do lote
     let cartaoLote: any = null
     const cIdLote = cartao_id ? parseInt(String(cartao_id)) : null
@@ -974,9 +979,12 @@ importacao.post('/executar', requireAuth, async (c) => {
       }
     }
 
+    const recorrencia = importados > 0 ? await autoVincularDesde(c.env.DB, user.id, tipoRec, idAntesDoLote) : null
+
     return c.json({
       success: true,
       importados,
+      recorrencia,
       ignorados,
       parcelas_criadas,
       tags_criadas,

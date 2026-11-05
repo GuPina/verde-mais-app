@@ -8,6 +8,7 @@ import { requireAuth } from './auth'
 import { faturaDaCompra, faturaDaParcela, faturaDaParcelaAncorada, periodoFatura, somarMeses, vencimentoFatura } from '../lib/fatura'
 import { ehDataISO } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
+import { autoVincular } from '../lib/recorrencias-db'
 
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -842,9 +843,12 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
     chargeIds.push(cr.meta.last_row_id as number)
   }
 
+  const recorrencia = nparcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', despesaIds) : null
+
   return c.json({
     success: true,
     purchase_group_id: groupId,
+    recorrencia,
     despesa_ids: despesaIds,
     charge_ids: chargeIds,
     parcelas: nparcelas,
@@ -1402,7 +1406,8 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
     ids.push(dr.meta.last_row_id as number)
   }
 
-  return c.json({ success: true, ids, parcelas: nparcelas,
+  const recorrencia = nparcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', ids) : null
+  return c.json({ success: true, ids, recorrencia, parcelas: nparcelas,
     message: nparcelas > 1 ? `${nparcelas} parcelas lançadas!` : 'Compra lançada!' }, 201)
 })
 
