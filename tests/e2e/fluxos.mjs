@@ -443,3 +443,101 @@ test('assinaturas fantasma: ChatGPT e Claude saem com o nome de cada um, não "I
   assert.ok(nomes.includes('Claude'), JSON.stringify(nomes))
   assert.ok(!nomes.includes('IA (ChatGPT/Claude)'))
 })
+
+test('financiamento na planta: entrada parcelada, evolução de obra e ITBI de Despesas viram o painel do imóvel', async () => {
+  const fin = await api('POST', 'financiamentos', {
+    descricao: 'Apto Vila Prime', tipo_bem: 'imovel', valor_imovel: 400000, valor_entrada: 40000, valor_financiado: 320000,
+    taxa_juros_anual: 9.6, numero_parcelas: 360, parcelas_pagas: 0, valor_parcela: 2850, sistema_amortizacao: 'sac',
+    data_inicio: '2028-03-10', banco: 'Caixa',
+  })
+  assert.equal(fin.status, 201, JSON.stringify(fin.body))
+  const fid = fin.body.id
+  const imo = await api('PATCH', `financiamentos/${fid}/imobiliario`, { tipo_financiamento: 'planta', data_chaves: '2028-02-15', construtora: 'MRV', evolucao_obra_pct: 42 })
+  assert.equal(imo.status, 200, JSON.stringify(imo.body))
+
+  // A entrada que o Gustavo parcelou, lançada em Despesas como parcelada.
+  const ent = await api('POST', 'despesas', { descricao: 'Entrada Apto Vila Prime', categoria: 'moradia', valor: 1200, data: '2026-08-10',
+    parcelado: true, numero_parcelas: 3, status: 'pago' })
+  assert.equal(ent.status, 201, JSON.stringify(ent.body))
+  const obraIds = []
+  for (const [m, v] of [['08', 300], ['09', 360], ['10', 420]]) {
+    const r = await api('POST', 'despesas', { descricao: 'EVOLUCAO DE OBRA CAIXA', categoria: 'moradia', valor: v, data: `2026-${m}-20`, status: 'pago' })
+    obraIds.push(r.body.ids[0])
+  }
+  const itbi = await api('POST', 'despesas', { descricao: 'ITBI PREFEITURA', categoria: 'impostos', valor: 8000, data: '2026-07-01', status: 'pago' })
+
+  const cand = (await api('GET', `financiamentos/${fid}/candidatos`)).body
+  const papelDe = Object.fromEntries(cand.candidatos.map(c => [c.id, c.papel]))
+  for (const id of ent.body.ids) assert.equal(papelDe[id], 'entrada', `parcela de entrada ${id} não sugerida como entrada: ${JSON.stringify(cand.candidatos.map(c => [c.descricao, c.papel, c.pontos]))}`)
+  for (const id of obraIds) assert.equal(papelDe[id], 'obra')
+  assert.equal(papelDe[itbi.body.ids[0]], 'extra')
+
+  const vinc = await api('POST', `financiamentos/${fid}/vincular`, {
+    itens: cand.candidatos.filter(c => [...ent.body.ids, ...obraIds, itbi.body.ids[0]].includes(c.id)).map(c => ({ despesa_id: c.id, papel: c.papel })),
+    aprender: true,
+  })
+  assert.equal(vinc.body.vinculados, 7, JSON.stringify(vinc.body))
+
+  // Novembro chega com o mesmo nome: entra no financiamento sozinho.
+  const nov = await api('POST', 'despesas', { descricao: 'EVOLUCAO DE OBRA CAIXA', categoria: 'moradia', valor: 480, data: '2026-11-20', status: 'pendente' })
+  assert.deepEqual(nov.body.recorrencia?.financiamento?.map(x => [x.financiamento_id, x.papel]), [[fid, 'obra']], JSON.stringify(nov.body.recorrencia))
+
+  const pn = (await api('GET', `financiamentos/${fid}/painel`)).body
+  const b = Object.fromEntries(pn.painel.blocos.map(x => [x.papel, x]))
+  assert.equal(b.entrada.pago + b.entrada.pendente, 1200)
+  assert.equal(b.obra.pago, 1080)
+  assert.equal(b.obra.pendente, 480)
+  assert.equal(b.extra.pago, 8000)
+  assert.equal(pn.painel.fase, 'obra')
+  assert.equal(pn.painel.entrada.contratada, 40000)
+  assert.equal(pn.indicadores.custo, 1080 + 8000, 'obra e ITBI são custo')
+  assert.ok(pn.indicadores.obra.proximo?.por_tendencia > 420)
+  assert.equal(pn.obra_hist.length, 1)
+  assert.ok(pn.sugestoes.length > 0)
+  // As 360 parcelas que o financiamento gera também aparecem, como parcela.
+  assert.equal(b.parcela.n_pendentes, 360)
+
+  // Tirar um lançamento não apaga a despesa, e ele não volta na busca.
+  await api('POST', `financiamentos/${fid}/desvincular`, { despesa_id: itbi.body.ids[0] })
+  assert.ok(!(await api('GET', `financiamentos/${fid}/candidatos`)).body.candidatos.some(c => c.id === itbi.body.ids[0]))
+  // Excluir o financiamento leva o vínculo, não a entrada nem a obra.
+  assert.equal((await api('DELETE', `financiamentos/${fid}`)).status, 200)
+  const ago = lista((await api('GET', 'despesas?mes=08&ano=2026')).body)
+  assert.ok(ago.some(d => d.id === ent.body.ids[0]), 'excluir o financiamento apagou a entrada')
+  assert.ok(ago.some(d => d.id === obraIds[0]), 'excluir o financiamento apagou a evolução de obra')
+})
+
+test('juros do parcelamento: conta de 5 mil em 12x no cartão separa os juros; Despesas também', async () => {
+  const cartao = await api('POST', 'cartoes', { nome: 'Cartão Juros', bandeira: 'visa', banco: 'E2E', limite_total: 20000, dia_fechamento: 25, dia_vencimento: 5 })
+  const cardId = cartao.body.id ?? cartao.body?.cartao?.id
+  const compra = await api('POST', `cartoes/${cardId}/compra`, {
+    descricao: 'Conta dezembro', categoria: 'Moradia', valor_total: 5679.96, numero_parcelas: 12, data_compra: '2026-12-02', valor_a_vista: 5000,
+  })
+  assert.ok(compra.status < 300, JSON.stringify(compra.body))
+  assert.equal(compra.body.juros?.juros_total, 679.96, JSON.stringify(compra.body.juros))
+  assert.ok(compra.body.juros.taxa_mensal > 1.9 && compra.body.juros.taxa_mensal < 2.1)
+
+  const j = (await api('GET', 'despesas/juros?ano=2027')).body
+  const c1 = j.compras.find(x => x.purchase_group_id === compra.body.purchase_group_id)
+  assert.equal(c1.juros, 679.96)
+  assert.equal(c1.a_vista, 5000)
+  assert.ok(j.juros_ano > 0 && j.por_mes[0] > j.por_mes[10], 'juros não caem ao longo das parcelas')
+
+  // Pela tela de Despesas, parcelado no cartão, com à vista.
+  const desp = await api('POST', 'despesas', { descricao: 'Geladeira', categoria: 'Casa', valor: 3600, data: '2026-11-03', status: 'pendente',
+    parcelado: true, numero_parcelas: 10, meio_pagamento: 'parcelado_cartao', cartao_id: cardId, valor_a_vista: 3200 })
+  assert.equal(desp.status, 201, JSON.stringify(desp.body))
+  assert.equal(desp.body.juros?.juros_total, 400)
+
+  // Compra antiga, sem à vista: informar depois.
+  const velha = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Sofá', categoria: 'Casa', valor_total: 2400, numero_parcelas: 6, data_compra: '2026-10-02' })
+  const inf = await api('PATCH', `despesas/grupo/${velha.body.purchase_group_id}/juros`, { valor_a_vista: 2100 })
+  assert.equal(inf.status, 200, JSON.stringify(inf.body))
+  assert.equal(inf.body.juros_total, 300)
+  const lim = await api('PATCH', `despesas/grupo/${velha.body.purchase_group_id}/juros`, { valor_a_vista: null })
+  assert.equal(lim.body.limpo, true)
+  assert.equal((await api('PATCH', `despesas/grupo/${velha.body.purchase_group_id}/juros`, { valor_a_vista: -5 })).status, 400)
+
+  const sim = (await api('POST', 'despesas/simular-parcelamento', { valor_a_vista: 5000, numero_parcelas: 12, valor_parcela: 473.33 })).body
+  assert.equal(sim.reserva.melhor, 'reserva', JSON.stringify(sim))
+})

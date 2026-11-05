@@ -3,6 +3,14 @@ import { requireAuth } from './auth'
 import { somarMeses } from '../lib/fatura'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { ensureTag, tagDespesa, COR_MODULO } from '../utils/tags-helper'
+import { normalizarDescricao } from '../lib/identidade'
+import { janelaHistorica, renda } from '../lib/metricas'
+import {
+  painel, indicadores, sugestoes, candidatos as candidatosFin, PAPEIS, ROTULO, type Papel,
+} from '../lib/imobiliario'
+import {
+  finDeLinha, carregarPagos, carregarApelidos, carregarLinhas, vincular as vincularFin,
+} from '../lib/imobiliario-db'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -746,7 +754,7 @@ financiamentos.patch('/:id/evolucao', requireAuth, async (c) => {
   if (!fin) return c.json({ error: 'Financiamento não encontrado' }, 404)
 
   const pct = Math.min(100, Math.max(0, parseFloat(evolucao_obra_pct) || 0))
-  await c.env.DB.prepare('UPDATE financiamentos SET evolucao_obra_pct = ? WHERE id = ? AND user_id = ?').bind(pct, id, user.id).run()
+  await registrarObra(c.env.DB, user.id, id, pct)   // guarda o histórico para o gráfico
 
   return c.json({ success: true, evolucao_obra_pct: pct, message: `Evolução de obra atualizada para ${pct}%!` })
 })
@@ -904,3 +912,174 @@ financiamentos.get('/:id/simulacao-fgts', requireAuth, async (c) => {
       : 'Analise com seu gerente antes de usar FGTS.'
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Painel do financiamento: o que foi pago de verdade, por papel (lib/imobiliario)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const hojeBRFin = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
+
+async function finDoUsuario(db: D1Database, userId: number, idBruto: string) {
+  const id = parseId(idBruto)
+  if (id === null) return null
+  const row = await db.prepare('SELECT * FROM financiamentos WHERE id = ? AND user_id = ?').bind(id, userId).first() as any
+  return row ? { id, row, fin: finDeLinha(row) } : null
+}
+
+// ─── GET /api/financiamentos/:id/painel ──────────────────────────────────────
+financiamentos.get('/:id/painel', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const hoje = hojeBRFin()
+  const [pagos, apelidos, hist] = await Promise.all([
+    carregarPagos(c.env.DB, user.id, ctx.id),
+    carregarApelidos(c.env.DB, user.id, ctx.id),
+    c.env.DB.prepare('SELECT data, pct FROM financiamento_obra_hist WHERE financiamento_id = ? AND user_id = ? ORDER BY data')
+      .bind(ctx.id, user.id).all(),
+  ])
+  let rendaMensal: number | null = null
+  try { rendaMensal = (await renda(c.env.DB, user.id, await janelaHistorica(c.env.DB, user.id, 12))).mensal || null } catch { /* sem renda, sem % */ }
+  const obraHist = ((hist.results || []) as any[]).map(h => ({ data: String(h.data), pct: Number(h.pct) }))
+  const p = painel({ fin: ctx.fin, pagos, hoje })
+  const ind = indicadores({ fin: ctx.fin, painel: p, pagos, hoje, renda_mensal: rendaMensal, obra_hist: obraHist })
+  return c.json({
+    financiamento: { ...ctx.row, ...ctx.fin },
+    painel: p, indicadores: ind, sugestoes: sugestoes({ fin: ctx.fin, painel: p, ind }),
+    renda_mensal: rendaMensal, apelidos, obra_hist: obraHist,
+    lancamentos: pagos.sort((a, b) => b.data.localeCompare(a.data)),
+  })
+})
+
+// ─── GET /api/financiamentos/:id/candidatos ──────────────────────────────────
+financiamentos.get('/:id/candidatos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const desde = String(Number(hojeBRFin().slice(0, 4)) - 5) + hojeBRFin().slice(4)
+  const [linhas, pagos, apelidos, disp] = await Promise.all([
+    carregarLinhas(c.env.DB, user.id, desde),
+    carregarPagos(c.env.DB, user.id, ctx.id),
+    carregarApelidos(c.env.DB, user.id, ctx.id),
+    c.env.DB.prepare(`SELECT chave FROM recorrencia_dispensas WHERE user_id = ? AND chave LIKE ?`).bind(user.id, `fin:${ctx.id}:%`).all(),
+  ])
+  const dispensadas = new Set(((disp.results || []) as any[]).map(x => String(x.chave)))
+  const lista = candidatosFin({ fin: ctx.fin, linhas, vinculados: pagos, apelidos, dispensadas })
+  return c.json({ financiamento: ctx.fin, papeis: PAPEIS.map(p => ({ papel: p, rotulo: ROTULO[p] })), candidatos: lista })
+})
+
+// ─── POST /api/financiamentos/:id/vincular ───────────────────────────────────
+// { itens: [{ despesa_id, papel }], nao: [ids], aprender?: true }
+financiamentos.post('/:id/vincular', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 500)
+    .map((x: any) => ({ id: parseId(x?.despesa_id), papel: String(x?.papel || '') as Papel }))
+    .filter((x: any) => x.id && PAPEIS.includes(x.papel))
+  const nao = (Array.isArray(b.nao) ? b.nao : []).map((x: any) => parseId(x)).filter(Boolean).slice(0, 500) as number[]
+
+  let vinculados = 0
+  const aprendidos: Array<{ papel: Papel; texto: string }> = []
+  const apelidosAtuais = await carregarApelidos(c.env.DB, user.id, ctx.id)
+  for (const it of itens) {
+    const d = await c.env.DB.prepare(
+      `SELECT d.id, d.descricao FROM despesas d WHERE d.id = ? AND d.user_id = ?
+         AND NOT EXISTS (SELECT 1 FROM financiamento_vinculos v WHERE v.despesa_id = d.id)`
+    ).bind(it.id, user.id).first() as any
+    if (!d) continue
+    await vincularFin(c.env.DB, user.id, ctx.id, it.id, it.papel)
+    vinculados++
+    if (b.aprender !== false) {
+      const texto = normalizarDescricao(String(d.descricao || ''))
+      const jaPega = [...apelidosAtuais, ...aprendidos].some(a => a.papel === it.papel && a.texto && texto.includes(a.texto))
+      if (texto.length >= 3 && !jaPega) {
+        await c.env.DB.prepare(
+          `INSERT INTO financiamento_apelidos (financiamento_id, user_id, papel, texto) VALUES (?, ?, ?, ?)
+           ON CONFLICT (financiamento_id, papel, texto) DO NOTHING`
+        ).bind(ctx.id, user.id, it.papel, texto).run()
+        aprendidos.push({ papel: it.papel, texto })
+      }
+    }
+  }
+  for (const lid of nao) {
+    await c.env.DB.prepare(
+      `INSERT INTO recorrencia_dispensas (user_id, chave) VALUES (?, ?) ON CONFLICT (user_id, chave) DO NOTHING`
+    ).bind(user.id, `fin:${ctx.id}:${lid}`).run()
+  }
+  return c.json({ success: true, vinculados, dispensados: nao.length, aprendidos })
+})
+
+// ─── POST /api/financiamentos/:id/desvincular { despesa_id } ─────────────────
+financiamentos.post('/:id/desvincular', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const did = parseId((await c.req.json().catch(() => ({})) as any).despesa_id)
+  if (!did) return c.json({ error: 'Informe a despesa.' }, 400)
+  const r = await c.env.DB.prepare(
+    'DELETE FROM financiamento_vinculos WHERE despesa_id = ? AND financiamento_id = ? AND user_id = ?'
+  ).bind(did, ctx.id, user.id).run()
+  await c.env.DB.prepare(
+    `INSERT INTO recorrencia_dispensas (user_id, chave) VALUES (?, ?) ON CONFLICT (user_id, chave) DO NOTHING`
+  ).bind(user.id, `fin:${ctx.id}:${did}`).run()
+  return c.json({ success: true, desvinculados: Number(r.meta?.changes ?? 0) })
+})
+
+// ─── PATCH /api/financiamentos/:id/papel { despesa_id, papel } ───────────────
+financiamentos.patch('/:id/papel', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const did = parseId(b.despesa_id), papel = String(b.papel || '') as Papel
+  if (!did || !PAPEIS.includes(papel)) return c.json({ error: 'Informe a despesa e um papel válido.' }, 400)
+  const r = await c.env.DB.prepare(
+    'UPDATE financiamento_vinculos SET papel = ? WHERE despesa_id = ? AND financiamento_id = ? AND user_id = ?'
+  ).bind(papel, did, ctx.id, user.id).run()
+  return c.json({ success: true, alterados: Number(r.meta?.changes ?? 0) })
+})
+
+// ─── DELETE /api/financiamentos/:id/apelido { papel, texto } ─────────────────
+financiamentos.delete('/:id/apelido', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  await c.env.DB.prepare('DELETE FROM financiamento_apelidos WHERE financiamento_id = ? AND user_id = ? AND papel = ? AND texto = ?')
+    .bind(ctx.id, user.id, String(b.papel || ''), String(b.texto || '')).run()
+  return c.json({ success: true })
+})
+
+// ─── PATCH /api/financiamentos/:id/imobiliario ───────────────────────────────
+// Tipo (pronto, na planta...), data prevista das chaves, construtora e o % da
+// obra — que agora guarda histórico, para o gráfico e a estimativa.
+financiamentos.patch('/:id/imobiliario', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await finDoUsuario(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Financiamento não encontrado' }, 404)
+  const b = await c.req.json().catch(() => ({})) as any
+  const TIPOS = ['pronto', 'planta', 'construcao', 'terreno', 'reforma', 'veiculo', 'outros']
+  const tipo = b.tipo_financiamento === undefined ? ctx.row.tipo_financiamento : String(b.tipo_financiamento)
+  if (tipo && !TIPOS.includes(tipo)) return c.json({ error: `Tipo inválido. Use: ${TIPOS.join(', ')}` }, 400)
+  const chaves = b.data_chaves === undefined ? ctx.row.data_chaves : (b.data_chaves ? String(b.data_chaves).slice(0, 10) : null)
+  if (chaves && !dataValida(chaves)) return c.json({ error: 'Data das chaves inválida.' }, 400)
+  const construtora = b.construtora === undefined ? ctx.row.construtora : (String(b.construtora || '').trim().slice(0, 80) || null)
+  await c.env.DB.prepare('UPDATE financiamentos SET tipo_financiamento = ?, data_chaves = ?, construtora = ? WHERE id = ? AND user_id = ?')
+    .bind(tipo || 'pronto', chaves, construtora, ctx.id, user.id).run()
+  if (b.evolucao_obra_pct !== undefined && b.evolucao_obra_pct !== null && b.evolucao_obra_pct !== '') {
+    const pct = Number(b.evolucao_obra_pct)
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return c.json({ error: 'O % da obra vai de 0 a 100.' }, 400)
+    await registrarObra(c.env.DB, user.id, ctx.id, pct)
+  }
+  return c.json({ success: true })
+})
+
+async function registrarObra(db: D1Database, userId: number, finId: number, pct: number) {
+  await db.prepare('UPDATE financiamentos SET evolucao_obra_pct = ? WHERE id = ? AND user_id = ?').bind(pct, finId, userId).run()
+  await db.prepare(
+    `INSERT INTO financiamento_obra_hist (financiamento_id, user_id, data, pct) VALUES (?, ?, ?, ?)
+     ON CONFLICT (financiamento_id, data) DO UPDATE SET pct = EXCLUDED.pct`
+  ).bind(finId, userId, hojeBRFin(), pct).run()
+}

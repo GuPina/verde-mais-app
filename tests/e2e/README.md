@@ -10,7 +10,7 @@ mexem em dinheiro — criar, parcelar, receber, editar. É a parte que os testes
 scripts/e2e.sh
 ```
 
-O script cria um Postgres temporário, aplica as doze migrations, sobe o servidor
+O script cria um Postgres temporário, aplica as catorze migrations, sobe o servidor
 numa porta livre, roda os fluxos e derruba tudo no fim — inclusive se um teste
 estourar. Nada toca banco de produção: ele se recusa a rodar se `DATABASE_URL`
 já estiver apontando para algum lugar.
@@ -32,6 +32,8 @@ já estiver apontando para algum lugar.
 | Lançar mês | Mês que faltou criado sem o cartão, a tag ou a categoria dos outros; passado entrando pendente; mesmo mês lançado duas vezes |
 | Outro nome | "Evolução de obra" confirmado em "Juros de obra" não ensinando a regra; editar a regra apagando o que foi aprendido |
 | Dividir | ChatGPT e Claude presos numa recorrência só |
+| Financiamento | Entrada parcelada e evolução de obra de Despesas fora do painel; o mesmo nome não entrando sozinho no mês seguinte; excluir o financiamento apagando a entrada |
+| Juros | Conta parcelada no cartão sem os juros separados; compra antiga sem como informar o à vista; à vista negativo aceito |
 
 ## Por que o navegador não está aqui
 

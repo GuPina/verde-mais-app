@@ -9,6 +9,14 @@ import { faturaDaCompra, faturaDaParcela, faturaDaParcelaAncorada, periodoFatura
 import { ehDataISO } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { autoVincular } from '../lib/recorrencias-db'
+import { registrarJurosDoGrupo } from '../lib/juros-db'
+
+/** null = não informado; false = inválido; número = valor à vista da compra. */
+function valorAVistaValido(v: unknown): number | null | false {
+  if (v === undefined || v === null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 && n <= 1_000_000_000 ? n : false
+}
 
 type Bindings  = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -760,7 +768,9 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
   const { descricao, categoria, valor_total, numero_parcelas = 1,
-          data_compra, observacoes, meio_pagamento = 'cartao_credito' } = await c.req.json()
+          data_compra, observacoes, meio_pagamento = 'cartao_credito', valor_a_vista } = await c.req.json()
+  const aVista = valorAVistaValido(valor_a_vista)
+  if (aVista === false) return c.json({ error: 'Valor à vista inválido — informe um número maior que zero.' }, 400)
 
   if (descricao === undefined || categoria === undefined || valor_total === undefined || data_compra === undefined)
     return c.json({ error: 'Campos obrigatórios: descricao, categoria, valor_total, data_compra' }, 400)
@@ -843,12 +853,14 @@ cartoes.post('/:id/compra', requireAuth, async (c) => {
     chargeIds.push(cr.meta.last_row_id as number)
   }
 
-  const recorrencia = nparcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', despesaIds) : null
+  const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', despesaIds)
+  const juros = aVista != null && nparcelas > 1 ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
 
   return c.json({
     success: true,
     purchase_group_id: groupId,
     recorrencia,
+    juros,
     despesa_ids: despesaIds,
     charge_ids: chargeIds,
     parcelas: nparcelas,
@@ -1344,7 +1356,9 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
   ).bind(cardId, user.id).first() as any
   if (!cartao) return c.json({ error: 'Cartão não encontrado' }, 404)
 
-  const { descricao, categoria, valor_total, numero_parcelas = 1, data_compra, observacoes } = await c.req.json()
+  const { descricao, categoria, valor_total, numero_parcelas = 1, data_compra, observacoes, valor_a_vista } = await c.req.json()
+  const aVista = valorAVistaValido(valor_a_vista)
+  if (aVista === false) return c.json({ error: 'Valor à vista inválido — informe um número maior que zero.' }, 400)
   if (descricao === undefined || categoria === undefined || valor_total === undefined || data_compra === undefined)
     return c.json({ error: 'Campos obrigatórios faltando' }, 400)
 
@@ -1406,8 +1420,9 @@ cartoes.post('/:id/lancamentos', requireAuth, async (c) => {
     ids.push(dr.meta.last_row_id as number)
   }
 
-  const recorrencia = nparcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', ids) : null
-  return c.json({ success: true, ids, recorrencia, parcelas: nparcelas,
+  const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', ids)
+  const juros = aVista != null && nparcelas > 1 ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista) : null
+  return c.json({ success: true, ids, recorrencia, juros, purchase_group_id: groupId, parcelas: nparcelas,
     message: nparcelas > 1 ? `${nparcelas} parcelas lançadas!` : 'Compra lançada!' }, 201)
 })
 

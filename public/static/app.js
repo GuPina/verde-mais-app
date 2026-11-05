@@ -393,6 +393,76 @@ const VM = {
     } catch(e) { /* silencioso */ }
   },
 
+  // ── Juros do parcelamento (lib/juros no servidor; aqui só a prévia) ──────
+  _taxaJuros(aVista, n, parcela) {
+    if (!(aVista > 0) || !(n >= 2) || !(parcela > 0) || parcela * n <= aVista + 0.005) return 0
+    let lo = 0, hi = 0.5
+    const vp = (i) => { let s = 0; for (let k = 1; k <= n; k++) s += parcela / Math.pow(1 + i, k); return s }
+    for (let it = 0; it < 100; it++) { const m = (lo + hi) / 2; if (vp(m) > aVista) lo = m; else hi = m }
+    return (lo + hi) / 2
+  },
+  _previewJuros(idAVista, idPrev, n, parcela) {
+    const el = document.getElementById(idPrev), aVista = parseFloat(document.getElementById(idAVista)?.value)
+    if (!el) return
+    if (!(aVista > 0) || !(n >= 2) || !(parcela > 0)) { el.className = 'jp-preview'; el.textContent = 'Informe para ver quanto do parcelamento é juros — eles passam a aparecer separados.'; return }
+    const total = parcela * n, juros = Math.max(0, total - aVista), i = this._taxaJuros(aVista, n, parcela)
+    if (juros < 0.01) { el.className = 'jp-preview is-ok'; el.innerHTML = 'Parcelado <b>sem juros</b>: deixar o dinheiro rendendo e pagar mês a mês sai na frente.'; return }
+    el.className = 'jp-preview is-juros'
+    el.innerHTML = `<b>${this.formatMoney(juros)}</b> de juros · ${(i * 100).toFixed(2).replace('.', ',')}% ao mês (${((Math.pow(1 + i, 12) - 1) * 100).toFixed(1).replace('.', ',')}% ao ano)<span class="jp-reserva" id="${idPrev}-res"></span>`
+    clearTimeout(this._jurosT)
+    this._jurosT = setTimeout(async () => {
+      const r = await this.api('POST', 'despesas/simular-parcelamento', { valor_a_vista: aVista, numero_parcelas: n, valor_parcela: parcela }).catch(() => null)
+      const alvo = document.getElementById(`${idPrev}-res`)
+      if (!r?.reserva || !alvo) return
+      const res = r.reserva
+      alvo.innerHTML = res.melhor === 'reserva'
+        ? `<br>Com a reserva rendendo ~${String(res.rendimento_mensal).replace('.', ',')}% ao mês (${res.fonte}), pagar à vista com ela deixaria <b>${this.formatMoney(res.economia)}</b> a mais no fim.`
+        : res.melhor === 'parcelar' ? `<br>A reserva rende mais do que esse juro: parcelar deixa <b>${this.formatMoney(res.economia)}</b> a mais no fim.` : '<br>Reserva e parcelamento empatam.'
+    }, 350)
+  },
+  _ncJuros() {
+    const n = parseInt(document.getElementById('nc-parcelas')?.value) || 1
+    const total = parseFloat(document.getElementById('nc-valor')?.value) || 0
+    const wrap = document.getElementById('nc-avista-wrap')
+    if (wrap) wrap.style.display = n > 1 ? '' : 'none'
+    this._previewJuros('nc-avista', 'nc-juros-preview', n, n > 0 ? total / n : 0)
+  },
+  async informarAVista(groupId, n, parcela) {
+    const txt = await this.vmPrompt(`Quanto essa compra custaria à vista? As ${n} parcelas continuam iguais; só passa a ficar separado o que é juros.`,
+      { titulo: 'Valor à vista', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '💵', textoBotao: 'Separar juros' })
+    if (txt === null) return
+    const r = await this.api('PATCH', `despesas/grupo/${groupId}/juros`, { valor_a_vista: txt === '' ? null : parseFloat(txt) }).catch(e => ({ error: e.response?.data?.error }))
+    if (!r?.success) return this.toast(r?.error || 'Não foi possível salvar.', 'error')
+    this.closeModal()
+    this.toast(r.limpo ? 'Valor à vista removido.' : `${this.formatMoney(r.juros_total)} de juros (${String(r.taxa_mensal).replace('.', ',')}% ao mês) separados nas ${r.parcelas} parcelas.`, 'success')
+    this.carregarDespesas?.(1)
+  },
+  async _bannerJuros(mes, ano) {
+    const el = document.getElementById('despesas-juros')
+    if (!el) return
+    const d = await this.api('GET', `despesas/juros?ano=${encodeURIComponent(ano)}${mes ? `&mes=${encodeURIComponent(mes)}` : ''}`).catch(() => null)
+    if (!d || !(d.juros_ano > 0)) { el.innerHTML = ''; return }
+    this._jurosDados = d
+    el.innerHTML = `<div class="jp-banner">
+      <span>💸 ${mes ? `Neste mês, <b>${this.formatMoney(d.juros_mes || 0)}</b> das suas parcelas são juros · ` : ''}<b>${this.formatMoney(d.juros_ano)}</b> em ${d.ano}</span>
+      <button class="btn-secondary" onclick="VM.verJuros()">Ver compras</button></div>`
+  },
+  verJuros() {
+    const d = this._jurosDados
+    if (!d) return
+    this.showModal(`<div class="rp-modal">
+      <header class="rp-cab"><div><h3>Juros de parcelamento</h3>
+        <p>Compras parceladas com valor à vista informado. O valor das parcelas não muda — só fica visível quanto delas é custo do crédito.</p></div></header>
+      <ul class="rp-lista">${d.compras.map(c => `<li class="rp-linha"><span class="rp-corpo">
+          <strong>${String(c.descricao).replace(/</g, '&lt;')}</strong>
+          <small>${c.parcelas}x · à vista ${this.formatMoney(c.a_vista)} · parcelado ${this.formatMoney(c.total)} · <b>${this.formatMoney(c.juros)} de juros</b>${c.juros_pagos ? ` (${this.formatMoney(c.juros_pagos)} já pagos)` : ''}</small>
+        </span></li>`).join('')}</ul>
+      <footer class="rp-resumo"><div><span>Juros em ${d.ano}</span><strong>${this.formatMoney(d.juros_ano)}</strong></div>
+        <div><span>Compras</span><strong>${d.compras.length}</strong></div>
+        <div><span>Juros totais</span><strong>${this.formatMoney(d.compras.reduce((s, c) => s + c.juros, 0))}</strong></div><div></div></footer>
+      <div class="rp-rodape"><button class="ds-btn" onclick="VM.closeModal()">Fechar</button></div></div>`, { largura: 620 })
+  },
+
   // Atualiza preview bidirecional: valor total ↔ valor parcela
   atualizarPreviewParcela() {
     const nEl = document.getElementById('d-parcelas')
@@ -420,6 +490,7 @@ const VM = {
       const pRestantes = retroSim?.checked ? (parseInt(parcelasRestEl?.value) || n) : n
       preview.innerHTML = `<span style="color:#2FBF71;">✓ ${n}x de R$ ${(totalFinal/n).toFixed(2).replace('.',',')} (total: R$ ${totalFinal.toFixed(2).replace('.',',')})</span>`
     }
+    this._previewJuros('d-avista', 'd-juros-preview', n, n > 0 ? totalFinal / n : 0)
     // Mostrar/ocultar campo parcelas restantes
     if (retroWrapper) {
       retroWrapper.style.display = retroSim?.checked ? 'block' : 'none'
@@ -3945,6 +4016,7 @@ const VM = {
            total que está logo abaixo. Nasce vazio e some sozinho quando não há
            nada a dizer — ninguém precisa de um aviso permanente. -->
       <div id="despesas-aviso-org"></div>
+      <div id="despesas-juros"></div>
 
       <!-- Cards de métricas (skeleton inicial) -->
       <div id="despesas-metricas" class="tf-kpi-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
@@ -4357,6 +4429,7 @@ const VM = {
     if (parcelas) params.set('parcelas', parcelas)
     const qs = params.toString()
 
+    this._bannerJuros(mes, ano)
     try {
       const data = await this.api('GET', `despesas?${qs}`)
 
@@ -4539,7 +4612,7 @@ const VM = {
                   ? `<span title="Parcela ${d.parcela_atual}/${d.numero_parcelas} — clique para ver grupo"
                        onclick="VM.filtrarGrupoParcela('${d.purchase_group_id || ''}', ${d.numero_parcelas}, '${(d.descricao||'').replace(/\s*\(\d+\/\d+\)$/, '').replace(/'/g, "\\'")}')"
                        style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:700;background:rgba(99,102,241,0.15);color:#6366f1;cursor:pointer;border:1px solid rgba(99,102,241,0.3);">
-                       💳 ${d.parcela_atual}/${d.numero_parcelas}
+                       💳 ${d.parcela_atual}/${d.numero_parcelas}${Number(d.valor_juros) > 0 ? ` · ${this.formatMoney(d.valor_juros)} juros` : ''}
                      </span>`
                   : ''
                 const catCor = catColors[d.categoria] || '#636e72'
@@ -4959,6 +5032,8 @@ const VM = {
                 </div>
                 <input type="hidden" id="d-escopo-val" value="uma">
                 <div style="font-size:0.72rem;color:var(--terminal-ink-soft);margin-top:6px;">Parcela ${Number(despesa.parcela_atual) || 1} de ${Number(despesa.numero_parcelas)}. Descrição, categoria, cartão e valor da parcela seguem o alcance escolhido.</div>
+                <button type="button" class="btn-secondary jp-informar" onclick="VM.informarAVista('${String(despesa.purchase_group_id).replace(/[^0-9a-zA-Z-]/g, '')}', ${Number(despesa.numero_parcelas)}, ${Number(despesa.valor) || 0})">
+                  💵 ${Number(despesa.valor_juros) > 0 ? `Juros desta parcela: ${this.formatMoney(despesa.valor_juros)} · corrigir valor à vista` : 'Informar o valor à vista desta compra (separa os juros)'}</button>
               </div>` : ''}
 
             <!-- Parcelas (somente para parcelado, somente criação) -->
@@ -4975,6 +5050,11 @@ const VM = {
                   </div>
                 </div>
                 <div style="font-size:0.78rem;color:#2FBF71;margin-top:-8px;margin-bottom:12px;" id="d-parcelas-preview"></div>
+                <div class="form-group jp-bloco">
+                  <label class="form-label">💵 Valor à vista (opcional)</label>
+                  <input type="number" id="d-avista" class="form-input" step="0.01" min="0" placeholder="Quanto custaria sem parcelar" oninput="VM.atualizarPreviewParcela()">
+                  <div class="jp-preview" id="d-juros-preview">Informe para ver quanto do parcelamento é juros — eles passam a aparecer separados.</div>
+                </div>
                 <div style="background:rgba(47,191,113,0.06);border:1px solid rgba(47,191,113,0.2);border-radius:10px;padding:12px;margin-bottom:12px;">
                   <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ccc;">
                     <input type="checkbox" id="d-retro-sim" onchange="VM.onChangeRetroativa(this.checked)" style="width:18px;height:18px;accent-color:#2FBF71;cursor:pointer;">
@@ -5161,6 +5241,7 @@ const VM = {
           parcelado,
           numero_parcelas: numParcelasRestantes,
           parcelas_total_original: isRetroativa ? numParcelasTotal : numParcelasRestantes,
+          valor_a_vista: parcelado ? (parseFloat(document.getElementById('d-avista')?.value) || null) : null,
           // BUG 1.2 FIX: se marcado como aporte, tipo='aporte' → não entra nas despesas do mês
           tipo: document.getElementById('d-eh-aporte')?.checked ? 'aporte' : 'normal'
         }
@@ -12485,15 +12566,20 @@ const VM = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label class="form-label">Valor Total (R$) *</label>
-                <input type="number" id="nc-valor" class="form-input" step="0.01" min="0.01" placeholder="0,00" required>
+                <input type="number" id="nc-valor" class="form-input" step="0.01" min="0.01" placeholder="0,00" required oninput="VM._ncJuros()">
               </div>
               <div class="form-group">
                 <label class="form-label">Parcelas</label>
-                <select id="nc-parcelas" class="form-select">
-                  ${[1,2,3,4,5,6,7,8,9,10,11,12,18,24].map(n=>`<option value="${n}">${n===1?'À vista':'${n}x'}</option>`).join('')}
+                <select id="nc-parcelas" class="form-select" onchange="VM._ncJuros()">
+                  ${[1,2,3,4,5,6,7,8,9,10,11,12,18,24].map(n=>`<option value="${n}">${n===1?'À vista':n+'x'}</option>`).join('')}
                 </select>
               </div>
             </div>
+              <div class="form-group jp-bloco" id="nc-avista-wrap" style="display:none">
+                <label class="form-label">💵 Valor à vista (opcional, se parcelou com juros)</label>
+                <input type="number" id="nc-avista" class="form-input" step="0.01" min="0" placeholder="Quanto custaria sem parcelar" oninput="VM._ncJuros()">
+                <div class="jp-preview" id="nc-juros-preview">Informe para separar os juros do parcelamento.</div>
+              </div>
             <div class="form-group">
               <label class="form-label">Observações</label>
               <input type="text" id="nc-obs" class="form-input" placeholder="Opcional...">
@@ -12521,6 +12607,7 @@ const VM = {
           categoria:       document.getElementById('nc-cat').value,
           valor_total:     parseFloat(document.getElementById('nc-valor').value),
           numero_parcelas: parseInt(document.getElementById('nc-parcelas').value),
+          valor_a_vista: parseInt(document.getElementById('nc-parcelas').value) > 1 ? (parseFloat(document.getElementById('nc-avista')?.value) || null) : null,
           data_compra:     document.getElementById('nc-data').value,
           observacoes:     document.getElementById('nc-obs').value || null
         })

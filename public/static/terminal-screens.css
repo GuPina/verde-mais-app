@@ -2126,3 +2126,80 @@
 .rg-apelidos__vazio { font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); }
 .dv-lista { max-height: 300px; }
 .dv-item { display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer; }
+
+/* ── Financiamento: painel do imóvel (fp-*) ─────────────────────────────────
+   Cinco papéis, cinco cores fixas — legíveis no fundo escuro do terminal. */
+.fp { --fp-entrada: #3ddc84; --fp-obra: #f0a64a; --fp-parcela: #5aa9ff; --fp-seguro: #b58cff; --fp-extra: #9aa5a0; }
+.fe-card--clicavel { cursor: pointer; }
+.fe-card--clicavel:hover, .fe-card--clicavel:focus-visible { border-color: var(--terminal-primary-line); outline: none; }
+.fp-voltar { background: none; border: 0; padding: 0; margin-bottom: 10px; cursor: pointer; color: var(--terminal-ink-soft); font: 600 12px var(--terminal-font); display: inline-flex; gap: 6px; align-items: center; min-height: 0; }
+.fp-voltar:hover { color: var(--terminal-primary); }
+.fp-fases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.fp-fase { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--terminal-line); border-radius: var(--terminal-radius-lg); background: var(--terminal-surface); opacity: .7; }
+.fp-fase.is-ativa { opacity: 1; border-color: var(--terminal-primary-line); box-shadow: inset 0 0 0 1px var(--terminal-primary-line); }
+.fp-fase.is-feita { opacity: .85; }
+.fp-fase__tit { font: 700 10px/1 var(--terminal-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--terminal-ink-soft); }
+.fp-fase.is-ativa .fp-fase__tit { color: var(--terminal-primary); }
+.fp-fase small { font-size: 13px; color: var(--terminal-ink); }
+.fp-kpis strong.is-pos { color: var(--terminal-primary); }
+.fp-kpis strong.is-neg { color: var(--fp-obra); }
+.fp-entrada { margin-bottom: 16px; }
+.fp-big { font: 600 22px/1 var(--terminal-mono); color: var(--fp-entrada); }
+.fp-nota { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--terminal-ink-soft); }
+.fp-nota b { color: var(--terminal-ink); }
+.fp .td-panel { margin-bottom: 16px; }
+.fp-graf { width: 100%; height: 200px; display: block; margin-top: 8px; }
+.fp-graf--linha { height: 140px; }
+.fp-graf text { fill: var(--terminal-ink-soft); font: 600 10px var(--terminal-mono); }
+.fp-graf .fp-eixo { stroke: var(--terminal-line); }
+.fp-graf .fp-hoje { stroke: var(--terminal-ink-soft); stroke-dasharray: 3 3; }
+.fp-legenda { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 11.5px; color: var(--terminal-ink-soft); }
+.fp-legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.fp-legenda i.is-futuro { background: var(--terminal-ink-soft); opacity: .35; }
+.fp-blocos { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.fp-bloco { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--terminal-line); border-top: 3px solid var(--c); border-radius: var(--terminal-radius-lg); background: var(--terminal-surface); min-width: 0; }
+.fp-bloco header { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.fp-bloco header em { margin-left: auto; font: 600 9px/1 var(--terminal-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--fp-obra); font-style: normal; }
+.fp-bloco header em.is-pat { color: var(--terminal-primary); }
+.fp-bloco__val { font: 600 20px/1.2 var(--terminal-mono); }
+.fp-bloco small { font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); }
+.fp-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; }
+.fp-prox { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.fp-prox span { font: 600 9px/1 var(--terminal-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--terminal-ink-soft); }
+.fp-prox strong { font: 600 18px/1.2 var(--terminal-mono); color: var(--fp-obra); }
+.fp-prox small { font-size: 11px; color: var(--terminal-ink-soft); }
+.fp-obra__rod { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font: 600 11px var(--terminal-mono); color: var(--terminal-ink-soft); }
+.fp-sug ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fp-sug li { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--terminal-line); border-left: 3px solid var(--terminal-ink-soft); }
+.fp-sug li.fp-sug__alerta { border-left-color: var(--terminal-negative); }
+.fp-sug li.fp-sug__dica { border-left-color: var(--terminal-primary); }
+.fp-sug li.fp-sug__info { border-left-color: var(--fp-parcela); }
+.fp-sug li strong { font-size: 13px; }
+.fp-sug li p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--terminal-ink-soft); }
+.fp-lanc { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow-y: auto; }
+.fp-lanc li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--terminal-line); flex-wrap: wrap; }
+.fp-lanc__corpo { flex: 1; min-width: 160px; }
+.fp-lanc__corpo strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.fp-lanc__corpo small { font-size: 11.5px; color: var(--terminal-ink-soft); }
+.fp-lanc li > b { font: 600 13px var(--terminal-mono); white-space: nowrap; }
+.fp-lanc__papel { background: var(--terminal-bg); border: 1px solid var(--terminal-line); color: var(--terminal-ink); border-radius: 6px; padding: 4px 6px; font: 500 11.5px var(--terminal-font); max-width: 100%; }
+span.fp-lanc__papel { color: var(--terminal-ink-soft); }
+.fp-form-bloco { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--terminal-line); border-radius: 10px; }
+.fp-form-bloco__tit { font-size: 12.5px; font-weight: 640; }
+@media (max-width: 720px) {
+  .fp-fases { grid-template-columns: 1fr; }
+  .fp-graf { height: 170px; }
+  /* O SVG encolhe ~50% no celular; o texto dele também — compensa aqui. */
+  .fp-graf text { font-size: 20px; }
+}
+
+/* ── Juros do parcelamento (jp-*) ── */
+.jp-bloco { margin-bottom: 12px; }
+.jp-preview { margin-top: 6px; font-size: 0.78rem; line-height: 1.5; color: var(--terminal-ink-soft); }
+.jp-preview.is-juros b { color: #f0a64a; }
+.jp-preview.is-ok b, .jp-reserva b { color: var(--terminal-primary); }
+.jp-informar { margin-top: 10px; width: 100%; font-size: 0.8rem; padding: 8px 12px; }
+.jp-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 14px;
+  padding: 10px 14px; border: 1px solid rgba(240,166,74,.35); border-radius: 12px; background: rgba(240,166,74,.07); font-size: 0.85rem; line-height: 1.45; }
+.jp-banner b { color: #f0a64a; }
+.jp-banner .btn-secondary { padding: 6px 12px; font-size: 0.78rem; }

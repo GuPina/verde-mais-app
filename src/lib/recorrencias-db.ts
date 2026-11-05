@@ -22,6 +22,7 @@ import {
   casaRegra, regraPadrao, temDono,
   type Lancamento, type Recorrencia, type Regra, type TipoRec,
 } from './recorrencias'
+import { autoVincularFinanciamento } from './imobiliario-db'
 
 type DB = D1Database
 
@@ -136,6 +137,8 @@ export async function mesOcupado(db: DB, userId: number, tipo: TipoRec, recId: n
 }
 
 export interface ResultadoAuto {
+  /** Despesas que entraram ligadas a um financiamento pelo nome já confirmado. */
+  financiamento?: Array<{ despesa_id: number; financiamento_id: number; papel: string }>
   vinculados: Array<{ lancamento_id: number; recorrencia_id: number; recorrencia: string }>
   sugestoes: Array<{ lancamento_id: number; recorrencia_id: number; recorrencia: string; motivo: 'mes_ocupado' | 'ambiguo' | 'parcial' }>
 }
@@ -146,6 +149,10 @@ export interface ResultadoAuto {
  */
 export async function autoVincular(db: DB, userId: number, tipo: TipoRec, ids: number[]): Promise<ResultadoAuto> {
   const out: ResultadoAuto = { vinculados: [], sugestoes: [] }
+  // Financiamento primeiro e para TODAS as linhas: entrada parcelada em 36x é
+  // série com dono para a recorrência, mas é exatamente o que o financiamento
+  // quer receber.
+  if (tipo === 'despesa') out.financiamento = await autoVincularFinanciamento(db, userId, ids)
   try {
     const alvo = ids.map(Number).filter(n => Number.isInteger(n) && n > 0)
     if (!alvo.length) return out

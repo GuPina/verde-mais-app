@@ -5,6 +5,8 @@ import { ERRO_DATA, normalizarData } from '../lib/validacao'
 import { getLimites, MSG_UPGRADE } from './planos'
 import { filtroCompetencia, filtroCompetenciaAno, filtroNaoCancelada, filtroSemAporte } from '../lib/competencia'
 import { autoVincular } from '../lib/recorrencias-db'
+import { registrarJurosDoGrupo, rendimentoMensalReserva } from '../lib/juros-db'
+import { separarJuros, compararComReserva } from '../lib/juros'
 
 type Bindings = { DB: D1Database }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -223,6 +225,72 @@ despesas.get('/categorias-disponiveis', requireAuth, async (c) => {
 })
 
 // GET /api/despesas
+// ─── Juros de parcelamento ───────────────────────────────────────────────────
+// Registradas antes de '/:id' para o roteador não ler "juros" como um id.
+
+// GET /api/despesas/juros?ano=2026&mes=11 — quanto de juros de parcelamento
+// cai no mês e no ano, e as compras que geraram esses juros.
+despesas.get('/juros', requireAuth, async (c) => {
+  const user = c.get('user')
+  const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
+  const ano = /^\d{4}$/.test(c.req.query('ano') || '') ? c.req.query('ano')! : hoje.slice(0, 4)
+  const mes = /^(0?[1-9]|1[0-2])$/.test(c.req.query('mes') || '') ? String(Number(c.req.query('mes'))).padStart(2, '0') : null
+  const linhas = await c.env.DB.prepare(
+    `SELECT purchase_group_id, descricao, valor, valor_juros, COALESCE(data, vencimento) AS data, parcela_atual, numero_parcelas, status
+       FROM despesas WHERE user_id = ? AND valor_juros IS NOT NULL AND COALESCE(status, '') <> 'cancelado'`
+  ).bind(user.id).all()
+  const rows = (linhas.results || []) as any[]
+  const noAno = rows.filter(r => String(r.data).startsWith(ano))
+  const porMes = Array.from({ length: 12 }, (_, k) => Math.round(noAno.filter(r => Number(String(r.data).slice(5, 7)) === k + 1)
+    .reduce((s, r) => s + Number(r.valor_juros || 0), 0) * 100) / 100)
+  const grupos = new Map<string, any>()
+  for (const r of rows) {
+    const g = grupos.get(r.purchase_group_id) || { purchase_group_id: r.purchase_group_id, descricao: String(r.descricao || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''),
+      parcelas: Number(r.numero_parcelas) || 0, total: 0, juros: 0, juros_pagos: 0, primeira: r.data }
+    g.total += Number(r.valor); g.juros += Number(r.valor_juros || 0)
+    if (r.status === 'pago') g.juros_pagos += Number(r.valor_juros || 0)
+    if (String(r.data) < String(g.primeira)) g.primeira = r.data
+    grupos.set(r.purchase_group_id, g)
+  }
+  const cent2 = (v: number) => Math.round(v * 100) / 100
+  const compras = [...grupos.values()].map(g => ({ ...g, total: cent2(g.total), juros: cent2(g.juros), juros_pagos: cent2(g.juros_pagos), a_vista: cent2(g.total - g.juros) }))
+    .sort((a, b) => b.juros - a.juros)
+  return c.json({
+    ano, mes,
+    juros_ano: cent2(porMes.reduce((s, v) => s + v, 0)),
+    juros_mes: mes ? porMes[Number(mes) - 1] : null,
+    por_mes: porMes, compras,
+  })
+})
+
+// POST /api/despesas/simular-parcelamento { valor_a_vista, numero_parcelas, valor_parcela | valor_total }
+despesas.post('/simular-parcelamento', requireAuth, async (c) => {
+  const b = await c.req.json().catch(() => ({})) as any
+  const aVista = Number(b.valor_a_vista), n = parseInt(String(b.numero_parcelas), 10)
+  if (!(aVista > 0) || !(n >= 2 && n <= 200)) return c.json({ error: 'Informe o valor à vista e o número de parcelas (2 a 200).' }, 400)
+  const parcela = Number(b.valor_parcela) > 0 ? Number(b.valor_parcela) : Number(b.valor_total) / n
+  if (!(parcela > 0)) return c.json({ error: 'Informe o valor da parcela ou o total parcelado.' }, 400)
+  const pmts = Array.from({ length: n }, () => Math.round(parcela * 100) / 100)
+  const sep = separarJuros(aVista, pmts)!
+  const rend = await rendimentoMensalReserva(c.env.DB)
+  return c.json({ ...sep, juros: undefined, parcela: pmts[0], reserva: { ...compararComReserva(aVista, pmts, rend.mensal), cdi_anual: rend.cdi_anual, fonte: rend.fonte } })
+})
+
+// PATCH /api/despesas/grupo/:groupId/juros { valor_a_vista | null }
+// Para a compra que já foi lançada: informa o à vista depois.
+despesas.patch('/grupo/:groupId/juros', requireAuth, async (c) => {
+  const user = c.get('user')
+  const groupId = String(c.req.param('groupId') || '')
+  if (!/^[0-9a-zA-Z-]{6,64}$/.test(groupId)) return c.json({ error: 'Compra inválida.' }, 400)
+  const b = await c.req.json().catch(() => ({})) as any
+  const limpar = b.valor_a_vista === null || b.valor_a_vista === ''
+  const aVista = limpar ? null : Number(b.valor_a_vista)
+  if (!limpar && (!Number.isFinite(aVista) || !(aVista! > 0))) return c.json({ error: 'Valor à vista inválido.' }, 400)
+  const r = await registrarJurosDoGrupo(c.env.DB, user.id, groupId, aVista)
+  if (!r) return c.json({ error: 'Compra parcelada não encontrada.' }, 404)
+  return c.json({ success: true, ...r })
+})
+
 despesas.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const { mes, ano, categoria, status, busca, limit = '50', offset = '0', purchase_group_id, meio_pagamento, cartao_id, sem_cartao, com_cartao, tag_id, sem_tag, parcelas } = c.req.query()
@@ -417,6 +485,13 @@ despesas.post('/', requireAuth, async (c) => {
     return c.json({ error: 'Campos obrigatórios: descricao, data, categoria, valor' }, 400)
   }
   if (descricao.length > MAX_DESCRICAO) return c.json({ error: `Descrição deve ter até ${MAX_DESCRICAO} caracteres.` }, 400)
+  // Valor à vista da compra parcelada: separa os juros de cada parcela.
+  let valorAVista: number | null = null
+  if (body.valor_a_vista !== undefined && body.valor_a_vista !== null && body.valor_a_vista !== '') {
+    valorAVista = Number(body.valor_a_vista)
+    if (!Number.isFinite(valorAVista) || valorAVista <= 0 || valorAVista > MAX_VALOR)
+      return c.json({ error: 'Valor à vista inválido — informe um número maior que zero.' }, 400)
+  }
   categoria = normalizarCategoriaDesp(String(categoria).trim())
   if (!categoria) return c.json({ error: 'Categoria obrigatória.' }, 400)
   if (!STATUS_VALIDOS.includes(status)) return c.json({ error: `Status inválido. Use: ${STATUS_VALIDOS.join(', ')}` }, 400)
@@ -593,12 +668,14 @@ despesas.post('/', requireAuth, async (c) => {
 
   // Lançamento avulso que bate na regra de uma recorrência entra já vinculado
   // (só quando não há dúvida — ver lib/recorrencias-db).
-  const recorrencia = totalParcelas === 1 ? await autoVincular(c.env.DB, user.id, 'despesa', ids) : null
+  const recorrencia = await autoVincular(c.env.DB, user.id, 'despesa', ids)
+  const juros = valorAVista != null && groupId ? await registrarJurosDoGrupo(c.env.DB, user.id, groupId, valorAVista) : null
 
   return c.json({ 
     success: true, 
     ids, 
     recorrencia,
+    juros,
     parcelas: totalParcelas,
     parcelas_total_original: totalParcelasLabel,
     message: totalParcelas > 1 ? `${totalParcelas} parcelas criadas! (${parcelaInicialLabel}/${totalParcelasLabel} a ${totalParcelas + parcelaInicialLabel - 1}/${totalParcelasLabel})` : 'Despesa adicionada!'
