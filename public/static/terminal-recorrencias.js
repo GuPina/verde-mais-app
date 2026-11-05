@@ -155,9 +155,10 @@
     _catOptions(tipo, selected) {
       return CATS[tipo].map(c => `<option value="${c}" ${c === selected ? 'selected' : ''}>${CAT_LABEL[c] || c}</option>`).join('')
     },
-    _form(rec) {
+    _form(rec, extra) {
       const tipo = rec?.tipo || 'despesa'
       const s = this._inputStyle()
+      const regraHtml = extra ? this._regraCampos(extra.regra, extra.cartoes, 'rg') : ''
       return `<div style="font-family:var(--terminal-font);color:var(--terminal-ink)">
         <div style="font-size:16px;font-weight:640">${rec ? 'Editar recorrência' : 'Nova recorrência'}</div>
         <div style="color:var(--terminal-ink-soft);font-size:12px;margin:4px 0 18px">Uma transação que se repete todo mês</div>
@@ -176,6 +177,15 @@
             <div style="flex:1">${this._label('Meio')}<select id="tr-meio" style="${s}">${MEIOS.map(m => `<option value="${m}" ${m === rec?.meio_pagamento ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
           </div>
           <div>${this._label('Término (opcional)')}<input id="tr-fim" type="date" style="${s}" value="${rec?.data_fim ? String(rec.data_fim).slice(0, 10) : ''}"></div>
+          ${regraHtml ? `<div class="rg-bloco">
+            <div class="rg-bloco__tit"><i class="fas fa-crosshairs"></i> Regra de match <small>— o que conta como lançamento desta recorrência</small></div>
+            ${regraHtml}
+            <div class="rg-bloco__acoes">
+              <button class="td-button" onclick="VMTerminalRecorrencias.testarRegra(${Number(rec.id)})"><i class="fas fa-flask"></i> Testar regra</button>
+              <button class="td-button" onclick="VMTerminalRecorrencias.candidatos(${Number(rec.id)})"><i class="fas fa-wand-magic-sparkles"></i> Procurar lançamentos desta</button>
+              <button class="td-button" onclick="VMTerminalRecorrencias.dividir(${Number(rec.id)})"><i class="fas fa-code-branch"></i> Dividir em duas</button>
+            </div>
+          </div>` : ''}
           <div style="display:flex;gap:8px;margin-top:6px">
             <button class="td-button td-button--primary" style="flex:1" onclick="VMTerminalRecorrencias.salvar(${rec ? Number(rec.id) : 'null'})"><i class="fas fa-check"></i> Salvar</button>
             <button class="td-button" onclick="VM.closeModal()">Cancelar</button>
@@ -192,7 +202,17 @@
       if (cat) cat.innerHTML = this._catOptions(t)
     },
     novo() { this._vm.showModal(this._form(null)) },
-    editar(rec) { this._vm.showModal(this._form(rec)) },
+    async editar(rec) {
+      const vm = this._vm
+      // Abre na hora; a regra chega em seguida (é ela que tem o botão Testar).
+      const [g, cs] = await Promise.all([
+        vm.api('GET', `recorrencias/${rec.id}/regra`).catch(() => null),
+        vm.api('GET', 'cartoes').catch(() => ({ cartoes: [] })),
+      ])
+      this._regraOriginal = g?.regra ? JSON.stringify(g.regra) : null
+      this._editando = rec
+      vm.showModal(this._form(rec, g?.regra ? { regra: g.regra, cartoes: cs?.cartoes || [] } : null), { largura: 600 })
+    },
     async salvar(id) {
       const vm = this._vm
       const tipo = document.getElementById('tr-tipo')?.value || 'despesa'
@@ -208,8 +228,18 @@
       if (!variavel && !(valor > 0)) return vm.toast('Informe um valor maior que zero (ou marque valor variável).', 'error')
       const body = { tipo, descricao, categoria, dia_vencimento: dia, meio_pagamento: meio, valor_variavel: variavel, valor: variavel ? 0 : valor, data_fim: fim }
       const r = await vm.api(id ? 'PUT' : 'POST', id ? `recorrencias/${id}` : 'recorrencias', body).catch(e => ({ error: e.response?.data?.error }))
-      if (r?.success) { vm.closeModal(); vm.toast(id ? 'Recorrência atualizada.' : 'Recorrência criada.', 'success'); this.reload() }
-      else vm.toast(r?.error || 'Erro ao salvar.', 'error')
+      if (!r?.success) return vm.toast(r?.error || 'Erro ao salvar.', 'error')
+      // A regra só é gravada se mudou — gravar a padrão sem mudança a
+      // congelaria no nome antigo quando a recorrência fosse renomeada.
+      if (id && document.getElementById('rg-texto')) {
+        const regra = this._regraDoForm()
+        const mudou = JSON.stringify({ ...JSON.parse(this._regraOriginal || '{}'), ...regra }) !== this._regraOriginal
+        if (mudou) {
+          const rr = await vm.api('PUT', `recorrencias/${id}/regra`, regra).catch(e => ({ error: e.response?.data?.error }))
+          if (!rr?.success) return vm.toast(rr?.error || 'A recorrência foi salva, mas a regra não.', 'error')
+        }
+      }
+      vm.closeModal(); vm.toast(id ? 'Recorrência atualizada.' : 'Recorrência criada.', 'success'); this.reload()
     },
     async toggle(id, ativa) {
       const vm = this._vm
@@ -279,6 +309,11 @@
             <button class="tl-link" title="Este lançamento não é desta recorrência"
               onclick="VMTerminalRecorrencias.desvincular(${Number(r.id)}, ${Number(l.id)})">desvincular</button></small>`
         }).join('')
+        // Mês sem lançamento: criar com a cara dos outros. Passado entra pago,
+        // futuro entra pendente — quem decide é a data, no servidor.
+        const vazio = !m.lancamentos.length && ['faltou', 'aguardando', 'previsto'].includes(m.estado)
+        const criar = vazio ? `<small class="tl-criar"><button class="ds-btn ds-btn--sm" onclick="VMTerminalRecorrencias.preencher(${Number(r.id)}, '${m.mes}')">
+            <i class="fas fa-plus"></i> Lançar ${esc(m.rotulo)} ${m.estado === 'faltou' ? 'como pago' : m.estado === 'previsto' ? 'como pendente' : ''}</button></small>` : ''
         const poss = (m.possiveis || []).map(s => `<small class="tl-poss"><i class="fas fa-link"></i>
             Parece ser: ${esc(s.descricao)} · ${dfmt(s.data)} · ${money(s.valor)}
             <button class="ds-btn ds-btn--sm ds-btn--primary" onclick="VMTerminalRecorrencias.vincular(${Number(r.id)}, ${Number(s.lancamento_id)}, false, 'linha')">Vincular</button></small>`).join('')
@@ -287,7 +322,7 @@
           <span class="rp-corpo">
             <strong>${valor}${m.duplicado ? ' <span class="tl-tag is-falta">2 lançamentos</span>' : ''}</strong>
             <small class="tl-estado ${cls}">${rot}</small>
-            ${lancs}${poss}
+            ${lancs}${poss}${criar}
           </span>
         </li>`
       }
@@ -307,7 +342,8 @@
         </div>` : ''
 
       const g = d.regra || {}
-      const regraTxt = `contém “${esc(g.texto)}”, ${g.tol_valor_pct == null ? 'qualquer valor' : `valor ±${Number(g.tol_valor_pct)}%`}, dia ±${Number(g.tol_dias)}${g.cartao_id ? ', só no cartão escolhido' : ''}${g.auto_vincular ? '' : ', sem vínculo automático'}`
+      const outros = (g.apelidos || []).map(a => `“${esc(a)}”`).join(' ou ')
+      const regraTxt = `contém “${esc(g.texto)}”${outros ? ` ou ${outros}` : ''}, ${g.tol_valor_pct == null ? 'qualquer valor' : `valor ±${Number(g.tol_valor_pct)}%`}, dia ±${Number(g.tol_dias)}${g.cartao_id ? ', só no cartão escolhido' : ''}${g.auto_vincular ? '' : ', sem vínculo automático'}`
       const rs = d.resumo || {}
 
       vm.showModal(`<div class="rp-modal tl-modal">
@@ -317,7 +353,11 @@
             <p>${receita ? 'Receita' : 'Despesa'} · ${r.valor_variavel ? 'valor variável' : money(r.valor)} · dia ${Number(r.dia_vencimento)}</p>
             <p class="tl-regra"><i class="fas fa-crosshairs"></i> Match: ${regraTxt}${d.regra_personalizada ? '' : ' (padrão)'}</p>
           </div>
-          <button class="ds-btn ds-btn--sm" onclick="VMTerminalRecorrencias.editarRegra(${Number(r.id)})"><i class="fas fa-sliders"></i> Regra de match</button>
+          <div class="tl-cab-acoes">
+            <button class="ds-btn ds-btn--sm ds-btn--primary" onclick="VMTerminalRecorrencias.candidatos(${Number(r.id)})"><i class="fas fa-wand-magic-sparkles"></i> Procurar lançamentos</button>
+            <button class="ds-btn ds-btn--sm" onclick="VMTerminalRecorrencias.editarRegra(${Number(r.id)})"><i class="fas fa-sliders"></i> Regra e teste</button>
+            <button class="ds-btn ds-btn--sm" onclick="VMTerminalRecorrencias.editar(VMTerminalRecorrencias._linha.recorrencia)"><i class="fas fa-pen"></i> Editar</button>
+          </div>
         </header>
         ${banner}${bannerSoltas}
         <nav class="rp-abas">
@@ -503,7 +543,169 @@
       this.verLinha(r.id, 'passadas')
     },
 
+    // ══ Lançar um mês que ficou vazio ══════════════════════════════════════
+    async preencher(id, mes) {
+      const vm = this._vm
+      const r = this._linha?.recorrencia
+      let valor
+      if (r && r.valor_variavel) {
+        const ult = (this._linha.passadas || []).find(m => m.lancamentos.length)
+        const txt = await window.VM.vmPrompt(`Valor de <strong>${esc(r.descricao)}</strong> em ${esc(mes.split('-').reverse().join('/'))}.`,
+          { titulo: 'Valor do mês', tipo: 'number', min: 0, step: '0.01', sufixo: 'R$', icone: '🔁', textoBotao: 'Lançar',
+            valor: ult ? Number(ult.lancamentos[0].valor) : '' })
+        if (txt === null) return
+        valor = parseFloat(txt)
+        if (!(valor > 0)) return vm.toast('Valor inválido.', 'error')
+      }
+      const res = await vm.api('POST', `recorrencias/${id}/preencher`, { mes, ...(valor ? { valor } : {}) })
+        .catch(e => ({ error: e.response?.data?.error }))
+      if (!res?.success) return vm.toast(res?.error || 'Não foi possível lançar.', 'error')
+      const como = res.status === 'pago' ? 'paga' : res.status === 'pendente' ? 'pendente' : res.status === 'recebido' ? 'recebida' : 'prevista'
+      vm.toast(`Lançado em ${dfmt(res.data)} como ${como}${res.cartao_id ? ', na fatura do cartão' : ''}.`, 'success')
+      this._recarregarFundo()
+      this.verLinha(id)
+    },
+
+    // ══ Procurar lançamentos desta recorrência (com IA, se houver) ═════════
+    async candidatos(id) {
+      const vm = this._vm
+      this._candId = Number(id)
+      vm.showModal(`<div class="rp-modal"><div class="rp-vazio">Procurando lançamentos parecidos${'…'}</div></div>`, { largura: 680 })
+      const d = await vm.api('GET', `recorrencias/${id}/candidatos`).catch(e => ({ error: e.response?.data?.error }))
+      if (!d || d.error) return vm.toast(d?.error || 'Não foi possível procurar.', 'error')
+      this._cand = d
+      this._resp = {}
+      this._pintarCandidatos()
+    },
+
+    _pintarCandidatos() {
+      const d = this._cand, r = d.recorrencia
+      const item = (c) => {
+        const resp = this._resp[c.id]
+        const ia = c.ia ? `<span class="tl-tag ${c.ia.mesma ? 'is-ok' : 'is-falta'}" title="${esc(c.ia.motivo)}">IA: ${c.ia.mesma ? 'provável' : 'improvável'} · ${Number(c.ia.confianca)}%</span>` : ''
+        return `<li class="rt-item rc-item${resp === 'sim' ? ' is-sim' : resp === 'nao' ? ' is-nao' : ''}">
+          <div class="rt-item__top"><strong>${esc(c.descricao)}</strong><span>${money(c.valor)}</span></div>
+          <small>${dfmt(c.data)}${c.categoria ? ' · ' + esc(c.categoria) : ''} · ${Number(c.pontos)} pontos${c.mes_ocupado ? ' · <span class="is-verm">o mês já tem lançamento</span>' : ''}</small>
+          <small>${c.motivos.map(esc).join(' · ')}</small>
+          ${c.ia?.motivo ? `<small class="rc-ia">${ia} ${esc(c.ia.motivo)}</small>` : ia ? `<small>${ia}</small>` : ''}
+          <div class="rt-acoes">
+            <button class="ds-btn ds-btn--sm ${resp === 'sim' ? 'ds-btn--primary' : ''}" onclick="VMTerminalRecorrencias._marcar(${Number(c.id)}, 'sim')"><i class="fas fa-check"></i> Sim, é desta</button>
+            <button class="ds-btn ds-btn--sm ${resp === 'nao' ? 'rc-nao-ativo' : ''}" onclick="VMTerminalRecorrencias._marcar(${Number(c.id)}, 'nao')"><i class="fas fa-xmark"></i> Não</button>
+          </div>
+        </li>`
+      }
+      const sims = Object.values(this._resp).filter(v => v === 'sim').length
+      const naos = Object.values(this._resp).filter(v => v === 'nao').length
+      const aviso = d.ia_disponivel
+        ? (d.ia_respondeu ? 'A IA deu uma segunda opinião em cada um — mas quem decide é você.' : 'A IA não respondeu agora; a lista está ordenada só pela pontuação.')
+        : 'Ordenado por pontuação: palavra em comum, valor, dia, categoria e mês vazio.'
+      this._vm.showModal(`<div class="rp-modal rt-modal">
+        <header class="rp-cab"><div>
+          <h3>Lançamentos de ${esc(r.descricao)}?</h3>
+          <p>Lançamentos sem vínculo dos últimos 13 meses que podem ser esta conta com outro nome. ${aviso}</p>
+        </div></header>
+        <div class="rp-lista rt-lista"><ul>${d.candidatos.map(item).join('') || '<li class="rp-vazio">Nada parecido sem vínculo. Tudo certo por aqui.</li>'}</ul></div>
+        <label class="rc-aprender"><input type="checkbox" id="rc-aprender" checked style="accent-color:var(--terminal-primary)">
+          Aprender os nomes confirmados (os próximos lançamentos com esse nome entram sozinhos)</label>
+        <div class="rp-rodape rt-rodape">
+          <button class="ds-btn ds-btn--primary" ${sims + naos ? '' : 'disabled'} onclick="VMTerminalRecorrencias._responder()">Confirmar ${sims} sim · ${naos} não</button>
+          <button class="ds-btn" onclick="VMTerminalRecorrencias.verLinha(${Number(r.id)})">Voltar</button>
+        </div>
+      </div>`, { largura: 680 })
+    },
+
+    _marcar(lid, resp) {
+      const aprender = document.getElementById('rc-aprender')?.checked
+      this._resp[lid] = this._resp[lid] === resp ? undefined : resp
+      const lista = document.querySelector('.rt-lista'), topo = lista ? lista.scrollTop : 0
+      this._pintarCandidatos()
+      const nova = document.querySelector('.rt-lista'); if (nova) nova.scrollTop = topo
+      const cb = document.getElementById('rc-aprender'); if (cb && aprender === false) cb.checked = false
+    },
+
+    async _responder() {
+      const vm = this._vm, id = this._candId
+      const sim = Object.keys(this._resp).filter(k => this._resp[k] === 'sim').map(Number)
+      const nao = Object.keys(this._resp).filter(k => this._resp[k] === 'nao').map(Number)
+      const aprender = !!document.getElementById('rc-aprender')?.checked
+      const r = await vm.api('POST', `recorrencias/${id}/candidatos/responder`, { sim, nao, aprender })
+        .catch(e => ({ error: e.response?.data?.error }))
+      if (!r?.success) return vm.toast(r?.error || 'Não foi possível salvar as respostas.', 'error')
+      vm.toast(`${r.vinculados} vinculado(s)${r.substituidos ? `, ${r.substituidos} previsto(s) substituído(s)` : ''}${r.apelidos?.length ? ` · a regra agora também reconhece: ${r.apelidos.join(', ')}` : ''}.`, 'success')
+      this._recarregarFundo()
+      this.verLinha(id)
+    },
+
+    // ══ Dividir em duas ════════════════════════════════════════════════════
+    async dividir(id) {
+      const vm = this._vm
+      const d = await vm.api('GET', `recorrencias/${id}/linha-do-tempo?passados=24&futuros=6`).catch(() => null)
+      if (!d?.recorrencia) return vm.toast('Não foi possível abrir a recorrência.', 'error')
+      this._linha = d
+      const r = d.recorrencia, s = this._inputStyle()
+      const lancs = [...d.proximas, ...d.passadas].flatMap(m => m.lancamentos)
+      vm.showModal(`<div class="rp-modal">
+        <header class="rp-cab"><div>
+          <h3>Dividir “${esc(r.descricao)}” em duas</h3>
+          <p>A nova recorrência nasce com a mesma categoria, meio e datas. Marque os lançamentos que são dela — eles mudam de recorrência; nada é apagado.
+          Depois, se quiser, renomeie esta em Editar.</p>
+        </div></header>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          <div style="flex:2;min-width:180px">${this._label('Nome da nova')}<input id="dv-nome" style="${s}" placeholder="Ex.: Claude"></div>
+          <div style="flex:1;min-width:110px">${this._label('Valor (R$)')}<input id="dv-valor" type="number" min="0" step="0.01" style="${s}"></div>
+          <div style="flex:1;min-width:90px">${this._label('Dia')}<input id="dv-dia" type="number" min="1" max="31" style="${s}" value="${Number(r.dia_vencimento)}"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--terminal-ink-soft);margin-bottom:10px"><input type="checkbox" id="dv-var" style="accent-color:var(--terminal-primary)"> Valor variável</label>
+        <ul class="rp-lista dv-lista">${lancs.map(l => `<li class="rp-linha"><label class="dv-item">
+            <input type="checkbox" class="dv-l" value="${Number(l.id)}" style="accent-color:var(--terminal-primary)">
+            <span class="rp-corpo"><strong>${esc(l.descricao)}</strong><small>${dfmt(l.data)} · ${money(l.valor)}</small></span></label></li>`).join('')
+          || '<li class="rp-vazio">Esta recorrência ainda não tem lançamentos vinculados. A nova será criada vazia — use “Procurar lançamentos” nela depois.</li>'}</ul>
+        <div class="rp-rodape rt-rodape">
+          <button class="ds-btn ds-btn--primary" onclick="VMTerminalRecorrencias._salvarDivisao(${Number(r.id)})"><i class="fas fa-code-branch"></i> Criar e mover os marcados</button>
+          <button class="ds-btn" onclick="VMTerminalRecorrencias.verLinha(${Number(r.id)})">Voltar</button>
+        </div>
+      </div>`, { largura: 620 })
+    },
+
+    async _salvarDivisao(id) {
+      const vm = this._vm, v = (i) => document.getElementById(i)?.value
+      const variavel = !!document.getElementById('dv-var')?.checked
+      const ids = [...document.querySelectorAll('.dv-l:checked')].map(e => Number(e.value))
+      const body = { descricao: (v('dv-nome') || '').trim(), valor: variavel ? null : parseFloat(v('dv-valor')),
+        valor_variavel: variavel, dia_vencimento: parseInt(v('dv-dia')), lancamento_ids: ids }
+      if (!body.descricao) return vm.toast('Dê um nome à nova recorrência.', 'error')
+      const r = await vm.api('POST', `recorrencias/${id}/dividir`, body).catch(e => ({ error: e.response?.data?.error }))
+      if (!r?.success) return vm.toast(r?.error || 'Não foi possível dividir.', 'error')
+      vm.toast(`“${body.descricao}” criada com ${r.movidos} lançamento(s).`, 'success')
+      this._recarregarFundo()
+      this.verLinha(r.id)
+    },
+
     // ══ Regra de match ═════════════════════════════════════════════════════
+    /** Os campos da regra — usados no formulário de edição e no modal da regra. */
+    _regraCampos(r, cartoes) {
+      const s = this._inputStyle()
+      const apelidos = (r.apelidos || [])
+      return `<div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="flex:2;min-width:180px">${this._label('A descrição')}<input id="rg-texto" style="${s}" value="${esc(r.texto)}"></div>
+            <div style="flex:1;min-width:120px">${this._label('Como')}<select id="rg-modo" style="${s}">
+              ${[['contem', 'contém'], ['comeca', 'começa com'], ['igual', 'é igual a']].map(([k, l]) => `<option value="${k}" ${r.modo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          </div>
+          <div>${this._label('Também conhecida como')}
+            <div id="rg-apelidos" class="rg-apelidos">${apelidos.map(a => `<span class="rg-apelido" data-v="${esc(a)}">${esc(a)}<button type="button" title="Tirar este nome" onclick="this.parentElement.remove()">×</button></span>`).join('')}
+              <span class="rg-apelidos__vazio">${apelidos.length ? '' : 'Nenhum outro nome ainda. Confirmar um lançamento com nome diferente em “Procurar lançamentos” ensina aqui.'}</span></div></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:120px">${this._label('Valor pode variar (%)')}<input id="rg-tol" type="number" min="0" max="100" style="${s}" value="${r.tol_valor_pct == null ? '' : Number(r.tol_valor_pct)}" placeholder="vazio = qualquer valor"></div>
+            <div style="flex:1;min-width:120px">${this._label('Folga no dia (±)')}<input id="rg-dias" type="number" min="0" max="15" style="${s}" value="${Number(r.tol_dias)}"></div>
+          </div>
+          <div>${this._label('Só no cartão (opcional)')}<select id="rg-cartao" style="${s}"><option value="">qualquer meio</option>
+            ${(cartoes || []).map(c => `<option value="${Number(c.id)}" ${Number(r.cartao_id) === Number(c.id) ? 'selected' : ''}>${esc(c.nome || c.apelido || ('Cartão ' + c.id))}</option>`).join('')}</select></div>
+          <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--terminal-ink-soft)"><input type="checkbox" id="rg-auto" ${r.auto_vincular ? 'checked' : ''} style="accent-color:var(--terminal-primary)"> Vincular sozinho quando bater em tudo</label>
+          <div id="rg-teste" class="rg-teste"></div>
+        </div>`
+    },
+
     async editarRegra(id) {
       const vm = this._vm
       const [g, cs] = await Promise.all([
@@ -511,42 +713,30 @@
         vm.api('GET', 'cartoes').catch(() => ({ cartoes: [] })),
       ])
       if (!g?.regra) return vm.toast('Não foi possível abrir a regra.', 'error')
-      const r = g.regra, s = this._inputStyle()
-      const cartoes = (cs?.cartoes || [])
       const rec = this._linha?.recorrencia
       vm.showModal(`<div style="font-family:var(--terminal-font);color:var(--terminal-ink)">
         <div style="font-size:16px;font-weight:640">Regra de match${rec ? ` · ${esc(rec.descricao)}` : ''}</div>
         <div style="color:var(--terminal-ink-soft);font-size:12px;line-height:1.5;margin:4px 0 16px">
           Quando um lançamento entra — digitado, no cartão ou importado — e bate em tudo isto, ele é vinculado sozinho.
           Se duas recorrências baterem, ou o mês já tiver lançamento, ele vira sugestão no rastreio.</div>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div style="flex:2;min-width:180px">${this._label('A descrição')}<input id="rg-texto" style="${s}" value="${esc(r.texto)}"></div>
-            <div style="flex:1;min-width:120px">${this._label('Como')}<select id="rg-modo" style="${s}">
-              ${[['contem', 'contém'], ['comeca', 'começa com'], ['igual', 'é igual a']].map(([k, l]) => `<option value="${k}" ${r.modo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-          </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div style="flex:1;min-width:120px">${this._label('Valor pode variar (%)')}<input id="rg-tol" type="number" min="0" max="100" style="${s}" value="${r.tol_valor_pct == null ? '' : Number(r.tol_valor_pct)}" placeholder="vazio = qualquer valor"></div>
-            <div style="flex:1;min-width:120px">${this._label('Folga no dia (±)')}<input id="rg-dias" type="number" min="0" max="15" style="${s}" value="${Number(r.tol_dias)}"></div>
-          </div>
-          <div>${this._label('Só no cartão (opcional)')}<select id="rg-cartao" style="${s}"><option value="">qualquer meio</option>
-            ${cartoes.map(c => `<option value="${Number(c.id)}" ${Number(r.cartao_id) === Number(c.id) ? 'selected' : ''}>${esc(c.nome || c.apelido || ('Cartão ' + c.id))}</option>`).join('')}</select></div>
-          <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--terminal-ink-soft)"><input type="checkbox" id="rg-auto" ${r.auto_vincular ? 'checked' : ''} style="accent-color:var(--terminal-primary)"> Vincular sozinho quando bater em tudo</label>
-          <div id="rg-teste" class="rg-teste"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-            <button class="td-button td-button--primary" style="flex:1" onclick="VMTerminalRecorrencias.salvarRegra(${Number(id)})"><i class="fas fa-check"></i> Salvar</button>
-            <button class="td-button" onclick="VMTerminalRecorrencias.testarRegra(${Number(id)})"><i class="fas fa-flask"></i> Testar</button>
-            ${g.personalizada ? `<button class="td-button" onclick="VMTerminalRecorrencias.regraPadrao(${Number(id)})">Voltar ao padrão</button>` : ''}
-            <button class="td-button" onclick="VMTerminalRecorrencias.verLinha(${Number(id)})">Voltar</button>
-          </div>
+        ${this._regraCampos(g.regra, cs?.cartoes || [])}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <button class="td-button td-button--primary" style="flex:1" onclick="VMTerminalRecorrencias.salvarRegra(${Number(id)})"><i class="fas fa-check"></i> Salvar</button>
+          <button class="td-button" onclick="VMTerminalRecorrencias.testarRegra(${Number(id)})"><i class="fas fa-flask"></i> Testar regra</button>
+          ${g.personalizada ? `<button class="td-button" onclick="VMTerminalRecorrencias.regraPadrao(${Number(id)})">Voltar ao padrão</button>` : ''}
+          <button class="td-button" onclick="VMTerminalRecorrencias.verLinha(${Number(id)})">Voltar</button>
         </div></div>`, { largura: 560 })
     },
 
     _regraDoForm() {
       const v = (i) => document.getElementById(i)?.value
       const tol = v('rg-tol')
-      return { texto: v('rg-texto'), modo: v('rg-modo'), tol_valor_pct: tol === '' ? null : Number(tol),
-        tol_dias: parseInt(v('rg-dias')), cartao_id: v('rg-cartao') || null, auto_vincular: !!document.getElementById('rg-auto')?.checked }
+      const r = { texto: v('rg-texto'), modo: v('rg-modo'), tol_valor_pct: tol === '' || tol == null ? null : Number(tol),
+        tol_dias: parseInt(v('rg-dias')), cartao_id: v('rg-cartao') ? Number(v('rg-cartao')) : null,
+        auto_vincular: !!document.getElementById('rg-auto')?.checked }
+      const cx = document.getElementById('rg-apelidos')
+      if (cx) r.apelidos = [...cx.querySelectorAll('.rg-apelido')].map(e => e.dataset.v)
+      return r
     },
 
     _mostrarTeste(t) {

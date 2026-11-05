@@ -46,7 +46,13 @@ export function regraDeLinha(row: any): Regra {
     tol_dias: Number.isFinite(Number(row.tol_dias)) ? Number(row.tol_dias) : 5,
     cartao_id: row.cartao_id == null ? null : Number(row.cartao_id),
     auto_vincular: Number(row.auto_vincular ?? 1) === 1,
+    apelidos: lerApelidos(row.apelidos),
   }
+}
+
+function lerApelidos(v: unknown): string[] {
+  if (!v) return []
+  try { const a = JSON.parse(String(v)); return Array.isArray(a) ? a.map(String).filter(Boolean) : [] } catch { return [] }
 }
 
 export function recorrenciaDeLinha(row: any): Recorrencia {

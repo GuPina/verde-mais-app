@@ -2102,3 +2102,27 @@
 @media (max-width: 768px) {
   .rp-modal { max-height: calc(88vh - 64px - 150px); }
 }
+
+/* ── Recorrências, 2ª rodada: procurar, lançar mês, dividir, regra no editar ── */
+.tl-cab-acoes { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl-criar { margin-top: 6px !important; }
+.tl-criar .ds-btn { min-height: 0; }
+.rc-item { border-left: 3px solid transparent; padding-left: 10px; transition: background .15s ease; }
+.rc-item.is-sim { border-left-color: var(--terminal-primary); background: color-mix(in srgb, var(--terminal-primary) 6%, transparent); }
+.rc-item.is-nao { border-left-color: var(--terminal-negative); opacity: .6; }
+.rc-nao-ativo { border-color: var(--terminal-negative) !important; color: var(--terminal-negative) !important; }
+.rc-ia { display: flex !important; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rc-aprender { display: flex; align-items: flex-start; gap: 9px; margin-top: var(--ds-3); font-size: 12px; line-height: 1.45; color: var(--terminal-ink-soft); }
+.rg-bloco { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--terminal-primary-line); border-radius: 12px;
+  background: color-mix(in srgb, var(--terminal-primary) 4%, transparent); }
+.rg-bloco__tit { font-size: 13px; font-weight: 640; }
+.rg-bloco__tit i { color: var(--terminal-primary); margin-right: 4px; }
+.rg-bloco__tit small { font-weight: 400; color: var(--terminal-ink-soft); }
+.rg-bloco__acoes { display: flex; flex-wrap: wrap; gap: 6px; }
+.rg-apelidos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 30px; }
+.rg-apelido { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 999px;
+  border: 1px solid var(--terminal-primary-line); font: 600 11px/1.3 var(--terminal-mono); color: var(--terminal-primary); overflow-wrap: anywhere; }
+.rg-apelido button { background: none; border: 0; padding: 0 4px; min-height: 0; cursor: pointer; color: var(--terminal-ink-soft); font-size: 14px; line-height: 1; }
+.rg-apelidos__vazio { font-size: 11.5px; line-height: 1.45; color: var(--terminal-ink-soft); }
+.dv-lista { max-height: 300px; }
+.dv-item { display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer; }

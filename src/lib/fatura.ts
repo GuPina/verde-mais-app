@@ -200,3 +200,35 @@ export function faturaDaParcelaAncorada(
   const esta = Math.max(1, Math.trunc(Number(parcelaDesta) || 1))
   return faturaDaParcela(dataCompraDaPrimeira, diaFechamento, diaVencimento, Math.max(0, esta - base))
 }
+
+/**
+ * A data de compra cuja fatura VENCE no mês `mesAlvo` (YYYY-MM), o mais perto
+ * possível do dia `diaCompra`. É o que a recorrência precisa para lançar um
+ * mês que ficou sem lançamento: no cartão a despesa aparece no mês do
+ * vencimento da fatura, não no da compra.
+ *
+ * Nem sempre o dia de costume serve: cartão que fecha dia 31 fecha dia 28 em
+ * fevereiro, e uma compra em 28/02 já pula para a fatura seguinte. Então
+ * procura primeiro pelo dia mais próximo do costume (28, 27, 29...) e, no
+ * mesmo dia, pelo mês mais recente entre o alvo e os dois anteriores.
+ */
+export function compraQueVenceEm(
+  mesAlvo: string, diaCompra: number, diaFechamento: number, diaVencimento: number,
+): { data_compra: string; mes: number; ano: number; vencimento: string } | null {
+  const [a0, m0] = mesAlvo.split('-').map(Number)
+  const base = Math.min(31, Math.max(1, Number(diaCompra) || 1))
+  for (let delta = 0; delta <= 30; delta++) {
+    for (const dia of delta === 0 ? [base] : [base - delta, base + delta]) {
+      if (dia < 1 || dia > 31) continue
+      for (let volta = 0; volta <= 2; volta++) {
+        let ano = a0, mes = m0 - volta
+        while (mes < 1) { mes += 12; ano-- }
+        if (dia > ultimoDia(ano, mes)) continue
+        const data = `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+        const f = faturaDaCompra(data, diaFechamento, diaVencimento)
+        if (f.vencimento.slice(0, 7) === mesAlvo) return { data_compra: data, ...f }
+      }
+    }
+  }
+  return null
+}

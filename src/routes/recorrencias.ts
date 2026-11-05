@@ -4,15 +4,16 @@ import { ensureTag, COR_MODULO } from '../utils/tags-helper'
 import { normalizarData, ERRO_DATA } from '../lib/validacao'
 import { normalizarDescricao } from '../lib/identidade'
 import {
-  rastrear, linhaDoTempo, casaRegra, regraPadrao, temDono, CRITERIO,
-  type Regra, type Recorrencia, type TipoRec,
+  rastrear, linhaDoTempo, casaRegra, regraPadrao, temDono, CRITERIO, candidatosPara, aprenderApelidos, recorrenciaDe,
+  type Regra, type Recorrencia, type TipoRec, type Candidato, type Lancamento,
 } from '../lib/recorrencias'
+import { compraQueVenceEm } from '../lib/fatura'
 import {
   hojeBR, somarMesesISO, regraDeLinha, recorrenciaDeLinha, carregarRegras, carregarDispensas,
-  carregarRecorrencias, carregarLancamentos, carregarVinculados, tabelaDe,
+  carregarRecorrencias, carregarLancamentos, carregarVinculados, tabelaDe, mesOcupado,
 } from '../lib/recorrencias-db'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; plano: string } }
 
 const recorrencias = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -369,6 +370,273 @@ recorrencias.post('/:id/desvincular', requireAuth, async (c) => {
   return c.json({ success: true, desvinculados: Number(r.meta?.changes ?? 0) })
 })
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Procurar lançamentos de UMA recorrência, lançar um mês que faltou, dividir.
+// ═════════════════════════════════════════════════════════════════════════════
+
+async function carregarRec(db: D1Database, userId: number, idBruto: string) {
+  const id = parseId(idBruto)
+  if (!id) return null
+  const row = await db.prepare(`SELECT * FROM recorrencias WHERE id = ? AND user_id = ?`).bind(id, userId).first() as any
+  return row ? { id, row, rec: recorrenciaDeLinha(row) } : null
+}
+
+/**
+ * Segunda opinião da IA sobre os candidatos. Opcional: sem chave configurada,
+ * ou se a chamada falhar, a lista sai só com a pontuação — nada depende dela.
+ * A IA nunca decide; ela marca "provável" ou "improvável" e a pessoa escolhe.
+ */
+async function opiniaoDaIA(env: Bindings, rec: Recorrencia, exemplos: string[], cands: Candidato[]) {
+  const apiKey = env.OPENAI_API_KEY
+  if (!apiKey || !cands.length) return null
+  const baseURL = (env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1').replace(/\/$/, '')
+  const prompt = `Você ajuda a organizar finanças pessoais no Brasil. Existe uma conta recorrente chamada "${rec.descricao}" (${rec.tipo}, ${rec.valor_variavel ? 'valor variável' : `cerca de R$ ${Number(rec.valor).toFixed(2)}`}, todo dia ${rec.dia_vencimento}, categoria ${rec.categoria || '—'}).
+Lançamentos já confirmados dela: ${exemplos.length ? exemplos.map(e => `"${e}"`).join(', ') : 'nenhum'}.
+Para cada lançamento abaixo, diga se ele É essa mesma conta escrita de outro jeito (ex.: "Juros de obra" e "Evolução de obra" são a mesma cobrança do financiamento na planta) ou se é outra coisa (ex.: "Claude" e "ChatGPT" são assinaturas diferentes, mesmo sendo as duas de IA).
+${JSON.stringify(cands.map(c => ({ id: c.id, descricao: c.descricao, valor: c.valor, data: c.data, categoria: c.categoria })))}
+Responda APENAS com um array JSON: [{"id":123,"mesma":true,"confianca":0-100,"motivo":"curto"}]`
+  try {
+    const ctl = new AbortController()
+    const t = setTimeout(() => ctl.abort(), 20000)
+    const res = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-5.4-mini', messages: [{ role: 'user', content: prompt }], temperature: 0, max_tokens: 1500 }),
+    }).finally(() => clearTimeout(t))
+    if (!res.ok) return null
+    const data = await res.json() as any
+    const m = String(data?.choices?.[0]?.message?.content || '').match(/\[[\s\S]*\]/)
+    if (!m) return null
+    const arr = JSON.parse(m[0])
+    const out = new Map<number, { mesma: boolean; confianca: number; motivo: string }>()
+    for (const x of Array.isArray(arr) ? arr : []) {
+      const id = Number(x?.id)
+      if (Number.isInteger(id)) out.set(id, { mesma: !!x.mesma, confianca: Math.max(0, Math.min(100, Number(x.confianca) || 0)), motivo: String(x.motivo || '').slice(0, 140) })
+    }
+    return out
+  } catch { return null }
+}
+
+// ─── GET /api/recorrencias/:id/candidatos?ia=1 ───────────────────────────────
+recorrencias.get('/:id/candidatos', requireAuth, async (c) => {
+  const user = c.get('user')
+  const ctx = await carregarRec(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const { id, rec } = ctx
+  const hoje = hojeBR()
+  const [lancs, regras, dispensadas] = await Promise.all([
+    carregarLancamentos(c.env.DB, user.id, rec.tipo, somarMesesISO(hoje, -JANELA_RASTREIO_MESES)),
+    carregarRegras(c.env.DB, user.id),
+    carregarDispensas(c.env.DB, user.id),
+  ])
+  const regra = regras.get(id) || regraPadrao(rec)
+  const cands = candidatosPara({ recorrencia: rec, regra, lancamentos: lancs, dispensadas })
+
+  let ia: Map<number, any> | null = null
+  if (c.req.query('ia') !== '0') {
+    const exemplos = [...new Set(lancs.filter(l => recorrenciaDe(l) === id).map(l => String(l.descricao || '')))].slice(0, 6)
+    ia = await opiniaoDaIA(c.env, rec, exemplos, cands.slice(0, 25))
+  }
+  const lista = cands.map(x => ({ ...x, ia: ia?.get(x.id) ?? null }))
+  // Com opinião da IA, o "improvável com certeza" desce para o fim.
+  if (ia) lista.sort((a, b) => Number(!!(b.ia?.mesma ?? true)) - Number(!!(a.ia?.mesma ?? true)) || b.pontos - a.pontos)
+  return c.json({ recorrencia: rec, regra, ia_disponivel: !!c.env.OPENAI_API_KEY, ia_respondeu: !!ia, candidatos: lista })
+})
+
+// ─── POST /api/recorrencias/:id/candidatos/responder ─────────────────────────
+// { sim: [ids], nao: [ids], aprender?: true, substituir?: true }
+// Sim vincula (e, com `aprender`, o nome diferente vira apelido da regra);
+// Não guarda a dispensa para a busca não mostrar de novo.
+recorrencias.post('/:id/candidatos/responder', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const ctx = await carregarRec(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const { id, row, rec } = ctx
+  const b = await c.req.json().catch(() => ({})) as any
+  const ids = (v: unknown) => (Array.isArray(v) ? v : []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 200)
+  const sim = ids(b.sim), nao = ids(b.nao)
+  const tabela = tabelaDe(rec.tipo)
+  const col = rec.tipo === 'despesa' ? 'COALESCE(data, vencimento)' : 'data'
+
+  const confirmados: Lancamento[] = []
+  let substituidos = 0
+  for (const lid of sim) {
+    const l = await c.env.DB.prepare(
+      `SELECT id, descricao, valor, ${col} AS data FROM ${tabela} WHERE id = ? AND user_id = ? AND recorrencia_id IS NULL`
+    ).bind(lid, user.id).first() as any
+    if (!l) continue
+    if (b.substituir !== false && rec.tipo === 'despesa') {
+      const r = await c.env.DB.prepare(
+        `DELETE FROM despesas
+          WHERE user_id = ? AND recorrencia_id = ? AND status = 'pendente' AND descricao = ?
+            AND substr(COALESCE(data, vencimento), 1, 7) = ? AND id <> ?`
+      ).bind(user.id, id, row.descricao, String(l.data).slice(0, 7), lid).run()
+      substituidos += Number(r.meta?.changes ?? 0)
+    }
+    await c.env.DB.prepare(
+      `UPDATE ${tabela} SET recorrencia_id = ?, recorrente = 1 WHERE id = ? AND user_id = ? AND recorrencia_id IS NULL`
+    ).bind(id, lid, user.id).run()
+    confirmados.push({ id: lid, descricao: l.descricao, valor: Number(l.valor), data: String(l.data).slice(0, 10) })
+  }
+  for (const lid of nao) {
+    await c.env.DB.prepare(
+      `INSERT INTO recorrencia_dispensas (user_id, chave) VALUES (?, ?) ON CONFLICT (user_id, chave) DO NOTHING`
+    ).bind(user.id, `solta:${id}:${lid}`).run()
+  }
+
+  let apelidos: string[] = []
+  if (b.aprender !== false && confirmados.length) {
+    const atual = (await carregarRegras(c.env.DB, user.id)).get(id) || regraPadrao(rec)
+    apelidos = aprenderApelidos(atual, rec, confirmados)
+    if (apelidos.length !== (atual.apelidos || []).length) await salvarRegra(c.env.DB, user.id, id, { ...atual, apelidos })
+  }
+  return c.json({ success: true, vinculados: confirmados.length, dispensados: nao.length, substituidos, apelidos })
+})
+
+// ─── POST /api/recorrencias/:id/preencher { mes: 'YYYY-MM', valor? } ─────────
+// Lança o mês que ficou sem lançamento, com a cara dos outros: categoria,
+// subcategoria, meio, cartão e tags do lançamento mais recente da recorrência.
+// Mês que já passou entra pago; mês por vir entra pendente. No cartão, a
+// despesa vai para a fatura que VENCE naquele mês, com o card_charge dela.
+recorrencias.post('/:id/preencher', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const ctx = await carregarRec(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const { id, row, rec } = ctx
+  const b = await c.req.json().catch(() => ({})) as any
+  const mes = String(b.mes || '')
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) return c.json({ error: 'Informe o mês no formato AAAA-MM.' }, 400)
+  if (rec.data_fim && `${mes}-01` > String(rec.data_fim).slice(0, 10)) return c.json({ error: 'Esse mês é depois do fim da recorrência.' }, 400)
+
+  const tipo = rec.tipo
+  if (await mesOcupado(c.env.DB, user.id, tipo, id, `${mes}-01`))
+    return c.json({ error: 'Esse mês já tem um lançamento desta recorrência.' }, 409)
+
+  // O lançamento-modelo: o vinculado mais recente.
+  const modelo = tipo === 'despesa'
+    ? await c.env.DB.prepare(
+        `SELECT d.*, (SELECT cc.data_compra FROM card_charges cc WHERE cc.expense_id = d.id LIMIT 1) AS cc_data_compra
+           FROM despesas d WHERE d.user_id = ? AND d.recorrencia_id = ? AND COALESCE(d.status, '') <> 'cancelado'
+          ORDER BY COALESCE(d.data, d.vencimento) DESC, d.id DESC LIMIT 1`).bind(user.id, id).first() as any
+    : await c.env.DB.prepare(
+        `SELECT * FROM receitas WHERE user_id = ? AND recorrencia_id = ? ORDER BY data DESC, id DESC LIMIT 1`).bind(user.id, id).first() as any
+
+  let valor: number | null = b.valor === undefined || b.valor === null || b.valor === '' ? null : parseValorPositivo(b.valor)
+  if (b.valor !== undefined && b.valor !== null && b.valor !== '' && valor === null)
+    return c.json({ error: 'Valor inválido — deve ser maior que zero.' }, 400)
+  if (valor === null) valor = !rec.valor_variavel && Number(rec.valor) > 0 ? Number(rec.valor) : (modelo ? Number(modelo.valor) : null)
+  if (!valor) return c.json({ error: 'Recorrência de valor variável: informe o valor deste mês.' }, 400)
+
+  const hoje = hojeBR()
+  const [a, m] = mes.split('-').map(Number)
+  const ult = new Date(Date.UTC(a, m, 0)).getUTCDate()
+  const diaRec = Math.min(Number(rec.dia_vencimento) || 1, ult)
+  const categoria = modelo?.categoria || row.categoria
+  const meio = modelo?.meio_pagamento || row.meio_pagamento || (tipo === 'despesa' ? 'pix' : 'pix')
+
+  if (tipo === 'receita') {
+    const data = `${mes}-${String(diaRec).padStart(2, '0')}`
+    const r = await c.env.DB.prepare(
+      `INSERT INTO receitas (user_id, descricao, valor, categoria, data, recorrente, recorrencia_id, meio_pagamento, observacoes)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    ).bind(user.id, rec.descricao, valor, categoria, data, id, meio, 'Lançado pela linha do tempo da recorrência').run()
+    const nid = Number(r.meta.last_row_id)
+    if (modelo) await c.env.DB.prepare(
+      `INSERT INTO receita_tags (receita_id, tag_id) SELECT ?, tag_id FROM receita_tags WHERE receita_id = ? ON CONFLICT DO NOTHING`
+    ).bind(nid, modelo.id).run().catch(() => {})
+    await marcarGerado(c.env.DB, id, mes, valor)
+    return c.json({ success: true, id: nid, data, status: data <= hoje ? 'recebido' : 'previsto' })
+  }
+
+  // ── Despesa: cartão ou não ────────────────────────────────────────────────
+  const cartaoId = modelo?.cartao_id ? Number(modelo.cartao_id) : null
+  const noCartao = !!cartaoId && ['cartao_credito', 'parcelado_cartao'].includes(String(meio))
+  let data = `${mes}-${String(diaRec).padStart(2, '0')}`
+  let dataCompra = data
+  let bMonth: number | null = null, bYear: number | null = null
+  if (noCartao) {
+    const cartao = await c.env.DB.prepare(`SELECT * FROM cartoes WHERE id = ? AND user_id = ?`).bind(cartaoId, user.id).first() as any
+    if (!cartao) return c.json({ error: 'O cartão dos lançamentos anteriores não existe mais.' }, 400)
+    const diaCompra = modelo?.cc_data_compra ? Number(String(modelo.cc_data_compra).slice(8, 10)) : diaRec
+    const f = compraQueVenceEm(mes, diaCompra, cartao.dia_fechamento, cartao.dia_vencimento)
+    if (!f) return c.json({ error: 'Nenhuma compra neste cartão vence nesse mês.' }, 400)
+    data = f.vencimento; dataCompra = f.data_compra; bMonth = f.mes; bYear = f.ano
+  }
+  const status = data < hoje ? 'pago' : 'pendente'
+
+  const r = await c.env.DB.prepare(
+    `INSERT INTO despesas (user_id, descricao, data, categoria, subcategoria, valor, parcelado, numero_parcelas,
+       parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, cartao_id, meio_pagamento,
+       billing_month, billing_year, tipo, recorrencia_id, data_pagamento)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'normal', ?, ?)`
+  ).bind(
+    user.id, rec.descricao, data, categoria, modelo?.subcategoria ?? null, valor, status,
+    modelo?.fixa_ou_variavel || 'fixa', data, 'Lançado pela linha do tempo da recorrência',
+    noCartao ? cartaoId : null, meio, bMonth, bYear, id, status === 'pago' ? data : null,
+  ).run()
+  const nid = Number(r.meta.last_row_id)
+  if (noCartao) {
+    await c.env.DB.prepare(
+      `INSERT INTO card_charges (card_id, expense_id, descricao, valor, data_compra, data_vencimento,
+         billing_month, billing_year, parcela_atual, total_parcelas, purchase_group_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)`
+    ).bind(cartaoId, nid, rec.descricao, valor, dataCompra, data, bMonth, bYear, status).run()
+  }
+  if (modelo) await c.env.DB.prepare(
+    `INSERT INTO despesa_tags (despesa_id, tag_id) SELECT ?, tag_id FROM despesa_tags WHERE despesa_id = ? ON CONFLICT DO NOTHING`
+  ).bind(nid, modelo.id).run().catch(() => {})
+  await marcarGerado(c.env.DB, id, mes, valor)
+  return c.json({ success: true, id: nid, data, status, cartao_id: noCartao ? cartaoId : null, data_compra: noCartao ? dataCompra : null })
+})
+
+async function marcarGerado(db: D1Database, id: number, mes: string, valor: number) {
+  const ref = `${mes}-01`
+  await db.prepare(
+    `UPDATE recorrencias SET ultimo_gerado = CASE WHEN ultimo_gerado IS NULL OR ultimo_gerado < ? THEN ? ELSE ultimo_gerado END,
+            ultimo_valor = ?, total_gerado = COALESCE(total_gerado, 0) + 1 WHERE id = ?`
+  ).bind(ref, ref, valor, id).run()
+}
+
+// ─── POST /api/recorrencias/:id/dividir ──────────────────────────────────────
+// "IA (ChatGPT/Claude)" eram duas assinaturas numa recorrência só. Cria a
+// segunda com a mesma configuração e leva para ela os lançamentos marcados.
+recorrencias.post('/:id/dividir', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.plano === 'free') return c.json(MSG_FREE_REC, 403)
+  const ctx = await carregarRec(c.env.DB, user.id, c.req.param('id'))
+  if (!ctx) return c.json({ error: 'Recorrência não encontrada' }, 404)
+  const { id, row, rec } = ctx
+  const b = await c.req.json().catch(() => ({})) as any
+  const descricao = String(b.descricao ?? '').trim().slice(0, 120)
+  if (!descricao) return c.json({ error: 'Dê um nome à nova recorrência.' }, 400)
+  const dia = b.dia_vencimento === undefined ? rec.dia_vencimento : parseDia(b.dia_vencimento)
+  if (dia === null) return c.json({ error: 'dia_vencimento deve ser um inteiro entre 1 e 31.' }, 400)
+  const variavel = b.valor_variavel === true || b.valor_variavel === 1
+  const valor = parseValorPositivo(b.valor)
+  if (!variavel && valor === null) return c.json({ error: 'Informe o valor da nova recorrência (ou marque variável).' }, 400)
+  const ids = (Array.isArray(b.lancamento_ids) ? b.lancamento_ids : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 400)
+
+  const res = await c.env.DB.prepare(
+    `INSERT INTO recorrencias (user_id, tipo, descricao, valor, categoria, dia_vencimento, meio_pagamento,
+       valor_variavel, data_inicio, data_fim, notas, tags, ativa)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(user.id, rec.tipo, descricao, valor ?? 0, b.categoria || row.categoria, dia, row.meio_pagamento || 'outros',
+    variavel ? 1 : 0, row.data_inicio, row.data_fim, `Dividida de "${row.descricao}"`, row.tags, row.ativa ?? 1).run()
+  const novoId = Number(res.meta.last_row_id)
+
+  let movidos = 0
+  if (ids.length) {
+    const r = await c.env.DB.prepare(
+      `UPDATE ${tabelaDe(rec.tipo)} SET recorrencia_id = ?
+        WHERE user_id = ? AND recorrencia_id = ? AND id IN (${ids.map(() => '?').join(',')})`
+    ).bind(novoId, user.id, id, ...ids).run()
+    movidos = Number(r.meta?.changes ?? 0)
+  }
+  return c.json({ success: true, id: novoId, movidos })
+})
+
 // ── Regra: validação, gravação e teste ───────────────────────────────────────
 
 function validarRegra(b: any, descricaoPadrao: string): Regra | string {
@@ -386,22 +654,36 @@ function validarRegra(b: any, descricaoPadrao: string): Regra | string {
   if (!Number.isInteger(dias) || dias < 0 || dias > 15) return 'A folga de dias vai de 0 a 15.'
   const cartao = b.cartao_id === undefined || b.cartao_id === null || b.cartao_id === '' ? null : parseId(b.cartao_id)
   if (b.cartao_id && !cartao) return 'cartão inválido'
-  return { texto, modo, tol_valor_pct: tol, tol_dias: dias, cartao_id: cartao, auto_vincular: b.auto_vincular !== false && b.auto_vincular !== 0 }
+  const apelidos = Array.isArray(b.apelidos)
+    ? [...new Set(b.apelidos.map((a: unknown) => normalizarDescricao(String(a ?? ''))).filter((a: string) => a.length >= 3))].slice(0, 12) as string[]
+    : undefined
+  return { texto, modo, tol_valor_pct: tol, tol_dias: dias, cartao_id: cartao,
+    auto_vincular: b.auto_vincular !== false && b.auto_vincular !== 0, ...(apelidos ? { apelidos } : {}) }
 }
 
+/**
+ * Grava a regra. Apelidos ausentes (`undefined`) preservam os que já estão
+ * salvos: editar a tolerância no formulário não pode apagar o que a pessoa
+ * ensinou confirmando lançamentos.
+ */
 async function salvarRegra(db: D1Database, userId: number, recId: number, r: Regra) {
+  const apelidos = r.apelidos === undefined ? null : JSON.stringify(r.apelidos)
   await db.prepare(
-    `INSERT INTO recorrencia_regras (recorrencia_id, user_id, texto, modo, tol_valor_pct, tol_dias, cartao_id, auto_vincular, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS'))
+    `INSERT INTO recorrencia_regras (recorrencia_id, user_id, texto, modo, tol_valor_pct, tol_dias, cartao_id, auto_vincular, apelidos, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS'))
      ON CONFLICT (recorrencia_id) DO UPDATE SET
        texto = EXCLUDED.texto, modo = EXCLUDED.modo, tol_valor_pct = EXCLUDED.tol_valor_pct,
        tol_dias = EXCLUDED.tol_dias, cartao_id = EXCLUDED.cartao_id,
-       auto_vincular = EXCLUDED.auto_vincular, atualizado_em = EXCLUDED.atualizado_em`
-  ).bind(recId, userId, r.texto, r.modo, r.tol_valor_pct, r.tol_dias, r.cartao_id ?? null, r.auto_vincular ? 1 : 0).run()
+       auto_vincular = EXCLUDED.auto_vincular,
+       apelidos = COALESCE(EXCLUDED.apelidos, recorrencia_regras.apelidos),
+       atualizado_em = EXCLUDED.atualizado_em`
+  ).bind(recId, userId, r.texto, r.modo, r.tol_valor_pct, r.tol_dias, r.cartao_id ?? null, r.auto_vincular ? 1 : 0, apelidos).run()
 }
 
 /** Quais lançamentos dos últimos 13 meses a regra pegaria — e quais já são desta. */
 async function testarRegra(db: D1Database, userId: number, rec: Recorrencia, regra: Regra) {
+  // Formulário sem a lista de apelidos testa com os que já estão salvos.
+  if (regra.apelidos === undefined) regra = { ...regra, apelidos: (await carregarRegras(db, userId)).get(rec.id)?.apelidos || [] }
   const ls = await carregarLancamentos(db, userId, rec.tipo, somarMesesISO(hojeBR(), -JANELA_RASTREIO_MESES))
   const pegaria: any[] = []
   const quase: any[] = []

@@ -355,3 +355,91 @@ test('importação: a receita do extrato entra já vinculada à recorrência del
   const lt = (await api('GET', `recorrencias/${rec.body.id}/linha-do-tempo`)).body
   assert.equal(lt.passadas.find(m => m.mes === '2026-10').estado, 'recebido')
 })
+
+test('recorrências: lançar o mês que faltou com a cara dos outros (cartão, tag, categoria, pago/pendente)', async () => {
+  const cartao = await api('POST', 'cartoes', { nome: 'Cartão Spotify', bandeira: 'visa', banco: 'E2E', limite_total: 5000, dia_fechamento: 25, dia_vencimento: 5 })
+  const cardId = cartao.body.id ?? cartao.body?.cartao?.id
+  const rec = await api('POST', 'recorrencias', { tipo: 'despesa', descricao: 'Spotify Família', valor: 34.9, categoria: 'assinaturas', dia_vencimento: 12, data_inicio: '2026-05-01' })
+  const recId = rec.body.id
+  // Um lançamento real, no cartão, com tag e categoria própria: é o modelo.
+  const modelo = await api('POST', 'despesas', { descricao: 'Spotify Família', categoria: 'Streaming', valor: 34.9, data: '2026-08-12',
+    meio_pagamento: 'cartao_credito', cartao_id: cardId, status: 'pago' })
+  assert.equal(modelo.status, 201, JSON.stringify(modelo.body))
+  assert.equal(modelo.body.recorrencia?.vinculados?.length, 1, 'o modelo não vinculou')
+  const tag = await api('POST', 'tags', { nome: 'Streaming família' })
+  const tagId = tag.body.id ?? tag.body?.tag?.id
+  await api('POST', `tags/despesa/${modelo.body.ids[0]}`, { tag_ids: [tagId] })
+
+  // Outubro passou sem lançamento: entra pago, na fatura que VENCE em outubro.
+  const out = await api('POST', `recorrencias/${recId}/preencher`, { mes: '2026-10' })
+  assert.equal(out.status, 200, JSON.stringify(out.body))
+  assert.equal(out.body.status, 'pago')
+  assert.equal(out.body.data.slice(0, 7), '2026-10', `vencimento fora de outubro: ${out.body.data}`)
+  assert.equal(out.body.cartao_id, cardId)
+  const desp = lista((await api('GET', 'despesas?mes=10&ano=2026')).body).find(d => d.id === out.body.id)
+  assert.ok(desp, 'o lançamento não apareceu em Despesas de outubro')
+  assert.equal(desp.categoria, 'Streaming', 'não copiou a categoria do modelo')
+  assert.equal(Number(desp.cartao_id), cardId)
+  assert.ok((desp.tags || []).some(t => t.id === tagId), `não copiou a tag: ${JSON.stringify(desp.tags)}`)
+
+  // Janeiro de 2027 ainda não chegou: pendente.
+  const jan = await api('POST', `recorrencias/${recId}/preencher`, { mes: '2027-01' })
+  assert.equal(jan.body.status, 'pendente', JSON.stringify(jan.body))
+  // E o mesmo mês duas vezes, não.
+  assert.equal((await api('POST', `recorrencias/${recId}/preencher`, { mes: '2026-10' })).status, 409)
+
+  const lt = (await api('GET', `recorrencias/${recId}/linha-do-tempo`)).body
+  assert.equal(lt.passadas.find(m => m.mes === '2026-10').estado, 'pago')
+  assert.equal(lt.proximas.find(m => m.mes === '2027-01').estado, 'pendente')
+})
+
+test('recorrências: "Evolução de obra" confirmado em "Juros de obra" ensina o nome; dividir separa ChatGPT de Claude', async () => {
+  const obra = await api('POST', 'recorrencias', { tipo: 'despesa', descricao: 'Juros de obra', valor: 0, valor_variavel: true, categoria: 'moradia', dia_vencimento: 20, data_inicio: '2026-03-01' })
+  const obraId = obra.body.id
+  for (const [m, v] of [['06', 452.1], ['07', 463.8], ['08', 471.25]])
+    await api('POST', 'despesas', { descricao: 'EVOLUCAO DE OBRA', categoria: 'moradia', valor: v, data: `2026-${m}-21`, status: 'pago' })
+
+  const cand = (await api('GET', `recorrencias/${obraId}/candidatos?ia=0`)).body
+  const evo = cand.candidatos.filter(c => c.descricao === 'EVOLUCAO DE OBRA')
+  assert.equal(evo.length, 3, JSON.stringify(cand.candidatos.map(c => [c.descricao, c.pontos])))
+  const resp = await api('POST', `recorrencias/${obraId}/candidatos/responder`, { sim: evo.slice(0, 2).map(c => c.id), nao: [evo[2].id], aprender: true })
+  assert.equal(resp.body.vinculados, 2)
+  assert.deepEqual(resp.body.apelidos, ['EVOLUCAO DE OBRA'])
+  // O "não" não volta; o apelido faz o próximo entrar sozinho.
+  assert.ok(!(await api('GET', `recorrencias/${obraId}/candidatos?ia=0`)).body.candidatos.some(c => c.id === evo[2].id))
+  const set = await api('POST', 'despesas', { descricao: 'EVOLUCAO DE OBRA', categoria: 'moradia', valor: 480, data: '2026-09-21', status: 'pago' })
+  assert.equal(set.body.recorrencia?.vinculados?.[0]?.recorrencia_id, obraId, JSON.stringify(set.body.recorrencia))
+  // Editar a tolerância no formulário (sem mandar apelidos) não apaga o que foi aprendido.
+  await api('PUT', `recorrencias/${obraId}/regra`, { texto: 'Juros de obra', tol_valor_pct: null, tol_dias: 6 })
+  assert.deepEqual((await api('GET', `recorrencias/${obraId}/regra`)).body.regra.apelidos, ['EVOLUCAO DE OBRA'])
+
+  // "IA (ChatGPT/Claude)": duas assinaturas numa recorrência só.
+  const ia = await api('POST', 'recorrencias', { tipo: 'despesa', descricao: 'IA (ChatGPT/Claude)', valor: 120.72, categoria: 'assinaturas', dia_vencimento: 1 })
+  const iaId = ia.body.id
+  const ids = []
+  for (const [d, v] of [['OPENAI CHATGPT', 120.72], ['CLAUDE AI', 110.0]]) {
+    const r = await api('POST', 'despesas', { descricao: d, categoria: 'assinaturas', valor: v, data: '2026-10-01', status: 'pago' })
+    ids.push(r.body.ids[0])
+    await api('POST', `recorrencias/${iaId}/vincular`, { lancamento_ids: [r.body.ids[0]] })
+  }
+  const div = await api('POST', `recorrencias/${iaId}/dividir`, { descricao: 'Claude', valor: 110, lancamento_ids: [ids[1]] })
+  assert.equal(div.status, 200, JSON.stringify(div.body))
+  assert.equal(div.body.movidos, 1)
+  const ltClaude = (await api('GET', `recorrencias/${div.body.id}/linha-do-tempo`)).body
+  assert.equal(ltClaude.passadas.find(m => m.mes === '2026-10').lancamentos[0].id, ids[1])
+  assert.equal(ltClaude.recorrencia.categoria, 'assinaturas', 'a nova não herdou a categoria')
+  const ltIA = (await api('GET', `recorrencias/${iaId}/linha-do-tempo`)).body
+  assert.deepEqual(ltIA.passadas.find(m => m.mes === '2026-10').lancamentos.map(l => l.id), [ids[0]])
+})
+
+test('assinaturas fantasma: ChatGPT e Claude saem com o nome de cada um, não "IA (ChatGPT/Claude)"', async () => {
+  for (const m of ['07', '08', '09', '10']) {
+    await api('POST', 'despesas', { descricao: 'CHATGPT SUBSCRIPTION', categoria: 'assinaturas', valor: 104.9, data: `2026-${m}-03`, status: 'pago' })
+    await api('POST', 'despesas', { descricao: 'CLAUDE.AI SUBSCRIPTION', categoria: 'assinaturas', valor: 110, data: `2026-${m}-08`, status: 'pago' })
+  }
+  const det = (await api('POST', 'assinaturas-fantasma/scan', { usar_ia: false })).body.detected || []
+  const nomes = det.map(d => d.service_nome)
+  assert.ok(nomes.includes('ChatGPT'), JSON.stringify(nomes))
+  assert.ok(nomes.includes('Claude'), JSON.stringify(nomes))
+  assert.ok(!nomes.includes('IA (ChatGPT/Claude)'))
+})

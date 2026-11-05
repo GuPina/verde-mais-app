@@ -10,9 +10,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  temDono, medirPadrao, motivoRecusa, rastrear, linhaDoTempo, casaRegra, regraPadrao,
+  temDono, medirPadrao, motivoRecusa, rastrear, linhaDoTempo, casaRegra, regraPadrao, candidatosPara, aprenderApelidos,
   type Lancamento, type Recorrencia,
 } from '../src/lib/recorrencias'
+import { compraQueVenceEm, faturaDaCompra } from '../src/lib/fatura'
 
 const HOJE = '2026-11-05'
 let seq = 1
@@ -212,4 +213,58 @@ test('duas recorrências casam com o mesmo lançamento: não é solta de nenhuma
   const b: Recorrencia = { id: 22, tipo: 'despesa', descricao: 'Google One', valor: 9.99, dia_vencimento: 10 }
   const r = rastrear({ tipo: 'despesa', lancamentos: [L('GOOGLE ONE', '2026-10-10', 9.99)], recorrencias: [a, b], hoje: HOJE })
   assert.equal(r.soltas.length, 0)
+})
+
+// ─── Procurar lançamentos de uma recorrência ─────────────────────────────────
+
+const OBRA: Recorrencia = { id: 30, tipo: 'despesa', descricao: 'Juros de obra', valor: 0, dia_vencimento: 20, valor_variavel: 1, categoria: 'Moradia' }
+
+test('"Evolução de obra" aparece como candidato de "Juros de obra"; mercado não', () => {
+  const ls = [
+    ...mensal('Juros de obra', '2026-03', 3, 20, i => 410 + i * 12, { recorrencia_id: 30, categoria: 'Moradia' }),
+    ...mensal('EVOLUCAO DE OBRA', '2026-06', 4, 21, i => 450 + i * 10, { categoria: 'Moradia' }),
+    L('MERCADO PAO DE ACUCAR', '2026-07-20', 430, { categoria: 'Alimentação' }),
+  ]
+  const c = candidatosPara({ recorrencia: OBRA, regra: regraPadrao(OBRA), lancamentos: ls })
+  assert.equal(c.length, 4, JSON.stringify(c.map(x => [x.descricao, x.pontos])))
+  assert.ok(c.every(x => x.descricao === 'EVOLUCAO DE OBRA'))
+  assert.ok(c[0].motivos.some(m => /obra/.test(m)))
+})
+
+test('candidato em mês já ocupado perde pontos para um igual em mês vazio', () => {
+  const ls = [L('Juros de obra', '2026-06-20', 450, { recorrencia_id: 30, categoria: 'Moradia' }),
+    L('EVOLUCAO DE OBRA', '2026-06-21', 450, { categoria: 'Moradia' }),
+    L('EVOLUCAO DE OBRA', '2026-07-21', 450, { categoria: 'Moradia' })]
+  const c = candidatosPara({ recorrencia: OBRA, regra: regraPadrao(OBRA), lancamentos: ls })
+  const jun = c.find(x => x.data === '2026-06-21')!, jul = c.find(x => x.data === '2026-07-21')!
+  assert.equal(jun.mes_ocupado, true)
+  // +10 por ocupar um mês vazio e −15 por cair num mês que já tem o seu.
+  assert.equal(jul.pontos - jun.pontos, 25)
+})
+
+test('confirmar "Evolução de obra" ensina o apelido, e a regra passa a casar sozinha', () => {
+  const regra = regraPadrao(OBRA)
+  const evo = L('EVOLUCAO DE OBRA', '2026-08-21', 470)
+  assert.equal(casaRegra(evo, OBRA, regra).texto, false)
+  const apelidos = aprenderApelidos(regra, OBRA, [evo, L('Juros de obra', '2026-08-20', 470)])
+  assert.deepEqual(apelidos, ['EVOLUCAO DE OBRA'], 'o nome que a regra já pega não vira apelido')
+  assert.equal(casaRegra(L('PIX EVOLUCAO DE OBRA 09/2026', '2026-09-21', 480), OBRA, { ...regra, apelidos }).texto, true)
+})
+
+test('dispensado não volta na busca', () => {
+  const evo = L('EVOLUCAO DE OBRA', '2026-08-21', 470, { categoria: 'Moradia' })
+  const c = candidatosPara({ recorrencia: OBRA, regra: regraPadrao(OBRA), lancamentos: [evo], dispensadas: new Set([`solta:30:${evo.id}`]) })
+  assert.equal(c.length, 0)
+})
+
+// ─── Lançar o mês que faltou, no cartão ──────────────────────────────────────
+
+test('cartão: a compra escolhida vence exatamente no mês pedido', () => {
+  for (const [fech, venc] of [[25, 5], [3, 10], [31, 10], [10, 20], [28, 7]])
+    for (const alvo of ['2026-01', '2026-03', '2026-10', '2026-12'])
+      for (const dia of [1, 15, 28, 31]) {
+        const f = compraQueVenceEm(alvo, dia, fech, venc)
+        assert.ok(f, `sem compra para ${alvo} (fecha ${fech}, vence ${venc}, dia ${dia})`)
+        assert.equal(faturaDaCompra(f!.data_compra, fech, venc).vencimento.slice(0, 7), alvo)
+      }
 })

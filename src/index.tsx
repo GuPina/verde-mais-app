@@ -669,7 +669,7 @@ function appShell() {
   <link rel="stylesheet" href="/static/terminal-public.css?v=20260915-1">
   <link rel="stylesheet" href="/static/terminal-dashboard.css?v=20260903-1">
   <link rel="stylesheet" href="/static/terminal-onboarding.css?v=20260827-1">
-  <link rel="stylesheet" href="/static/terminal-screens.css?v=20261105-1">
+  <link rel="stylesheet" href="/static/terminal-screens.css?v=20261105-2">
   <link rel="stylesheet" href="/static/terminal-ds.css?v=20260915-1">
   <link rel="stylesheet" href="/static/terminal-motion.css?v=20260901-1">
 </head>
@@ -687,7 +687,7 @@ function appShell() {
   <script src="/static/terminal-onboarding.js?v=20260827-1"></script>
   <script src="/static/terminal-metas.js?v=20260829-1"></script>
   <script src="/static/terminal-orcamentos.js?v=20260829-1"></script>
-  <script src="/static/terminal-recorrencias.js?v=20261105-1"></script>
+  <script src="/static/terminal-recorrencias.js?v=20261105-2"></script>
   <script src="/static/terminal-lembretes.js?v=20260909-1"></script>
   <script src="/static/terminal-desafio.js?v=20260902-1"></script>
   <script src="/static/terminal-investimentos.js?v=20260909-1"></script>

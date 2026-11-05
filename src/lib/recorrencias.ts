@@ -75,6 +75,12 @@ export interface Regra {
   tol_dias: number
   cartao_id?: number | null
   auto_vincular: boolean
+  /**
+   * Outros nomes da mesma conta. "Juros de obra" que o banco às vezes chama de
+   * "Evolução de obra": quando a pessoa confirma um lançamento com outro nome,
+   * o nome dele entra aqui e os próximos já casam.
+   */
+  apelidos?: string[]
 }
 
 // ─── Datas ───────────────────────────────────────────────────────────────────
@@ -280,6 +286,7 @@ export function regraPadrao(r: Recorrencia): Regra {
     tol_dias: 5,
     cartao_id: null,
     auto_vincular: true,
+    apelidos: [],
   }
 }
 
@@ -292,6 +299,7 @@ export function regraSugerida(chave: string, p: Padrao): Regra {
     tol_dias: Math.min(7, Math.max(3, Math.ceil(p.dispersao_dia) + 2)),
     cartao_id: null,
     auto_vincular: true,
+    apelidos: [],
   }
 }
 
@@ -305,12 +313,20 @@ export interface ResultadoMatch {
 }
 
 export function casaRegra(l: Lancamento, r: Recorrencia, regra: Regra): ResultadoMatch {
-  const alvo = normalizarDescricao(regra.texto || '')
   const desc = normalizarDescricao(l.descricao || '')
-  const texto = !!alvo && (
-    regra.modo === 'igual' ? desc === alvo
-    : regra.modo === 'comeca' ? desc.startsWith(alvo)
-    : desc.includes(alvo))
+  const casaTexto = (bruto: string) => {
+    const alvo = normalizarDescricao(bruto || '')
+    return !!alvo && (
+      regra.modo === 'igual' ? desc === alvo
+      : regra.modo === 'comeca' ? desc.startsWith(alvo)
+      : desc.includes(alvo))
+  }
+  // Apelido é um nome inteiro já confirmado pela pessoa: casa por igualdade
+  // ou por contenção, como o texto principal no modo "contém".
+  const texto = casaTexto(regra.texto) || (regra.apelidos || []).some(a => {
+    const alvo = normalizarDescricao(a || '')
+    return !!alvo && (desc === alvo || desc.includes(alvo))
+  })
 
   const base = Math.abs(Number(r.valor) || 0)
   const v = Math.abs(Number(l.valor) || 0)
@@ -600,6 +616,120 @@ export function linhaDoTempo(opcoes: {
     },
     reajuste,
   }
+}
+
+// ─── Procurar lançamentos de UMA recorrência ─────────────────────────────────
+//
+// O rastreio acha o que tem o mesmo nome. Aqui é o caso contrário: a conta
+// existe, mas o banco a escreve de outro jeito — "Juros de obra" chega como
+// "EVOLUCAO DE OBRA". Nome sozinho não resolve; o que denuncia é o conjunto:
+// uma palavra em comum, valor na faixa, mesmo dia, mesma categoria, e um mês
+// que ainda está vazio na linha do tempo. A pessoa decide sim ou não.
+
+const PALAVRAS_VAZIAS = new Set(['DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'EM', 'COM', 'PARA', 'POR', 'NO', 'NA', 'A', 'O', 'AO'])
+const palavras = (s: string) => new Set(normalizarDescricao(s || '').split(' ').filter(p => p.length >= 3 && !PALAVRAS_VAZIAS.has(p)))
+const raizCat = (c?: string | null) => normalizarDescricao(String(c || '')).split(' ')[0] || ''
+
+export interface Candidato {
+  id: number
+  descricao: string
+  data: string
+  valor: number
+  categoria: string | null
+  pontos: number
+  motivos: string[]
+  mes_ocupado: boolean
+  criterios: ResultadoMatch
+}
+
+export function candidatosPara(opcoes: {
+  recorrencia: Recorrencia
+  regra: Regra
+  /** Lançamentos do mesmo tipo, vinculados ou não. */
+  lancamentos: Lancamento[]
+  dispensadas?: Set<string>
+  limite?: number
+}): Candidato[] {
+  const r = opcoes.recorrencia, regra = opcoes.regra
+  const dispensadas = opcoes.dispensadas || new Set<string>()
+  const vinculados = opcoes.lancamentos.filter(l => recorrenciaDe(l) === r.id)
+  const ocupados = new Set(vinculados.map(l => chaveMes(l.data)))
+
+  // O vocabulário da conta: o nome, a regra, os apelidos e o que já foi
+  // vinculado — se a pessoa já ligou um "EVOLUCAO OBRA", ele também ensina.
+  const vocab = new Set<string>()
+  for (const t of [r.descricao, regra.texto, ...(regra.apelidos || []), ...vinculados.map(l => l.descricao || '')])
+    for (const p of palavras(t)) vocab.add(p)
+
+  // Valor de referência: o fixo, ou a mediana do que já foi lançado.
+  const valoresV = vinculados.map(l => Math.abs(Number(l.valor) || 0)).filter(v => v > 0)
+  const variavel = r.valor_variavel === true || Number(r.valor_variavel) === 1
+  const ref = !variavel && Number(r.valor) > 0 ? Math.abs(Number(r.valor)) : mediana(valoresV)
+  const catsV = new Set([raizCat(r.categoria), ...vinculados.map(l => raizCat(l.categoria))].filter(Boolean))
+
+  const out: Candidato[] = []
+  for (const l of opcoes.lancamentos) {
+    if (recorrenciaDe(l) || temDono(l)) continue
+    if (dispensadas.has(`solta:${r.id}:${l.id}`)) continue
+    const m = casaRegra(l, r, regra)
+    const motivos: string[] = []
+    let pontos = 0
+
+    const comuns = [...palavras(l.descricao || '')].filter(p => vocab.has(p))
+    if (m.texto) { pontos += 40; motivos.push('nome bate na regra') }
+    else if (comuns.length) { pontos += 15 + Math.min(15, comuns.length * 7); motivos.push(`palavra em comum: ${comuns.slice(0, 3).join(', ').toLowerCase()}`) }
+
+    const v = Math.abs(Number(l.valor) || 0)
+    let valorPerto = false
+    if (ref > 0) {
+      const dif = Math.abs(v - ref) / ref
+      const tol = (regra.tol_valor_pct ?? 25) / 100
+      if (dif <= Math.max(tol, 0.05)) { pontos += 25; valorPerto = true; motivos.push('valor na faixa') }
+      else if (dif <= 0.25) { pontos += 15; valorPerto = true; motivos.push('valor próximo') }
+      else if (dif <= 0.5) { pontos += 5 }
+    }
+
+    if (l.cartao_id) pontos += 8
+    else {
+      const [a, mm] = ymd(l.data).split('-').map(Number)
+      const diaR = Number(r.dia_vencimento) >= (a && mm ? ultimoDia(a, mm) - 1 : 30) ? 31 : Number(r.dia_vencimento)
+      const dd = distanciaDia(diaNormalizado(l.data), diaR)
+      if (dd <= regra.tol_dias) { pontos += 15; motivos.push('mesmo dia do mês') }
+      else if (dd <= regra.tol_dias * 2) pontos += 7
+    }
+
+    const mesmaCat = !!l.categoria && catsV.has(raizCat(l.categoria))
+    if (mesmaCat) { pontos += 10; motivos.push('mesma categoria') }
+
+    const ocupado = ocupados.has(chaveMes(l.data))
+    if (ocupado) pontos -= 15
+    else { pontos += 10; motivos.push('mês ainda vazio na recorrência') }
+
+    // Sem nenhum laço de nome, só valor + categoria juntos justificam mostrar.
+    const temLaco = m.texto || comuns.length > 0 || (valorPerto && mesmaCat)
+    if (!temLaco || pontos < 40) continue
+    out.push({
+      id: l.id, descricao: String(l.descricao || ''), data: ymd(l.data), valor: cent(l.valor),
+      categoria: l.categoria ?? null, pontos: Math.min(100, pontos), motivos, mes_ocupado: ocupado, criterios: m,
+    })
+  }
+  out.sort((a, b) => b.pontos - a.pontos || b.data.localeCompare(a.data))
+  return out.slice(0, opcoes.limite ?? 40)
+}
+
+/**
+ * Inclui no apelido os nomes confirmados que a regra ainda não pega.
+ * Devolve a lista nova (sem repetição, no máximo 12).
+ */
+export function aprenderApelidos(regra: Regra, r: Recorrencia, confirmados: Lancamento[]): string[] {
+  const atuais = (regra.apelidos || []).map(a => normalizarDescricao(a)).filter(Boolean)
+  const novos = [...atuais]
+  for (const l of confirmados) {
+    if (casaRegra({ ...l, cartao_id: null }, r, { ...regra, apelidos: novos, tol_valor_pct: null, tol_dias: 31 }).texto) continue
+    const k = normalizarDescricao(l.descricao || '')
+    if (k.length >= 3 && !novos.includes(k)) novos.push(k)
+  }
+  return novos.slice(0, 12)
 }
 
 export { cent }

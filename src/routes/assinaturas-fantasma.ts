@@ -86,6 +86,19 @@ const SUBSCRIPTION_CATEGORIES = [
   'Internet', 'Telefone', 'TV', 'Seguros', 'Plano de Saúde'
 ]
 
+const FAMILIAS = new Set([
+  'IA (ChatGPT/Claude)', 'Produtividade', 'Videoconferência', 'Música Streaming', 'Gaming', 'Cursos Online',
+  'VPN', 'Antivírus', 'App Fitness', 'Leitura Digital', 'Anime Streaming', 'Operadora Telefônica',
+  'TV por Assinatura', 'Plano de Saúde', 'Seguro', 'Academia', 'HBO/Max', 'Previdência Privada', 'Assinatura',
+])
+const MARCAS: Record<string, string> = {
+  chatgpt: 'ChatGPT', openai: 'OpenAI (ChatGPT)', claude: 'Claude', copilot: 'Copilot',
+  'apple music': 'Apple Music', 'game pass': 'Game Pass', 'ps plus': 'PS Plus', hbomax: 'HBO Max', 'hbo max': 'HBO Max',
+  hbo: 'HBO Max', max: 'Max', paramount: 'Paramount+', smartfit: 'Smart Fit', 'smart fit': 'Smart Fit',
+  nordvpn: 'NordVPN', expressvpn: 'ExpressVPN', tim: 'TIM', oi: 'Oi', iptv: 'IPTV', 'kindle unlimited': 'Kindle Unlimited',
+}
+const tituloDe = (s: string) => s.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+
 function normalizeDesc(desc: string): string {
   return desc
     .toLowerCase()
@@ -242,8 +255,14 @@ assinaturas.post('/scan', requireAuth, async (c) => {
       for (const svc of SUBSCRIPTION_KEYWORDS) {
         // Palavra inteira: "oi" e "tim" (operadoras) dentro de "BOI" ou
         // "TIMBRE" faziam qualquer coisa virar assinatura de telefone.
-        if (svc.keywords.some(kw => ` ${nDesc} `.includes(` ${normalizeDesc(kw)} `))) {
-          kwMatch = true; kwType = svc.type; kwNome = svc.nome; break
+        const kw = svc.keywords.find(k => ` ${nDesc} `.includes(` ${normalizeDesc(k)} `))
+        if (kw) {
+          kwMatch = true; kwType = svc.type
+          // "IA (ChatGPT/Claude)", "Gaming", "VPN"... são FAMÍLIAS de serviço,
+          // não um serviço. Batizar a assinatura com o nome da família juntava
+          // ChatGPT e Claude numa recorrência só ao confirmar. Nome da marca.
+          kwNome = FAMILIAS.has(svc.nome) ? (MARCAS[normalizeDesc(kw)] || tituloDe(kw)) : svc.nome
+          break
         }
       }
       const cats = new Map<string, number>()
