@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { requireAuth } from './auth'
 import { normalizarDescricao } from '../lib/identidade'
 import { temDono, medirPadrao, motivoRecusa, confiancaPadrao, CRITERIO } from '../lib/recorrencias'
-import { hojeBR, somarMesesISO } from '../lib/recorrencias-db'
+import { hojeBR, somarMesesISO, normalizar as normalizarLancamentos } from '../lib/recorrencias-db'
 
 type Bindings = { DB: D1Database; OPENAI_API_KEY?: string; OPENAI_BASE_URL?: string }
 type Variables = { user: { id: number; nome: string; email: string; plano: string } }
@@ -181,7 +181,8 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   // vencimento da fatura), a mesma que as Recorrências usam.
   const result = await c.env.DB.prepare(`
     SELECT id, descricao, valor, COALESCE(data, vencimento) AS data, categoria, status,
-           observacoes, recorrencia_id, numero_parcelas, parcelado, cartao_id
+           observacoes, recorrencia_id, numero_parcelas, parcelado, cartao_id, purchase_group_id,
+           (SELECT MAX(cc.total_parcelas) FROM card_charges cc WHERE cc.expense_id = despesas.id) AS cc_total_parcelas
     FROM despesas
     WHERE user_id = ?
       AND COALESCE(data, vencimento) >= ?
@@ -191,8 +192,9 @@ assinaturas.post('/scan', requireAuth, async (c) => {
   `).bind(user.id, somarMesesISO(hojeBR(), -13)).all()
 
   const hoje = hojeBR()
-  const expenses = ((result.results || []) as any[])
-    .map(e => ({ ...e, id: Number(e.id), valor: Number(e.valor) || 0, data: String(e.data || '').slice(0, 10) }))
+  // Mesmo tratamento das Recorrências: parcela reconhecida pelos campos, pelo
+  // card_charge e pelo grupo da compra, não só pelo "(3/10)" no nome.
+  const expenses = normalizarLancamentos((result.results || []) as any[]) as any[]
 
   if (expenses.length < 4) {
     return c.json({

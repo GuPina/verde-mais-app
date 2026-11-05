@@ -268,3 +268,23 @@ test('cartão: a compra escolhida vence exatamente no mês pedido', () => {
         assert.equal(faturaDaCompra(f!.data_compra, fech, venc).vencimento.slice(0, 7), alvo)
       }
 })
+
+// ─── Parcela sem número no nome ──────────────────────────────────────────────
+
+test('parcela sem "(3/10)" no nome não vira recorrência: campos, card_charge ou grupo da compra denunciam', () => {
+  // As 10 parcelas de uma compra no cartão, renomeadas sem o número.
+  const viaGrupo = mensal('Entrada Apartamento', '2026-02', 9, 7, 157.94, { purchase_group_id: 'g-1', grupo_n: 9 })
+  const viaCartao = mensal('Seguro Residencial', '2026-02', 9, 12, 89.9, { cc_total_parcelas: 10 })
+  const r = rastrear({ tipo: 'despesa', lancamentos: [...viaGrupo, ...viaCartao], recorrencias: [], hoje: HOJE })
+  assert.equal(r.novas.length, 0, JSON.stringify(r.novas.map(n => n.chave)))
+  assert.equal(r.ignoradas_com_dono, 18)
+  // Compra em 1x no cartão também tem grupo — sozinha no grupo, continua candidata.
+  const umaVez = mensal('Netflix', '2026-05', 6, 15, 55.9, { purchase_group_id: 'x', grupo_n: 1 })
+  assert.equal(temDono(umaVez[0]), false)
+})
+
+test('linha do tempo mostra os juros/taxa embutidos no lançamento', () => {
+  const ls = [L('Condomínio no cartão', '2026-10-10', 1030, { recorrencia_id: 9, valor_juros: 30 })]
+  const t = linhaDoTempo({ recorrencia: { ...NETFLIX, valor: 1030 }, vinculados: ls, hoje: HOJE })
+  assert.equal(t.passadas.find(m => m.mes === '2026-10')!.lancamentos[0].juros, 30)
+})

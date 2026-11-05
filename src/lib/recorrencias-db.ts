@@ -87,13 +87,25 @@ export async function carregarRecorrencias(db: DB, userId: number, tipo?: TipoRe
 }
 
 const COLS_DESPESA = `id, descricao, valor, COALESCE(data, vencimento) AS data, status, observacoes,
-  recorrencia_id, numero_parcelas, parcelado, cartao_id, categoria, meio_pagamento`
+  recorrencia_id, numero_parcelas, parcelado, cartao_id, categoria, meio_pagamento,
+  parcela_atual, purchase_group_id, valor_juros,
+  (SELECT MAX(cc.total_parcelas) FROM card_charges cc WHERE cc.expense_id = despesas.id) AS cc_total_parcelas`
 const COLS_RECEITA = `id, descricao, valor, data, NULL AS status, observacoes,
   recorrencia_id, NULL AS numero_parcelas, NULL AS parcelado, NULL AS cartao_id, categoria, meio_pagamento`
 
-const normalizar = (rows: any[]): Lancamento[] => rows.map(l => ({
-  ...l, id: Number(l.id), valor: Number(l.valor) || 0, data: String(l.data || '').slice(0, 10),
-}))
+/**
+ * Linhas da consulta para o motor. `grupo_n` conta quantas linhas da mesma
+ * compra (`purchase_group_id`) vieram juntas: duas ou mais são parcelas,
+ * mesmo que o campo de nº de parcelas esteja 1 e o nome não traga "(3/10)".
+ */
+export const normalizar = (rows: any[]): Lancamento[] => {
+  const n = new Map<string, number>()
+  for (const r of rows) if (r.purchase_group_id) n.set(String(r.purchase_group_id), (n.get(String(r.purchase_group_id)) || 0) + 1)
+  return rows.map(l => ({
+    ...l, id: Number(l.id), valor: Number(l.valor) || 0, data: String(l.data || '').slice(0, 10),
+    grupo_n: l.purchase_group_id ? n.get(String(l.purchase_group_id)) || 1 : null,
+  }))
+}
 
 /** Lançamentos do tipo a partir de uma data. Despesa cancelada não conta. */
 export async function carregarLancamentos(db: DB, userId: number, tipo: TipoRec, desde: string): Promise<Lancamento[]> {

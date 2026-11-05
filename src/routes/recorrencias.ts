@@ -587,6 +587,12 @@ recorrencias.post('/:id/preencher', requireAuth, async (c) => {
   if (modelo) await c.env.DB.prepare(
     `INSERT INTO despesa_tags (despesa_id, tag_id) SELECT ?, tag_id FROM despesa_tags WHERE despesa_id = ? ON CONFLICT DO NOTHING`
   ).bind(nid, modelo.id).run().catch(() => {})
+  // Conta que vem com juros/taxa no cartão (boleto pago com cartão todo mês):
+  // o mês lançado carrega a mesma proporção de acréscimo do modelo.
+  if (modelo && Number(modelo.valor_juros) > 0 && Number(modelo.valor) > 0) {
+    const juros = Math.round(valor * (Number(modelo.valor_juros) / Number(modelo.valor)) * 100) / 100
+    await c.env.DB.prepare('UPDATE despesas SET valor_juros = ? WHERE id = ? AND user_id = ?').bind(juros, nid, user.id).run()
+  }
   await marcarGerado(c.env.DB, id, mes, valor)
   return c.json({ success: true, id: nid, data, status, cartao_id: noCartao ? cartaoId : null, data_compra: noCartao ? dataCompra : null })
 })

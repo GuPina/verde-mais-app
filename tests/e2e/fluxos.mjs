@@ -584,3 +584,26 @@ test('juros em compra à vista no cartão (1x) e parcelas sem número no nome ag
   const ent = pn.painel.blocos.find(x => x.papel === 'entrada')
   assert.equal(Math.round((ent.pago + ent.pendente) * 100) / 100, 3149.7, 'cada parcela soma uma vez, pelo seu valor')
 })
+
+test('recorrência: mês lançado pela linha do tempo leva os juros/taxa do modelo; parcela renomeada não vira sugestão', async () => {
+  const cartao = await api('POST', 'cartoes', { nome: 'Cartão Cond', bandeira: 'visa', banco: 'E2E', limite_total: 20000, dia_fechamento: 25, dia_vencimento: 5 })
+  const cardId = cartao.body.id ?? cartao.body?.cartao?.id
+  const rec = await api('POST', 'recorrencias', { tipo: 'despesa', descricao: 'Condomínio no cartão', valor: 1030, categoria: 'moradia', dia_vencimento: 5, data_inicio: '2026-06-01' })
+  const recId = rec.body.id
+  const m = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Condomínio no cartão', categoria: 'Moradia', valor_total: 1030, numero_parcelas: 1, data_compra: '2026-08-20', valor_a_vista: 1000 })
+  assert.equal(m.body.juros?.juros_total, 30)
+  await api('POST', `recorrencias/${recId}/vincular`, { lancamento_ids: m.body.despesa_ids })
+  const set = await api('POST', `recorrencias/${recId}/preencher`, { mes: '2026-10' })
+  assert.equal(set.status, 200, JSON.stringify(set.body))
+  const lt = (await api('GET', `recorrencias/${recId}/linha-do-tempo`)).body
+  assert.equal(lt.passadas.find(x => x.mes === '2026-10').lancamentos[0].juros, 30, 'o mês lançado perdeu os juros do modelo')
+
+  // Compra em 10x cujas parcelas foram renomeadas sem o número.
+  const c10 = await api('POST', `cartoes/${cardId}/compra`, { descricao: 'Sinal Apartamento Novo', categoria: 'Moradia', valor_total: 1500, numero_parcelas: 10, data_compra: '2026-03-10' })
+  for (const id of c10.body.despesa_ids) {
+    const d = lista((await api('GET', `despesas?purchase_group_id=${c10.body.purchase_group_id}&limit=50`)).body).find(x => x.id === id)
+    await api('PUT', `despesas/${id}`, { descricao: 'Sinal Apartamento Novo', categoria: d.categoria, data: String(d.data).slice(0, 10), valor: d.valor, escopo: 'uma' })
+  }
+  const rast = (await api('GET', 'recorrencias/rastrear?tipo=despesa')).body
+  assert.ok(!rast.despesa.novas.some(n => /SINAL APARTAMENTO/.test(n.chave)), 'parcela renomeada virou sugestão de recorrência')
+})

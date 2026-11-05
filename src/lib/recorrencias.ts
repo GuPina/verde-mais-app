@@ -51,6 +51,14 @@ export interface Lancamento {
   cartao_id?: number | null
   categoria?: string | null
   meio_pagamento?: string | null
+  parcela_atual?: number | null
+  purchase_group_id?: string | null
+  /** Quantas linhas do mesmo `purchase_group_id` vieram na consulta. */
+  grupo_n?: number | null
+  /** Total de parcelas no card_charge da linha (o "3/10" da fatura). */
+  cc_total_parcelas?: number | null
+  /** Parte de juros/taxa do valor, quando informada. */
+  valor_juros?: number | null
 }
 
 export interface Recorrencia {
@@ -136,7 +144,11 @@ const PARCELA_SOLTA = /(?:^|\s)[-–]?\s*(\d{1,3})\s*\/\s*(\d{1,3})(?=\s|$)/
  * essa é justamente o que o motor quer ver.
  */
 export function temDono(l: Lancamento): boolean {
+  // O número da parcela nem sempre está no nome: "Entrada Apartamento" pode
+  // ser a 3/10. Os campos da despesa, o card_charge e o grupo da compra dizem.
   if (Number(l.numero_parcelas || 1) > 1) return true
+  if (Number(l.cc_total_parcelas || 1) > 1) return true
+  if (Number(l.grupo_n || 1) > 1) return true
   if (l.parcelado === true || Number(l.parcelado) === 1) return true
   const v = vinculoDe(l)
   if (v && v.tipo !== 'recorrencia') return true
@@ -483,6 +495,8 @@ export interface MesLinha {
   lancamentos: Array<{
     id: number; descricao: string; data: string; valor: number
     status: string | null; ajuste: number | null
+    /** Juros/taxa embutidos no valor (compra com acréscimo no cartão). */
+    juros: number | null
   }>
   /** Lançamentos sem vínculo que parecem ser deste mês. */
   possiveis: CandidatoSolto[]
@@ -565,6 +579,7 @@ export function linhaDoTempo(opcoes: {
       id: l.id, descricao: String(l.descricao || ''), data: ymd(l.data),
       valor: cent(l.valor), status: l.status ?? null,
       ajuste: previsto != null && Math.abs(cent(l.valor) - previsto) >= 0.01 ? cent(cent(l.valor) - previsto) : null,
+      juros: Number(l.valor_juros) > 0 ? cent(Number(l.valor_juros)) : null,
     }))
     let estado: EstadoMes
     if (lanc.length) {

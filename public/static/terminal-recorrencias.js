@@ -305,7 +305,8 @@
         const lancs = m.lancamentos.map(l => {
           const aj = l.ajuste != null
             ? ` · <b class="${(l.ajuste > 0) === receita ? 'is-verde' : 'is-verm'}">${l.ajuste > 0 ? '+' : '−'}${money(Math.abs(l.ajuste))} vs. previsto</b>` : ''
-          return `<small>${esc(l.descricao)} · ${dfmt(l.data)}${m.lancamentos.length > 1 ? ` · ${money(l.valor)}` : ''}${aj}
+          const jr = l.juros ? ` · <b class="is-verm">${money(l.juros)} de juros/taxa</b>` : ''
+          return `<small>${esc(l.descricao)} · ${dfmt(l.data)}${m.lancamentos.length > 1 ? ` · ${money(l.valor)}` : ''}${aj}${jr}
             <button class="tl-link" title="Este lançamento não é desta recorrência"
               onclick="VMTerminalRecorrencias.desvincular(${Number(r.id)}, ${Number(l.id)})">desvincular</button></small>`
         }).join('')
