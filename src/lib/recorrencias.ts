@@ -385,7 +385,11 @@ export interface CandidatoSolto {
   criterios: ResultadoMatch
 }
 
+export interface Quase { chave: string; nome: string; n: number; motivo: string; valor_mediano: number }
+
 export interface Rastreio {
+  /** Repetiu 3+ vezes mas não passou no critério — com o porquê. */
+  quase: Quase[]
   novas: CandidatoNovo[]
   soltas: CandidatoSolto[]
   /** Quantas linhas saíram do rastreio por serem série com dono. */
@@ -459,10 +463,18 @@ export function rastrear(opcoes: {
   }
 
   const novas: CandidatoNovo[] = []
+  const quase: Quase[] = []
   for (const [chave, itens] of grupos) {
     if (dispensadas.has(`nova:${tipo}:${chave}`)) continue
     const p = medirPadrao(itens, hoje)
-    if (!p || motivoRecusa(p)) continue
+    if (!p) continue
+    const motivo = motivoRecusa(p)
+    if (motivo) {
+      // Três ou mais vezes já é padrão que a pessoa reconhece; dizer por que
+      // não entrou evita o "o rastreio não achou meu salário".
+      if (p.n >= 3) quase.push({ chave, nome: rotuloDe(chave, itens.map(l => String(l.descricao || ''))), n: p.n, motivo, valor_mediano: p.valor_mediano })
+      continue
+    }
     const cats = new Map<string, number>()
     for (const l of itens) if (l.categoria) cats.set(l.categoria, (cats.get(l.categoria) || 0) + 1)
     const categoria = [...cats.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
@@ -479,8 +491,9 @@ export function rastrear(opcoes: {
     })
   }
   novas.sort((a, b) => b.confianca - a.confianca || b.valor_total - a.valor_total)
+  quase.sort((a, b) => b.n - a.n || b.valor_mediano - a.valor_mediano)
 
-  return { novas, soltas, ignoradas_com_dono: comDono }
+  return { novas, soltas, ignoradas_com_dono: comDono, quase: quase.slice(0, 10) }
 }
 
 // ─── Linha do tempo ──────────────────────────────────────────────────────────

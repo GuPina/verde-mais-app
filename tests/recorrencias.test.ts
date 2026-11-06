@@ -288,3 +288,15 @@ test('linha do tempo mostra os juros/taxa embutidos no lançamento', () => {
   const t = linhaDoTempo({ recorrencia: { ...NETFLIX, valor: 1030 }, vinculados: ls, hoje: HOJE })
   assert.equal(t.passadas.find(m => m.mes === '2026-10')!.lancamentos[0].juros, 30)
 })
+
+test('o que repete mas não passa no critério sai como "quase", com o motivo', () => {
+  const ls = [
+    ...mensal('SALARIO EMPRESA X', '2026-01', 6, 5, 6200),                 // parou em junho
+    ...mensal('FREELA DESIGN', '2026-06', 4, 3, 900).map((l, i) => ({ ...l, data: ['2026-06-03', '2026-06-20', '2026-08-01', '2026-10-25'][i] })),
+  ]
+  const r = rastrear({ tipo: 'receita', lancamentos: ls, recorrencias: [], hoje: HOJE })
+  assert.equal(r.novas.length, 0)
+  const q = Object.fromEntries(r.quase.map(x => [x.chave, x.motivo]))
+  assert.match(q['SALARIO EMPRESA X'], /parou há/)
+  assert.ok(q['FREELA DESIGN'], JSON.stringify(r.quase))
+})

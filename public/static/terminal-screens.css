@@ -2214,3 +2214,6 @@ span.fp-lanc__papel { color: var(--terminal-ink-soft); }
 .fp-alerta { color: #f0a64a !important; }
 .fp-serie__parc { list-style: none; margin: 6px 0 0; padding: 0 0 0 8px; border-left: 1px dashed var(--terminal-line); }
 .rc-item.fp-sub { padding: 8px 6px; }
+.tr-card--rcb { border-left: 3px solid var(--terminal-primary-line); }
+.tr-badge--atraso { color: var(--terminal-negative); border-color: var(--terminal-negative); }
+.tr-group-nota { display: block; margin-top: 4px; font-size: 11.5px; color: var(--terminal-ink-soft); line-height: 1.45; }

@@ -607,7 +607,7 @@ antecipacao.post('/recebimentos', requireAuth, async (c) => {
   // Criar parcelas automaticamente (mensalmente)
   const batch = []
   for (let i = 0; i < nParcelas; i++) {
-    const dataParcela = somarMeses(String(dataInicio).slice(0, 10), i)
+    const dataParcela = somarMeses(String(data_inicio).slice(0, 10), i)
     batch.push(c.env.DB.prepare(
       `INSERT INTO recebimentos_parcelas (recebimento_id, user_id, numero_parcela, valor, valor_previsto, data_prevista)
        VALUES (?, ?, ?, ?, ?, ?)`

@@ -30,6 +30,7 @@
         const data = await vm.api('GET', 'recorrencias')
         this._cache = data.recorrencias || []
         this._resumo = data.resumo || {}
+        this._recebimentos = data.recebimentos || []
         this._paint()
       } catch (e) {
         content.innerHTML = `<div class="td-error"><i class="fas fa-triangle-exclamation"></i><h2>Não foi possível carregar as Recorrências</h2><p>${esc(e.response?.data?.error || 'Tente novamente.')}</p><button class="td-button td-button--primary" onclick="VM.pageRecorrencias()">Tentar novamente</button></div>`
@@ -46,7 +47,10 @@
       const receitas = recs.filter(r => r.tipo === 'receita')
 
       const saidas = ativas.filter(r => r.tipo === 'despesa' && !r.valor_variavel).reduce((s, r) => s + Number(r.valor || 0), 0)
-      const entradas = ativas.filter(r => r.tipo === 'receita' && !r.valor_variavel).reduce((s, r) => s + Number(r.valor || 0), 0)
+      const rcbs = this._recebimentos || []
+      const entradasRec = ativas.filter(r => r.tipo === 'receita' && !r.valor_variavel).reduce((s, r) => s + Number(r.valor || 0), 0)
+      // Recebimentos parcelados entram pela próxima parcela de cada um.
+      const entradas = entradasRec + rcbs.reduce((s, f) => s + Number(f.valor_mensal || 0), 0)
       const variaveis = ativas.filter(r => r.valor_variavel).length
 
       content.innerHTML = `<div class="td-dashboard tr">
@@ -65,15 +69,16 @@
 
         <section class="tm-kpis">
           <article class="td-kpi"><span>Saídas fixas / mês</span><strong>${money(saidas)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${despesas.length} despesa(s) recorrente(s)</span></article>
-          <article class="td-kpi"><span>Entradas fixas / mês</span><strong>${money(entradas)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${receitas.length} receita(s) recorrente(s)</span></article>
+          <article class="td-kpi"><span>Entradas fixas / mês</span><strong>${money(entradas)}</strong><span class="td-kpi__delta td-kpi__delta--muted">${receitas.length} receita(s) recorrente(s)${rcbs.length ? ` · ${rcbs.length} recebimento(s) parcelado(s)` : ''}</span></article>
           <article class="td-kpi"><span>Saldo projetado / mês</span><strong>${money(entradas - saidas)}</strong><span class="td-kpi__delta ${entradas - saidas >= 0 ? 'td-kpi__delta--positive' : 'td-kpi__delta--negative'}">${variaveis ? `${variaveis} variável(is) fora da conta` : 'só valores fixos'}</span></article>
         </section>
 
         ${this._projecao(ativas)}
 
-        ${recs.length === 0 ? this._empty() : `
+        ${recs.length === 0 && !rcbs.length ? this._empty() : `
           ${this._group('Despesas fixas', 'arrow-up', despesas)}
           ${this._group('Receitas fixas', 'arrow-down', receitas)}
+          ${this._grupoRecebimentos(rcbs)}
         `}
       </div>`
     },
@@ -93,6 +98,10 @@
           if (r.data_inicio && r.data_inicio > fim) continue
           if (r.data_fim && r.data_fim < ref) continue
           saldo += (r.tipo === 'receita' ? 1 : -1) * Number(r.valor || 0)
+        }
+        // Parcelas a receber que caem neste mês, pelo valor de cada uma.
+        for (const f of (this._recebimentos || [])) {
+          saldo += Number(f.por_mes?.[ref.slice(0, 7)] || 0)
         }
         cols.push({ label: `${MES_ABREV[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`, saldo })
       }
@@ -138,6 +147,55 @@
           <button class="td-button" title="Excluir" onclick="VMTerminalRecorrencias.deletar(${Number(r.id)}, '${esc(r.descricao)}')"><i class="fas fa-trash"></i></button>
         </div>
       </article>`
+    },
+
+    _grupoRecebimentos(lista) {
+      if (!lista.length) return ''
+      const card = (f, i) => `<article class="tr-card tr-card--clicavel tr-card--rcb" role="button" tabindex="0" title="Ver parcelas recebidas e a receber"
+          onclick="VMTerminalRecorrencias.verRecebimento(${i})" onkeydown="if(event.key==='Enter'){VMTerminalRecorrencias.verRecebimento(${i})}">
+          <div class="tr-card__top">
+            <div class="tr-card__id">
+              <strong>${esc(f.descricao)}</strong>
+              <small>${f.pagador ? esc(f.pagador) + ' · ' : ''}${f.recebidas} de ${f.total_parcelas} recebidas${f.ultima_data ? ` · até ${MES_ABREV[Number(f.ultima_data.slice(5, 7)) - 1]}/${f.ultima_data.slice(2, 4)}` : ''}</small>
+            </div>
+            ${f.em_atraso ? `<span class="tr-badge tr-badge--atraso">${f.em_atraso} atrasada${f.em_atraso > 1 ? 's' : ''}</span>` : '<span class="tr-badge">parcelado</span>'}
+          </div>
+          <div class="tr-card__val is-pos">${money(f.valor_mensal)}</div>
+          <div class="tr-card__hint"><i class="fas fa-calendar-check"></i> ${f.proxima ? `próxima: parcela ${f.proxima.numero} em ${dfmt(f.proxima.data)}` : ''} · falta ${money(f.total_a_receber)}</div>
+          <div class="tr-card__actions" onclick="event.stopPropagation()">
+            <button class="td-button" onclick="VM.navigate('recebimentos-parcelados')"><i class="fas fa-hand-holding-dollar"></i> Abrir em Parcelamentos recebidos</button>
+          </div>
+        </article>`
+      return `<div class="tm-group"><div class="tm-group__head"><span class="td-eyebrow"><i class="fas fa-hand-holding-dollar"></i> Recebimentos parcelados · ${lista.length}</span>
+          <small class="tr-group-nota">Entradas que se repetem até a última parcela. Vêm de Parcelamentos recebidos e já entram no fluxo acima — receber continua sendo lá.</small></div>
+        <div class="tr-grid">${lista.map(card).join('')}</div></div>`
+    },
+
+    verRecebimento(i, aba) {
+      const f = (this._recebimentos || [])[i]
+      if (!f) return
+      this._rcbAba = aba || 'proximas'
+      const passadas = f.passadas.map(p => `<li class="rp-linha tl-linha is-ok"><span class="tl-mes">${MES_ABREV[Number(p.data.slice(5, 7)) - 1]}/${p.data.slice(0, 4)}</span>
+          <span class="rp-corpo"><strong>${money(p.valor)}</strong><small class="tl-estado is-ok">parcela ${p.numero} recebida em ${dfmt(p.data)}${p.correcao > 0 ? ` · <b class="is-verde">+${money(p.correcao)} de correção</b>` : ''}</small></span></li>`).join('')
+      const proximas = f.proximas.map(p => `<li class="rp-linha tl-linha ${p.atrasada ? 'is-falta' : 'is-prev'}"><span class="tl-mes">${MES_ABREV[Number(p.data.slice(5, 7)) - 1]}/${p.data.slice(0, 4)}</span>
+          <span class="rp-corpo"><strong>${money(p.valor)}</strong><small class="tl-estado ${p.atrasada ? 'is-falta' : 'is-pend'}">parcela ${p.numero} · ${p.atrasada ? 'atrasada desde' : 'prevista para'} ${dfmt(p.data)}</small></span></li>`).join('')
+      const aba2 = (k, rot, n) => `<button class="rp-aba${this._rcbAba === k ? ' is-ativa' : ''}" onclick="VMTerminalRecorrencias.verRecebimento(${i}, '${k}')">${rot} <b>${n}</b></button>`
+      this._vm.showModal(`<div class="rp-modal tl-modal">
+        <header class="rp-cab"><div>
+          <h3>${esc(f.descricao)}</h3>
+          <p>Recebimento parcelado${f.pagador ? ' · ' + esc(f.pagador) : ''} · ${f.recebidas} de ${f.total_parcelas} recebidas</p>
+        </div>
+        <button class="ds-btn ds-btn--sm" onclick="VM.closeModal();VM.navigate('recebimentos-parcelados')"><i class="fas fa-hand-holding-dollar"></i> Receber / reorganizar</button></header>
+        <nav class="rp-abas">${aba2('proximas', 'A receber', f.proximas.length)}${aba2('passadas', 'Recebidas', f.passadas.length)}</nav>
+        <ul class="rp-lista">${(this._rcbAba === 'passadas' ? passadas : proximas) || '<li class="rp-vazio">Nada nesta aba.</li>'}</ul>
+        <footer class="rp-resumo">
+          <div><span>Recebido</span><strong class="is-verde">${money(f.total_recebido)}</strong></div>
+          <div><span>A receber</span><strong>${money(f.total_a_receber)}</strong></div>
+          <div><span>Próxima</span><strong>${f.proxima ? money(f.proxima.valor) : '—'}</strong></div>
+          <div><span>Atrasadas</span><strong>${f.em_atraso}</strong></div>
+        </footer>
+        <div class="rp-rodape"><button class="ds-btn" onclick="VM.closeModal()">Fechar</button></div>
+      </div>`, { largura: 640 })
     },
 
     _empty() {
@@ -467,6 +525,11 @@
           <ul>${r.novas.map(nova).join('') || '<li class="rp-vazio">Nenhum padrão novo nesta aba.</li>'}</ul>
           <h4 class="rt-sec">Lançamentos soltos de recorrências que já existem · ${r.soltas.length}</h4>
           <ul>${r.soltas.map(solta).join('') || '<li class="rp-vazio">Tudo vinculado.</li>'}</ul>
+          ${(r.quase || []).length ? `<h4 class="rt-sec">Quase entraram · ${r.quase.length}</h4>
+            <p class="fp-nota" style="margin:0 0 6px">Repetem, mas não passaram no critério — e o porquê. Se alguma for conta mensal de verdade, crie a recorrência à mão em “Nova recorrência”.</p>
+            <ul>${r.quase.map(q => `<li class="rt-item"><div class="rt-item__top"><strong>${esc(q.nome)}</strong><span>${money(q.valor_mediano)}</span></div>
+              <small>${Number(q.n)} lançamentos · ${esc(q.motivo)}</small></li>`).join('')}</ul>` : ''}
+          ${receita && (this._recebimentos || []).length ? `<p class="fp-nota">Parcelas de Parcelamentos recebidos não entram aqui: elas já aparecem na seção “Recebimentos parcelados” da tela.</p>` : ''}
         </div>
         <div class="rp-rodape rt-rodape">
           <button class="ds-btn" onclick="VM.closeModal()">Fechar</button>

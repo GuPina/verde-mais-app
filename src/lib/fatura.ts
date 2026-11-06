@@ -96,7 +96,14 @@ export function faturaDaCompra(
  * original — que é como qualquer banco faz.
  */
 export function somarMeses(dataISO: string, meses: number): string {
-  const base = new Date(dataISO + 'T12:00:00')
+  // Só aceita AAAA-MM-DD. Em 10/09/2026 dois chamadores passaram
+  // `String(new Date(...)).slice(0, 10)` ("Thu Sep 10") e toda parcela de
+  // recebimento e de financiamento criada desde então foi gravada com a data
+  // "NaN-NaN-Na" — invisível em qualquer filtro de mês. Agora isso estoura
+  // aqui, alto, em vez de gravar lixo em silêncio.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dataISO).slice(0, 10)) || !Number.isFinite(meses))
+    throw new Error(`somarMeses: data inválida "${String(dataISO).slice(0, 20)}"`)
+  const base = new Date(String(dataISO).slice(0, 10) + 'T12:00:00')
   const diaOriginal = base.getDate()
   const alvo = new Date(base.getFullYear(), base.getMonth() + meses, 1, 12, 0, 0)
   const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate()

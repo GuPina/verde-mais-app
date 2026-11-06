@@ -324,7 +324,7 @@ financiamentos.post('/', requireAuth, async (c) => {
     const stmts = []
     for (let i = base; i < Math.min(base + LOTE, totalParcelasN); i++) {
       // setMonth() transborda em dia 29/30/31 — ver somarMeses().
-      const dataParcStr = somarMeses(String(dataInicio).slice(0, 10), i)
+      const dataParcStr = somarMeses(String(data_inicio).slice(0, 10), i)
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO despesas (user_id, descricao, data, categoria, valor, parcelado, numero_parcelas, parcela_atual, status, fixa_ou_variavel, recorrente, vencimento, observacoes, meio_pagamento)

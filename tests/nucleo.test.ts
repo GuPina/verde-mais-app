@@ -269,3 +269,9 @@ test('parcelamento importado: uma fatura por parcela, atravessando o ano', () =>
   assert.deepEqual(virada.map(v => `${v.mes}/${v.ano}`),
     ['11/2026', '12/2026', '1/2027', '2/2027'])
 })
+
+import { somarMeses as somarMesesFatura } from '../src/lib/fatura'
+test('somarMeses recusa data fora do formato em vez de gravar "NaN-NaN-Na"', () => {
+  assert.throws(() => somarMesesFatura('Thu Sep 10', 1), /data inválida/)
+  assert.equal(somarMesesFatura('2026-01-31', 1), '2026-02-28')
+})

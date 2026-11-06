@@ -10,7 +10,7 @@ mexem em dinheiro — criar, parcelar, receber, editar. É a parte que os testes
 scripts/e2e.sh
 ```
 
-O script cria um Postgres temporário, aplica as catorze migrations, sobe o servidor
+O script cria um Postgres temporário, aplica as quinze migrations, sobe o servidor
 numa porta livre, roda os fluxos e derruba tudo no fim — inclusive se um teste
 estourar. Nada toca banco de produção: ele se recusa a rodar se `DATABASE_URL`
 já estiver apontando para algum lugar.

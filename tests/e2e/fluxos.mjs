@@ -607,3 +607,33 @@ test('recorrência: mês lançado pela linha do tempo leva os juros/taxa do mode
   const rast = (await api('GET', 'recorrencias/rastrear?tipo=despesa')).body
   assert.ok(!rast.despesa.novas.some(n => /SINAL APARTAMENTO/.test(n.chave)), 'parcela renomeada virou sugestão de recorrência')
 })
+
+test('recorrências: recebimentos parcelados aparecem como entradas, sem virar receita duplicada', async () => {
+  const rec = await api('POST', 'antecipacao/recebimentos', {
+    descricao: 'Aluguel sala comercial', valor_total: 12000, numero_parcelas: 12, valor_parcela: 1000,
+    data_inicio: '2026-09-10', tipo: 'aluguel', pagador: 'Inquilino',
+  })
+  assert.ok(rec.status < 300, JSON.stringify(rec.body))
+  const r = (await api('GET', 'recorrencias')).body
+  const f = (r.recebimentos || []).find(x => x.id === rec.body.id)
+  assert.ok(f, `recebimento não apareceu: ${JSON.stringify((r.recebimentos || []).map(x => x.descricao))}`)
+  assert.equal(f.total_parcelas, 12)
+  assert.equal(f.valor_mensal, 1000)
+  assert.equal(f.por_mes['2026-12'], 1000, JSON.stringify({ por_mes: f.por_mes, prox: f.proxima }))
+  assert.ok(r.resumo.total_recebimentos >= 1000)
+  // Nenhuma recorrência de receita foi criada por isso.
+  assert.ok(!r.recorrencias.some(x => /sala comercial/i.test(x.descricao)))
+  // As parcelas têm data de verdade (de 10/09/2026 até aqui saíam "NaN-NaN-Na").
+  const ps = (await api('GET', `antecipacao/recebimentos/${rec.body.id}/parcelas`)).body.parcelas
+  assert.deepEqual(ps.slice(0, 3).map(p => String(p.data_prevista).slice(0, 10)), ['2026-09-10', '2026-10-10', '2026-11-10'])
+})
+
+test('financiamento: as parcelas geradas caem no mês certo de Despesas', async () => {
+  const fin = await api('POST', 'financiamentos', { descricao: 'Carro Datas', tipo_bem: 'veiculo', valor_imovel: 60000, valor_financiado: 50000,
+    taxa_juros_anual: 18, numero_parcelas: 24, valor_parcela: 2500, sistema_amortizacao: 'price', data_inicio: '2026-01-31' })
+  assert.equal(fin.status, 201, JSON.stringify(fin.body))
+  const fev = lista((await api('GET', 'despesas?mes=02&ano=2026&limit=200')).body).filter(d => /Carro Datas/.test(d.descricao))
+  assert.equal(fev.length, 1, 'a parcela 2 sumiu de fevereiro')
+  assert.equal(String(fev[0].data).slice(0, 10), '2026-02-28', 'o dia 31 não travou no fim de fevereiro')
+  await api('DELETE', `financiamentos/${fin.body.id}`)
+})

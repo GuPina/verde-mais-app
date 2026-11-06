@@ -133,4 +133,75 @@ export function somar(cs: Correcao[]): Correcao {
   return z
 }
 
+// ─── O recebimento parcelado visto como entrada que se repete ────────────────
+//
+// Na tela de Recorrências, um contrato com 34 parcelas mensais é uma entrada
+// de todo mês — só que com fim, e com o valor vindo das parcelas (com a
+// correção de cada uma), não de um valor fixo. Não vira recorrência: é lido
+// direto das parcelas, para nunca duplicar a receita que o recebimento cria.
+
+export interface ParcelaLinha {
+  id: number
+  numero_parcela: number
+  valor: number
+  valor_previsto?: number | null
+  data_prevista: string
+  data_recebimento?: string | null
+  status?: string | null
+}
+
+export interface FluxoRecebimento {
+  id: number
+  descricao: string
+  pagador: string | null
+  total_parcelas: number
+  recebidas: number
+  pendentes: number
+  em_atraso: number
+  proxima: { numero: number; data: string; valor: number } | null
+  ultima_data: string | null
+  /** O que entra num mês típico daqui pra frente: a próxima parcela. */
+  valor_mensal: number
+  /** Soma das parcelas a receber por mês (YYYY-MM). */
+  por_mes: Record<string, number>
+  passadas: Array<{ numero: number; data: string; valor: number; previsto: number; correcao: number }>
+  proximas: Array<{ numero: number; data: string; valor: number; atrasada: boolean }>
+  total_recebido: number
+  total_a_receber: number
+}
+
+export function fluxoRecebimento(
+  rec: { id: number; descricao: string; pagador?: string | null },
+  parcelas: ParcelaLinha[],
+  hoje: string,
+): FluxoRecebimento {
+  const ymd = (s: string | null | undefined) => String(s || '').slice(0, 10)
+  const vivas = parcelas.filter(p => p.status !== 'cancelada')
+  const recebidas = vivas.filter(p => p.status === 'recebida')
+    .sort((a, b) => ymd(b.data_recebimento || b.data_prevista).localeCompare(ymd(a.data_recebimento || a.data_prevista)))
+  const pend = vivas.filter(p => p.status !== 'recebida').sort((a, b) => a.numero_parcela - b.numero_parcela)
+  const por_mes: Record<string, number> = {}
+  for (const p of pend) {
+    const k = ymd(p.data_prevista).slice(0, 7)
+    por_mes[k] = cent((por_mes[k] || 0) + Number(p.valor))
+  }
+  const prox = pend[0]
+  return {
+    id: rec.id, descricao: rec.descricao, pagador: rec.pagador ?? null,
+    total_parcelas: vivas.length, recebidas: recebidas.length, pendentes: pend.length,
+    em_atraso: pend.filter(p => ymd(p.data_prevista) < hoje).length,
+    proxima: prox ? { numero: prox.numero_parcela, data: ymd(prox.data_prevista), valor: cent(prox.valor) } : null,
+    ultima_data: pend.length ? ymd(pend[pend.length - 1].data_prevista) : null,
+    valor_mensal: prox ? cent(prox.valor) : 0,
+    por_mes,
+    passadas: recebidas.map(p => {
+      const previsto = cent(p.valor_previsto ?? p.valor)
+      return { numero: p.numero_parcela, data: ymd(p.data_recebimento || p.data_prevista), valor: cent(p.valor), previsto, correcao: cent(Number(p.valor) - previsto) }
+    }),
+    proximas: pend.map(p => ({ numero: p.numero_parcela, data: ymd(p.data_prevista), valor: cent(p.valor), atrasada: ymd(p.data_prevista) < hoje })),
+    total_recebido: cent(recebidas.reduce((s, p) => s + Number(p.valor), 0)),
+    total_a_receber: cent(pend.reduce((s, p) => s + Number(p.valor), 0)),
+  }
+}
+
 export { cent }

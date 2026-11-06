@@ -8,6 +8,7 @@ import {
   type Regra, type Recorrencia, type TipoRec, type Candidato, type Lancamento,
 } from '../lib/recorrencias'
 import { compraQueVenceEm } from '../lib/fatura'
+import { fluxoRecebimento, type FluxoRecebimento } from '../lib/recebiveis'
 import {
   hojeBR, somarMesesISO, regraDeLinha, recorrenciaDeLinha, carregarRegras, carregarDispensas,
   carregarRecorrencias, carregarLancamentos, carregarVinculados, tabelaDe, mesOcupado,
@@ -72,7 +73,42 @@ recorrencias.get('/', requireAuth, async (c) => {
                         .reduce((s, r) => s + Number(r.valor), 0),
   }
 
-  return c.json({ recorrencias: enriched, resumo })
+  // Recebimentos parcelados ativos: entradas que se repetem, com fim. Lidos
+  // das parcelas (não viram recorrência — a receita de cada parcela já é
+  // criada quando ela é recebida, e duplicar seria contar duas vezes).
+  let recebimentos: FluxoRecebimento[] = []
+  try {
+    const rs = await c.env.DB.prepare(
+      `SELECT id, descricao, pagador FROM recebimentos_parcelados
+        WHERE user_id = ? AND COALESCE(status, 'ativo') NOT IN ('cancelado', 'concluido') ORDER BY id`
+    ).bind(user.id).all()
+    const ids = ((rs.results || []) as any[]).map(r => Number(r.id))
+    if (ids.length) {
+      const ps = await c.env.DB.prepare(
+        `SELECT id, recebimento_id, numero_parcela, valor, valor_previsto, data_prevista, data_recebimento, status
+           FROM recebimentos_parcelas WHERE user_id = ? AND recebimento_id IN (${ids.map(() => '?').join(',')})`
+      ).bind(user.id, ...ids).all()
+      const por = new Map<number, any[]>()
+      for (const p of (ps.results || []) as any[]) {
+        const k = Number(p.recebimento_id)
+        if (!por.has(k)) por.set(k, [])
+        por.get(k)!.push({ ...p, id: Number(p.id), numero_parcela: Number(p.numero_parcela), valor: Number(p.valor),
+          valor_previsto: p.valor_previsto == null ? null : Number(p.valor_previsto) })
+      }
+      const hojeStr = hojeBR()
+      recebimentos = ((rs.results || []) as any[])
+        .map(r => fluxoRecebimento({ id: Number(r.id), descricao: r.descricao, pagador: r.pagador }, por.get(Number(r.id)) || [], hojeStr))
+        .filter(f => f.pendentes > 0)
+    }
+  } catch (e) {
+    console.error('[recorrencias] recebimentos parcelados:', (e as Error)?.message)
+  }
+
+  return c.json({
+    recorrencias: enriched,
+    resumo: { ...resumo, total_recebimentos: Math.round(recebimentos.reduce((s, f) => s + f.valor_mensal, 0) * 100) / 100 },
+    recebimentos,
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

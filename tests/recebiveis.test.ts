@@ -112,3 +112,23 @@ test('somar contratos preserva as contas', () => {
   assert.equal(t.recebido, 6920.01)
   assert.equal(t.parcelas_recebidas, 6)
 })
+
+// ─── Na tela de Recorrências ─────────────────────────────────────────────────
+import { fluxoRecebimento } from '../src/lib/recebiveis'
+
+test('recebimento parcelado vira entrada mês a mês: próxima parcela, atrasada e correção', () => {
+  const ps = restituicaoCooperativa().map((p: any, i: number) => ({
+    id: i + 1, numero_parcela: p.numero_parcela, valor: p.valor, valor_previsto: p.valor_previsto, status: p.status,
+    data_prevista: `${2026 + Math.floor((5 + i) / 12)}-${String(((5 + i) % 12) + 1).padStart(2, '0')}-15`,
+    data_recebimento: p.status === 'recebida' ? `2026-${String(6 + i).padStart(2, '0')}-15` : null,
+  }))
+  const f = fluxoRecebimento({ id: 7, descricao: 'Restituição Cooperativa' }, ps, '2026-11-20')
+  assert.equal(f.recebidas, 5)
+  assert.equal(f.pendentes, 29)
+  assert.deepEqual(f.proxima, { numero: 6, data: '2026-11-15', valor: 1147.33 })
+  assert.equal(f.em_atraso, 1, 'a parcela de 15/11 já passou e não foi recebida')
+  assert.equal(f.valor_mensal, 1147.33)
+  assert.equal(f.por_mes['2026-12'], 1147.33)
+  assert.equal(f.passadas.reduce((s, p) => s + p.correcao, 0).toFixed(2), '133.36')
+  assert.equal(f.total_a_receber, Math.round(29 * 1147.33 * 100) / 100)
+})
